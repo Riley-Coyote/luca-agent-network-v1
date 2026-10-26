@@ -1424,3 +1424,216 @@ The facts below were checked by a read-only scout. Each has its citations in
 **Checks JSON keys:** `one_card_every_place`, `transparent_columns`, `hairline_pixels`, `fold_keeps_corner`,
 `reduce_motion`, `panes_share_card`, `right_cards_apart`, `sheet_and_peek`, `lip_axis`, `glass_and_shadows`,
 `frames_and_modes`, `flag_off_identical`, `gates`.
+
+## WP-13 · A mind's own space (2026-10-26, Riley and Claude's design; Riley: "a place where you raise your agent")
+
+**Why.**
+- Read `NAVIGATION.md`, "A mind's own space". Every mind gets the same space, with three tabs: Notebook (their days),
+  Self (who they are) and Settings (how they run).
+- Today a mind's card has four tabs (Place, Documents, Notebook, Settings), Brain is a place of its own, and the profile
+  card on the right repeats their continuity and memories. After this, each thing lives once.
+- The lab draws it: `MindSpaceCard`, `MIND_SPACES`, `NOTEBOOK_FILTERS` and `KIND_LABEL` (`content.ts`,
+  `ShellStudy.tsx`), and the `.shell-mind-*` rules (`shellStudy.css`).
+
+**Base.**
+- The integration branch with WP-10, WP-11 and WP-12 landed. WP-14 is built at the same time; it touches neither the
+  Agents card nor Brain.
+- Your styles go in `desktop/src/app/shell/shell-mind-space.css` (new).
+
+**Files in scope:**
+- A mind's card in Agents: `AgentLibraryWorkspace.tsx` and its sections (`ResidentPlaceSection`,
+  `ResidentDocumentsSection`, `ResidentNotebookPanel`, `ResidentHandoffPanel`, the settings sections), and new
+  components for the space.
+- Brain:
+  - `luca/brain/BrainView.tsx`: split its body from its page header;
+  - `BrainScreen.tsx` and `routes/brain.tsx`;
+  - `goBrain` in `app/navigation/useAppNavigation.ts`;
+  - `luca/brain/useBrainReviewNavigation.ts`;
+  - the `"brain"` surface in `luca/usePolyphonicSurfaceNavigation.ts`;
+  - the project row's menu item in `ShellRail.tsx` (its label only).
+- The profile card for an agent: `features/profile/ui/UserProfilePanel*` (an agent's profile only).
+- Tests, and a new spec `tests/e2e/shell-mind-space.spec.ts`.
+
+**Untouched:** the Agents rail and the connected-app and group cards (WP-10); Activity, the side conversations and
+Needs you (WP-14); a person's profile card.
+
+**Facts** (nav-facts §3, §9):
+- **Their own words:** `useResidentPlace(pubkey)` gives the introduction, what they're exploring, the selected work
+  and `residentEditingEnabled`. It works for managed residents on this Mac only; others get an "unmanaged / not local"
+  answer.
+- **Journal and memory notes:** `listResidentNotebookItems(pubkey, cursor, size)` returns items of kind
+  `memory_note`, `journal_page` or `journal_annotation`, each with authorship, title, body, category and times. It's
+  paged, and the Notebook tab shows only for managed agents today.
+- **Relay memory:** `useAgentMemoryQuery(pubkey)` returns engrams `{slug, body, createdAt}`, for any agent the owner
+  owns.
+- **What they did:** `useAgentProvenanceQuery(pubkey)` returns signed records `{family: speech|code|work|signal,
+  weight, verb, object, outcome, channelId, createdAt}`.
+- **Questions for you:** `useManagedInputs()` and `useManagedPermissions()` list every pending item app-wide, each with
+  `residentPubkey` and `conversationId`. They're answered in place by `ManagedInputCard` and `ManagedPermissionCard`.
+- **What they made:** `ArtifactSummary.provenance.residentPubkey`. `list_artifacts` has no filter by maker, so filter
+  on the client.
+- **No record tells "for you" from "their own time".**
+- **Brain:** `BrainView` takes no props and draws its own page header. Its data covers the whole account, with
+  per-agent access grants (reconfirm or revoke) in its details.
+- **Ways into Brain:** every one calls `goBrain()` with nothing passed.
+- **Luca:** `useCanonicalLucaPubkey()`.
+
+**Decisions** (only under `shell-frame`):
+1. **The head:** their mark (as the app draws a resident elsewhere), their name, one line of what they're doing now,
+   and **Talk**, which opens your conversation with them.
+   - The line says where they're working when they are (`useAgentWorking`), else their state word.
+2. **Three tabs:** Notebook, Self, Settings. The tab is in the address (`section=notebook|self|settings`).
+   - Today's values map onto them: `place` and `notebook` → notebook; `documents` → self; `settings` → settings.
+3. **Notebook, top to bottom:**
+   - **Their own words** (minds on this Mac):
+     - the introduction, large (the lab's `.shell-mind-words`), and what they're exploring, quietly;
+     - beside them, the one chosen piece;
+     - Edit and the "Let them edit this" switch (today's Place editing);
+     - a mind not on this Mac skips this block.
+   - **What they're asking you:** their pending questions and permission requests, each answerable in place with
+     today's cards.
+   - **Their days:** one stream, newest first, by day (Today, Yesterday, then dates). Each entry carries its kind's
+     label and its time:
+     - **For you / Their own**, from the signed record:
+       - code and work records one by one (verb and object);
+       - speech collapsed to one line per conversation per day ("Talked in Tidepool · 12 messages");
+       - signals left out;
+       - a record in a conversation you're a member of is For you; anywhere else, Their own.
+     - **Journal:** journal pages (their annotations with their page), the title and first lines, in the journal's
+       italic voice.
+     - **Memory:** memory notes and the relay memory, as "Kept: …" with the first line.
+     - **What they made:** their artifacts as a receipt, with the piece's picture when it's an image, else its kind's
+       mark. It opens in the Canvas, and it's For you or Their own by the same rule (the artifact's conversation).
+   - **Filters:** All, For you, Their own, Journal, Memory (the lab's `.shell-mind-filter`). A filter with nothing in
+     it hides.
+   - The stream loads more as you scroll.
+   - Today's Notebook actions stay reachable here: writing a journal page, annotating, the saved handoff.
+4. **Self:** today's Documents, each row naming who writes it.
+   - The rows: Soul, Convictions, Who I'm becoming (the self-model), What I know about <owner> (the user model),
+     Lessons, Instructions, then More files and New file.
+   - Each row opens today's editor in place.
+   - Who writes each is taken from the code (`documentKinds.ts`), never assumed. The lab's line "Luca asks before
+     changing anything you wrote" appears only if the code makes it true.
+5. **Settings:** how they run.
+   - First: the connected app and model; waking with the app; the workspace; **What they can read**; permissions;
+     identity.
+   - Then today's other sections (appearance, recent rooms, runtime health, companion settings).
+   - A section a mind doesn't have hides.
+6. **What they can read** is Brain's body inside Settings, without Brain's page header: its four cards, the scan, the
+   consent dialogs, and the details with this mind's access grants. For Luca it's everything Brain connects; for
+   another mind, the same sources with that mind's grants.
+7. **`/brain` opens Luca's space on Settings, at What they can read.** Every way into Brain lands there:
+   - `goBrain`;
+   - the project row's menu item, now called "Sources";
+   - the runtime sessions' "Open Brain";
+   - an agent's brain-review request;
+   - the surface navigation.
+8. **The profile card on the right, for an agent:** a short summary (mark, name, state, the first line of their
+   introduction, their runtime) with **Open their space** and Message. Its Continuity and Memories tabs go: they're
+   the Notebook now. A person's card is unchanged.
+9. **The same space for every mind.** A part a mind has no data for hides, never a placeholder.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on unless stated):
+- Seed the mock with: Luca's place (words, a selected piece), journal pages, memory notes and engrams, signed records
+  in rooms you are and aren't in, two artifacts (one image), a question and a permission request, and a native agent
+  that isn't on this Mac.
+- Screenshots: `space-luca`, one `notebook-<filter>` per filter, `asks-answered` (one question answered in place),
+  `self`, `settings`, `what-they-can-read`, `brain-redirect`, `profile-summary`, `open-their-space`,
+  `space-native-agent`.
+- The head and the stream's type measured against the lab. The keyboard through tabs and filters.
+- The flag-off views compared by hash to the base.
+- A capability map: every control in today's four tabs, Brain and the profile card → its new home, or LOST.
+
+**Checks JSON keys:** `head`, `tabs_in_url`, `own_words`, `asks_in_place`, `stream_kinds`, `for_you_rule`, `filters`,
+`made`, `notebook_actions`, `self_documents`, `who_writes`, `settings_sections`, `what_they_can_read`,
+`brain_redirect`, `sources_label`, `profile_summary`, `native_agent`, `keyboard`, `capability_map`,
+`flag_off_identical`, `gates`.
+
+## WP-14 · What agents say to each other, and what needs you (2026-10-26, Riley and Claude's design; Riley: "a place where all of Luca's (or other agent) activity lives")
+
+**Why.**
+- `NAVIGATION.md`, "Activity": the whole house in one place, with Needs you and its count, Now, Side conversations and
+  Signed record. Side conversations is one feed of everything agents say to each other: the agent-to-agent ledger
+  Riley asked for on 2026-10-20.
+- `NAVIGATION.md`, "Chats": Luca's side conversations sit under Luca.
+- What the code has (nav-facts §1, §2):
+  - Agents talk inside rooms you're in, as exchanges (kind 30178), turn-tagged messages and visits. Luca uses Codex and
+    Claude Code through runtime tasks. Neither is listed across rooms today.
+  - Needs you's sources are lists that already exist (permission requests, questions) or exist per room (Luca's
+    proposals to run an app, paused exchanges). No count covers them.
+
+**Base.**
+- The integration branch with WP-10, WP-11 and WP-12 landed. WP-13 is built at the same time.
+- Your styles go in `desktop/src/app/shell/shell-activity.css` (new).
+
+**Files in scope:**
+- **The gathering:**
+  - `features/exchange/exchangeStore.ts`: an every-room selector;
+  - a new hook that joins exchanges and runtime tasks into one list;
+  - in `desktop/src-tauri/src/`, a list across all conversations for runtime tasks and runtime-task proposals
+    (`luca/runtime_tasks.rs` and its command registration), plus `shared/api/tauriRuntimeTasks.ts`;
+  - the mock bridge's handlers for them.
+- **Activity:** WP-10's Activity rail (`app/shell/placeRails/`) and the Activity cards.
+- `app/shell/ShellPlaces.tsx`: only the Activity tile's count.
+- **The Chats rail:** Luca's home only (`ShellRail.tsx`, `railHomes.ts`).
+- WP-10's connected-app card: only its "What Luca did with it".
+- Tests, a Rust unit test, and a new spec `tests/e2e/shell-activity.spec.ts`.
+
+**Untouched:** a mind's card (WP-13), Brain, the other places.
+
+**Facts** (nav-facts §1, §2, §5):
+- **The exchange store** holds every owner exchange: `members`, `conversation_id`, `root_event_id`, `depth`,
+  `opened_by`, `deadline`, and a derived phase (open|paused|closed|expired). It offers per-room selectors only. There's
+  no opened-at time, and recency follows `deadline`. Turns are kind-9 messages tagged `["exchange", id, turn]`.
+- **Runtime tasks:** `RuntimeTaskProjection` has `{taskId, conversationId, residentPubkey, runtimeFamily, summary,
+  state, startedAt, updatedAt, completedAt, …}`.
+  - It's listed per conversation by `listRuntimeTasks(conversationId)`, while the backend's map holds them all.
+  - The live event is `luca://runtime-task`.
+  - `openRuntimeTaskSession(taskId)` opens the native session.
+- **Proposals:** `useRuntimeTaskProposals(conversationId)` is per room (in memory in the backend), answered by
+  `RuntimeTaskProposalConfirmation`.
+- **Paused exchanges:** `usePausedExchangeChannelIds()`, answered by the exchange strip's "Stop here" and "Let them go
+  on".
+- **Permission requests and questions:** `useManagedPermissions()` and `useManagedInputs()` list them app-wide, each
+  answered in place by its card.
+- **The only badge today** is the Inbox's, zeroed while the Inbox is off.
+
+**Decisions** (only under `shell-frame`; the new list-all commands are additive):
+1. **One list of side conversations,** newest first:
+   - every exchange: its agents, its room, its phase and the time of its latest turn (or its deadline if no turn has
+     loaded);
+   - every runtime task: who ran it, which app, its summary, its state, its times and its room.
+2. **The Activity rail:** **NEEDS YOU** first, with its count at the row's end; **Now**; **Side conversations**; then
+   WP-10's **SIGNED RECORD**. Activity's first pick becomes Needs you.
+3. **The Needs you card:** everything waiting on you, newest first, each answerable in place:
+   - permission requests;
+   - questions;
+   - Luca's proposals to run Codex or Claude Code;
+   - paused exchanges, with Stop here and Let them go on.
+   - Each says who's asking and where, and opens its conversation.
+   - With nothing waiting: "Nothing is waiting on you."
+4. **The count:** the number of items in Needs you, on the Activity icon (where the Inbox's count drew) and at the
+   row's end. At zero, nothing shows.
+5. **The Side conversations card:** one feed, by day.
+   - An exchange's row: "Luca asked Atlas" (its opener and the others), the room's name, its state (talking, paused,
+     done), its turns when known, and its time. It opens the room at the exchange's first message.
+   - A runtime task's row: "Luca asked Claude Code", its summary, its state and its time. It opens its room at the
+     task's receipt.
+6. **Luca's side conversations, under Luca in the Chats rail:**
+   - the exchanges Luca took part in and Luca's runtime tasks;
+   - the latest three, and a talking one never folds away;
+   - each as "Atlas · Tidepool" or "Claude Code · <summary>", with "working…" or its time in the trailing slot;
+   - each opens where it happened.
+7. **The connected-app card** gets **What Luca did with it** under its sessions: that app's runtime tasks, newest
+   first, each opening its room's receipt.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on unless stated):
+- Seed the mock with: exchanges in three rooms (open, paused, closed), runtime tasks (two for Claude Code, one for
+  Codex), a proposal, a permission request and a question.
+- Screenshots: `needs-you` (every kind), `needs-you-answered` (one of each answered in place), `activity-count`,
+  `side-conversations`, `luca-side-rows` (the Chats rail), `connected-what-luca-did`.
+- The Rust unit test for the list-alls, through the shared build cache.
+- The flag-off views compared by hash to the base.
+
+**Checks JSON keys:** `gathering`, `rust_list_all`, `needs_you_kinds`, `answer_in_place`, `count_badge`,
+`side_feed`, `luca_rows`, `connected_history`, `flag_off_identical`, `gates`.
