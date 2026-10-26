@@ -319,7 +319,9 @@ test("the frame, Black, dark", async ({ page }, info) => {
     icon_centres: icons.map((icon) => [icon.label, icon.cx, icon.y]),
     ok:
       places.w === 44 &&
-      icons.length >= 8 &&
+      // Six places and the avatar (NAVIGATION.md, 2026-10-25): Search;
+      // Chats, Agents, Activity, Library; Settings.
+      icons.length === 7 &&
       icons.every((icon) => icon.cx === 22),
   };
   checks.rail_card = {
@@ -447,7 +449,8 @@ test("the frame, Black, dark", async ({ page }, info) => {
   files.push(await shot(page, dir, "avatar-menu"));
   await page.keyboard.press("Escape");
   await expect(page.getByRole("tooltip")).toHaveCount(0);
-  await page.getByTestId("open-new-conversation").click();
+  // New conversation left the places for the Chats rail's heading (its +).
+  await page.getByTestId("rail-new-conversation").click();
   await expect(page).toHaveURL(/\/messages\/new/);
   capabilities.new_conversation = true;
   capabilities.new_conversation_name =
@@ -600,9 +603,10 @@ test("the frame, Black, dark", async ({ page }, info) => {
       dotClosed?.dot?.size.join("x") === "6x6" &&
       dotClosed.dot.inset_top === 4 &&
       dotClosed.dot.inset_right === 4 &&
-      dotClosed.label === "Conversations, unread" &&
+      // "Conversations" is called Chats wherever it shows (WP-10).
+      dotClosed.label === "Chats, unread" &&
       dotOpen?.dot === null &&
-      dotOpen.label === "Conversations",
+      dotOpen.label === "Chats",
   };
   checks.rail_reopened_by_key = {
     width: (await box(page, RAIL_CARD))?.w ?? null,
@@ -682,7 +686,10 @@ test("the frame, Black, dark", async ({ page }, info) => {
       H - (library.y + library.h) === 6,
   };
 
-  await page.getByTestId("open-brain-setup").click();
+  // Brain left the places; until WP-13 it keeps working by its route.
+  await page.evaluate(() => {
+    window.location.hash = "#/brain";
+  });
   await page.waitForTimeout(800);
   await page.mouse.move(700, 500);
   files.push(await shot(page, dir, "brain"));
@@ -700,13 +707,32 @@ test("the frame, Black, dark", async ({ page }, info) => {
       H - (brain.y + brain.h) === 6,
   };
 
-  // Agents and Activity fill the same card.
+  // Agents and Activity fill the same card. The lip names the pick by its
+  // row's name (WP-10, Decided 8).
   for (const [testId, label] of [
     ["open-agents-view", "Agents"],
     ["open-activity-view", "Activity"],
   ] as const) {
     await page.getByTestId(testId).click();
-    await expect(page.getByTestId("shell-lip-name")).toHaveText(label);
+    await expect(
+      page.locator(`[data-place-rail="${label.toLowerCase()}"]`),
+    ).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(600);
+    const picked = page.locator(
+      '[data-place-rail] [data-active="true"] .luca-rail-row-name',
+    );
+    // Activity always has Now to pick. This mock has no residents, so
+    // Agents' Luca row is the empty placeholder and nothing is picked: the
+    // card says the page's own empty words and the lip names the place.
+    if (label === "Activity") {
+      await expect(picked).toHaveCount(1, { timeout: 20_000 });
+    }
+    const pickedName =
+      (await picked.count()) === 1 ? (await picked.innerText()).trim() : null;
+    checks[`${label.toLowerCase()}_lip`] = { picked: pickedName };
+    await expect(page.getByTestId("shell-lip-name")).toHaveText(
+      pickedName ?? label,
+    );
     await page.waitForTimeout(600);
     const routeCard = await box(page, ROUTE_CARD);
     const routeEdge = routeCard ? await edgeLight(page, routeCard) : null;
@@ -1294,16 +1320,27 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
   const lipNames: Record<string, unknown> = {
     general: await lipOnCard(page),
   };
+  // The places, then Brain by its route (it left the column; until WP-13
+  // it keeps working there) and New conversation by its key (its + is on
+  // the Chats rail, which isn't showing from Brain).
   const routes: [string, string][] = [
     ["open-artifacts-view", "library"],
     ["open-agents-view", "agents"],
     ["open-activity-view", "activity"],
-    ["open-brain-setup", "brain"],
-    ["open-new-conversation", "new_conversation"],
+    ["route:#/brain", "brain"],
+    ["key:Meta+n", "new_conversation"],
   ];
   let newConversation: Record<string, unknown> = {};
   for (const [testId, label] of routes) {
-    await page.getByTestId(testId).click();
+    if (testId.startsWith("route:")) {
+      await page.evaluate((hash) => {
+        window.location.hash = hash;
+      }, testId.slice(6));
+    } else if (testId.startsWith("key:")) {
+      await page.keyboard.press(testId.slice(4));
+    } else {
+      await page.getByTestId(testId).click();
+    }
     await page.mouse.move(700, 500);
     await page.waitForTimeout(700);
     await settle(page);
@@ -1489,7 +1526,8 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
   // the rail open it does what it did before.
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByTestId("open-artifacts-view").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("Library");
+  // The lip names Library's first pick (WP-10, Decided 7 and 8).
+  await expect(page.getByTestId("shell-lip-name")).toHaveText("All");
   await page.getByTestId("shell-place-conversations").click();
   await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible();
   const fromLibrary = await page.getByTestId("shell-lip-name").innerText();

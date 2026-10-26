@@ -22,6 +22,11 @@ const WREN = "c".repeat(64);
 const CODEX = "d".repeat(64);
 const ALICE =
   "953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f";
+/** Alice's 1:1 stays in every scene; #general is the stock fixture's room.
+ *  The specs boot on a conversation, so the rail is Chats' (/pulse is
+ *  Activity's place now: NAVIGATION.md), at the bare /#/ route. */
+const ALICE_DM = "f48efb06-0c93-5025-aac9-2e646bb6bfa8";
+const GENERAL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 
 /** Rooms with fixed ids, so projects can be assigned before they exist. */
 const ROOM = {
@@ -65,7 +70,7 @@ async function boot(page: Page, { shell }: { shell: boolean }) {
       { name: "Codex", pubkey: CODEX, status: "running" },
     ],
   });
-  await page.goto("/?e2e=mock#/pulse");
+  await page.goto(`/#/channels/${ALICE_DM}`);
   await expect(page.getByTestId("app-sidebar")).toBeVisible({
     timeout: 20000,
   });
@@ -266,7 +271,12 @@ test.describe("the shell's rail", () => {
     expect(glyphs.every((count) => count === 0)).toBe(true);
     console.log("GLYPHS", glyphs.length, "rows, 0 glyphs");
 
-    // Nothing open: no home active, nothing current.
+    // Nothing open: no home active, nothing current. The rail is Chats' on
+    // New conversation too, with nothing in it open (NAVIGATION.md).
+    await page.evaluate(() => {
+      window.location.hash = "#/messages/new";
+    });
+    await expect(page).toHaveURL(/#\/messages\/new/);
     await expect(
       page.locator('[data-shell-rail] [data-active="true"]'),
     ).toHaveCount(0);
@@ -674,7 +684,7 @@ test.describe("the shell's rail", () => {
     await expect(page).toHaveURL(/#\/brain/);
 
     // A chat row's menu is unchanged: Mark as read / unread.
-    await page.goto("/?e2e=mock#/pulse");
+    await page.goto(`/#/channels/${ALICE_DM}`);
     await expect(home(page, "luca")).toBeVisible({ timeout: 20000 });
     await home(page, "luca").click({ button: "right", ...ON_NAME });
     const chatMenu = page.getByRole("menu");
@@ -695,27 +705,29 @@ test.describe("the shell's rail", () => {
     await expect(result).toBeVisible({ timeout: 10000 });
   });
 
-  test("Runtimes lives on the Agents page, and Project rooms is a setting", async ({
+  test("Runtimes lives in Agents as Connected, and Project rooms is a setting", async ({
     page,
   }) => {
+    // Not on the Chats rail. In Agents it is the rail's Connected section
+    // (NAVIGATION.md, "Agents"), and a connected app opens as its card there:
+    // the runtime sessions column retires (SHELL_SPEC.md, "The rail").
     await expect(page.getByTestId("sidebar-runtime-section")).toHaveCount(0);
-    await page.goto("/?e2e=mock#/agents");
+    await page.goto("/#/agents");
     await expect(page.getByTestId("agents-view")).toBeVisible({
       timeout: 20000,
     });
-    const runtimes = page
-      .getByTestId("agents-view")
-      .getByTestId("sidebar-runtime-section");
+    const runtimes = page.getByTestId("place-section-agents-connected");
     await expect(runtimes).toBeVisible();
     await waitForAnimations(page);
     const agentsPath = `${SHOTS}/09-runtimes-on-agents-page.png`;
     await page.screenshot({ path: agentsPath });
     shots.push(agentsPath);
-    await runtimes.locator("[data-runtime-connection-key]").first().click();
-    await expect(page).toHaveURL(/#\/messages\/new/);
-    await expect(page.locator("#runtime-sessions-panel")).toBeVisible();
+    await runtimes.locator(".luca-rail-row-hit").first().click();
+    await expect(page).toHaveURL(/#\/agents\?.*connected=/);
+    await expect(page.getByTestId("connected-app-card")).toBeVisible();
+    await expect(page.locator("#runtime-sessions-panel")).toHaveCount(0);
 
-    await page.goto("/?e2e=mock#/settings");
+    await page.goto("/#/settings");
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
     const row = page.getByTestId("project-rooms-rail");
     await expect(row).toBeVisible({ timeout: 20000 });
@@ -732,7 +744,7 @@ test.describe("the shell's rail", () => {
     shots.push(settingsPath);
 
     // In a column: projects behave as they do today.
-    await page.goto("/?e2e=mock#/pulse");
+    await page.goto(`/#/channels/${ALICE_DM}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({
       timeout: 20000,
     });
@@ -752,7 +764,7 @@ async function bootDefault(page: Page, init?: (page: Page) => Promise<void>) {
   }, FEATURE_OVERRIDES_STORAGE_KEY);
   await init?.(page);
   await installMockBridge(page);
-  await page.goto("/?e2e=mock#/pulse");
+  await page.goto(`/#/channels/${GENERAL_ID}`);
   await expect(page.locator("[data-shell-rail]")).toBeVisible({
     timeout: 20000,
   });
@@ -1048,7 +1060,7 @@ test.describe("the rail, finished (WP-02b)", () => {
         { name: "Codex", pubkey: CODEX, status: "stopped", waking: true },
       ],
     });
-    await page.goto("/?e2e=mock#/pulse");
+    await page.goto(`/#/channels/${ALICE_DM}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({
       timeout: 20000,
     });
@@ -1185,7 +1197,7 @@ test.describe("the rail, finished (WP-02b)", () => {
     page,
   }) => {
     await boot(page, { shell: true });
-    await page.goto("/?e2e=mock#/settings");
+    await page.goto("/#/settings");
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
     const row = page.getByTestId("project-rooms-setting");
     await expect(row).toBeVisible({ timeout: 20000 });
@@ -1239,62 +1251,54 @@ test.describe("the rail, finished (WP-02b)", () => {
     shots.push(pinsPath);
   });
 
-  test("agents page: Runtimes on the roster's axes", async ({ page }) => {
+  test("agents page: Connected on the rail's axes", async ({ page }) => {
+    // The roster column became the Agents rail (WP-10): its rows are
+    // Chats' rows, so a connected app's row keeps the same text edge and
+    // trailing column as Luca's and every agent's.
     await boot(page, { shell: true });
-    await page.goto("/?e2e=mock#/agents");
-    const section = page
-      .getByTestId("agents-view")
-      .getByTestId("sidebar-runtime-section");
+    await page.goto("/#/agents");
+    const section = page.getByTestId("place-section-agents-connected");
     await expect(section).toBeVisible({ timeout: 20000 });
-    await expect(
-      section.locator("[data-runtime-connection-key]").first(),
-    ).toBeVisible({ timeout: 20000 });
+    await expect(section.locator(".luca-rail-row").first()).toBeVisible({
+      timeout: 20000,
+    });
     const axes = await page.evaluate(() => {
       const box = (el: Element | null | undefined) => {
         const r = el?.getBoundingClientRect();
-        return r ? { x: r.x, w: r.width, cx: r.x + r.width / 2 } : null;
+        return r ? { x: r.x, w: r.width, right: r.right } : null;
       };
-      const rosterRows = [
-        ...document.querySelectorAll('[data-testid^="agent-library-row-"]'),
-      ];
-      const runtimeRows = [
-        ...document.querySelectorAll(
-          '[data-testid="agents-view"] [data-runtime-connection-key]',
-        ),
-      ];
+      const rows = (selector: string) =>
+        [...document.querySelectorAll(selector)].map((row) => ({
+          row: box(row),
+          name: box(row.querySelector(".luca-rail-row-name")),
+          note: box(row.querySelector(".luca-rail-note")),
+        }));
       return {
-        roster: rosterRows.map((row) => ({
-          mark: box(row.firstElementChild),
-          name: box(row.querySelector(".truncate")),
-        })),
-        runtimes: runtimeRows.map((row) => ({
-          icon: box(row.firstElementChild?.querySelector("svg, img")),
-          slot: box(row.firstElementChild),
-          name: box(row.querySelector(".truncate")),
-          border: getComputedStyle(row).borderLeftWidth,
-        })),
+        minds: rows(
+          '[data-testid="place-section-agents-luca"] .luca-rail-row, [data-testid="place-section-agents-agents"] .luca-rail-row',
+        ),
+        runtimes: rows(
+          '[data-testid="place-section-agents-connected"] .luca-rail-row',
+        ),
       };
     });
     console.log("AGENTS AXES", JSON.stringify(axes));
-    const markAxis = axes.roster[0]?.mark?.cx ?? 0;
-    const textEdge = axes.roster[0]?.name?.x ?? 0;
+    const textEdge = axes.minds[0]?.name?.x ?? 0;
+    const rowEdge = axes.minds[0]?.row?.right ?? 0;
+    expect(axes.minds.length).toBeGreaterThan(0);
     expect(axes.runtimes.length).toBeGreaterThan(0);
     for (const runtime of axes.runtimes) {
-      expect(Math.abs((runtime.icon?.cx ?? 0) - markAxis)).toBeLessThan(0.5);
       expect(Math.abs((runtime.name?.x ?? 0) - textEdge)).toBeLessThan(0.5);
+      expect(Math.abs((runtime.row?.right ?? 0) - rowEdge)).toBeLessThan(0.5);
     }
     measured.runtimes_geometry = {
-      markAxis,
       textEdge,
+      rowEdge,
       runtimes: axes.runtimes,
     };
     await waitForAnimations(page);
     const path = `${SHOTS}/28-agents-runtimes.png`;
-    await page
-      .getByTestId("agents-view")
-      .locator("aside")
-      .first()
-      .screenshot({ path });
+    await page.getByTestId("place-rail-agents").screenshot({ path });
     shots.push(path);
   });
 
@@ -1355,7 +1359,7 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     await expect(home(page, "luca")).toBeVisible();
     const runs: unknown[] = [];
     for (const route of ["#/pulse", "#/agents"]) {
-      await page.goto(`/?e2e=mock${route}`);
+      await page.goto(`/${route}`);
       await expect(page.getByTestId("shell-places")).toBeVisible({
         timeout: 20000,
       });
@@ -1392,24 +1396,34 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
   test("Conversations returns to the conversation you left", async ({
     page,
   }) => {
+    // Four trips out and back, and a fresh load: room on a busy machine.
+    test.setTimeout(90_000);
     await boot(page, { shell: true });
     await expect(home(page, "luca")).toBeVisible();
+    // The places, and Brain by its route: it left the column, and until
+    // WP-13 it keeps working there, as Agents'.
     const places = [
       "open-artifacts-view",
       "open-agents-view",
       "open-activity-view",
-      "open-brain-setup",
+      "route:#/brain",
     ];
     const results: unknown[] = [];
     for (const place of places) {
-      await page.goto(`/?e2e=mock#/channels/${ROOM.monday}`);
+      await page.goto(`/#/channels/${ROOM.monday}`);
       await expect(page.getByTestId("shell-lip-name")).toHaveText(
         "Monday plan",
         {
           timeout: 20000,
         },
       );
-      await page.getByTestId(place).click();
+      if (place.startsWith("route:")) {
+        await page.evaluate((hash) => {
+          window.location.hash = hash;
+        }, place.slice(6));
+      } else {
+        await page.getByTestId(place).click();
+      }
       await expect
         .poll(() => page.evaluate(() => window.location.hash))
         .not.toContain(ROOM.monday);
@@ -1438,7 +1452,7 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     }
     // With no conversation opened yet, Conversations lands where the app
     // opens (WP-11): Luca, never New conversation.
-    await page.goto("/?e2e=mock#/artifacts");
+    await page.goto("/#/artifacts");
     await page.reload();
     await expect(page.getByTestId("shell-places")).toBeVisible({
       timeout: 20000,
@@ -1593,53 +1607,62 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     await shoot(page, "43-group-and-named-room");
   });
 
-  test("Runtimes rows on the Agents page answer hover", async ({ page }) => {
+  test("Connected rows on the Agents rail answer hover as its other rows do", async ({
+    page,
+  }) => {
+    // Rows are Chats' rows (WP-10, Decided 9): a connected app's row rests
+    // and answers hover exactly as an agent's row on the same rail.
     await boot(page, { shell: true });
-    await page.goto("/?e2e=mock#/agents");
+    await page.goto("/#/agents");
     const row = page
-      .getByTestId("agents-view")
-      .locator("[data-agents-runtimes] [data-runtime-connection-key]")
+      .getByTestId("place-section-agents-connected")
+      .locator(".luca-rail-row")
       .first();
     await expect(row).toBeVisible({ timeout: 20000 });
+    const agent = page
+      .getByTestId("place-section-agents-agents")
+      .locator(".luca-rail-row:not([data-active])")
+      .first();
+    await expect(agent).toBeVisible({ timeout: 20000 });
     await page.mouse.move(1400, 880);
     await waitForAnimations(page);
-    const style = () =>
-      row.evaluate((el) => {
-        const name = el.querySelector(".truncate") as HTMLElement | null;
-        const slot = el.firstElementChild as HTMLElement | null;
+    const style = (target: typeof row) =>
+      target.evaluate((el) => {
+        const name = el.querySelector(
+          ".luca-rail-row-name",
+        ) as HTMLElement | null;
         const s = getComputedStyle(el);
         return {
           background: s.backgroundColor,
           radius: s.borderTopLeftRadius,
           name: name ? getComputedStyle(name).color : null,
-          slot: slot ? getComputedStyle(slot).color : null,
         };
       });
-    const rest = await style();
-    const roster = await page
-      .locator('[data-testid^="agent-library-row-"]')
-      .first()
-      .evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+    const rest = await style(row);
+    const agentRest = await style(agent);
     const box = await row.boundingBox();
-    const section = page
-      .getByTestId("agents-view")
-      .locator("[data-agents-runtimes]");
+    const section = page.getByTestId("place-section-agents-connected");
     const restPath = `${SHOTS}/44-runtimes-rest.png`;
     await section.screenshot({ path: restPath });
     shots.push(restPath);
     await row.hover();
     await waitForAnimations(page);
-    const hover = await style();
+    const hover = await style(row);
     const hoverPath = `${SHOTS}/45-runtimes-hover.png`;
     await section.screenshot({ path: hoverPath });
     shots.push(hoverPath);
-    console.log("RUNTIMES HOVER", JSON.stringify({ rest, hover, roster, box }));
+    await agent.hover();
+    await waitForAnimations(page);
+    const agentHover = await style(agent);
+    console.log(
+      "RUNTIMES HOVER",
+      JSON.stringify({ rest, hover, agentRest, agentHover, box }),
+    );
     expect(rest.background).toBe("rgba(0, 0, 0, 0)");
     expect(hover.background).not.toBe(rest.background);
-    expect(hover.name).not.toBe(rest.name);
-    expect(hover.slot).not.toBe(rest.slot);
-    expect(rest.radius).toBe(roster);
-    fixes.runtimes_hover = { rest, hover, rosterRadius: roster };
+    expect(rest).toEqual(agentRest);
+    expect(hover).toEqual(agentHover);
+    fixes.runtimes_hover = { rest, hover, agentRest, agentHover };
   });
 
   test.afterAll(() => {
@@ -1668,7 +1691,7 @@ test("flag off: Settings → Appearance and the Agents page, unchanged", async (
   const port = process.env.LUCA_PLAYWRIGHT_PORT ?? "base";
   const hash = (file: string) =>
     createHash("sha256").update(readFileSync(file)).digest("hex");
-  await page.goto("/?e2e=mock#/settings");
+  await page.goto("/#/settings");
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
   const pins = page.getByTestId("runtime-rail-pins-settings");
   await expect(pins).toBeVisible({ timeout: 20000 });
@@ -1681,7 +1704,7 @@ test("flag off: Settings → Appearance and the Agents page, unchanged", async (
   await pins.locator("xpath=..").screenshot({ path: settingsPath });
   console.log("FLAG OFF SETTINGS HASH", port, hash(settingsPath));
 
-  await page.goto("/?e2e=mock#/agents");
+  await page.goto("/#/agents");
   await expect(page.getByTestId("agents-view")).toBeVisible({
     timeout: 20000,
   });

@@ -600,7 +600,9 @@ test("the header, finished, at 1440 × 900", async ({ page }, info) => {
     undone_from_the_empty_pane: undone,
   };
   expect(empty.focused_pane).toBe("workspace-pane-slot-2");
-  expect(empty.lip_name).toBe("");
+  // The lip names an empty focused pane as a state, so the page's only h1
+  // is never empty (WP-09a, 4; EMPTY_PANE_LIP_NAME).
+  expect(empty.lip_name).toBe("No conversation");
   // The workspace's own control stays; a conversation's actions don't.
   expect(empty.lip_actions).toBe(1);
   expect(empty.layout_menu_in_lip).toBe(1);

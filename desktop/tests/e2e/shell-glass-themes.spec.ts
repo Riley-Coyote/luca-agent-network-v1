@@ -165,9 +165,17 @@ const tileIds = (page: Page) =>
 
 // ── someone on a glass theme moves, once, and comes back ─────────────────
 
+// WP-09a, 9: a coloured accent Obsidian kept hidden (it pins the neutral
+// one) is set aside with the move, so the successor shows its own; it comes
+// back with Obsidian. Paper doesn't pin one, so Crystalline's accent stays.
 for (const glass of [
-  { theme: "obsidian", to: "vitesse-black", dark: true },
-  { theme: "crystalline", to: "paper", dark: false },
+  {
+    theme: "obsidian",
+    to: "vitesse-black",
+    dark: true,
+    movedAccent: "neutral",
+  },
+  { theme: "crystalline", to: "paper", dark: false, movedAccent: ACCENT },
 ]) {
   test(`${glass.theme}: moves to ${glass.to} with the Glass frame, and back`, async ({
     page,
@@ -204,7 +212,7 @@ for (const glass of [
       storedTheme: glass.to,
       storedFrame: "glass",
       followSystem: "false",
-      accent: ACCENT,
+      accent: glass.movedAccent,
       move: { from: glass.theme, to: glass.to, frame: null },
     });
     await expect

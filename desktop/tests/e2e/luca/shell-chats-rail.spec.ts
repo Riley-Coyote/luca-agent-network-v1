@@ -103,9 +103,12 @@ async function boot(
       { name: "Codex", pubkey: CODEX, status: "running" },
     ],
   });
-  // Retry a blank first load: the machine runs several builds at once.
+  // Boot on a conversation, so the rail is Chats' (/pulse is Activity's
+  // place now: NAVIGATION.md). Bob's 1:1 is in every scene, and the bare
+  // /#/ route keeps Back clean. Retry a blank first load: the machine runs
+  // several builds at once.
   await expect(async () => {
-    await page.goto("/?e2e=mock#/pulse");
+    await page.goto(`/#/channels/${BOB_DM}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({
       timeout: 20_000,
     });
@@ -1249,6 +1252,9 @@ test.describe("the review's fixes", () => {
     await page.mouse.move(1400, 880);
     await fixShot(page, "fix10-working-open", wrenRow.locator(".."));
     await wrenRow.locator("[data-chevron]").click();
+    // The pointer leaves the row: on hover its + takes the slot (SPEC.md,
+    // "A row": "on hover the + wins").
+    await page.mouse.move(1400, 880);
     await expect(wrenRow.locator(".luca-rail-working")).toBeVisible();
     await fixShot(page, "fix10-working-folded", wrenRow.locator(".."));
     fixChecks.fix_4 = {

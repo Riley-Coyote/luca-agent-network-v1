@@ -778,10 +778,29 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   const settingsFloor = panelsCard
     ? await pixels(page, settings, floorPoints(panelsCard))
     : [];
+  // Settings' list wears the rail's sliding mark on its current row
+  // (WP-09a), so the plate is the mark, and the row paints none of its own.
+  // The mark's springs are no CSS animation: wait for it to come to rest
+  // and dry (marks.ts: a moving plate is darker by its --wet).
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            document
+              .querySelector<HTMLElement>(
+                '[data-testid="shell-settings-marks"] > .luca-mark:last-child',
+              )
+              ?.style.getPropertyValue("--wet") ?? null,
+        ),
+      { timeout: 10_000 },
+    )
+    .toBe("0.000");
   const settingsRowCurrent = await edges(
     page,
-    ".luca-settings-row[data-current]",
+    '[data-testid="shell-settings-marks"] > .luca-mark:last-child',
   );
+  const settingsRowOwn = await edges(page, ".luca-settings-row[data-current]");
   const groupLabel = await colour(page, ".luca-settings-group-head");
   const modeRow = await page.evaluate(() =>
     [
@@ -889,6 +908,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     rail_current_pill: railPill,
     rail_pill_rim: railPillRim,
     settings_row_current: settingsRowCurrent,
+    settings_row_own: settingsRowOwn,
     segments,
     mode_row: modeRow,
     mode_unchosen_hover: modeHover,
@@ -902,6 +922,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
           railPillRim?.every((display) => display === "none"))) &&
       settingsRowCurrent?.background === plate &&
       settingsRowCurrent.boxShadow === "none" &&
+      settingsRowOwn?.background === "rgba(0, 0, 0, 0)" &&
       segments.length >= 3 &&
       segments.every(
         (segment) =>

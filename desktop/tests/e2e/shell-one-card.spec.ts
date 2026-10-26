@@ -575,13 +575,14 @@ test("one card in every place", async ({ page }) => {
   await visit("library", "open-artifacts-view", async () => {
     await page.waitForURL(/artifacts|library/, { timeout: 20_000 });
   });
-  await visit("new_conversation", "open-new-conversation", async () => {
+  await visit("chats", "shell-place-conversations", async () => {
+    await page.waitForURL(/channels/, { timeout: 20_000 });
+  });
+  // New conversation is the Chats rail's + now (NAVIGATION.md), not a place.
+  await visit("new_conversation", "rail-new-conversation", async () => {
     await expect(page.getByTestId("new-message-body")).toBeVisible({
       timeout: 20_000,
     });
-  });
-  await visit("chats", "shell-place-conversations", async () => {
-    await page.waitForURL(/channels/, { timeout: 20_000 });
   });
   await visit(
     "settings",
