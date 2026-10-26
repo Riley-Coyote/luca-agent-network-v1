@@ -303,7 +303,7 @@ export function ArtifactLibraryScreen() {
                       note={placeNoteTime(artifact.updatedAt)}
                       onOpen={() => open(artifact)}
                       openLabel={`Open ${artifact.title}`}
-                      summary={`${artifact.summary ?? kindLabel(artifact.kind)} · ${formatProvenanceLabel(provenanceLabels(artifact.provenance))}`}
+                      summary={`${artifact.summary ?? kindName(artifact.kind)} · ${formatProvenanceLabel(provenanceLabels(artifact.provenance))}`}
                       testId={`artifact-row-${artifact.id}`}
                       title={artifact.title}
                     />
@@ -665,6 +665,21 @@ function kindLabel(kind: ArtifactKind) {
   return kind === "app"
     ? "Local application"
     : `${kind.toUpperCase()} artifact`;
+}
+
+/** A kind's name in sentence case, as the shell's rows say it (WP-19):
+ *  "Image", "Markdown", "HTML", never "IMAGE artifact". */
+function kindName(kind: ArtifactKind) {
+  switch (kind) {
+    case "app":
+      return "Local application";
+    case "html":
+    case "svg":
+    case "pdf":
+      return kind.toUpperCase();
+    default:
+      return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
+  }
 }
 
 function LibraryLoading() {

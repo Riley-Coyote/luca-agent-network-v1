@@ -340,7 +340,13 @@ export function ConversationContextPanel({
                   paragraph of space at the top of every drawer. */}
             <section className="flex items-end gap-3">
               <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-caps text-ink-faint">
+                <div
+                  className={
+                    shellFrame
+                      ? "flex items-center gap-2 type-eyebrow text-ink-faint"
+                      : "flex items-center gap-2 text-2xs font-medium uppercase tracking-caps text-ink-faint"
+                  }
+                >
                   <MessageCircle className="h-3.5 w-3.5" />
                   {channel.channelType === "dm" ? "Direct message" : "Room"}
                 </div>
@@ -580,10 +586,16 @@ function SectionLabel({
   id: string;
 }) {
   // Section titles speak in the UI face at small size and low ink — hierarchy
-  // by size and opacity, never by a second typeface.
+  // by size and opacity. Under the frame every small capital label is the
+  // app's one label, the mono opened up (`.type-eyebrow`; WP-19).
+  const shellFrame = useShellFrameEnabled();
   return (
     <h3
-      className="mb-2 text-2xs font-medium uppercase tracking-caps text-ink-faint"
+      className={
+        shellFrame
+          ? "mb-2 type-eyebrow text-ink-faint"
+          : "mb-2 text-2xs font-medium uppercase tracking-caps text-ink-faint"
+      }
       id={id}
     >
       {children}

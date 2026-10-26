@@ -51,10 +51,15 @@ const RAIL_ORDER: NavOrder = {
  * conversation in it), Agents (with Brain in it), Activity, Library, then
  * Settings at the foot. Moving down the column moves the page the same way.
  * The Inbox, out of the column, sits with Activity, where its list goes.
+ * A conversation and a project are Chats' own pages, so arriving at one from
+ * another place drifts by the column as Agents, Activity and Library do
+ * (SHELL_BUILD.md WP-19); within Chats they stay deeper, shallower or still.
  */
 const PLACES_ORDER: NavOrder = {
   home: 1,
   sections: [
+    ["/channels", 1],
+    ["/projects", 1],
     ["/messages/new", 1],
     ["/agents", 2],
     ["/brain", 2],
@@ -100,6 +105,12 @@ export function resolveNavMotion(
   order: NavOrder = RAIL_ORDER,
 ): NavMotion {
   if (from === to) return "same";
+  const a = railIndex(from, order);
+  const b = railIndex(to, order);
+  // Two places apart: the drift follows the order, whatever page either end
+  // is. Only an order that seats details in a place (the places column)
+  // reaches here with a detail at one end.
+  if (a !== null && b !== null && a !== b) return b > a ? "down" : "up";
   const fromDetail = isDetail(from);
   const toDetail = isDetail(to);
   if (toDetail && !fromDetail) return "deeper";
@@ -110,10 +121,7 @@ export function resolveNavMotion(
   // fading the whole plane dissolves furniture that never moved. This
   // used to resolve to "swap", which is the plain crossfade.
   if (fromDetail && toDetail) return "same";
-  const a = railIndex(from, order);
-  const b = railIndex(to, order);
-  if (a === null || b === null || a === b) return "swap";
-  return b > a ? "down" : "up";
+  return "swap";
 }
 
 /** The rare flourish: entering Brain dissolves in through the dot lattice. */

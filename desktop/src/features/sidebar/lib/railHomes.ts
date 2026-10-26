@@ -310,8 +310,15 @@ export function buildRailHomes({
       const pubkey = id.slice(id.indexOf(":") + 1);
       const each = home({ id, kind, name: "", pubkey });
       settle(each, chats, createdAtById);
+      // Another agent's home is named after the agent, by its profile, never
+      // by the title of the conversation you have with it (WP-19).
+      const own = kind === "agent" ? names?.get(pubkey) : undefined;
       each.name =
-        nameOf(pubkey) ?? each.main?.label ?? each.sessions[0]?.label ?? "";
+        own ??
+        nameOf(pubkey) ??
+        each.main?.label ??
+        each.sessions[0]?.label ??
+        "";
       (kind === "agent" ? otherAgents : people).push(each);
     } else {
       const each = home({ id, kind: "room", name: "" });

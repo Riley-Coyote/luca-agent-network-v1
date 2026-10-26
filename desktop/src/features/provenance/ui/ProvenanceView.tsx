@@ -20,6 +20,7 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { PubKey } from "@/shared/ui/PubKey";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 
@@ -61,10 +62,24 @@ function groupByDay(records: ProvenanceRecord[]) {
  * Process events (kind 24200) are absent from this signed relay record. The
  * in-thread activity archive keeps a separate local account of live work.
  */
-function TrailEndMarker({ exhausted }: { exhausted: boolean }) {
+function TrailEndMarker({
+  exhausted,
+  framed,
+}: {
+  exhausted: boolean;
+  /** Under the frame the note sits on the page's left axis (WP-19). */
+  framed: boolean;
+}) {
   return (
     <div className="border-border/50 border-t pt-3 pb-8">
-      <p className="mx-auto max-w-md text-center text-2xs text-muted-foreground leading-relaxed">
+      <p
+        className={
+          framed
+            ? "max-w-md text-2xs text-muted-foreground leading-relaxed"
+            : "mx-auto max-w-md text-center text-2xs text-muted-foreground leading-relaxed"
+        }
+        data-testid="provenance-end-note"
+      >
         {exhausted
           ? "End of the signed relay record. Live tool activity is kept separately in the conversation's local activity archive."
           : "Older entries are still on the relay."}
@@ -216,11 +231,22 @@ export function ProvenanceView({
           />
 
           <div className="mt-6 flex items-center gap-3">
-            <UserAvatar
-              avatarUrl={activeAgent?.avatarUrl ?? null}
-              displayName={activeAgent?.name ?? "Resident"}
-              size="md"
-            />
+            {/* Under the frame, the mind's own mark, as everywhere else it is
+                named (WP-19); the initial stays off the frame. */}
+            {pickedByRail && activeAgent ? (
+              <AgentIdentitySpecimen
+                accessibleName={activeAgent.name}
+                avatarUrl={activeAgent.avatarUrl}
+                publicKey={activeAgent.pubkey}
+                size={32}
+              />
+            ) : (
+              <UserAvatar
+                avatarUrl={activeAgent?.avatarUrl ?? null}
+                displayName={activeAgent?.name ?? "Resident"}
+                size="md"
+              />
+            )}
             <div className="min-w-0 flex-1">
               {/* Under the shell the card's head already names them. */}
               {pickedByRail ? null : (
@@ -297,22 +323,41 @@ export function ProvenanceView({
           {!provenanceQuery.isPending &&
           !provenanceQuery.isError &&
           records.length === 0 ? (
-            <p className="pt-10 text-center text-muted-foreground text-sm">
+            <p
+              className={
+                pickedByRail
+                  ? "pt-10 text-muted-foreground text-sm"
+                  : "pt-10 text-center text-muted-foreground text-sm"
+              }
+              data-testid="provenance-empty"
+            >
               Nothing signed by this resident has been stored yet.
             </p>
           ) : null}
 
           {groups.map((group) => (
             <section key={group.dayKey}>
-              <h3 className="flex items-center gap-3 pt-5 pb-1">
-                <span className="text-2xs font-medium text-muted-foreground uppercase tracking-wide">
+              {pickedByRail ? (
+                // The shared day label (the timeline's DayDivider), with no
+                // rule beside it (WP-19).
+                <h3
+                  className="pt-5 pb-1 type-eyebrow text-ink-faint"
+                  data-testid="provenance-day"
+                >
                   {dayLabel(group.dayKey)}
-                </span>
-                <span aria-hidden className="h-px flex-1 bg-border/45" />
-              </h3>
+                </h3>
+              ) : (
+                <h3 className="flex items-center gap-3 pt-5 pb-1">
+                  <span className="text-2xs font-medium text-muted-foreground uppercase tracking-wide">
+                    {dayLabel(group.dayKey)}
+                  </span>
+                  <span aria-hidden className="h-px flex-1 bg-border/45" />
+                </h3>
+              )}
               <ul className="mb-2">
                 {group.records.map((record) => (
                   <ProvenanceRow
+                    framed={pickedByRail}
                     channelLabel={
                       record.channelId
                         ? (channelLabels.get(record.channelId) ?? null)
@@ -346,7 +391,10 @@ export function ProvenanceView({
                   </Button>
                 </div>
               ) : null}
-              <TrailEndMarker exhausted={!provenanceQuery.hasNextPage} />
+              <TrailEndMarker
+                exhausted={!provenanceQuery.hasNextPage}
+                framed={pickedByRail}
+              />
             </>
           ) : null}
         </div>

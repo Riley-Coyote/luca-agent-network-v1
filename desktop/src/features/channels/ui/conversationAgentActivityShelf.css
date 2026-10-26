@@ -89,6 +89,16 @@
   text-transform: uppercase;
 }
 
+/* Under the frame, "Current work" is the app's one small capital label: the
+ * mono, opened up, as `.type-eyebrow` sets it (WP-19). */
+:root[data-luca-frame] .luca-work-tray__heading {
+  font-family: var(--font-mono);
+  font-size: var(--type-eyebrow-size);
+  font-weight: 400;
+  letter-spacing: var(--type-caps-tracking);
+  line-height: var(--type-eyebrow-leading);
+}
+
 :root[data-luca-shell] .luca-work-tray__heading button,
 :root[data-luca-shell] .luca-work-tray__permission-trigger {
   pointer-events: auto;
