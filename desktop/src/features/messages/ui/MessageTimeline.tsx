@@ -48,6 +48,9 @@ export type MessageTimelineHandle = {
 /** The page's gap between the companion's badge and the reading area under
  *  the shell (WP-29), as the room's stack keeps from the card's top. */
 const TIMELINE_TOP_GAP = 12;
+/** The room the next day's pill keeps above it as it pushes the stuck one
+ *  up (WP-29). */
+const STUCK_DAY_PUSH_GAP = 6;
 /** Under the shell, what floats at the timeline's top starts where its
  *  reading area does: below the companion's badge while it shows (WP-29). */
 const TIMELINE_TOP_STYLE: React.CSSProperties = {
@@ -666,10 +669,13 @@ const MessageTimelineBase = React.forwardRef<
         if (!first || r.top < first.top) first = { top: r.top, time };
       }
       const day = first ? formatDayHeading(first.time) : null;
-      // Each day's own pill: hidden once it has gone up past the line; while
-      // one stands at or just under the line, it is the stuck pill.
+      // Each day's own pill: hidden once it has gone up past the line; one
+      // standing on the line is the stuck pill itself. The next day's pill,
+      // coming up from below, pushes the stand-in up ahead of it (clipped at
+      // the card's top), so the two never overlap and the line is never
+      // empty while that day is read.
       let own: "passed" | "here" | "below" | null = null;
-      let near = false;
+      let incoming = Number.POSITIVE_INFINITY;
       const pillHeight = label?.offsetHeight || 26;
       for (const divider of scroller.querySelectorAll<HTMLElement>(
         '[data-testid="message-timeline-day-divider"]',
@@ -678,15 +684,17 @@ const MessageTimelineBase = React.forwardRef<
         if (!pill) continue;
         const passed = pill.top < line - 0.5;
         divider.toggleAttribute("data-day-passed", passed);
-        if (!passed && pill.top <= line + pillHeight + 6) near = true;
+        if (!passed && pill.top > line + 0.5)
+          incoming = Math.min(incoming, pill.top);
         if (divider.dataset.dayLabel === day)
           own = passed ? "passed" : pill.top <= line + 0.5 ? "here" : "below";
       }
-      const show = day !== null && !near && (own === null || own === "passed");
+      const show = day !== null && (own === null || own === "passed");
       stuck.toggleAttribute("data-shown", show);
       if (label && day !== null && label.textContent !== day)
         label.textContent = day;
-      stuck.style.top = `${line - rootBox.top}px`;
+      const at = Math.min(line, incoming - pillHeight - STUCK_DAY_PUSH_GAP);
+      stuck.style.top = `${at - rootBox.top}px`;
       stuck.style.left = `${box.left + scroller.clientLeft - rootBox.left}px`;
       stuck.style.width = `${scroller.clientWidth}px`;
     };

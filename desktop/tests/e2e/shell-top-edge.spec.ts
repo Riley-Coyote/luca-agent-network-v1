@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { expect, type Page, test } from "@playwright/test";
 
+import { formatDayHeading } from "../../src/features/messages/lib/dateFormatters";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
@@ -27,6 +28,17 @@ const GENERAL = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const LUCA = TEST_IDENTITIES.bob.pubkey;
 
 type Mode = "dark" | "light";
+type Frame = "black" | "liquid";
+
+/** The study's skies behind the clear page (as WP-16's spec draws them), so
+ *  Liquid Glass shows what lies behind its card. */
+const SKIES = `
+:root:root[data-luca-frame-glass].dark {
+  background: linear-gradient(180deg, #16223f 0%, #2d3561 38%, #8c5a74 68%, #e19a6b 100%) !important;
+}
+:root:root[data-luca-frame-glass]:not(.dark) {
+  background: linear-gradient(180deg, #8fb3d9 0%, #b9cfe6 40%, #e3dccf 75%, #f0d6b8 100%) !important;
+}`;
 
 const engine = () => {
   const name = test.info().project.name;
@@ -93,9 +105,16 @@ async function boot(
   {
     baseURL,
     flag = true,
+    frame = "black",
     log = [],
     mode = "dark",
-  }: { baseURL?: string; flag?: boolean; log?: string[]; mode?: Mode } = {},
+  }: {
+    baseURL?: string;
+    flag?: boolean;
+    frame?: Frame;
+    log?: string[];
+    mode?: Mode;
+  } = {},
 ) {
   page.on("pageerror", (error) => log.push(`PAGE ERROR ${error.message}`));
   page.on("console", (message) => {
@@ -115,6 +134,21 @@ async function boot(
       window.localStorage.setItem("buzz-theme", "paper");
       window.localStorage.setItem("buzz-follow-system", "false");
     });
+  if (frame === "liquid")
+    // Stands in for Tauri and PolyphonicGlass.swift (shell-one-card.spec.ts).
+    await page.addInitScript(() => {
+      const glass = window as typeof window & {
+        __POLYPHONIC_NATIVE_GLASS__?: number;
+        isTauri?: boolean;
+        webkit?: unknown;
+      };
+      glass.isTauri = true;
+      window.localStorage.setItem("polyphonic-frame", "glass");
+      glass.webkit = {
+        messageHandlers: { polyphonicGlass: { postMessage: () => {} } },
+      };
+      glass.__POLYPHONIC_NATIVE_GLASS__ = 1;
+    });
   await installMockBridge(page, {
     managedAgents: [
       {
@@ -131,6 +165,18 @@ async function boot(
       timeout: 20_000,
     });
   }).toPass({ timeout: 90_000 });
+  if (frame === "liquid") {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            document.documentElement.getAttribute("data-luca-frame-glass"),
+          ),
+        { timeout: 20_000 },
+      )
+      .toBe("liquid");
+    await page.addStyleTag({ content: SKIES });
+  }
 }
 
 /** Enough of today's words that the room scrolls at every size. */
@@ -428,72 +474,286 @@ async function scrollToEnd(page: Page) {
   await page.waitForTimeout(900);
 }
 
+/** The top edge in a conversation that scrolls, held at its newest message:
+ *  at rest, scrolled, and with the companion's badge coming and going. */
+async function topEdgeCase(
+  page: Page,
+  {
+    frame,
+    height,
+    mode,
+    width,
+  }: { frame: Frame; height: number; mode: Mode; width: number },
+) {
+  const tag = `${frame === "liquid" ? "liquid-" : ""}${width}-${mode}`;
+  const log: string[] = [];
+  await page.setViewportSize({ width, height });
+  await boot(page, { frame, log, mode });
+  await fill(page, 24);
+  await page.mouse.move(width - 10, 10);
+  await page.waitForTimeout(1800);
+  // d1, held at the newest message, then scrolled.
+  const held = await edge(page);
+  await shot(page, `held-${tag}`);
+  await scrollUp(page);
+  const scrolled = await edge(page);
+  await shot(page, `scrolled-${tag}`);
+  await scrollToEnd(page);
+  const before = await edge(page);
+  // d2, the companion holding the app.
+  await holdCompanion(page, crypto.randomUUID());
+  await backToRoom(page);
+  await page.mouse.move(width - 10, height - 10);
+  await page.waitForTimeout(1500);
+  const badged = await edge(page);
+  await shot(page, `badge-${tag}`);
+  await scrollUp(page);
+  const badgedScrolled = await edge(page);
+  await shot(page, `badge-scrolled-${tag}`);
+  await scrollToEnd(page);
+  const badgedEnd = await edge(page);
+  await page.getByRole("button", { name: "Stop app navigation" }).click();
+  await expect(page.getByTestId("app-control-badge")).toHaveCount(0, {
+    timeout: 10_000,
+  });
+  await page.waitForTimeout(900);
+  const after = await edge(page);
+  measure(`edge-${tag}`, {
+    after,
+    badged,
+    badgedEnd,
+    badgedScrolled,
+    before,
+    held,
+    log,
+    scrolled,
+  });
+  for (const each of [held, scrolled, before, after]) expectStuck(each);
+  for (const each of [badged, badgedScrolled, badgedEnd]) {
+    if (!each.badge) throw new Error("no badge");
+    expect(each.covered).toEqual([]);
+    expectStuck(each, each.badge.bottom);
+  }
+  // Held at the newest message: the badge comes and goes, it stays.
+  for (const each of [held, before, badged, badgedEnd, after])
+    expect(each.scroll?.fromBottom ?? 99).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs((after.newest?.bottom ?? 0) - (badgedEnd.newest?.bottom ?? 1)),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs((before.newest?.bottom ?? 0) - (badged.newest?.bottom ?? 1)),
+  ).toBeLessThanOrEqual(1);
+  expect(log).toEqual([]);
+}
+
 for (const [width, height] of [
   [1440, 900],
   [800, 500],
 ] as const) {
-  for (const mode of ["dark", "light"] as Mode[]) {
-    test(`the top edge at ${width} ${mode}`, async ({ page }) => {
-      const log: string[] = [];
-      await page.setViewportSize({ width, height });
-      await boot(page, { log, mode });
-      await fill(page, 24);
-      await page.mouse.move(width - 10, 10);
-      await page.waitForTimeout(1800);
-      // d1, held at the newest message, then scrolled.
-      const held = await edge(page);
-      await shot(page, `held-${width}-${mode}`);
-      await scrollUp(page);
-      const scrolled = await edge(page);
-      await shot(page, `scrolled-${width}-${mode}`);
-      await scrollToEnd(page);
-      const before = await edge(page);
-      // d2, the companion holding the app.
-      await holdCompanion(page, crypto.randomUUID());
-      await backToRoom(page);
-      await page.mouse.move(width - 10, height - 10);
-      await page.waitForTimeout(1500);
-      const badged = await edge(page);
-      await shot(page, `badge-${width}-${mode}`);
-      await scrollUp(page);
-      const badgedScrolled = await edge(page);
-      await shot(page, `badge-scrolled-${width}-${mode}`);
-      await scrollToEnd(page);
-      const badgedEnd = await edge(page);
-      await page.getByRole("button", { name: "Stop app navigation" }).click();
-      await expect(page.getByTestId("app-control-badge")).toHaveCount(0, {
-        timeout: 10_000,
+  for (const mode of ["dark", "light"] as Mode[])
+    test(`the top edge at ${width} ${mode}`, async ({ page }) =>
+      topEdgeCase(page, { frame: "black", height, mode, width }));
+  test(`the top edge under Liquid Glass at ${width}`, async ({ page }) =>
+    topEdgeCase(page, { frame: "liquid", height, mode: "dark", width }));
+}
+
+// ── a room across older days ────────────────────────────────────────────
+/** Five days of words: today and the four before, 25 each, tagged by day. */
+async function fillDays(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName: "general",
+            }) ?? false,
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+  const days: Record<string, number> = {};
+  const messages: { content: string; createdAt: number }[] = [];
+  for (let back = 4; back >= 0; back--) {
+    const day = new Date();
+    day.setDate(day.getDate() - back);
+    day.setHours(back === 0 ? Math.min(day.getHours(), 9) : 10, 0, 0, 0);
+    const at = Math.floor(day.getTime() / 1000);
+    days[`d${back}`] = at;
+    for (let i = 0; i < 25; i++)
+      messages.push({
+        content: `[d${back}] Note ${i + 1} from that day: what changed, and why it matters.`,
+        createdAt: at + i * 60,
       });
-      await page.waitForTimeout(900);
-      const after = await edge(page);
-      measure(`edge-${width}-${mode}`, {
-        after,
-        badged,
-        badgedEnd,
-        badgedScrolled,
-        before,
-        held,
-        log,
-        scrolled,
-      });
-      for (const each of [held, scrolled, before, after]) expectStuck(each);
-      for (const each of [badged, badgedScrolled, badgedEnd]) {
-        if (!each.badge) throw new Error("no badge");
-        expect(each.covered).toEqual([]);
-        expectStuck(each, each.badge.bottom);
-      }
-      // Held at the newest message: the badge comes and goes, it stays.
-      for (const each of [held, before, badged, badgedEnd, after])
-        expect(each.scroll?.fromBottom ?? 99).toBeLessThanOrEqual(2);
-      expect(
-        Math.abs((after.newest?.bottom ?? 0) - (badgedEnd.newest?.bottom ?? 1)),
-      ).toBeLessThanOrEqual(1);
-      expect(
-        Math.abs((before.newest?.bottom ?? 0) - (badged.newest?.bottom ?? 1)),
-      ).toBeLessThanOrEqual(1);
-      expect(log).toEqual([]);
-    });
   }
+  await page.evaluate((messages) => {
+    for (const message of messages)
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "general",
+        content: message.content,
+        createdAt: message.createdAt,
+      } as never);
+  }, messages);
+  return Object.fromEntries(
+    Object.entries(days).map(([key, at]) => [key, formatDayHeading(at)]),
+  );
+}
+
+/** One stop: the first message read below the top line (its day tag), the
+ *  pill(s) shown at the top, and any pill shown above the card's top. */
+async function stop(page: Page) {
+  return page.evaluate(() => {
+    const scroller = document.querySelector<HTMLElement>(
+      '[data-buzz-conversation-scroll="true"]',
+    );
+    const card = document
+      .querySelector("[data-luca-one-card]")
+      ?.getBoundingClientRect();
+    const lip = document
+      .querySelector('[data-testid="shell-lip"]')
+      ?.getBoundingClientRect();
+    if (!scroller || !card || !lip) return null;
+    const box = scroller.getBoundingClientRect();
+    const line =
+      box.top +
+      scroller.clientTop +
+      Number.parseFloat(getComputedStyle(scroller).paddingTop || "0");
+    const shown = (el: Element) => {
+      for (let node: Element | null = el; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          Number.parseFloat(style.opacity) === 0
+        )
+          return false;
+      }
+      return true;
+    };
+    let first: { top: number; text: string } | null = null;
+    for (const row of scroller.querySelectorAll<HTMLElement>(
+      "[data-message-id]",
+    )) {
+      const r = row.getBoundingClientRect();
+      if (r.height === 0 || r.bottom <= line + 1 || r.top >= box.bottom)
+        continue;
+      if (!first || r.top < first.top)
+        first = { text: row.textContent ?? "", top: r.top };
+    }
+    const tag = first?.text.match(/\[(d\d)\]/)?.[1] ?? "d0";
+    // What of a pill shows: clipped by every ancestor that clips (a row's
+    // pill scrolled out keeps its box; the stand-in pushed up is cut at the
+    // card's top).
+    const visible = (el: Element) => {
+      const raw = el.getBoundingClientRect();
+      let top = raw.top;
+      let bottom = raw.bottom;
+      for (let node = el.parentElement; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.overflowX === "visible" && style.overflowY === "visible")
+          continue;
+        const r = node.getBoundingClientRect();
+        top = Math.max(top, r.top);
+        bottom = Math.min(bottom, r.bottom);
+      }
+      return { bottom, raw, top };
+    };
+    const pills = [
+      document.querySelector('[data-testid="message-timeline-stuck-day"] > p'),
+      ...scroller.querySelectorAll(
+        '[data-testid="message-timeline-day-divider"] > p',
+      ),
+    ]
+      .filter((el): el is Element => Boolean(el) && shown(el as Element))
+      .map((el) => ({ el, ...visible(el) }))
+      .filter((p) => p.bottom - p.top > 0.5)
+      .map((p) => ({
+        bottom: p.bottom,
+        rawTop: p.raw.top,
+        text: (p.el.textContent ?? "").trim(),
+        top: p.top,
+      }));
+    // The stuck one: the lowest pill standing at or above the line.
+    const atLine = pills
+      .filter((p) => p.rawTop <= line + 1.5)
+      .sort((a, b) => b.rawTop - a.rawTop);
+    const stuck = atLine.slice(0, 1);
+    const overlapping = pills.some((a, i) =>
+      pills.some(
+        (b, j) => j > i && a.top < b.bottom - 1 && b.top < a.bottom - 1,
+      ),
+    );
+    return {
+      cardTop: card.top,
+      firstText: first?.text.slice(0, 40) ?? null,
+      fromBottom: Math.round(
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+      ),
+      lipBottom: lip.bottom,
+      overlapping,
+      stuck: stuck.map((p) => p.text),
+      tag,
+      top: Math.round(scroller.scrollTop),
+      underLip: pills.filter((p) => p.top < card.top - 0.5).map((p) => p.text),
+    };
+  });
+}
+
+for (const [width, height] of [
+  [1440, 900],
+  [800, 500],
+] as const) {
+  test(`the stuck day across older days at ${width}`, async ({ page }) => {
+    const log: string[] = [];
+    await page.setViewportSize({ width, height });
+    await boot(page, { log });
+    const labels = await fillDays(page);
+    await page.waitForTimeout(1800);
+    const viewport = await page
+      .locator("[data-luca-timeline-viewport]")
+      .boundingBox();
+    if (!viewport) throw new Error("no timeline");
+    await page.mouse.move(
+      viewport.x + viewport.width / 2,
+      viewport.y + viewport.height * 0.5,
+    );
+    const step = Math.round(viewport.height * 0.6);
+    const stops: NonNullable<Awaited<ReturnType<typeof stop>>>[] = [];
+    const read = async () => {
+      const each = await stop(page);
+      if (!each) throw new Error("no room");
+      stops.push(each);
+      return each;
+    };
+    await read();
+    // Back from the newest message to the top, then forward again.
+    for (let i = 0; i < 80; i++) {
+      await page.mouse.wheel(0, -step);
+      await page.waitForTimeout(350);
+      const each = await read();
+      if (i === 6) await shot(page, `days-back-${width}`);
+      if (each.top <= 1) break;
+    }
+    await shot(page, `days-top-${width}`);
+    for (let i = 0; i < 80; i++) {
+      await page.mouse.wheel(0, step);
+      await page.waitForTimeout(350);
+      const each = await read();
+      if (each.fromBottom <= 1) break;
+    }
+    measure(`days-${width}`, { labels, log, stops });
+    const days = new Set(stops.map((each) => each.tag));
+    expect(days.size).toBeGreaterThanOrEqual(4);
+    expect(stops[stops.length - 1].fromBottom).toBeLessThanOrEqual(1);
+    for (const each of stops) {
+      // The day of the first message in view, stuck once, nothing under
+      // the lip, no pill on another.
+      expect(each.stuck, JSON.stringify(each)).toEqual([labels[each.tag]]);
+      expect(each.underLip, JSON.stringify(each)).toEqual([]);
+      expect(each.overlapping, JSON.stringify(each)).toBe(false);
+    }
+    expect(log).toEqual([]);
+  });
 }
 
 // ── flag off: the room as the integration base draws it ─────────────────
