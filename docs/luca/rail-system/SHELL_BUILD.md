@@ -2297,3 +2297,32 @@ list in your report, for the merge.
 - the gates.
 
 **Checks JSON keys:** `d1` to `d4`, `flag_off_identical`, `gates`.
+
+## WP-27 · Three from the final flows check (2026-10-26, Claude's design, from `final-review-flows/` round three)
+
+**Files in scope:**
+- the room's stack (`ConversationRoomStack.tsx`, `conversationAgentActivityShelf.*`, `ChannelPane.tsx`) and the
+  timeline's bottom anchor (`messages/ui/MessageTimeline.tsx`);
+- the right-hand profile card's state word (`features/profile/ui/UserProfilePanel*.tsx`).
+
+**Decisions** (under `shell-frame`; flag off unchanged):
+1. **A room opens on its newest message, whatever the stack holds.**
+   - Today, in #general at 1440 × 900 with three asks, the stack covers y 440 to 744. The last messages sit under it
+     (y 522 to 541): the list stays at scrollTop 0 of 157 until you scroll. At 800 × 500 the folded line covers the
+     last message.
+   - The timeline keeps its bottom anchor when the stack arrives, grows or folds after the first paint.
+   - Measure: the newest message's bottom is at or above the stack's top at load, with no scroll, in Chromium and
+     WebKit, at 1440 × 900 with three asks and at 800 × 500, folded and shown.
+2. **An open form never leaves the window.**
+   - Today, at 800 × 500, the Change… form's Cancel and Run sit at y 543 to 569, below the window.
+   - The stack with an open form is bounded by the room's height above the message box: never past the window's
+     bottom, never above the card's top. The form scrolls inside it and opens with its head in view, and its actions
+     are reachable by scrolling the stack. At 1440 × 900 it still shows whole.
+3. **The profile card says the shared word.** With Wren stopped, the rail, the head, Now and Settings > Agents read
+   "off", but the right-hand profile card reads "Resident · Unavailable". It takes its word from the shared state
+   (`useMindState`), like the others.
+
+**Verification:** Chromium and WebKit (Playwright's webkit), 1440 × 900 and 800 × 500, dark and light, one measurement
+each; flag-off views identical by hash to the base (`http://127.0.0.1:4300/`, the pre-shell build); the gates.
+
+**Checks JSON keys:** `d1` to `d3`, `flag_off_identical`, `gates`.
