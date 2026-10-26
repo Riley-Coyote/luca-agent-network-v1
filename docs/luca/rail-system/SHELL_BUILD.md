@@ -2383,3 +2383,44 @@ run's, not the app's. The failures, with my first read (verify each):
 **Checks JSON keys:** one per row group (`chats_rail`, `frame_made_all`, `header_shots_unique`, `header_lip`,
 `flag_off_header`, `containment`, `flag_off_runtime`, `settings_page`, `status_dot`, `glass_frame_row`, `huddle_bar`,
 `finish_click`, `one_state_buttons`, `motion_film`), plus `suite` and `gates`.
+
+## WP-29 · The timeline's top edge (2026-10-26, Claude's design, from the final suite and a probe)
+
+**Why.**
+- Measured on the finished app (`final-suite2/probe/`): in #general at 800 × 500, held at its newest message (WP-27),
+  the stuck day pill "Today" sits at y 5 to 31. `elementFromPoint` at its centre is `shell-lip`, so it is hidden under
+  the lip. It shows again only once the list is scrolled to its top (y 59). In any conversation that scrolls, the stuck
+  date is invisible.
+- `luca/shell-finish.spec.ts:1018` now fails at 800 × 500. While the companion holds the app, its badge ("Luca is using
+  Polyphonic · Stop", y 42 to 86) floats over the top of the held timeline: "New" and "Hey team — checking in." are
+  under it (`final-suite2/shots/shell/shell-finish/13-companion-badge-800x500.png`, `checks-companion.json`).
+
+**Files in scope:**
+- the timeline's scroller and its day divider (`messages/ui/MessageTimeline.tsx` and the day divider's component and
+  styles);
+- the companion's badge only where the conversation reads its band;
+- `tests/e2e/luca/shell-finish.spec.ts` (the badge test).
+
+**Decisions** (under `shell-frame`; flag off unchanged):
+1. **The stuck day pill sits just inside the card's top edge,** below the lip, in every frame and at every size, so the
+   date of what you're reading always shows. It is never under the lip.
+2. **Nothing is drawn over a message, the badge included** (the same law as WP-23 Decided 1).
+   - While the companion's badge shows, the conversation's reading area starts below it: the timeline's top edge clears
+     the badge's bottom by the page's gap, at rest and scrolled, and the stuck pill sticks below the badge.
+   - The badge and its halo stay as they are.
+   - When the badge goes, the reading area returns, and the newest message holds its place (WP-27's bottom-hold).
+   - The pill's "step aside" under the badge is no longer needed. Remove it if nothing else uses it.
+3. **The badge test follows:** no words under the badge at 1440 × 900 and 800 × 500, scrolled and not; the stuck pill
+   visible below the badge. It cites WP-29.
+
+**Verification:**
+- Chromium and WebKit, 1440 × 900 and 800 × 500, dark and light, flag on.
+- A conversation that scrolls, held at its newest message:
+  - the stuck pill's box below the lip, and `elementFromPoint` at its centre is the pill;
+  - with the companion holding the app, no message's words under the badge, and the stuck pill below it;
+  - the badge comes and goes with the newest message holding its place.
+- Flag-off views identical by hash to the base (`http://127.0.0.1:4334/`).
+- Then rerun the whole of `luca/shell-finish.spec.ts` and `shell-room-flows.spec.ts`.
+- The gates.
+
+**Checks JSON keys:** `d1` to `d3`, `flag_off_identical`, `gates`.
