@@ -141,8 +141,9 @@ type Choice = {
   rail: boolean;
   /** The rail's surface: the card's own black, or a step lighter. */
   tone: "same" | "lighter";
-  /** The rail and the conversation as two cards side by side, or as one
-   *  card with the rail inside it (NAVIGATION.md, "One card or two"). */
+  /** The rail and the conversation as one card with the rail inside it
+   *  (Riley's pick, 2026-10-26: NAVIGATION.md, "One card"), or as two cards
+   *  side by side, as they were. */
   cards: "two" | "one";
   /** The glass look on hand: its material, an id from MATERIALS, and the
    *  veil. On the solid frame it waits. */
@@ -166,7 +167,7 @@ const DEFAULT_CHOICE: Choice = {
   tabs: true,
   rail: true,
   tone: "same",
-  cards: "two",
+  cards: "one",
   ...DEFAULT_LOOKS.dark,
   looks: DEFAULT_LOOKS,
   panel: true,

@@ -150,15 +150,16 @@ Unchanged: its section list in the rail, the section in the card. It is the mode
 | Claude Code and Codex sessions | Agents → New conversation → a side panel | Agents → Connected → the card |
 | Managing a room (members, leave, archive) | the panel exists; nothing opens it | a Manage button in the details card |
 
-## One card or two
+## One card (decided)
 
-The rail as its own card beside the conversation's (today), or the two as one card with the rail inside it. Decided by
-eye in the real app once the rails are right: the test app gets a switch between the two.
+Riley, 2026-10-26, in the shell lab: "lets go with one card. it just makes more sense i think, even tho the two card
+look looks nice in some situations." The rail and what it opens share one card, in every place.
 
-The shell lab has the switch (its panel's Cards row, or `cards=one` in the address), drawn this way: the one card lies
-beneath the rail and the conversation and never moves, so closing the rail folds it into the card instead of moving the
-card's corner. Half a point of ink at 8% divides the two, the lighter rail tone is a wash of ink on the rail's side, and
-there is one shadow.
+Drawn as the lab draws it (`cards: "one"`): the card lies beneath the rail and the conversation and never moves, so
+closing the rail folds it into the card instead of moving the card's corner. Half a point of ink at 8% divides the two,
+the lighter rail tone is a wash of ink on the rail's side, and there is one shadow. Panes side by side share the card
+too, divided by the same line. Details, profiles and the Canvas stay cards of their own on the right. The measures are
+`SHELL_SPEC.md`.
 
 ## Not in this update
 

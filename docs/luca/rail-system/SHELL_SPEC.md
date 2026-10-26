@@ -7,7 +7,12 @@ is everything around the rail: the frame, the cards, the setting, and what each 
 
 ## The sentence
 
-**A thin frame, black or Apple's glass, holding two cards: the rail and the conversation.**
+**A thin frame, black or Apple's glass, holding one card: the rail and what it opens, side by side, a hairline
+between.**
+
+(Amended 2026-10-26, Riley: "lets go with one card". Until then the rail and the conversation were two cards with 4
+between them; Riley chose one card in the shell lab, whose drawing of it is the reference: `cards: "one"` in
+`desktop/src/testing/shellStudy/`.)
 
 The frame is the window's own edge: a lip across the top and a column of places down the left. Everything you read sits
 on cards. Only the frame is ever glass; the cards never are.
@@ -48,13 +53,17 @@ below.
   forward ride with the conversation card: at `max(card's left + 6, 112)`. Until the tabs come, the open
   conversation's name sits on the card's axis (see Tabs); the tabs, when they come, follow back and forward, 58 further
   on.
-- **The places:** a column 44 wide under the lip, its icons centred on the lights' axis (22): New conversation and
-  Search; then Conversations, Library, Agents, Activity, Brain; Settings and the avatar at the bottom. Icon tiles 28,
+- **The places:** a column 44 wide under the lip, its icons centred on the lights' axis (22): Search; then Chats,
+  Agents, Activity, Library; Settings and the avatar at the bottom (`NAVIGATION.md`, 2026-10-25). Icon tiles 28,
   corners 9, icons 16 at stroke 1.6.
-- **The rail's card:** 220 wide, from the places' edge (44), top flush with the lip (36), 6 above the window's bottom.
-  Its contents are `SPEC.md`.
-- **The conversation's card:** 4 from the rail's card (from the places' edge when the rail is closed), 6 from the
-  window's right and bottom, top flush with the lip. It has no header of its own.
+- **The card:** from the places' edge (44) to 6 from the window's right, top flush with the lip (36), 6 above the
+  window's bottom. It never moves: the rail and the conversation lie on it.
+- **The rail:** the card's first 220, its contents the place's own rail (`NAVIGATION.md`; Chats' is `SPEC.md`).
+  Half a point of ink at 8% divides it from what it opens (one device pixel on a Retina screen, drawn as an inset
+  line: a box that thin isn't painted in every engine). The rail's lighter tone, where chosen, is a wash of ink at 5%
+  on the rail's side of the line. Closing the rail folds it into the card: the conversation's edge follows the rail's
+  as it narrows, and the card's corner stays where it is.
+- **The conversation** (or whatever the rail opens) fills the rest of the card. It has no header of its own.
 - **Corners:** the window 16; the cards 10 (the app's `--radius`, 0.625rem), concentric with the window's corner across
   the 6 between them; the open tab 9 at its top, with soft inward corners of 8 where it meets the card.
 - **Smallest window:** the app's minimum stays 800 × 500, which leaves the conversation's card 526 wide with the rail
@@ -220,15 +229,15 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
   drag marks become unnecessary.
 
 **The rail** (`features/sidebar/ui/AppSidebar.tsx`, `shared/ui/sidebar.tsx`)
-- Becomes the rail's card: a card of its own, beside the conversation's, not a column on the floor. Collapsing closes
-  the card and the conversation's card follows its edge. The pinned header (the search field) and the primary menu
+- Becomes the card's first column, not a column on the floor (amended 2026-10-26: one card, not two). Collapsing
+  folds it into the card and the conversation's edge follows it. The pinned header (the search field) and the primary menu
   (Library, New conversation, Agents, Activity, Brain, Settings) move to the places column, leaving the card to the
   rail of `SPEC.md`.
 - Its width is fixed at 220 (Decided, 2): the drag-resize handle and the stored width
   (`luca-conversation-sidebar-width`) go. Its peek on hover and the narrow-window sheet (under 768) keep working.
 - **The runtime sessions column** (`RuntimeSessionsPanel`, 22 rem, opened beside the rail from New conversation)
-  becomes a card of its own between the rail's and the conversation's while it is open, 4 from each, and a sheet when
-  narrow as today (Decided, 12).
+  retires: a connected app's sessions are its card in Agents (`NAVIGATION.md`, "Agents"). (Decided 12 had made it a
+  card of its own between the two cards; one card and the Connected card replace that.)
 - **The footer's status cards** (connection, relay, background task, update available) stay at the bottom of the rail's
   card. While the rail is closed, a connection problem shows as a dot on the avatar and an available update as a dot on
   Settings (Decided, 4). The profile card goes: its menu is the avatar's.
@@ -256,8 +265,8 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
 - Its spacing comes from two places today: the route surface's margin (8 / 8 / 8 / 1, 8 on the left when the rail is
   closed) for Brain, New conversation and the like, and, for a conversation, the workspace grid's padding of
   `--mn-card-lip` (8) all round with `--mn-card-gap` (4) between panes. Both become: top flush with the lip, 6 right
-  and bottom, 4 from the rail's card. `--mn-card-lip` becomes 6 and `--mn-card-gap` stays 4; the grid's left padding
-  becomes the gap (4) beside the rail's card.
+  and bottom, beginning at the rail's hairline (amended 2026-10-26: one card), or at the card's own left edge with the
+  rail closed.
 - **One card for every place:** Library, Agents and Activity stop painting a card of their own (`routeOwnsFloor`) and
   fill the conversation's card like Brain, New conversation and the conversations do.
 - **The conversation header** (`features/chat/ui/ChatHeader.tsx`, `features/channels/ui/ChannelScreenHeader.tsx`)
@@ -274,7 +283,8 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
   are unchanged.
 
 **Several conversations side by side** (`features/conversation-workspace/`)
-- The workspace's panes (up to four, each its own card) and their tab model (`slot.conversations`, `activeTab`, with
+- The workspace's panes (up to four; amended 2026-10-26: they share the one card, divided by the rail's hairline,
+  rather than each being a card of its own) and their tab model (`slot.conversations`, `activeTab`, with
   select and close actions but no strip drawn today) stay as they are while the tabs wait. The lip names the focused
   pane's conversation; each other pane shows its conversation's name quietly at its own top. When the tabs come, the
   lip's tabs are the focused pane's (Decided, 5).
@@ -388,7 +398,8 @@ each is marked there as "Decided, n".
 10. **Tab keys:** ⌃Tab and ⌃⇧Tab for the next and previous tab, ⌘W to close the open tab once it's confirmed ⌘W doesn't
     close the window (not: none yet). They wait with the tabs.
 11. **⌘S for the rail:** stays (not: moving off Save's key).
-12. **The runtime sessions column:** a card of its own between the rail's and the conversation's while it is open
+12. **The runtime sessions column** (retired 2026-10-26: one card, and the Connected card in Agents)**:** a card of its
+    own between the rail's and the conversation's while it is open
     (not: leaving with Runtimes).
 
 ## Retired with the shell
