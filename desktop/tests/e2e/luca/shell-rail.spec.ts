@@ -10,6 +10,8 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 /**
  * WP-02, the rail ironed out (docs/luca/rail-system/SHELL_BUILD.md): the
  * shell's rail under the `shell-frame` flag, against SPEC.md's "Done means".
+ * Updated for WP-11 (the Chats rail): Fleets retired, so a group is a room of
+ * its own under Rooms; homes start open; the rail opens on its CHATS heading.
  * Screenshots land in WP02_SHOTS when set (the build's scratch folder).
  */
 
@@ -73,8 +75,9 @@ async function boot(page: Page, { shell }: { shell: boolean }) {
 /**
  * The study's scene, through the mock bridge's own commands: Luca's thread and
  * a session of Luca's; Atlas and Wren with sessions; Codex with none; two
- * projects with rooms and one without; a fleet's group chat; a fleet with two
- * sessions and no group chat; and a person (Alice) from the stock data.
+ * projects with rooms and one without; an unnamed group of Luca and Wren; two
+ * named rooms of Atlas and Wren; and Alice from the stock data (an agent, by
+ * her profile).
  */
 async function seedScene(page: Page) {
   await page.evaluate(
@@ -217,8 +220,7 @@ const hit = (page: Page, id: string) =>
 const session = (page: Page, channelId: string) =>
   page.getByTestId(`rail-session-${channelId}`);
 const agentId = (pubkey: string) => `agent:${pubkey}`;
-const fleetId = (...members: string[]) =>
-  `fleet:${[...members].sort().join("+")}`;
+const roomId = (channelId: string) => `room:${channelId}`;
 
 async function railRows(page: Page) {
   return page.evaluate(() =>
@@ -238,16 +240,17 @@ test.describe("the shell's rail", () => {
   test.beforeEach(async ({ page }) => {
     await boot(page, { shell: true });
     await expect(home(page, "luca")).toBeVisible();
-    await expect(home(page, fleetId(ATLAS, WREN))).toBeVisible();
+    await expect(home(page, roomId(ROOM.review))).toBeVisible();
   });
 
   test("order, one home per chat, rows and selection", async ({ page }) => {
     const rows = await railRows(page);
     console.log("RAIL ROWS", JSON.stringify(rows));
-    // Luca first, then PROJECTS, AGENTS, FLEETS.
+    // CHATS, Luca, then PROJECTS, AGENTS and ROOMS (Fleets retired; no
+    // person in this scene, so no PEOPLE).
     const heads = rows.filter((row) => row.startsWith("# "));
-    expect(heads).toEqual(["# Projects", "# Agents", "# Fleets"]);
-    expect(rows[0]).toMatch(/^Luca\b(?! \+)/);
+    expect(heads).toEqual(["# Chats", "# Projects", "# Agents", "# Rooms"]);
+    expect(rows[1]).toMatch(/^Luca\b(?! \+)/);
 
     // No glyphs: a home row is its name, a chevron and the + only.
     const glyphs = await page.evaluate(() =>
@@ -269,8 +272,7 @@ test.describe("the shell's rail", () => {
     ).toHaveCount(0);
     await shoot(page, "01-nothing-open");
 
-    // Type and measures, against the shell study's.
-    await home(page, agentId(WREN)).locator("[data-chevron]").click();
+    // Type and measures, against the shell study's (homes start open).
     const measures = await page.evaluate(() => {
       const box = (selector: string) => {
         const el = document.querySelector<HTMLElement>(
@@ -313,7 +315,6 @@ test.describe("the shell's rail", () => {
     expect(measures.session?.size).toBe("13px");
     expect(measures.label?.size).toBe("11px");
     expect(measures.label?.caps).toBe("uppercase");
-    await home(page, agentId(WREN)).locator("[data-chevron]").click();
 
     // Luca open.
     await hit(page, "luca").click(ON_NAME);
@@ -371,32 +372,38 @@ test.describe("the shell's rail", () => {
     await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
     await shoot(page, "04-project-room-open");
 
-    // A fleet open: Atlas + Wren opens its newest session.
-    await hit(page, fleetId(ATLAS, WREN)).click(ON_NAME);
-    await expect(home(page, fleetId(ATLAS, WREN))).toHaveAttribute(
+    // A room open: the room is its own home, by its own name.
+    await hit(page, roomId(ROOM.review)).click(ON_NAME);
+    await expect(home(page, roomId(ROOM.review))).toHaveAttribute(
       "data-active",
       "true",
     );
     await expect(page.getByTestId("shell-lip-name")).toHaveText(
-      /Palette|Design review/,
+      "Design review",
     );
-    await shoot(page, "05-fleet-open");
-    await shoot(page, "05b-fleet-open-window", page.locator("body"));
+    await shoot(page, "05-room-open");
+    await shoot(page, "05b-room-open-window", page.locator("body"));
   });
 
   test("expansion is remembered per home", async ({ page }) => {
-    await home(page, fleetId(ATLAS, WREN)).locator("[data-chevron]").click();
-    await home(page, "project:tidepool").locator("[data-chevron]").click();
-    await expect(session(page, ROOM.review)).toBeVisible();
+    // Homes start open; the chevron closes one, and it stays closed.
     await expect(session(page, ROOM.landing)).toBeVisible();
+    await expect(session(page, ROOM.monday)).toBeVisible();
+    await home(page, "project:tidepool").locator("[data-chevron]").click();
+    await expect(session(page, ROOM.landing)).toBeHidden();
     await page.reload();
     await expect(home(page, "luca")).toBeVisible({ timeout: 20000 });
     await seedScene(page);
-    await expect(session(page, ROOM.review)).toBeVisible();
-    await expect(session(page, ROOM.landing)).toBeVisible();
-    await expect(hit(page, agentId(WREN))).toHaveAttribute(
+    await expect(home(page, agentId(WREN))).toBeVisible();
+    await expect(hit(page, "project:tidepool")).toHaveAttribute(
       "aria-expanded",
       "false",
+    );
+    await expect(session(page, ROOM.landing)).toBeHidden();
+    await expect(session(page, ROOM.monday)).toBeVisible();
+    await expect(hit(page, agentId(WREN))).toHaveAttribute(
+      "aria-expanded",
+      "true",
     );
   });
 
@@ -445,10 +452,11 @@ test.describe("the shell's rail", () => {
       ),
     ).toHaveText("Release notes");
 
-    // The fleet's + opens a session with every member.
-    const fleet = home(page, fleetId(ATLAS, WREN));
-    await fleet.hover();
-    await fleet
+    // A room's + opens a session with every member, when they are all
+    // this Mac's agents.
+    const group = home(page, roomId(ROOM.review));
+    await group.hover();
+    await group
       .getByRole("button", { name: "New session with Atlas + Wren" })
       .click();
     await expect(page.getByRole("dialog")).toContainText(
@@ -466,27 +474,30 @@ test.describe("the shell's rail", () => {
     );
     await page.keyboard.press("Escape");
 
-    // FLEETS + opens New conversation (several recipients).
-    await page.getByTestId("create-fleet").click();
+    // The CHATS heading's + opens New conversation (Fleets retired).
+    await page.getByTestId("rail-new-conversation").click();
     await expect(page).toHaveURL(/#\/messages\/new/);
   });
 
   test("keyboard moves between rows, opens and closes homes", async ({
     page,
   }) => {
+    // Homes start open: Luca's session, then the first project.
     await hit(page, "luca").focus();
     await page.keyboard.press("ArrowDown");
-    await expect(hit(page, "project:studio-site")).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    await expect(session(page, ROOM.hero)).toBeVisible();
-    await page.keyboard.press("ArrowRight");
-    await expect(
-      page.locator('[data-rail-focus="session"]').first(),
-    ).toBeFocused();
-    await page.keyboard.press("ArrowLeft");
+    await expect(session(page, ROOM.weekly)).toBeFocused();
+    await page.keyboard.press("ArrowDown");
     await expect(hit(page, "project:studio-site")).toBeFocused();
     await page.keyboard.press("ArrowLeft");
     await expect(session(page, ROOM.hero)).toBeHidden();
+    await page.keyboard.press("ArrowRight");
+    await expect(session(page, ROOM.hero)).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(session(page, ROOM.hero)).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(hit(page, "project:studio-site")).toBeFocused();
+    await page.keyboard.press("ArrowUp");
+    await expect(session(page, ROOM.weekly)).toBeFocused();
     await page.keyboard.press("ArrowUp");
     await expect(hit(page, "luca")).toBeFocused();
   });
@@ -529,7 +540,7 @@ test.describe("the shell's rail", () => {
 
     // Keyboard focus: the ring follows the same corners.
     await page.mouse.move(1400, 880);
-    await hit(page, "luca").focus();
+    await session(page, ROOM.weekly).focus();
     await page.keyboard.press("ArrowDown");
     const focused = hit(page, "project:studio-site");
     await expect(focused).toBeFocused();
@@ -548,7 +559,6 @@ test.describe("the shell's rail", () => {
     shots.push(focusPath);
 
     // A home and its own sessions share one corner; the + stays round.
-    await home(page, "project:tidepool").locator("[data-chevron]").click();
     const shapes = await page.evaluate(() => ({
       home: getComputedStyle(
         document.querySelector('[data-home="project:tidepool"]') as Element,
@@ -773,11 +783,12 @@ test.describe("the rail, finished (WP-02b)", () => {
         .map((row) => ({ id: row.id, name: row.name, type: row.channel_type }));
     });
     await expect(
-      page.locator('[data-shell-rail] [data-home-kind="fleet"]').first(),
+      page.locator('[data-shell-rail] [data-home-kind="room"]').first(),
     ).toBeVisible({ timeout: 20000 });
-    // Open every home, so each chat is drawn where it lives.
+    // Open every home, and every "N more", so each chat is drawn where it
+    // lives.
     const closed = page.locator(
-      '[data-shell-rail] [data-chevron][data-expanded="false"]',
+      '[data-shell-rail] [data-chevron][data-expanded="false"], [data-shell-rail] [data-testid^="rail-more-"]',
     );
     await expect
       .poll(
@@ -806,11 +817,13 @@ test.describe("the rail, finished (WP-02b)", () => {
           channel: row.dataset.channelId ?? null,
           chevron: Boolean(row.querySelector("[data-chevron]")),
           sessions: [
-            ...(group?.querySelectorAll<HTMLElement>(".luca-rail-session") ??
-              []),
+            ...(group?.querySelectorAll<HTMLElement>(
+              ".luca-rail-session[data-channel-id]",
+            ) ?? []),
           ].map((el) => ({
             channel: el.dataset.channelId ?? "",
-            title: el.textContent ?? "",
+            title:
+              el.querySelector(".luca-rail-session-title")?.textContent ?? "",
           })),
         };
       }),
@@ -838,23 +851,18 @@ test.describe("the rail, finished (WP-02b)", () => {
       if (homeRow && homeRow.kind === "agent") continue;
       expect(label, chat.name).toBe(chat.name);
     }
-    // No fleet with several chats is named after one of them, and a fleet
-    // with one chat is that chat, with no chevron.
-    const names = new Set(chats.map((chat) => chat.name));
-    const fleets = rail.filter((each) => each.kind === "fleet");
-    for (const fleet of fleets) {
-      if (fleet.sessions.length > 0) {
-        expect(fleet.channel).toBeNull();
-        expect(names.has(fleet.name), fleet.name).toBe(false);
-        expect(fleet.name).toContain(" + ");
-      } else {
-        expect(fleet.chevron).toBe(false);
-        expect(fleet.channel).not.toBeNull();
-      }
+    // Fleets retired (WP-11): every room is that one chat, with no chevron,
+    // and an unnamed group is named by its members, never the comma form.
+    const rooms = rail.filter((each) => each.kind === "room");
+    expect(rail.some((each) => each.kind === "fleet")).toBe(false);
+    for (const room of rooms) {
+      expect(room.chevron).toBe(false);
+      expect(room.channel).not.toBeNull();
+      expect(room.name.includes(","), room.name).toBe(false);
     }
-    measured.group_naming = fleets.map((fleet) => ({
-      name: fleet.name,
-      sessions: fleet.sessions.map((entry) => entry.title),
+    measured.group_naming = rooms.map((room) => ({
+      name: room.name,
+      sessions: room.sessions.map((entry) => entry.title),
     }));
     measured.default_mock_chats = {
       chats: chats.length,
@@ -920,8 +928,9 @@ test.describe("the rail, finished (WP-02b)", () => {
       const card = document
         .querySelector('[data-sidebar="sidebar"]')
         ?.getBoundingClientRect();
+      // The rail's first row is its CHATS heading (WP-11).
       const row = document
-        .querySelector("[data-shell-rail] [data-home]")
+        .querySelector("[data-shell-rail] .luca-rail-head")
         ?.getBoundingClientRect();
       if (!card || !row) return null;
       return {
@@ -945,15 +954,19 @@ test.describe("the rail, finished (WP-02b)", () => {
     shots.push(firstPath);
 
     // A home with sessions says so on its own button; the chevron is hidden.
+    // Homes start open (WP-11).
     const wren = hit(page, agentId(WREN));
-    await expect(wren).toHaveAttribute("aria-expanded", "false");
+    await expect(wren).toHaveAttribute("aria-expanded", "true");
     const controls = await wren.getAttribute("aria-controls");
     expect(controls).toBeTruthy();
-    await expect(page.locator(`[id="${controls}"]`)).toBeHidden();
+    await expect(page.locator(`[id="${controls}"]`)).toBeVisible();
     const chevron = home(page, agentId(WREN)).locator("[data-chevron]");
     await expect(chevron).toHaveAttribute("aria-hidden", "true");
     await expect(chevron).toHaveAttribute("tabindex", "-1");
     await wren.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(wren).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator(`[id="${controls}"]`)).toBeHidden();
     await page.keyboard.press("ArrowRight");
     await expect(wren).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator(`[id="${controls}"]`)).toBeVisible();
@@ -1115,7 +1128,6 @@ test.describe("the rail, finished (WP-02b)", () => {
     expect(wrenSlot.after).toBe('"…"');
     expect(wrenSlot.label).toContain("unread");
     // The sessions show the same order: Monday working, the tides unread.
-    await home(page, agentId(WREN)).locator("[data-chevron]").click();
     await expect(
       session(page, ROOM.monday).locator(".luca-rail-working"),
     ).toBeVisible();
@@ -1418,7 +1430,8 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
         .toContain(`/channels/${ROOM.monday}`);
       results.push({ place: "open-inbox-view", back: "monday" });
     }
-    // With no conversation opened yet, Conversations is the new one.
+    // With no conversation opened yet, Conversations lands where the app
+    // opens (WP-11): Luca, never New conversation.
     await page.goto("/?e2e=mock#/artifacts");
     await page.reload();
     await expect(page.getByTestId("shell-places")).toBeVisible({
@@ -1426,8 +1439,11 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     });
     await page.getByTestId("shell-place-conversations").click();
     await expect
-      .poll(() => page.evaluate(() => window.location.hash))
-      .toContain("/messages/new");
+      .poll(() => page.evaluate(() => window.location.hash), {
+        timeout: 20000,
+      })
+      .toContain("/channels/");
+    await expect(home(page, "luca")).toHaveAttribute("data-active", "true");
     fixes.conversations_place = {
       results,
       freshLoad: await page.evaluate(() => window.location.hash),
@@ -1449,7 +1465,8 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
         const scroller = document.querySelector(
           '[data-testid="app-sidebar-scroll-anchor"] [data-sidebar="content"]',
         );
-        const row = document.querySelector("[data-shell-rail] [data-home]");
+        // The rail's first row: its CHATS heading (WP-11).
+        const row = document.querySelector("[data-shell-rail] .luca-rail-head");
         if (!card || !scroller || !row) return null;
         scroller.scrollTop = top;
         return {
@@ -1488,7 +1505,7 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     fixes.rail_scroll_clip = { rest, scrolled };
   });
 
-  test("a group's own chat is its home's conversation, not a session", async ({
+  test("a group and a named room with the same members are two rooms", async ({
     page,
   }) => {
     await boot(page, { shell: true });
@@ -1539,45 +1556,35 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
       },
       { id: planReview, luca: LUCA, wren: WREN },
     );
-    const fleet = home(page, fleetId(LUCA, WREN));
-    // The new room makes the group's home one with sessions; open it.
-    const chevron = fleet.locator("[data-chevron]");
-    await expect(chevron).toHaveCount(1, { timeout: 20000 });
-    if ((await chevron.getAttribute("data-expanded")) === "false")
-      await chevron.click();
-    await expect(
-      page.locator(`[data-shell-rail] [data-channel-id="${planReview}"]`),
-    ).toHaveCount(1, { timeout: 20000 });
-    const read = await page.evaluate(
-      (id) => {
-        const row = document.querySelector<HTMLElement>(
-          `[data-shell-rail] [data-home="${id}"]`,
-        );
-        const group = row?.closest("[data-home-group]");
-        return {
-          name: row?.querySelector(".luca-rail-row-name")?.textContent ?? null,
-          channel: row?.dataset.channelId ?? null,
-          sessions: [
-            ...(group?.querySelectorAll<HTMLElement>(".luca-rail-session") ??
-              []),
-          ].map((el) => el.textContent ?? ""),
-        };
-      },
-      fleetId(LUCA, WREN),
+    // Fleets retired (WP-11): the unnamed group of Luca and Wren and the
+    // named room with the same members are each a room of their own.
+    const named = home(page, roomId(planReview));
+    await expect(named).toBeVisible({ timeout: 20000 });
+    const read = await page.evaluate(() =>
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-shell-rail] [data-home-kind="room"]',
+        ),
+      ].map((row) => ({
+        name: row.querySelector(".luca-rail-row-name")?.textContent ?? null,
+        channel: row.dataset.channelId ?? null,
+        chevron: Boolean(row.querySelector("[data-chevron]")),
+      })),
     );
-    console.log("FLEET OWN CHAT", JSON.stringify(read));
-    expect(read.name).toBe("Luca + Wren");
-    expect(read.channel).not.toBeNull();
-    expect(read.sessions).toEqual(["Plan review"]);
-    expect(read.sessions.some((title) => title.includes(","))).toBe(false);
-    // The home's row opens the group's own chat.
-    await hit(page, fleetId(LUCA, WREN)).click(ON_NAME);
+    console.log("ROOMS", JSON.stringify(read));
+    const names = read.map((each) => each.name);
+    expect(names).toContain("Plan review");
+    expect(names).toContain("Luca + Wren");
+    expect(names.some((name) => name?.includes(","))).toBe(false);
+    for (const each of read) expect(each.chevron).toBe(false);
+    // Each row opens its own chat.
+    await hit(page, roomId(planReview)).click(ON_NAME);
     await expect
       .poll(() => page.evaluate(() => window.location.hash))
-      .toContain(`/channels/${read.channel}`);
-    await expect(fleet).toHaveAttribute("data-active", "true");
-    fixes.fleet_own_chat = { ...read, opened: read.channel };
-    await shoot(page, "43-fleet-own-chat");
+      .toContain(`/channels/${planReview}`);
+    await expect(named).toHaveAttribute("data-active", "true");
+    fixes.group_and_named_room = read;
+    await shoot(page, "43-group-and-named-room");
   });
 
   test("Runtimes rows on the Agents page answer hover", async ({ page }) => {

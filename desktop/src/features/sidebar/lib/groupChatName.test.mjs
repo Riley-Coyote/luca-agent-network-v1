@@ -99,7 +99,7 @@ describe("an unnamed group chat is named by its members (WP-04b)", () => {
       projects: [],
       projectByChannelId: new Map(),
     });
-    const home = homes.fleets.find((each) => each.main?.channel.id === "g");
+    const home = homes.rooms.find((each) => each.main?.channel.id === "g");
     assert.ok(home);
     assert.equal(
       resolveGroupChatMembersName(group, {

@@ -11,11 +11,15 @@ import {
   readExpandedAgents,
   readExpandedHomes,
 } from "@/features/sidebar/lib/agentRailState";
-import type { ChatListItem } from "@/features/sidebar/lib/chatListModel";
+import {
+  type ChatListItem,
+  relativeTime,
+} from "@/features/sidebar/lib/chatListModel";
 import {
   activeRailHome,
   buildRailHomes,
   type RailHome,
+  shownSessions,
 } from "@/features/sidebar/lib/railHomes";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
@@ -32,10 +36,12 @@ import {
 import { ContextMenuItem } from "@/shared/ui/context-menu";
 
 /**
- * The shell's rail (docs/luca/rail-system/SPEC.md, "The rail, ironed out"):
- * Luca first; then every place you talk, each with its sessions nested under
- * its name. Shown only under the `shell-frame` preview feature; today's rail
- * (ChatList, AgentRail) is untouched without it.
+ * The Chats rail (docs/luca/rail-system/SPEC.md, amended 2026-10-25): its own
+ * heading with the + for a new conversation; Luca first; then Projects,
+ * Agents, People and Rooms, each home with its latest conversations nested
+ * under its name, and Rooms ending on Browse rooms… and Archived. Shown only
+ * under the `shell-frame` preview feature; today's rail (ChatList, AgentRail)
+ * is untouched without it.
  *
  * The rows carry the attributes the selection follows and nothing more: the
  * parent of whatever is open is `data-active` (today's pill and the shell's
@@ -61,9 +67,14 @@ export type ShellRailProps = {
   onOpenAgent: (pubkey: string) => void;
   /** The `+` on a home: a new session in it. */
   onAddToHome: (home: RailHome) => void;
+  /** The heading's `+`: New conversation (⌘N). */
+  onNewConversation: () => void;
   onCreateProject: () => void;
-  onCreateAgent: () => void;
-  onCreateFleet: () => void;
+  /** Rooms' `+`: the create-room dialog. */
+  onCreateRoom: () => void;
+  /** Rooms' last two rows: the room browser on All, and on Archived. */
+  onBrowseRooms: () => void;
+  onBrowseArchived: () => void;
   onMarkChannelRead: (
     channelId: string,
     lastMessageAt: string | null | undefined,
@@ -71,21 +82,27 @@ export type ShellRailProps = {
   onMarkChannelUnread: (channelId: string) => void;
 };
 
-const SECTIONS = [
+type Section = {
+  kind: "project" | "agent" | "person" | "room";
+  title: string;
+  add?: { label: string; testId: string };
+};
+
+/** Projects and Agents always show; People and Rooms once there is one. */
+const SECTIONS: readonly Section[] = [
   {
     kind: "project",
     title: "Projects",
-    add: "New project",
-    testId: "create-channel",
+    add: { label: "New project", testId: "create-channel" },
   },
+  { kind: "agent", title: "Agents" },
+  { kind: "person", title: "People" },
   {
-    kind: "agent",
-    title: "Agents",
-    add: "New agent",
-    testId: "create-direct-message",
+    kind: "room",
+    title: "Rooms",
+    add: { label: "New room", testId: "create-room" },
   },
-  { kind: "fleet", title: "Fleets", add: "New fleet", testId: "create-fleet" },
-] as const;
+];
 
 export function addLabel(home: RailHome) {
   return home.kind === "project"
@@ -181,14 +198,17 @@ export function ShellRail({
   onSelectProject,
   onOpenAgent,
   onAddToHome,
+  onNewConversation,
   onCreateProject,
-  onCreateAgent,
-  onCreateFleet,
+  onCreateRoom,
+  onBrowseRooms,
+  onBrowseArchived,
   onMarkChannelRead,
   onMarkChannelUnread,
 }: ShellRailProps) {
-  // People in the rail's chats who are not agents, named from their
-  // profiles, so a group is named by its members and never by a chat.
+  // Everyone in the rail's chats who is not one of this Mac's agents, from
+  // their profiles: their names, so a group is named by its members and never
+  // by a chat, and whether they are an agent (Agents) or a person (People).
   const strangers = React.useMemo(() => {
     const known = new Set(agents.map((agent) => agent.pubkey.toLowerCase()));
     return [
@@ -200,11 +220,13 @@ export function ShellRail({
     ].filter((pubkey) => !known.has(pubkey));
   }, [agents, items]);
   const profiles = useUsersBatchQuery(strangers).data?.profiles;
-  const names = React.useMemo(() => {
+  const { names, agentPubkeys } = React.useMemo(() => {
     const byKey = new Map<string, string>();
+    const agentKeys = new Set<string>();
     for (const pubkey of strangers) {
       const profile = profiles?.[pubkey];
       if (!profile) continue;
+      if (profile.isAgent) agentKeys.add(pubkey);
       const name = resolveIdentityDisplayName({
         displayName: profile.displayName,
         name: profile.name,
@@ -214,19 +236,28 @@ export function ShellRail({
       // "Person" is the resolver's own stand-in, not a name.
       if (name !== "Person") byKey.set(pubkey, name);
     }
-    return byKey;
+    return { names: byKey, agentPubkeys: agentKeys };
   }, [profiles, strangers]);
   const homes = React.useMemo(
     () =>
       buildRailHomes({
         items,
         agents,
+        agentPubkeys,
         primaryPubkey,
         projects,
         projectByChannelId,
         names,
       }),
-    [agents, items, names, primaryPubkey, projectByChannelId, projects],
+    [
+      agentPubkeys,
+      agents,
+      items,
+      names,
+      primaryPubkey,
+      projectByChannelId,
+      projects,
+    ],
   );
   // "In a column": a project's rooms sit in the room column beside the
   // conversation, so the project's row nests nothing (as today's rail).
@@ -317,6 +348,21 @@ export function ShellRail({
   );
 
   const flat = (home: RailHome) => roomsInColumn && home.kind === "project";
+  // The + only where there is a session to start: a new room in a project, a
+  // new session with one of this Mac's agents (never one still arriving), or
+  // with every member of a room when they all are. A person has their one
+  // conversation; the heading's + starts anything else.
+  const managed = (pubkey: string) => {
+    const agent = agentsByPubkey.get(pubkey);
+    return Boolean(agent && !agent.pubkey.includes(":"));
+  };
+  const canAdd = (home: RailHome) =>
+    home.kind === "project" ||
+    ((home.kind === "luca" || home.kind === "agent") &&
+      Boolean(home.pubkey && managed(home.pubkey))) ||
+    (home.kind === "room" &&
+      home.members.length > 0 &&
+      home.members.every(managed));
   const openHome = (home: RailHome) => {
     if (home.sessions.length > 0 && !flat(home)) setOpen(home.id, true);
     if (home.kind === "project" && home.project) {
@@ -347,7 +393,10 @@ export function ShellRail({
     <HomeRow
       active={active?.id === home.id}
       agent={home.pubkey ? agentsByPubkey.get(home.pubkey) : undefined}
-      expanded={expanded[home.id] ?? false}
+      canAdd={canAdd(home)}
+      // Homes start open, so the rail never reads empty; the chevron closes
+      // one, and each home remembers it.
+      expanded={expanded[home.id] ?? true}
       flat={flat(home)}
       home={home}
       key={home.id}
@@ -367,12 +416,14 @@ export function ShellRail({
   const sectionHomes = {
     project: homes.projects,
     agent: homes.agents,
-    fleet: homes.fleets,
+    person: homes.people,
+    room: homes.rooms,
   };
   const create = {
     project: onCreateProject,
-    agent: onCreateAgent,
-    fleet: onCreateFleet,
+    agent: undefined,
+    person: undefined,
+    room: onCreateRoom,
   };
 
   return (
@@ -391,30 +442,77 @@ export function ShellRail({
           data-testid="chat-list"
           onKeyDown={railKeys}
         >
-          {homes.luca ? row(homes.luca) : null}
-          {SECTIONS.map((section) => (
-            <section
-              aria-label={section.title}
-              className="luca-rail-section"
-              data-testid={`rail-section-${section.kind}`}
-              key={section.kind}
+          <div className="luca-rail-section-head luca-rail-head type-eyebrow">
+            <span>Chats</span>
+            <button
+              aria-label="New conversation"
+              aria-keyshortcuts="Meta+N"
+              className="luca-rail-add"
+              data-testid="rail-new-conversation"
+              onClick={onNewConversation}
+              title="New conversation  ⌘N"
+              type="button"
             >
-              <div className="luca-rail-section-head type-eyebrow">
-                <span>{section.title}</span>
-                <button
-                  aria-label={section.add}
-                  className="luca-rail-add"
-                  data-testid={section.testId}
-                  onClick={create[section.kind]}
-                  title={section.add}
-                  type="button"
-                >
-                  <Plus aria-hidden />
-                </button>
-              </div>
-              {sectionHomes[section.kind].map(row)}
-            </section>
-          ))}
+              <Plus aria-hidden />
+            </button>
+          </div>
+          {homes.luca ? row(homes.luca) : null}
+          {SECTIONS.map((section) => {
+            const members = sectionHomes[section.kind];
+            if (
+              members.length === 0 &&
+              (section.kind === "person" || section.kind === "room")
+            )
+              return null;
+            const add = create[section.kind];
+            return (
+              <section
+                aria-label={section.title}
+                className="luca-rail-section"
+                data-testid={`rail-section-${section.kind}`}
+                key={section.kind}
+              >
+                <div className="luca-rail-section-head type-eyebrow">
+                  <span>{section.title}</span>
+                  {section.add && add ? (
+                    <button
+                      aria-label={section.add.label}
+                      className="luca-rail-add"
+                      data-testid={section.add.testId}
+                      onClick={add}
+                      title={section.add.label}
+                      type="button"
+                    >
+                      <Plus aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
+                {members.map(row)}
+                {section.kind === "room" ? (
+                  <>
+                    <button
+                      className="luca-rail-tail text-lip"
+                      data-rail-focus="tail"
+                      data-testid="rail-browse-rooms"
+                      onClick={onBrowseRooms}
+                      type="button"
+                    >
+                      Browse rooms…
+                    </button>
+                    <button
+                      className="luca-rail-tail text-lip"
+                      data-rail-focus="tail"
+                      data-testid="rail-archived-rooms"
+                      onClick={onBrowseArchived}
+                      type="button"
+                    >
+                      Archived
+                    </button>
+                  </>
+                ) : null}
+              </section>
+            );
+          })}
         </div>
       </ChatRowContextMenu>
       {detailsViewModel ? (
@@ -455,6 +553,7 @@ function UnreadDot() {
 function HomeRow({
   active,
   agent,
+  canAdd,
   expanded,
   flat,
   home,
@@ -468,6 +567,8 @@ function HomeRow({
 }: {
   active: boolean;
   agent: AgentRailAgent | undefined;
+  /** Whether the home has a session flow for its `+`. */
+  canAdd: boolean;
   expanded: boolean;
   /** Nest nothing: a project whose rooms sit in a column. */
   flat: boolean;
@@ -505,8 +606,6 @@ function HomeRow({
     (home.main
       ? home.main.channel.id === selectedChannelId
       : !home.sessions.some((item) => item.channel.id === selectedChannelId));
-  // A resident still arriving has no record to start a session with yet.
-  const canAdd = !agent?.pubkey.includes(":");
   // The study's order: a status or "working…" first, then the unread dot.
   const signal = waking ? (
     <span className="luca-rail-working text-2xs">Waking</span>
@@ -518,6 +617,26 @@ function HomeRow({
     <UnreadDot />
   ) : null;
   const sessionsId = `rail-sessions-${home.id}`;
+  // The latest three show, and the open one wherever it falls; the rest wait
+  // behind "N more", which shows them all for as long as the rail is up.
+  const [all, setAll] = React.useState(false);
+  const { shown, hidden } = shownSessions(
+    home.sessions,
+    selectedChannelId,
+    all,
+  );
+  // "N more" leaves as it opens the rest: the focus moves on to the first of
+  // them, so the keyboard never drops out of the rail.
+  const sessionsRef = React.useRef<HTMLFieldSetElement>(null);
+  const focusAfterMore = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    const index = focusAfterMore.current;
+    if (!all || index === null) return;
+    focusAfterMore.current = null;
+    sessionsRef.current
+      ?.querySelectorAll<HTMLElement>('[data-rail-focus="session"]')
+      [index]?.focus();
+  }, [all]);
   // Onboarding's travelling mark lands on Luca's name: Luca's row has no
   // glyph under the shell, so its name is where the mark settles.
   const nameRef = React.useRef<HTMLSpanElement>(null);
@@ -599,11 +718,13 @@ function HomeRow({
           className="luca-rail-sessions"
           hidden={!expanded}
           id={sessionsId}
+          ref={sessionsRef}
         >
-          {(expanded ? home.sessions : []).map((item) => {
+          {(expanded ? shown : []).map((item) => {
             const current = item.channel.id === selectedChannelId;
             const isUnread = !current && unreadChannelIds.has(item.channel.id);
             const busy = workingByChannelId?.get(item.channel.id)?.agentCount;
+            const ago = relativeTime(item.channel.lastMessageAt);
             return (
               <button
                 aria-current={current ? "page" : undefined}
@@ -625,10 +746,28 @@ function HomeRow({
                   <WorkingLabel count={busy} />
                 ) : isUnread ? (
                   <UnreadDot />
+                ) : ago ? (
+                  <span className="luca-rail-session-ago text-2xs">{ago}</span>
                 ) : null}
               </button>
             );
           })}
+          {expanded && hidden > 0 ? (
+            <button
+              aria-label={`Show ${hidden} more in ${home.name}`}
+              className="luca-rail-session luca-rail-session-more text-xs"
+              data-rail-focus="session"
+              data-testid={`rail-more-${home.id}`}
+              onClick={(event) => {
+                if (event.currentTarget === document.activeElement)
+                  focusAfterMore.current = shown.length;
+                setAll(true);
+              }}
+              type="button"
+            >
+              {hidden} more
+            </button>
+          ) : null}
         </fieldset>
       ) : null}
     </div>

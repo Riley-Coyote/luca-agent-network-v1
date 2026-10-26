@@ -7,6 +7,7 @@ import {
   buildRailHomes,
   homeIdOfChat,
   railHomeList,
+  shownSessions,
 } from "./railHomes.ts";
 
 const LUCA = "a".repeat(64);
@@ -16,11 +17,18 @@ const PERSON = "e".repeat(64);
 const GONE = "f".repeat(64);
 
 let clock = 0;
-const chat = (id, participants, channelType = "stream", label = id) => ({
+const chat = (
+  id,
+  participants,
+  channelType = "stream",
+  label = id,
+  visibility = "private",
+) => ({
   channel: {
     id,
-    name: id,
+    name: channelType === "dm" ? "DM" : id,
     channelType,
+    visibility,
     lastMessageAt: new Date(Date.UTC(2026, 9, 1, 0, clock++)).toISOString(),
   },
   label,
@@ -31,10 +39,18 @@ const chat = (id, participants, channelType = "stream", label = id) => ({
 const tidepool = { id: "tidepool", label: "Tidepool" };
 const studio = { id: "studio", label: "Studio site" };
 const empty = { id: "empty", label: "Field guide" };
+const AGENTS = [
+  { name: "Luca", pubkey: LUCA },
+  { name: "Atlas", pubkey: ATLAS },
+  { name: "Wren", pubkey: WREN },
+  { name: "Codex", pubkey: "d".repeat(64) },
+];
 
-function scene() {
-  const items = [
+/** Every case WP-11 names, and the ones around them. */
+function sceneItems() {
+  return [
     chat("luca-dm", [LUCA], "dm", "Luca"),
+    // An agent session: a private room with one agent (Luca's is Luca's).
     chat("luca-weekly", [LUCA]),
     chat("atlas-dm", [ATLAS.toUpperCase()], "dm", "Atlas"),
     chat("wren-dm", [WREN], "dm", "Wren"),
@@ -44,30 +60,37 @@ function scene() {
     chat("landing", [WREN]),
     chat("chapter", [ATLAS, WREN]),
     chat("hero", []),
-    // Groups: one fleet per set of members, whatever order they come in.
+    chat("press", [PERSON], "stream", "press", "open"),
+    // Group conversations: unnamed (named by its members) and named.
     chat("luca-wren", [WREN, LUCA], "dm", "Luca, Wren"),
-    chat("review", [ATLAS, WREN]),
-    chat("palette", [WREN, ATLAS]),
-    // A person, and an agent that was removed: under Agents by name.
+    chat("review", [ATLAS, WREN], "stream", "Design review"),
+    chat("palette", [WREN, ATLAS], "stream", "Palette"),
+    // An open room with one agent: a room, not the agent's session.
+    chat("open-wren", [WREN], "stream", "Tide watch", "open"),
+    // A forum.
+    chat("forum", [ATLAS], "forum", "Field notes", "open"),
+    // A person: their 1:1 is their row; a private room with them is a room.
     chat("person-dm", [PERSON], "dm", "Alice"),
-    chat("person-room", [PERSON]),
+    chat("person-room", [PERSON], "stream", "Alice and me"),
+    // An agent from elsewhere (its profile says so), and its session.
     chat("gone-dm", [GONE], "dm", "Old agent"),
+    chat("gone-room", [GONE], "stream", "Old agent's notes"),
     // A room nobody else is in yet.
     chat("lonely", [], "stream", "Scratch"),
   ];
+}
+
+function scene(items = sceneItems()) {
   const projectByChannelId = new Map([
     ["landing", tidepool],
     ["chapter", tidepool],
     ["hero", studio],
+    ["press", studio],
   ]);
   return buildRailHomes({
     items,
-    agents: [
-      { name: "Luca", pubkey: LUCA },
-      { name: "Atlas", pubkey: ATLAS },
-      { name: "Wren", pubkey: WREN },
-      { name: "Codex", pubkey: "d".repeat(64) },
-    ],
+    agents: AGENTS,
+    agentPubkeys: new Set([GONE]),
     primaryPubkey: LUCA,
     projects: [tidepool, studio, empty],
     projectByChannelId,
@@ -78,21 +101,29 @@ const idsOf = (home) =>
   [home.main, ...home.sessions].filter(Boolean).map((item) => item.channel.id);
 
 test("no chat appears twice, and none is lost", () => {
-  const homes = scene();
+  const items = sceneItems();
+  const homes = scene(items);
   const placed = railHomeList(homes).flatMap(idsOf);
-  assert.equal(placed.length, 16);
+  assert.equal(placed.length, items.length);
   assert.equal(new Set(placed).size, placed.length);
+  assert.deepEqual(
+    [...placed].sort(),
+    items.map((item) => item.channel.id).sort(),
+  );
 });
 
-test("one home per chat, by the four rules", () => {
+test("one home per chat, by what it is", () => {
   const homes = scene();
   const byName = new Map(railHomeList(homes).map((home) => [home.name, home]));
 
-  // Luca first: the thread is Luca's own, other sessions nest under it.
+  // Luca first: the thread is Luca's own; Luca's sessions nest under it.
   assert.equal(homes.luca?.main?.channel.id, "luca-dm");
-  assert.deepEqual(idsOf(homes.luca).slice(1), ["luca-weekly"]);
+  assert.deepEqual(
+    homes.luca.sessions.map((item) => item.channel.id),
+    ["luca-weekly"],
+  );
 
-  // 1. Project rooms under their project, whoever is in them.
+  // 1. Project rooms under their project, whoever is in them, open or not.
   assert.deepEqual(
     homes.projects.map((home) => home.name),
     ["Studio site", "Tidepool", "Field guide"],
@@ -101,19 +132,14 @@ test("one home per chat, by the four rules", () => {
     "chapter",
     "landing",
   ]);
+  assert.deepEqual(idsOf(byName.get("Studio site")).sort(), ["hero", "press"]);
   assert.equal(byName.get("Tidepool").main, null);
   assert.deepEqual(idsOf(byName.get("Field guide")), []);
 
-  // 2. Groups under Fleets, one per member set, named by their members.
-  const atlasWren = byName.get("Atlas + Wren");
-  assert.equal(atlasWren.kind, "fleet");
-  assert.deepEqual(idsOf(atlasWren).sort(), ["palette", "review"]);
-  assert.equal(atlasWren.main, null);
-  const lucaWren = byName.get("Luca + Wren");
-  assert.equal(lucaWren.main?.channel.id, "luca-wren");
-
-  // 3. One agent: under that agent, the 1:1 as its own conversation.
+  // 2 and 3. An agent: its 1:1 is its own conversation; a private room with
+  // it alone is its session; an open room with it is a room.
   const wren = byName.get("Wren");
+  assert.equal(wren.kind, "agent");
   assert.equal(wren.main?.channel.id, "wren-dm");
   assert.deepEqual(wren.sessions.map((item) => item.channel.id).sort(), [
     "wren-monday",
@@ -121,106 +147,177 @@ test("one home per chat, by the four rules", () => {
   ]);
   assert.equal(byName.get("Atlas").main?.channel.id, "atlas-dm");
   assert.deepEqual(idsOf(byName.get("Codex")), []);
-
-  // 4. Someone not in the agent list: under Agents, by their name.
-  assert.equal(byName.get("Alice").kind, "agent");
-  assert.deepEqual(idsOf(byName.get("Alice")), ["person-dm", "person-room"]);
-  assert.equal(byName.get("Old agent").kind, "agent");
-
+  // An agent from elsewhere, known by its profile: under Agents, by name.
+  const gone = byName.get("Old agent");
+  assert.equal(gone.kind, "agent");
+  assert.deepEqual(idsOf(gone), ["gone-dm", "gone-room"]);
   // Residents keep their order; the others follow.
   assert.deepEqual(
     homes.agents.map((home) => home.name),
-    ["Atlas", "Wren", "Codex", "Old agent", "Alice"],
+    ["Atlas", "Wren", "Codex", "Old agent"],
   );
-  // A room only the owner is in is kept, under Fleets by its name.
-  assert.deepEqual(idsOf(byName.get("Scratch")), ["lonely"]);
+
+  // 4. A person: their 1:1 is their row, under People, and nothing nests.
+  assert.deepEqual(
+    homes.people.map((home) => [home.name, home.kind, idsOf(home)]),
+    [["Alice", "person", ["person-dm"]]],
+  );
+
+  // 5. Everything else: a room of its own, by its own name.
+  assert.deepEqual(
+    homes.rooms.map((home) => [home.name, idsOf(home)]),
+    [
+      ["Scratch", ["lonely"]],
+      ["Alice and me", ["person-room"]],
+      ["Field notes", ["forum"]],
+      ["Tide watch", ["open-wren"]],
+      ["Palette", ["palette"]],
+      ["Design review", ["review"]],
+      ["Luca + Wren", ["luca-wren"]],
+    ],
+  );
+  for (const room of homes.rooms) {
+    assert.equal(room.kind, "room");
+    assert.deepEqual(room.sessions, []);
+  }
+  // A room knows its members, for the + (a new session with all of them).
+  assert.equal(byName.get("Design review").membersName, "Atlas + Wren");
+  // Fleets are gone.
+  assert.equal("fleets" in homes, false);
 });
 
-test("a group is named by its members, never by one of its chats", () => {
+test("a person is an agent when their profile says so", () => {
+  const items = [chat("x-dm", [PERSON], "dm", "Kai")];
+  const asPerson = buildRailHomes({
+    items,
+    agents: AGENTS,
+    primaryPubkey: LUCA,
+    projects: [],
+    projectByChannelId: new Map(),
+  });
+  assert.equal(asPerson.people[0]?.name, "Kai");
+  const asAgent = buildRailHomes({
+    items,
+    agents: AGENTS,
+    agentPubkeys: new Set([PERSON]),
+    primaryPubkey: LUCA,
+    projects: [],
+    projectByChannelId: new Map(),
+  });
+  assert.equal(asAgent.people.length, 0);
+  assert.equal(asAgent.agents.at(-1)?.name, "Kai");
+  assert.equal(asAgent.agents.at(-1)?.main?.channel.id, "x-dm");
+});
+
+test("an unnamed group conversation is named by its members", () => {
   const STRANGER = "9".repeat(64);
   const OTHER = "8".repeat(64);
   const build = (items, names) =>
     buildRailHomes({
       items,
-      agents: [
-        { name: "Luca", pubkey: LUCA },
-        { name: "Atlas", pubkey: ATLAS },
-        { name: "Wren", pubkey: WREN },
-      ],
+      agents: AGENTS.slice(0, 3),
       primaryPubkey: LUCA,
       projects: [],
       projectByChannelId: new Map(),
       names,
     });
   const items = [
-    // One chat: the home is that chat, by its own name, with no sessions.
-    chat("general", [ATLAS, STRANGER, OTHER], "stream", "general"),
-    // Several chats, one member nobody can name: counted, not a chat's name.
-    chat("random", [ATLAS, STRANGER]),
-    chat("engineering", [STRANGER, ATLAS]),
-    // A group chat and a room with the same members: the group's own chat
-    // is the home's conversation, and only the named room nests.
-    chat("lw-dm", [WREN, LUCA], "dm", "Luca, Wren"),
-    chat("lw-room", [LUCA, WREN], "stream", "Plan review"),
-    // An unnamed group chat alone: its own name is its members.
-    chat("aw-dm", [WREN, ATLAS], "dm", "Atlas, Wren"),
+    chat("lw", [WREN, LUCA], "dm", "Wren, Luca"),
+    chat("as", [ATLAS, STRANGER], "dm", "Atlas, someone"),
+    chat("so", [STRANGER, OTHER], "dm", "someone, someone"),
+    // A named one keeps its own name.
+    chat("crew", [ATLAS, STRANGER, OTHER], "stream", "Launch crew"),
   ];
-  const homes = build(items);
-  const fleets = new Map(homes.fleets.map((home) => [home.id, home]));
-  const fleetOf = (...members) =>
-    fleets.get(`fleet:${[...members].sort().join("+")}`);
-  const labels = new Set(items.map((item) => item.label));
-
-  const general = fleetOf(ATLAS, STRANGER, OTHER);
-  assert.equal(general.name, "general");
-  assert.equal(general.main?.channel.id, "general");
-  assert.deepEqual(general.sessions, []);
-  assert.equal(general.membersName, "Atlas + 2 others");
-
-  const atlasStranger = fleetOf(ATLAS, STRANGER);
-  assert.equal(atlasStranger.name, "Atlas + 1 other");
-  assert.equal(atlasStranger.main, null);
-  assert.deepEqual(
-    atlasStranger.sessions.map((item) => item.channel.id),
-    ["engineering", "random"],
-  );
-  assert.equal(labels.has(atlasStranger.name), false);
-
-  const lucaWren = fleetOf(LUCA, WREN);
-  assert.equal(lucaWren.name, "Luca + Wren");
-  assert.equal(lucaWren.main?.channel.id, "lw-dm");
-  assert.deepEqual(
-    lucaWren.sessions.map((item) => item.channel.id),
-    ["lw-room"],
-  );
-  // No session takes the group chat's comma-joined label.
-  assert.equal(
-    lucaWren.sessions.some((item) => item.label === "Luca, Wren"),
-    false,
-  );
-
-  const atlasWren = fleetOf(ATLAS, WREN);
-  assert.equal(atlasWren.name, "Atlas + Wren");
-  assert.equal(atlasWren.main?.channel.id, "aw-dm");
-  assert.deepEqual(atlasWren.sessions, []);
-
-  // No chat twice, none lost.
-  const placed = railHomeList(homes).flatMap(idsOf);
-  assert.equal(placed.length, items.length);
-  assert.equal(new Set(placed).size, placed.length);
-
-  // Profile names fill in members who are not agents.
-  const named = build(items, new Map([[STRANGER, "Kai"]]));
-  assert.equal(
-    named.fleets.find((home) => home.id === atlasStranger.id)?.name,
-    "Atlas + Kai",
-  );
-  // Nobody nameable at all: still the members, counted.
-  const strangers = build([
-    chat("x1", [STRANGER, OTHER]),
-    chat("x2", [OTHER, STRANGER]),
+  const names = (homes) => homes.rooms.map((home) => home.name).sort();
+  assert.deepEqual(names(build(items)), [
+    "2 people",
+    "Atlas + 1 other",
+    "Launch crew",
+    "Luca + Wren",
   ]);
-  assert.equal(strangers.fleets[0]?.name, "2 people");
+  // Profile names fill in members who are not agents.
+  assert.deepEqual(names(build(items, new Map([[STRANGER, "Kai"]]))), [
+    "Atlas + Kai",
+    "Kai + 1 other",
+    "Launch crew",
+    "Luca + Wren",
+  ]);
+  // A group dm that has a name of its own keeps it.
+  const own = chat("own", [WREN, ATLAS], "dm", "Tide crew");
+  own.channel.name = "Tide crew";
+  assert.deepEqual(names(build([own])), ["Tide crew"]);
+});
+
+test("no chat twice over the mock's stock channels", async () => {
+  const { buildChatListItems } = await import("./chatListModel.ts");
+  const ME = "deadbeef".repeat(8);
+  const ALICE =
+    "953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f";
+  const BOB = "1".repeat(64);
+  const channel = (id, channelType, visibility, participantPubkeys) => ({
+    id,
+    name: id,
+    channelType,
+    visibility,
+    participantPubkeys,
+    participants: [],
+    memberPubkeys: participantPubkeys,
+    lastMessageAt: null,
+    archivedAt: null,
+    isMember: true,
+  });
+  // The stock fixture's shapes: open rooms with everyone, a private room, a
+  // forum, 1:1s with people, and a group dm.
+  const channels = [
+    channel("general", "stream", "open", [ME, ALICE, BOB, LUCA]),
+    channel("random", "stream", "open", [ME, ALICE]),
+    channel("design", "stream", "private", [ME, WREN]),
+    channel("watercooler", "forum", "open", [ME, ALICE, BOB]),
+    channel("alice-tyler", "dm", "private", [ME, ALICE]),
+    channel("bob-tyler", "dm", "private", [ME, BOB]),
+    channel("trio", "dm", "private", [ME, ALICE, BOB]),
+    channel("luca", "dm", "private", [ME, LUCA]),
+  ];
+  const items = buildChatListItems({ channels, labels: {}, currentPubkey: ME });
+  const homes = buildRailHomes({
+    items,
+    agents: AGENTS,
+    primaryPubkey: LUCA,
+    projects: [],
+    projectByChannelId: new Map(),
+  });
+  const placed = railHomeList(homes).flatMap(idsOf);
+  assert.equal(placed.length, channels.length);
+  assert.equal(new Set(placed).size, placed.length);
+  assert.deepEqual(homes.people.map((home) => idsOf(home)[0]).sort(), [
+    "alice-tyler",
+    "bob-tyler",
+  ]);
+  assert.equal(homes.luca?.main?.channel.id, "luca");
+  assert.deepEqual(idsOf(homes.agents.find((h) => h.name === "Wren")), [
+    "design",
+  ]);
+});
+
+test("a home shows its latest three, and the open one wherever it falls", () => {
+  const rooms = [1, 2, 3, 4, 5].map((n) => chat(`r${n}`, [WREN]));
+  // Newest first.
+  const sessions = [...rooms].reverse();
+  const latest = shownSessions(sessions, null);
+  assert.deepEqual(
+    latest.shown.map((item) => item.channel.id),
+    ["r5", "r4", "r3"],
+  );
+  assert.equal(latest.hidden, 2);
+  const open = shownSessions(sessions, "r1");
+  assert.deepEqual(
+    open.shown.map((item) => item.channel.id),
+    ["r5", "r4", "r3", "r1"],
+  );
+  assert.equal(open.hidden, 1);
+  assert.equal(shownSessions(sessions, "r4").hidden, 2);
+  assert.equal(shownSessions(sessions, null, true).shown.length, 5);
+  assert.equal(shownSessions(sessions.slice(0, 3), null).hidden, 0);
 });
 
 test("the active home is the parent of whatever is open", () => {
@@ -228,17 +325,27 @@ test("the active home is the parent of whatever is open", () => {
   assert.equal(activeRailHome(homes, "wren-monday", null)?.name, "Wren");
   assert.equal(activeRailHome(homes, "luca-dm", null)?.id, "luca");
   assert.equal(activeRailHome(homes, "landing", null)?.name, "Tidepool");
+  assert.equal(activeRailHome(homes, "person-dm", null)?.name, "Alice");
+  assert.equal(activeRailHome(homes, "review", null)?.name, "Design review");
   assert.equal(activeRailHome(homes, null, "empty")?.name, "Field guide");
   assert.equal(activeRailHome(homes, null, null), null);
 });
 
 test("a chat's home does not depend on key case or member order", () => {
   const context = { primaryPubkey: LUCA, projectByChannelId: new Map() };
-  assert.equal(
-    homeIdOfChat(chat("x", [WREN, ATLAS.toUpperCase()]), context),
-    homeIdOfChat(chat("y", [ATLAS, WREN]), context),
-  );
   assert.equal(homeIdOfChat(chat("z", [LUCA.toUpperCase()]), context), "luca");
+  assert.equal(
+    homeIdOfChat(chat("w", [WREN.toUpperCase()], "dm"), {
+      ...context,
+      isAgent: (pubkey) => pubkey === WREN,
+    }),
+    `agent:${WREN}`,
+  );
+  assert.equal(
+    homeIdOfChat(chat("p", [PERSON.toUpperCase()], "dm"), context),
+    `person:${PERSON}`,
+  );
+  assert.equal(homeIdOfChat(chat("g", [WREN, ATLAS]), context), "room:g");
 });
 
 test("expansion is stored per home and ignores anything else", () => {

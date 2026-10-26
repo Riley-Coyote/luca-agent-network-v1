@@ -271,7 +271,7 @@ export function AppSidebar({
       agent.pubkey === newSessionPubkey &&
       (frame || agent.pubkey !== primaryPubkey),
   );
-  // A fleet's +: a new session with every member at once.
+  // A room's +: a new session with every member at once.
   const [newFleetSession, setNewFleetSession] = React.useState<string[] | null>(
     null,
   );
@@ -771,7 +771,16 @@ export function AppSidebar({
     activeCommunity?.relayUrl ?? "",
     activeCommunity?.id ?? "",
   );
-  const { openCreateChannel } = useAppShell();
+  const { openBrowseChannels, openCreateChannel } = useAppShell();
+  // The Chats rail's Rooms (WP-11): its + starts a room outside any project;
+  // its last rows open the room browser on All, and on Archived.
+  const createRoomFromRail = useStableCallback(() => openCreateChannel());
+  const browseRoomsFromRail = useStableCallback(() =>
+    openBrowseChannels(undefined, { tab: "all" }),
+  );
+  const browseArchivedFromRail = useStableCallback(() =>
+    openBrowseChannels(undefined, { tab: "archived" }),
+  );
   // The + on a home in the shell's rail starts a new session in it; anything
   // the app has no session flow for opens New conversation.
   const addToHomeFromRail = useStableCallback((home: RailHome) => {
@@ -975,9 +984,11 @@ export function AppSidebar({
                       agents={railAgents}
                       items={chatListItems}
                       onAddToHome={addToHomeFromRail}
-                      onCreateAgent={createAgentFromRail}
-                      onCreateFleet={handleNewMessageNavigation}
+                      onBrowseArchived={browseArchivedFromRail}
+                      onBrowseRooms={browseRoomsFromRail}
                       onCreateProject={createProjectFromRail}
+                      onCreateRoom={createRoomFromRail}
+                      onNewConversation={handleNewMessageNavigation}
                       onMarkChannelRead={onMarkChannelRead}
                       onMarkChannelUnread={onMarkChannelUnread}
                       onOpenAgent={openAgentFromRail}

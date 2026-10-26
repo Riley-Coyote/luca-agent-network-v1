@@ -7,6 +7,7 @@ import {
 import * as React from "react";
 import { toast } from "sonner";
 
+import { useAppShell } from "@/app/AppShellContext";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
   useManagedAgentsQuery,
@@ -21,6 +22,7 @@ import {
   useEndResidentVisitMutation,
 } from "@/features/channels/hooks";
 import { ResidentDrawer } from "@/features/channels/ui/ResidentDrawer";
+import { useChannelPanelHistoryState } from "@/features/channels/ui/useChannelPanelHistoryState";
 import { residentDrawerPresentation } from "@/features/channels/ui/residentDrawerPresentation";
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { useRoomExchangeHistory } from "@/features/exchange/exchangeStore";
@@ -44,6 +46,7 @@ import {
   AuxiliaryPanelHeaderGroup,
   AuxiliaryPanelHeaderTitleBlock,
 } from "@/shared/layout/AuxiliaryPanel";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
@@ -165,6 +168,26 @@ export function ConversationContextPanel({
   const exchangeHistory = useRoomExchangeHistory(channel.id);
   const visitors = React.useMemo(() => openVisitors(messages), [messages]);
   const endVisitMutation = useEndResidentVisitMutation(channel.id);
+  // Under the shell's frame a room's details open its management panel
+  // (members, leave, archive, delete), which nothing opened before
+  // (NAVIGATION.md, "Ways in that change"). A direct conversation has none.
+  const shellFrame = useShellFrameEnabled();
+  const { applyPanelState } = useChannelPanelHistoryState();
+  const { openChannelManagement } = useAppShell();
+  const canManage = shellFrame && channel.channelType !== "dm";
+  const openManagement = React.useCallback(() => {
+    // A forum's management is the app's sheet, as the room screen has it.
+    if (channel.channelType === "forum") {
+      openChannelManagement(channel.id);
+      return;
+    }
+    applyPanelState({
+      agentSession: null,
+      channelManagement: true,
+      profile: null,
+      thread: null,
+    });
+  }, [applyPanelState, channel.channelType, channel.id, openChannelManagement]);
 
   // Which tab the drawer is on. `null` is the default for this conversation —
   // a resident's card in a 1:1, the conversation everywhere else.
@@ -315,14 +338,28 @@ export function ConversationContextPanel({
             {/* Name only. The room's description already sits under the
                   title in the conversation header — repeating it here costs a
                   paragraph of space at the top of every drawer. */}
-            <section className="space-y-1">
-              <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-caps text-ink-faint">
-                <MessageCircle className="h-3.5 w-3.5" />
-                {channel.channelType === "dm" ? "Direct message" : "Room"}
+            <section className="flex items-end gap-3">
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-caps text-ink-faint">
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  {channel.channelType === "dm" ? "Direct message" : "Room"}
+                </div>
+                <h2 className="truncate text-lg font-medium leading-6 tracking-[-0.02em] text-foreground">
+                  {channel.name}
+                </h2>
               </div>
-              <h2 className="truncate text-lg font-medium leading-6 tracking-[-0.02em] text-foreground">
-                {channel.name}
-              </h2>
+              {canManage ? (
+                <Button
+                  className="shrink-0"
+                  data-testid="conversation-manage-room"
+                  onClick={openManagement}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Manage
+                </Button>
+              ) : null}
             </section>
 
             <section aria-labelledby="conversation-at-a-glance">

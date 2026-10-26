@@ -990,9 +990,12 @@ test.describe("the solid marks, under the frame", () => {
     test.setTimeout(120_000);
     await boot(page);
     const wren = `agent:${WREN}`;
-    await page
-      .locator(`[data-testid="rail-home-${wren}"] [data-chevron]`)
-      .click();
+    // Homes start open (WP-11); open Wren's only if it was closed.
+    const chevron = page.locator(
+      `[data-testid="rail-home-${wren}"] [data-chevron]`,
+    );
+    if ((await chevron.getAttribute("data-expanded")) === "false")
+      await chevron.click();
     const session = page.getByTestId(`rail-session-${ROOM.monday}`);
     await expect(session).toBeVisible();
     await session.click();
@@ -1028,12 +1031,13 @@ test.describe("the solid marks, under the frame", () => {
     );
     const [onSession] = sessionBox
       ? await colours(page, [
-          [sessionBox.x + sessionBox.w - 12, sessionBox.y + 14],
+          // Clear of the title and of the time at the row's end (WP-11).
+          [sessionBox.x + sessionBox.w - 40, sessionBox.y + 14],
         ])
       : [[0, 0, 0]];
     const [beside] = sessionBox
       ? await colours(page, [
-          [sessionBox.x + sessionBox.w - 12, sessionBox.y + 40],
+          [sessionBox.x + sessionBox.w - 40, sessionBox.y + 40],
         ])
       : [[0, 0, 0]];
     await shot(page, "session-open");

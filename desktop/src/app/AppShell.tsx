@@ -613,6 +613,7 @@ export function AppShell() {
   const hideDmMutation = useHideDmMutation();
   const {
     browseDialogType,
+    browseInitialTab,
     openBrowseChannels: handleOpenBrowseChannels,
     onBrowseDialogOpenChange: handleBrowseDialogOpenChange,
     getCreateSuccess,
@@ -931,6 +932,7 @@ export function AppShell() {
               setIsChannelManagementOpen(true);
             },
             getChannelReadAt,
+            unreadChannelIds,
             getThreadReadAt,
             markThreadRead,
             getMessageReadAt,
@@ -1408,6 +1410,7 @@ export function AppShell() {
                         <AppShellOverlays
                           activeChannel={managedChannel}
                           browseDialogType={browseDialogType}
+                          browseInitialTab={browseInitialTab}
                           channels={channels}
                           currentPubkey={identityQuery.data?.pubkey}
                           isChannelManagementOpen={isChannelManagementOpen}

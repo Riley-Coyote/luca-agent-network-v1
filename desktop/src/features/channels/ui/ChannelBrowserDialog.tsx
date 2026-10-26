@@ -48,7 +48,8 @@ import {
   CreateChannelFormFooter,
 } from "@/features/sidebar/ui/CreateChannelFormFields";
 
-type BrowserTab = "all" | "joined" | "archived";
+export type ChannelBrowserTab = "all" | "joined" | "archived";
+type BrowserTab = ChannelBrowserTab;
 type ChannelSort = ChannelSortMode | "members";
 
 const CHANNEL_SORT_OPTIONS: { label: string; value: ChannelSort }[] = [
@@ -93,6 +94,8 @@ type ChannelBrowserDialogProps = {
    */
   onCreateChannel?: (input: CreateChannelInput) => Promise<void>;
   isCreatingChannel?: boolean;
+  /** The tab it opens on: All unless said (the Chats rail's Archived row). */
+  initialTab?: BrowserTab;
 };
 
 export function ChannelBrowserDialog({
@@ -104,9 +107,10 @@ export function ChannelBrowserDialog({
   onSelectChannel,
   onCreateChannel,
   isCreatingChannel = false,
+  initialTab = "all",
 }: ChannelBrowserDialogProps) {
   const [query, setQuery] = React.useState("");
-  const [activeTab, setActiveTab] = React.useState<BrowserTab>("all");
+  const [activeTab, setActiveTab] = React.useState<BrowserTab>(initialTab);
   const [sort, setSort] = React.useState<ChannelSort>("alpha");
   const [selectedIndex, setSelectedIndex] = React.useState<number | null>(null);
   const [joiningChannelId, setJoiningChannelId] = React.useState<string | null>(
@@ -328,10 +332,11 @@ export function ChannelBrowserDialog({
     };
   }, [mode, open, updateTabIndicator]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the tab to come back to is read as the dialog closes, not followed.
   React.useEffect(() => {
     if (!open) {
       setQuery("");
-      setActiveTab("all");
+      setActiveTab(initialTab);
       setSort("alpha");
       setSelectedIndex(null);
       setJoiningChannelId(null);

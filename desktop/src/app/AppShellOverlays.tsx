@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import type { Channel } from "@/shared/api/types";
+import type { ChannelBrowserTab } from "@/features/channels/ui/ChannelBrowserDialog";
 import type { CreateChannelInput } from "@/features/sidebar/lib/useCreateChannelForm";
 import { useDeferredModalOpen } from "@/shared/ui/deferredModalOpen";
 
@@ -19,6 +20,7 @@ export type BrowseDialogType = "stream" | "forum" | null;
 type AppShellOverlaysProps = {
   activeChannel: Channel | null;
   browseDialogType: BrowseDialogType;
+  browseInitialTab?: ChannelBrowserTab;
   channels: Channel[];
   currentPubkey?: string;
   isChannelManagementOpen: boolean;
@@ -34,6 +36,7 @@ type AppShellOverlaysProps = {
 export function AppShellOverlays({
   activeChannel,
   browseDialogType,
+  browseInitialTab = "all",
   channels,
   currentPubkey,
   isChannelManagementOpen,
@@ -72,6 +75,7 @@ export function AppShellOverlays({
           <ChannelBrowserDialog
             channels={channels}
             channelTypeFilter={renderedBrowseDialogType ?? browseDialogType}
+            initialTab={browseInitialTab}
             isCreatingChannel={isCreatingBrowseChannel}
             onCreateChannel={onBrowseChannelCreate}
             onJoinChannel={onBrowseChannelJoin}

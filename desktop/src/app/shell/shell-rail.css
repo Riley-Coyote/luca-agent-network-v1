@@ -23,7 +23,8 @@
   padding: 0 3px 20px;
 }
 
-/* ── section labels: PROJECTS, AGENTS, FLEETS (Fragment Mono caps, 11) ── */
+/* ── section labels: CHATS, PROJECTS, AGENTS, PEOPLE, ROOMS (Fragment Mono
+ * caps, 11) ── */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-section {
   margin-top: 14px;
 }
@@ -35,6 +36,12 @@
   height: 26px;
   justify-content: space-between;
   padding: 0 6px 0 10px;
+}
+
+/* The rail's own heading, CHATS, with the + for a new conversation: the
+ * study's .shell-rail-head, the first row 2 below it. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-head {
+  margin-bottom: 2px;
 }
 
 /* The section's + and a home's + are the same small round control. */
@@ -63,7 +70,7 @@
   color: var(--rail-ink);
 }
 
-/* ── a home: Luca, a project, an agent, a fleet ─────────────────────
+/* ── a home: Luca, a project, an agent, a person, a room ─────────────
  * The whole row is one button (the hit, beneath); the chevron and the +
  * sit above it. The row is the sidebar's menu button for the selection
  * only; its shape and colours are set here. Its corners are the study's
@@ -229,8 +236,8 @@
 }
 
 /* ── a home's sessions, on a thread ──────────────────────────────────
- * The way Claude Code nests a session's tasks: quieter than their home, no
- * timestamps, and the open one lit. */
+ * The way Claude Code nests a session's tasks: quieter than their home, each
+ * saying quietly how long ago it was last active, and the open one lit. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-sessions {
   border: 0;
   margin: 1px 0 6px 11px;
@@ -280,6 +287,21 @@
   color: var(--rail-ink);
 }
 
+/* How long ago, at the row's end (the study's .shell-session-ago): 11, faint,
+ * figures of one width so a column of times lines up. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session-ago {
+  color: var(--rail-faint);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* "N more": a session row's place and shape, one size smaller. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session-more {
+  color: var(--rail-faint);
+}
+
 /* The open session's stretch of the thread, lit to its words' tone. */
 :root[data-luca-shell]
   [data-shell-rail]
@@ -302,12 +324,30 @@
   }
 }
 
+/* Rooms ends on two quiet ways in, Browse rooms… and Archived (the study's
+ * .shell-rail-tail): a home row's inset, a session's size and tone. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-tail {
+  border-radius: 8px;
+  color: var(--rail-faint);
+  display: block;
+  height: 28px;
+  padding: 0 10px;
+  text-align: left;
+  transition: color 120ms;
+  width: 100%;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-tail:hover {
+  color: var(--rail-muted);
+}
+
 /* Focus: the row's own edge brightening in place, as in the glass rail. */
 :root[data-luca-shell]
   [data-shell-rail]
   :is(
     .luca-rail-row-hit,
     .luca-rail-session,
+    .luca-rail-tail,
     .luca-rail-add,
     .luca-rail-chevron
   ):focus-visible {
@@ -364,6 +404,7 @@
       .luca-rail-chevron svg,
       .luca-rail-row-name,
       .luca-rail-session,
+      .luca-rail-tail,
       .luca-rail-add
     ),
   :root[data-luca-frame="solid"]

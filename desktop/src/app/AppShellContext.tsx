@@ -15,13 +15,20 @@ type AppShellContextValue = {
     options?: { topLevelOnly?: boolean },
   ) => void;
   markChannelUnread: (channelId: string) => void;
-  openBrowseChannels: () => void;
+  /** The room browser; the Chats rail's Archived row opens it on Archived. */
+  openBrowseChannels: (
+    onCreated?: (channelId: string) => void,
+    options?: { tab?: "all" | "joined" | "archived" },
+  ) => void;
   openCreateChannel: (projectId?: string) => void;
   openChannelManagement: (channelId?: string) => void;
   // NIP-RS read marker for a channel as a unix-seconds timestamp, or null
   // when unknown. Backed by the single AppShell-mounted ReadStateManager so
   // every surface (sidebar, home, badges) projects from the same source.
   getChannelReadAt: (channelId: string) => number | null;
+  // The conversations with something unread, as the rail's dots show them
+  // (useUnreadChannels); where the app opens reads Luca's from it.
+  unreadChannelIds?: ReadonlySet<string>;
   // Thread read frontier as unix-seconds timestamp, or null when never read.
   // Uses `thread:<rootId>` context keys in the same ReadStateManager.
   getThreadReadAt: (rootId: string, channelId?: string | null) => number | null;

@@ -4,20 +4,12 @@ import {
   type UserProfileLookup,
 } from "@/features/profile/lib/identity";
 import { formatDmParticipantDisplayName } from "@/features/channels/lib/dmParticipantDisplay";
-import { membersName } from "@/features/sidebar/lib/railHomes";
+import {
+  isGenericDmChannelName,
+  membersName,
+} from "@/features/sidebar/lib/railHomes";
 import type { Channel } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-
-function isGenericDmChannelName(name: string) {
-  const normalized = name.trim().toLowerCase();
-  return (
-    normalized.length === 0 ||
-    normalized === "dm" ||
-    normalized === "direct message" ||
-    normalized === "direct messages" ||
-    /^group dm\s*(\(\d+\))?$/.test(normalized)
-  );
-}
 
 export function resolveChannelDisplayLabel(
   channel: Channel,
