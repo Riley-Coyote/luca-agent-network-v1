@@ -1,17 +1,26 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowUpRight,
   CircleAlert,
   Folder,
   KeyRound,
   Play,
+  RefreshCw,
   RotateCcw,
   ScrollText,
   Settings2,
   Square,
 } from "lucide-react";
 
-import { useSetManagedAgentAutoRestartMutation } from "@/features/agents/hooks";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import {
+  useAcpRuntimesQuery,
+  useManagedAgentsQuery,
+  useSetManagedAgentAutoRestartMutation,
+} from "@/features/agents/hooks";
+import { artifactMcpCapabilityPresentation } from "@/features/agents/lib/artifactMcpCapability";
+import { AgentConfigPanel } from "@/features/agents/ui/AgentConfigPanel";
 import { CharacterAppearancePicker } from "@/features/agents/ui/CharacterAppearancePicker";
 import {
   CompanionSettingsSection,
@@ -19,6 +28,7 @@ import {
 } from "@/features/agents/ui/AgentLibraryWorkspace";
 import { ResidentModelMenu } from "@/features/agents/ui/ResidentModelMenu";
 import {
+  agentConfigurationViewModel,
   residentSourceLabel,
   type ResidentSummaryViewModel,
 } from "@/features/agents/ui/agentLibraryViewModel";
@@ -28,11 +38,13 @@ import {
   useOwnerBrainStateQuery,
 } from "@/features/luca/brain/hooks";
 import { ResidentAccessControl } from "@/features/settings/ui/ResidentCapabilitySettings";
+import { useSettingsAppName } from "@/features/settings/ui/SettingsSectionHeader";
 import { getResidentCapabilitySettings } from "@/shared/api/residentCapabilities";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
+import { agentOriginDescription, authorityLabel } from "./mindRunsOn";
 
 type RowId =
   | "runtime"
@@ -52,6 +64,11 @@ type RowId =
  * plain words. A row opens today's controls in place beneath it, so nothing
  * is lost; help text shows only in an open row. A section a mind doesn't
  * have hides.
+ *
+ * Settings > Agents' own detail retired into these rows (WP-24, Decided 4):
+ * its instructions, runtime configuration and Recheck in Connected app and
+ * model; its Canvas tools, boundary, continuity and Manage MCP access in
+ * Permissions; its kind and authority in Identity.
  */
 export function MindSettings({
   channels,
@@ -85,6 +102,8 @@ export function MindSettings({
   resident: ResidentSummaryViewModel;
 }) {
   const autoRestart = useSetManagedAgentAutoRestartMutation();
+  const managedQuery = useManagedAgentsQuery();
+  const appName = useSettingsAppName();
   const nativeBinding = managedAgent?.nativeRuntimeBinding;
   const workspace = nativeBinding?.defaultWorkspace;
   const isRunning =
@@ -180,6 +199,21 @@ export function MindSettings({
             />
           </>
         ) : null}
+        {managedAgent ? (
+          <NoteRow
+            detail={
+              resident.kind === "managed_native"
+                ? `Native instructions remain managed by the native system. ${appName} does not rewrite them.`
+                : "Change them with Advanced…"
+            }
+            label="Instructions"
+            testId="mind-setting-instructions"
+            value={
+              managedAgent.systemPrompt?.trim() ||
+              `No ${appName}-managed instructions set.`
+            }
+          />
+        ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
           {managedAgent ? (
             <>
@@ -220,7 +254,33 @@ export function MindSettings({
           >
             <Settings2 /> Advanced…
           </Button>
+          {managedAgent ? (
+            <Button
+              data-testid="mind-setting-recheck"
+              disabled={managedQuery.isFetching}
+              onClick={() => void managedQuery.refetch()}
+              size="sm"
+              title="Checks the exact native profile or agent without modifying it."
+              variant="outline"
+            >
+              <RefreshCw /> Recheck
+            </Button>
+          ) : null}
         </div>
+        {managedAgent ? (
+          <div
+            className="mt-5 border-t border-border/40 pt-4"
+            data-testid="mind-setting-runtime-config"
+          >
+            <p className="mb-2 text-xs text-muted-foreground">
+              Runtime configuration
+            </p>
+            <AgentConfigPanel
+              advancedMode="flat"
+              pubkey={managedAgent.pubkey}
+            />
+          </div>
+        ) : null}
       </SettingRow>
 
       {managedAgent ? (
@@ -308,15 +368,22 @@ export function MindSettings({
         </SettingRow>
       ) : null}
 
-      {managedAgent ? (
+      {/* Every mind Settings > Agents listed: one running here, or one
+          waiting to be set up; a mind not on this Mac has none. */}
+      {managedAgent || persona ? (
         <SettingRow
           id="permissions"
           onToggle={toggle}
           open={open}
           title="Permissions"
-          value={permissionsValue}
+          value={managedAgent ? permissionsValue : "After setup"}
         >
-          <ResidentAccessControl residentPubkey={managedAgent.pubkey} />
+          <MindPermissions
+            appName={appName}
+            managedAgent={managedAgent}
+            persona={persona}
+            resident={resident}
+          />
         </SettingRow>
       ) : null}
 
@@ -343,6 +410,12 @@ export function MindSettings({
         <LedgerRow
           label="Definition"
           value={persona ? "Editable Luca definition" : "Runtime-owned profile"}
+        />
+        <LedgerRow label="Kind" value={agentOriginDescription(resident)} />
+        <NoteRow
+          detail={`Runtime: ${agentConfigurationViewModel(resident).authorities.runtime.replaceAll("_", " ")} · Continuity and permissions: ${appName} managed`}
+          label="Authority"
+          value={authorityLabel(resident, appName)}
         />
       </SettingRow>
 
@@ -428,6 +501,113 @@ export function MindSettings({
         </SettingRow>
       ) : null}
     </ul>
+  );
+}
+
+/**
+ * Permissions (WP-24, Decided 4): their machine access, then what the
+ * retired Capabilities tab said beside it, the Canvas tools, the boundary
+ * and continuity, and the way to their MCP grants. Drawn only while the row
+ * is open, so the runtimes are read only then.
+ */
+function MindPermissions({
+  appName,
+  managedAgent,
+  persona,
+  resident,
+}: {
+  appName: string;
+  managedAgent: ManagedAgent | null;
+  persona: AgentPersona | null;
+  resident: ResidentSummaryViewModel;
+}) {
+  const { goSettings } = useAppNavigation();
+  const runtimesQuery = useAcpRuntimesQuery();
+  const canvas = artifactMcpCapabilityPresentation({
+    runtimeReference: managedAgent?.agentCommand ?? persona?.runtime ?? null,
+    runtimes: runtimesQuery.data,
+    loading: runtimesQuery.isPending,
+    failed: runtimesQuery.isError,
+  });
+  return (
+    <>
+      {managedAgent ? (
+        <ResidentAccessControl residentPubkey={managedAgent.pubkey} />
+      ) : (
+        <p className="pb-3 text-sm text-muted-foreground">
+          Set up {resident.displayName} before giving them machine access.
+        </p>
+      )}
+      <div className="mt-4">
+        <NoteRow
+          capabilityState={canvas.state}
+          detail={canvas.detail}
+          label="Canvas tools"
+          testId="agent-artifact-mcp-capability"
+          value={canvas.value}
+        />
+        <NoteRow
+          detail={`MCP access never grants tool approval. Every protected action still uses ${appName}’s existing permission flow.`}
+          label="Boundary"
+          value="Fail closed"
+        />
+        <NoteRow
+          detail="Private continuity jobs never receive MCP tools."
+          label="Continuity"
+          value={
+            managedAgent
+              ? `Available as a ${appName}-managed overlay`
+              : "Available after setup"
+          }
+        />
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs leading-5 text-muted-foreground">
+          {`Their ${appName} MCP grants are in Connections & MCP.`}
+        </p>
+        <Button
+          data-testid="mind-setting-manage-mcp"
+          onClick={() => void goSettings("connections")}
+          size="sm"
+          variant="outline"
+        >
+          Manage MCP access <ArrowUpRight />
+        </Button>
+      </div>
+    </>
+  );
+}
+
+/** A LedgerRow with a quiet line under its value. */
+function NoteRow({
+  capabilityState,
+  detail,
+  label,
+  testId,
+  value,
+}: {
+  capabilityState?: string;
+  detail?: string;
+  label: string;
+  testId?: string;
+  value: string;
+}) {
+  return (
+    <div
+      className="grid min-w-0 gap-1 border-b border-border/40 py-3 first:pt-0 last:border-b-0 last:pb-0 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-5"
+      data-capability-state={capabilityState}
+      data-testid={testId}
+    >
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="min-w-0">
+        <span className="block break-words text-sm">{value}</span>
+        {detail ? (
+          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+            {detail}
+          </span>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
