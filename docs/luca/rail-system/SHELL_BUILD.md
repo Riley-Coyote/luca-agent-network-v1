@@ -1095,3 +1095,332 @@ Increase Contrast; the sheet's focus); the flag-off shots compared by hash to th
 **Checks JSON keys:** `halo`, `badge`, `canvas_focus`, `drift_order`, `gates_floor`, `no_lights_toggle`,
 `fullscreen_toggle`, `ctrl_tooltips`, `first_mark_swells`, `contrast_outline`, `sheet_focus`, `flag_off_identical`,
 `gates`.
+
+## The navigation round (2026-10-26)
+
+Riley decided the navigation on 2026-10-25 (`NAVIGATION.md`) and one card on 2026-10-26 (`SHELL_SPEC.md`, amended),
+and asked for the real app: "yes you can brief them and just work autonomously until the real app is ready for me to
+review". Five packages:
+- WP-10 (every place's rail), WP-11 (the Chats rail) and WP-12 (one card) run together.
+- WP-13 (a mind's own space) and WP-14 (what agents say to each other, and what needs you) follow once WP-10 and WP-11
+  have landed.
+- Then WP-09 makes the finished test app.
+
+The shell lab draws every one of these and is the reference for their values: `desktop/src/testing/shellStudy/`
+(navigation steps 1 to 4, commits `e0ab98b95` to `68714f1b7`). See it live, headless, at
+`http://localhost:1488/scripts/shell-lab.template.html?experience=shell&mode=dark&panel=0` (the shared lab server: look,
+never stop it).
+
+The facts below were checked by a read-only scout. Each has its citations in
+`~/.claude/plans/polyphonic-shell-build/nav-map/nav-facts.md` (§ numbers), with the older map beside it (`pages.md`,
+`ways-in.md`). Re-check what you rely on.
+
+## WP-10 · Six places, each with its own rail (2026-10-26, Riley and Claude's design; Riley: "the rail should always have the contents of the page you're on")
+
+**Why.**
+- Read `NAVIGATION.md` whole. The icons pick the place, the rail lists what's in that place, and the card shows the
+  one thing you picked. Settings already works this way.
+- Today the rail never changes, and Agents, Activity and Library each draw their own list or tabs inside the card.
+  This package gives every place its own rail, and those in-card lists become it.
+- The lab: `PLACE_RAILS`, `FIRST_PICK` and `PLACE_CARDS` (`content.ts`); `PlaceRail`, `PlacePage` and `cardFor`
+  (`ShellStudy.tsx`); the `.shell-rail-head`, `.shell-row-note`, `.shell-row[data-main]` and `.shell-page-*` rules
+  (`shellStudy.css`).
+
+**Base.**
+- WP-11 and WP-12 are built at the same time. Your styles go in `desktop/src/app/shell/shell-place-rails.css` (new),
+  imported after the other shell stylesheets.
+
+**Files in scope:**
+- `app/shell/ShellPlaces.tsx`, and where a view's place is decided (`placeOfView`).
+- `features/sidebar/ui/AppSidebar.tsx`, only to choose the rail by place and to stop the runtime sessions column opening
+  under the flag. WP-11 edits this file too: keep your edit small and self-contained.
+- New `app/shell/placeRails/`: the Agents, Activity and Library rails and their shared row.
+- Agents: `AgentsView.tsx`, `AgentsScreen.tsx`, `routes/agents.tsx`. The sessions list's own components
+  (`RuntimeSessionsPanel.tsx`, `runtimeSessionModel.ts`, `RuntimeRailSection.tsx`), only to show a connected app's
+  sessions inside the card. The team components (`TeamsSection`, `TeamDialog`, `AddTeamToChannelDialog`), only to
+  open them from a group's card.
+- Activity: `PulseScreen.tsx`, `ActivityPageHeader.tsx`, `routes/pulse.tsx`.
+- Library: `ArtifactLibraryScreen.tsx`, `SkillLibraryPanel.tsx`, `routes/artifacts.tsx`.
+- The lip's title for these places (where the lip's name is chosen).
+- Tests, and a new spec `tests/e2e/shell-place-rails.spec.ts`.
+
+**Untouched:**
+- the Chats rail's contents (WP-11);
+- the cards' layout, gap and surfaces (WP-12);
+- a mind's card beyond showing today's detail (WP-13);
+- Needs you and Side conversations (WP-14);
+- Settings.
+
+**Facts:**
+- Places today: §2 of `pages.md`.
+- The Agents page: `AgentsView.tsx:317-445`. Its roster column `AgentLibraryRoster` has filters, search and a footer
+  with Groups and Defaults. Runtimes rows sit below the roster under the frame (`RuntimeRailSection.tsx`, pinned
+  families).
+- A group is an `AgentTeam`: a saved team of agent templates (personas), not of live agents. It's stored in
+  `teams.json` and as kind 30176. Hooks `useTeamsQuery` etc. are in `agents/hooks.ts:953-1000`. "Add to a room" deploys
+  agents from the templates (`AddTeamToChannelDialog`). No group is linked to rooms (nav-facts §4).
+- Sessions exist only for Codex and Claude Code, from Brain's index: `useRuntimeConnectionsQuery`,
+  `useRuntimeSessionsQuery`. Other runtimes say they have no session source. "Start with this context" stages a
+  summary and opens New conversation (nav-facts §5).
+- Activity: "Now" is `LucaActivityView`, and "Signed record" is `ProvenanceView`, one tab per managed agent
+  (`pages.md` §8).
+- Library: kind chips, Artifacts/Skills mode tabs and a Recently deleted toggle, all in local state
+  (`ArtifactLibraryScreen.tsx`). Skills runtime chips are in `SkillLibraryPanel.tsx`.
+
+**Decisions** (only under `shell-frame`; with it off, nothing changes):
+1. **The places column:** Search (⌘K); then Chats, Agents, Activity, Library; then Settings (⌘,) and the avatar.
+   - "Conversations" is called Chats wherever it shows.
+   - New conversation, Inbox and Brain leave the column. ⌘N still opens New conversation, and WP-11 puts its `+` on
+     the Chats rail's heading.
+   - Until WP-13, `/brain` keeps working by its route and belongs to Agents.
+2. **A view's place:**
+   - Chats: conversations, New conversation, projects and workflows.
+   - Agents: `/agents` and `/brain`.
+   - Activity: `/pulse`. Library: `/artifacts`. Settings: `/settings`.
+   - Chats keeps today's rail (WP-11 reshapes it), and Settings keeps its section list.
+3. **The Agents rail:**
+   - Luca first and set apart: the owner's main resident (`useCanonicalLucaPubkey`), at a home's weight, with its
+     state word at the row's end.
+   - **AGENTS**, with `+` (today's Add agent), then every other agent with its state word.
+   - **CONNECTED:** today's Runtimes rows (the pinned families), with their state.
+   - **GROUPS**, with `+` (create a group: today's `TeamDialog`), then one row per group.
+   - State words come from the roster's own availability: working, resting, needs attention. The roster's filters
+     and search go (the state words and ⌘K replace them). Its footer's Defaults is already in Settings → Defaults &
+     permissions.
+4. **What the Agents card shows:**
+   - A mind: today's detail, untouched (WP-13 reshapes it).
+   - A connected app: its sessions, under the head "Connected · on this Mac" / its name. This is the list
+     `RuntimeSessionsPanel` draws today (its search, empty states and "Start with this context"), inside the card
+     instead of beside New conversation. Under the flag the runtime sessions column no longer opens (`SHELL_SPEC.md`
+     retires it).
+   - A group: the head "Group" / its name, its description, its members (each persona's name and runtime), and two
+     actions, Edit (`TeamDialog`) and Add to a room (`AddTeamToChannelDialog`).
+5. **The Activity rail:** **Now**, then **SIGNED RECORD** with one row per managed agent. The card is the stream you
+   picked: `LucaActivityView`, or that agent's `ProvenanceView` tab. The page's own tabs go. WP-14 adds Needs you
+   above Now and Side conversations under it.
+6. **The Library rail:**
+   - **MADE**, with Import at its heading's end, then All, Prototypes, Apps, Images, Documents, Code.
+   - **SKILLS:** All, then one row per runtime that has skills.
+   - Then **Recently deleted**.
+   - The card shows the list you picked (today's rows, keeping its search field). The mode tabs, kind chips and the
+     deleted toggle inside the card go.
+7. **The pick is in the address,** so Back, Forward and reopening work:
+   - Agents keeps `/agents?profile=` and gets parameters for a connected app and a group. `/pulse` and `/artifacts`
+     get parameters for their picks.
+   - Each place remembers its last pick for the session.
+   - On a first visit the place picks its first row: Agents, Luca; Activity, Now; Library, All.
+8. **The card's head and the lip:**
+   - The cards you add (a connected app, a group, Activity's and Library's lists) open with the lab's `PlacePage`
+     head: an eyebrow saying the section over the picked row's name.
+   - A mind's detail keeps its own head until WP-13.
+   - The lip names the pick by the row's name.
+9. **Rows are Chats' rows:** the same type, sizes, tones, 8-point corners, heading eyebrows and `+`.
+   - A quiet word at a row's end is the lab's `.shell-row-note`.
+   - WP-03's solid mark follows the picked row.
+   - Keyboard: Tab reaches the rail, the arrows move between rows, and Enter picks, as in Chats.
+10. **Nothing empty:**
+    - A section with nothing in it hides, except Luca and Now.
+    - A card with nothing to list uses its page's own empty words, never a placeholder.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on unless stated):
+- Seed the mock with: residents in each state, two runtimes with sessions, a group, signed records for two agents,
+  artifacts of three kinds, skills for two runtimes, and one deleted piece.
+- Screenshots: `places`, `agents-luca`, `agents-connected`, `agents-group`, `activity-now`, `activity-record`,
+  `library-all`, `library-skills`, `library-deleted`, and `chats` and `settings` (both unchanged).
+- Back and Forward across picks in each place. The keyboard through each rail.
+- The flag-off views compared by hash to the base.
+- A capability map: every control on today's Agents, Activity and Library pages → its new home, or LOST.
+
+**Checks JSON keys:** `places_six`, `place_of_view`, `agents_rail`, `connected_card`, `group_card`, `activity_rail`,
+`library_rail`, `picks_in_url`, `back_forward`, `lip_names_pick`, `marks_follow`, `keyboard`, `capability_map`,
+`flag_off_identical`, `gates`.
+
+## WP-11 · The Chats rail (2026-10-26, Riley and Claude's design; SPEC.md as amended 2026-10-25)
+
+**Why.**
+- `SPEC.md` is the Chats rail: read "Top to bottom", "One home per chat", "A row", "Selection", "Rooms" and "Keyboard
+  and access". `NAVIGATION.md`, "Chats", says why.
+- A chat's home is decided by what it is, not only by who is in it. Today a public room with two others became a
+  "fleet", and a person was filed under Agents.
+- Fleets retire. People and Rooms arrive. Every home shows its latest three conversations with their times, so the
+  rail never reads empty.
+- The lab draws it: `SECTIONS`, `Rail` and `HomeRow` in `ShellStudy.tsx`; `.shell-session-ago`,
+  `.shell-session-more`, `.shell-rail-tail` and `.shell-rail-head` in `shellStudy.css`.
+
+**Base.**
+- WP-10 and WP-12 are built at the same time. Your styles go in the Chats rail's own stylesheet.
+
+**Files in scope:**
+- `features/sidebar/lib/railHomes.ts` and its tests.
+- `features/sidebar/ui/ShellRail.tsx`.
+- `AppSidebar.tsx`, only the Chats rail's wiring (the heading's `+`, a row's `+`, Browse rooms…, Archived). WP-10
+  edits this file too: keep your edit small and self-contained.
+- `channels/ui/ChannelBrowserDialog.tsx` and `app/useChannelBrowserDialog.ts`, to open on a given tab.
+- `app/routes/index.tsx`: where the app opens.
+- `channels/ui/ConversationContextPanel.tsx`: the Manage button.
+- Tests, and a new spec `tests/e2e/shell-chats-rail.spec.ts`. Update the rail's existing specs where they assert
+  Fleets.
+
+**Untouched:**
+- the other places' rails (WP-10);
+- the cards (WP-12);
+- Luca's side conversations: WP-14 adds them under Luca's row once it has gathered them. Leave Luca's home ready to
+  list more rows, and build none of them.
+
+**Facts** (nav-facts §6, §7, §10):
+- Today `homeIdOfChat` (`railHomes.ts:74-94`) files by members alone.
+- Person vs agent: the rail's `agents` are this Mac's managed agents only. Anyone else becomes an "agent" home. Profiles
+  carry `isAgent` (`UserProfileSummary`), and `ShellRail` already batch-fetches non-agents' profiles.
+- Channels carry `channelType` (stream|forum|dm), `visibility` (open|private), `participantPubkeys` and
+  `lastMessageAt`. A formatter `relativeTime(iso)` in `chatListModel.ts:114-125` gives "now / 5m / 2h / 3d / 1w".
+- The room browser opens with `useAppShell().openBrowseChannels()`. Its tabs (all|joined|archived) are internal state
+  and always open on All.
+- The management panel opens inside a room with `useChannelPanelHistoryState().setChannelManagementOpen(true)` (the
+  pattern in `ChannelScreen.tsx:738-768`).
+- Landing today: a pending welcome channel, else the last conversation, else New conversation. Luca's DM is
+  `isCanonicalLucaDm`, and is opened or created by `onOpenDm({pubkeys: [lucaPubkey]})`.
+
+**Decisions** (only under `shell-frame`):
+1. **The heading:** CHATS, with `+` at its end: New conversation (⌘N, label "New conversation").
+2. **Sections, in this order:**
+   - Luca, pinned first, under no heading.
+   - **PROJECTS** `+`.
+   - **AGENTS.**
+   - **PEOPLE**, shown once there is one.
+   - **ROOMS** `+`, shown once there is one.
+3. **One home per chat, by what it is** (`SPEC.md` rules 1 to 5):
+   - A project's chat → its project.
+   - A direct conversation with one agent (`isAgent`, or one of this Mac's agents) → that agent. Your own with Luca is
+     Luca's row.
+   - A private stream whose only other member is one agent (an agent session) → under that agent.
+   - A direct conversation with one person → PEOPLE (that person's row is their conversation).
+   - Everything else → ROOMS, by its own name: an open stream, a forum, a group conversation, and a private stream with
+     several others or none. A group conversation with no name of its own shows its members ("Luca + Wren", Luca
+     first, then by name; anyone who can't be named is counted, "+ 1 other").
+   - Fleets retire.
+   - A unit test proves no chat appears twice, over the mock's channels and a synthetic set covering every case above.
+4. **Rows:**
+   - Every home shows its latest three conversations without being opened, newest first by `lastMessageAt`. The rest
+     sit behind a quiet "N more" row that shows them.
+   - The open conversation is always visible.
+   - A row's trailing slot holds the unread dot, or "working…", or else how long ago (`relativeTime`). On hover the
+     `+` takes the slot.
+   - Homes start open. The chevron closes one, and each home remembers it.
+5. **Rooms ends** on two quiet rows: Browse rooms… (the room browser on All) and Archived (on its Archived tab, through
+   a new `initialTab`). ROOMS' `+` starts a room (today's create-room dialog in room mode).
+6. **Where the app opens:**
+   - A pending welcome channel first, as today.
+   - Then Luca, when Luca's conversation has something unread.
+   - Else the last conversation.
+   - Else Luca (opened or created).
+   - Never New conversation.
+7. **Manage:** a room's details card (not a direct conversation) gets a Manage button. It opens the room's management
+   panel (members, leave, archive, delete), which nothing opens today.
+8. Selection, keyboard and access are as `SPEC.md` says. They extend to People's and Rooms' rows and to "N more".
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on unless stated):
+- Seed the mock with:
+  - a person's direct conversation;
+  - a group conversation with and without a name;
+  - an open room and a private room outside any project;
+  - an agent session;
+  - a project with four rooms;
+  - an archived room;
+  - activity times across minutes to weeks.
+- Screenshots:
+  - `chats-rail` (top) and `chats-rail-end` (People, Rooms, its tail);
+  - `home-more` (a home with four, showing three and "1 more");
+  - `hover-plus`, `focus-plus`;
+  - `browse` and `archived` (the browser on each tab);
+  - `manage` (details → Manage → the panel);
+  - `landing-unread` and `landing-last`.
+- The no-duplicates unit test. The flag-off views compared by hash to the base.
+
+**Checks JSON keys:** `heading_plus`, `sections_order`, `one_home_per_chat`, `people`, `rooms_named`, `fleets_gone`,
+`latest_three`, `times`, `more_row`, `open_always_visible`, `browse_and_archived`, `landing`, `manage`, `keyboard`,
+`flag_off_identical`, `gates`.
+
+## WP-12 · One card (2026-10-26, Riley's decision, Claude's design; Riley: "lets go with one card. it just makes more sense i think")
+
+**Why.**
+- Riley chose one card over two in the shell lab: the rail and what it opens share one card, in every place. Until
+  now they were two cards with 4 points between them, and on glass that strip read as a crack.
+- Read `SHELL_SPEC.md`: the sentence, "The card", "The rail", the conversation's card and the panes, all amended
+  2026-10-26. Read `NAVIGATION.md`, "One card".
+- The lab is the reference drawing, with `cards: "one"`: `.shell-onecard` and the `[data-cards="one"]` rules in
+  `shellStudy.css`, and the `oneCard` branch in `ShellStudy.tsx`. Look at it live with `&cards=one`, in
+  `mode=light`, and with `rail=closed`.
+
+**Base.**
+- WP-10 and WP-11 are built at the same time, and neither touches the cards' layout or surfaces.
+- WP-10 stops the runtime sessions column opening under the flag. Leave that column as it is, and ignore it.
+
+**Files in scope:**
+- The frame's card rules: `shared/styles/globals/shell-frame.css`, `app/shell/shell-light.css`,
+  `app/shell/shell-glass.css`, `app/shell/shell-settings.css`, and the card rules of `conversation-shell.css`.
+- `AppShell.tsx`, only to draw the one card beneath the rail and the content.
+- `app/shell/shellGlass.ts`: what it counts as a card and reports.
+- `app/shell/ShellLip.tsx`: only the card's left edge it computes.
+- The workspace's pane cards (`features/conversation-workspace/`): only their surfaces and gaps.
+- Tests, and a new spec `tests/e2e/shell-one-card.spec.ts`. Update the frame's existing specs where they assert two
+  cards or the 4-point gap.
+
+**Untouched:** what the rails list; the right cards (beyond their distance from the card); the places; the marks.
+
+**Facts** (nav-facts §8):
+- The 4 points between the cards are the rail's spacer: `[data-frame] > [data-sidebar-gap]` is the rail's width plus
+  `--mn-card-gap`, and closing the rail shrinks it, so the conversation card slides left.
+- The rail's card is `[data-frame] [data-sidebar="sidebar"]`, with the card edge and grain. The conversation's card is
+  `[data-luca-conversation-surface]` inside `main[data-buzz-glass-inset]`.
+- By day one shadow layer is built under every card by `useShellGlassShadows` (`shellGlass.ts:546-582`; one span per
+  `frameCards()` box).
+- The glass reporter tells the native glass about the conversation card only.
+- The lip's `--card-left` is `PLACES_WIDTH + (railOpen ? 220 + 4 : 0)` (`ShellLip.tsx:36-110`).
+- Settings draws its section list as a rail-card twin (`[data-luca-settings-list]`) and its panels as a conversation
+  card.
+
+**Decisions** (only under `shell-frame`):
+1. **One card in every place** (Chats, Agents, Activity, Library, Settings, New conversation):
+   - from the places' edge to 6 from the window's right (or 4 from an open right card), top flush with the lip, 6
+     above the bottom, corners 10;
+   - its surface, grain, lit top edge and shadow are drawn once, on one element beneath the rail and the content, and
+     it never moves;
+   - by day it has one shadow on the floor; by night, the cards' edge light.
+2. **The rail and the content lie on it, transparent:**
+   - no surface, edge, grain or shadow of their own, so nothing doubles and no seam shows;
+   - what they hold is clipped to the card's corners;
+   - the rail's spacer loses its 4 points.
+3. **The hairline:**
+   - half a point of ink at 8% along the rail's right edge, drawn as an inset line (`inset -0.5px 0 0`), so one device
+     pixel on a Retina screen;
+   - a box half a point wide isn't painted in Chromium: don't use one.
+4. **Closing the rail folds it into the card:**
+   - the rail narrows to nothing with its rows held still and clipped;
+   - the content's edge follows on the same 460 ms slide;
+   - the card's corner never moves;
+   - Reduce Motion: instant.
+5. **Panes side by side share the card,** divided by the same hairline, not cards of their own with gaps.
+6. **The right cards stay cards of their own,** 4 from the one card.
+7. **The narrow-window sheet** (under 768) and the rail's peek while closed keep working: while the rail is a sheet or
+   peeks, it's a card of its own over the card, as today.
+8. **The lip** centres the name on what the rail opens: its left edge is the hairline, not the hairline plus 4.
+9. **The glass reporter and the daytime shadows** count the one card (with the right cards) as their cards.
+10. **Every frame and mode:** check Black, Liquid Glass and the frosted fallback, each in dark and light.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, deviceScaleFactor 2, flag on unless stated):
+- Screenshots:
+  - `one-dark` and `one-light` (Chats);
+  - `one-glass-dark` and `one-glass-light`;
+  - `one-rail-closed`, and `one-closing` caught mid-slide;
+  - `one-panes` (two panes), `one-settings`, `one-agents`, `one-right-card` (details open);
+  - `one-narrow` (800 × 500, and the sheet under 768).
+- Measurements:
+  - the rail's right edge equals the content's left edge;
+  - the card's box doesn't move while the rail closes (its left, top and corners, frame by frame);
+  - the hairline is one device pixel of ink at 8% (read the pixels across the seam);
+  - there is one shadow, and no edge light inside the card.
+- The flag-off views compared by hash to the base.
+
+**Checks JSON keys:** `one_card_every_place`, `transparent_columns`, `hairline_pixels`, `fold_keeps_corner`,
+`reduce_motion`, `panes_share_card`, `right_cards_apart`, `sheet_and_peek`, `lip_axis`, `glass_and_shadows`,
+`frames_and_modes`, `flag_off_identical`, `gates`.
