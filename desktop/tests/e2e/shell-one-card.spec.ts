@@ -388,6 +388,9 @@ function hairlineOk(
   samples: { from: number; row: number[][] }[],
   device: number,
   ink: string,
+  /** An opaque line's own colour (the panes' dividers, ink mixed into the
+   *  surface token), instead of ink at 8% over the pixels beside it. */
+  opaque?: number[],
 ) {
   const [h, s, l] = ink.split(/\s+/).map((part) => Number.parseFloat(part));
   // The ink in RGB (hsl → rgb).
@@ -416,7 +419,8 @@ function hairlineOk(
       (sum, px) => sum.map((v, i) => v + px[i] / sides.length),
       [0, 0, 0],
     );
-    const expected = surface.map((v, i) => v + 0.08 * (inkRgb[i] - v));
+    const expected =
+      opaque ?? surface.map((v, i) => v + 0.08 * (inkRgb[i] - v));
     const lineDelta = Math.max(
       ...line.map((v, i) => Math.abs(v - expected[i])),
     );
@@ -785,6 +789,21 @@ test("panes share the card; the right cards stand apart", async ({ page }) => {
           await rowPixels(file, page, seamX, [300, 600]),
           Math.round(seamX * 2) - 1,
           m.ink,
+          // The dividers are opaque, so a crossing keeps one tone: the
+          // hairline's ink mixed into the surface (shell-frame.css).
+          await page.evaluate(() => {
+            const probe = document.createElement("div");
+            probe.style.color =
+              "color-mix(in srgb, hsl(var(--mn-ink)) 8%, hsl(var(--mn-surface)))";
+            document.body.append(probe);
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            const parts = color.match(/[\d.]+/g)?.map(Number) ?? [];
+            // color(srgb r g b) in 0..1, or rgb(r, g, b) in 0..255.
+            return color.startsWith("color(")
+              ? parts.slice(0, 3).map((v) => v * 255)
+              : parts.slice(0, 3);
+          }),
         )
       : [];
   const gridGap = await page.evaluate(

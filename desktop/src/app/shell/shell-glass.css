@@ -139,8 +139,9 @@
 
 /* The cards on the glass: every card the shell has. The one card (WP-12,
  * shell-frame.css) and the cards beside it (the right cards, glass-floor.css's
- * `[data-luca-card]`), and the rail while it peeks, a card of its own over
- * the one. The rail, the conversation and the workspace's panes lie on the
+ * `[data-luca-card]`). The rail while it peeks is a card of its own over
+ * the one, but draws no lit top of its own where it lies on the one card's
+ * (shell-frame.css). The rail, the conversation and the workspace's panes lie on the
  * one card and are no cards of their own; a route's surface that is itself
  * a card stays one only outside the frame's row. A place that fills the
  * conversation's card instead of painting its own inside it (WP-01) is not a
@@ -156,8 +157,7 @@
     [data-luca-card]:not([data-luca-workspace-floor] *),
     [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])):not(
       [data-luca-conversation-surface] *
-    ):not([data-luca-frame-row] *),
-    [data-frame][data-peek="true"] [data-sidebar="sidebar"]
+    ):not([data-luca-frame-row] *)
   ) {
   box-shadow:
     0 -0.5px 0 rgb(255 255 255 / 0.12),

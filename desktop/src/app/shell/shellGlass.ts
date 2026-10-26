@@ -305,12 +305,14 @@ const RAIL_CARD_SELECTOR = '[data-frame] [data-sidebar="sidebar"]';
  *  opens, in every place. */
 export const ONE_CARD_SELECTOR = "[data-luca-one-card]";
 
-/** What lies on the one card, no card of its own: the rail (unless it peeks,
- *  a card of its own over the one), and what it opens, with everything in
- *  them (the conversation, the workspace's panes, Settings' panels). The
- *  right cards stand beside it. */
+/** What lies on the one card, no card of its own here: the rail, and what
+ *  it opens, with everything in them (the conversation, the workspace's
+ *  panes, Settings' panels). A peeking rail is a card over the one, but its
+ *  shadow is its own panel's, cast only past its right edge
+ *  (shell-frame.css): one on the floor too would darken the floor round the
+ *  one card's left. The right cards stand beside it. */
 const ON_ONE_CARD_SELECTOR = [
-  '[data-luca-frame-row] [data-frame]:not([data-peek="true"]) [data-sidebar="sidebar"]',
+  '[data-luca-frame-row] [data-frame] [data-sidebar="sidebar"]',
   "[data-luca-frame-row] [data-luca-conversation-surface]",
   "[data-luca-frame-row] [data-luca-conversation-surface] *",
 ].join(", ");

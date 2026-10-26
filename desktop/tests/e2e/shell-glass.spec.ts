@@ -813,7 +813,7 @@ const measureCards = (page: Page) =>
       '[data-frame] [data-sidebar="sidebar"]',
     ].join(", ");
     const onOneCard = [
-      '[data-luca-frame-row] [data-frame]:not([data-peek="true"]) [data-sidebar="sidebar"]',
+      '[data-luca-frame-row] [data-frame] [data-sidebar="sidebar"]',
       "[data-luca-frame-row] [data-luca-conversation-surface]",
       "[data-luca-frame-row] [data-luca-conversation-surface] *",
     ].join(", ");
