@@ -1970,3 +1970,29 @@ page is `app/shell/placeRails/PlacePage.tsx`.
 - The flag-off views must match the base by hash, on non-blank shots.
 - Gates.
 - Checks JSON keys: one per decision (`d1`, `d2`, …), plus `flag_off_identical` and `gates`.
+
+## WP-20 · Reduce Motion's freeze, and the history keys from the composer (2026-10-26, Claude's design, from the final flows review)
+
+**Why.** The final flows review (`~/.claude/plans/polyphonic-shell-build/final-review-flows/`) found two problems:
+- With the Mac's Reduce Motion setting on, the new shell blocks the page for 30 to 38 seconds after it loads. The old
+  layout answers in 2 ms under the same load, and the new shell in about 300 ms with Reduce Motion off. The likely
+  place is the Reduce Motion branches in `app/shell/marks.ts`; this is unconfirmed.
+- ⌘] does nothing once focus is in the composer (after ⌘[ lands in a conversation). This happens in both layouts.
+
+**Files in scope:**
+- `app/shell/marks.ts`, `ShellMarks.tsx`, and whatever the profile shows spinning under Reduce Motion;
+- the composer's key handling and `app/navigation/useBackForwardControls.ts`, only for ⌘[ and ⌘].
+
+**Decisions** (the freeze fix under `shell-frame`; the keys in both layouts):
+1. **Find the freeze by measuring.** Profile the first seconds after load with Reduce Motion emulated
+   (`page.emulateMedia({ reducedMotion: 'reduce' })`), using the browser's performance profile, long-task entries, or
+   timers. Fix what spins at its source.
+   - Under Reduce Motion the shell answers as fast as with it off: the first interaction within 1 s of the page
+     showing, at 1440 × 900 and 800 × 500, in Chats, Agents and Activity.
+   - The marks still land instantly under Reduce Motion.
+2. **⌘[ and ⌘] work from the composer.** A history key is never swallowed by the text field, so you can go Back and then
+   Forward while focus is in the composer. The composer keeps its own keys.
+
+**Checks JSON keys:** `freeze_cause` (what spun, with the evidence), `reduced_motion_responsive` (first-interaction
+times, before and after, with and without Reduce Motion), `marks_instant`, `history_keys_from_composer`,
+`flag_off_identical`, `gates`.
