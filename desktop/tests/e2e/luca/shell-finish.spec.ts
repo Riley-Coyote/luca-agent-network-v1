@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -930,7 +930,19 @@ test("by day the right card's chosen tab stands up", async ({ page }) => {
 // ── 13: the companion ───────────────────────────────────────────────────
 const LUCA = TEST_IDENTITIES.bob.pubkey;
 
-async function holdCompanion(page: Page) {
+/** A held request the app has already let go (its 15-second timeout), held
+ *  again under a new id (the app answers each request id once), so what
+ *  follows measures a live one. */
+async function holdAgainIfGone(page: Page) {
+  if ((await page.getByTestId("app-control-badge").count()) === 0) {
+    await holdCompanion(page, randomUUID());
+  }
+}
+
+async function holdCompanion(
+  page: Page,
+  requestId = "daaa5f62-adfa-46c0-83b0-6812b643a2e5",
+) {
   await page.evaluate(() => {
     const state = window as unknown as {
       __TAURI_INTERNALS__: {
@@ -945,11 +957,18 @@ async function holdCompanion(page: Page) {
       }
       if (command !== "resolve_polyphonic_app_control")
         return invoke(command, args, options);
-      const input = args as { action: string };
+      const input = args as { action: string; requestId: string };
       if (input.action === "begin") {
         await new Promise<void>(() => {});
         return "running";
       }
+      // As the Rust side does (surface_control.rs, `request`): once the
+      // request is settled, it tells the window the control has ended.
+      window.setTimeout(() => {
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("polyphonic-app-control-ended", {
+          requestId: input.requestId,
+        });
+      }, 50);
       return { complete: "completed", stop: "stopped", failed: "failed" }[
         input.action
       ];
@@ -975,7 +994,7 @@ async function holdCompanion(page: Page) {
     {
       agent: LUCA,
       channel: GENERAL_ID,
-      id: "daaa5f62-adfa-46c0-83b0-6812b643a2e5",
+      id: requestId,
     },
   );
   await expect(page.getByTestId("app-control-badge")).toContainText(
@@ -1097,6 +1116,7 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
     h: 220,
   });
   await page.setViewportSize({ width: 800, height: 500 });
+  await holdAgainIfGone(page);
   await page.waitForTimeout(1200);
   await settle(page);
   const at800 = await measure();
@@ -1128,6 +1148,10 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
           }
         : null;
     });
+  // The app lets a held request go after 15 seconds (CompanionAppControl.tsx,
+  // its timeout); on a busy machine the steps above can take longer, so each
+  // step from here is measured on a request held afresh when it has gone.
+  await holdAgainIfGone(page);
   const windowed = await radius();
   await page.evaluate(() => {
     (window as unknown as { __FULLSCREEN__: boolean }).__FULLSCREEN__ = true;
@@ -1150,11 +1174,14 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
   await page.evaluate(() => {
     (window as unknown as { __FULLSCREEN__: boolean }).__FULLSCREEN__ = false;
   });
+  await holdAgainIfGone(page);
   await page.getByRole("button", { name: "Stop app navigation" }).click();
   await expect(page.getByTestId("app-control-badge")).toHaveCount(0, {
     timeout: 10_000,
   });
   await page.waitForTimeout(400);
+  // The pill fades back in: let its fade finish before reading it.
+  await settle(page);
   const back = await page.evaluate(() => {
     const section = document.querySelector(
       '[data-testid="message-timeline-day-divider"]',
@@ -1591,7 +1618,9 @@ test("a project room's own header gives way to the lip and the rail's rooms", as
       },
     );
     await seedProject(page);
-    await openRoute(page, GENERAL_ID, "general");
+    // The lip names a project room's project first (WP-09b, Decided 3):
+    // "Tidepool / general"; the base build names the room alone.
+    await openRoute(page, GENERAL_ID, /general$/);
     await page.mouse.move(1200, 700);
     await page.waitForTimeout(1200);
     await settle(page);
@@ -1630,7 +1659,7 @@ test("a project room's own header gives way to the lip and the rail's rooms", as
     ok:
       after.picker === 0 &&
       after.card_header === 0 &&
-      after.lip_name === "general" &&
+      after.lip_name === "Tidepool/general" &&
       after.first_content_from_pane === 23 &&
       column.picker === 1,
   };
