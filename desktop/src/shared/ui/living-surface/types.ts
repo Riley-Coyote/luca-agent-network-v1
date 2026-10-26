@@ -35,8 +35,9 @@ export interface LivingSurface {
   press(x: number, y: number, down: boolean): void;
   /** The first message going in, from the composer's place and width. */
   release(x: number, y: number, width: number): void;
-  /** Run unseen for a while, so it opens already alive. */
-  warm(seconds: number): void;
+  /** Run unseen until it has had `seconds` of life, so it opens already alive; `paced`, a share at a time as the
+   *  GPU keeps up, never all at once. Whether it has had its life, and shows it. */
+  warm(seconds: number, paced?: boolean): boolean;
   /** Advance by dt seconds and draw, faded in by `fade` (0..1). */
   frame(dt: number, fade: number): void;
   /** Match the drawing buffer to the canvas's size. */
