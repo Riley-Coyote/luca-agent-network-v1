@@ -1150,7 +1150,8 @@ test("landing on an exchange: its message in view, named for you", async ({
       geometry.overlayTop.top,
     );
   expect(geometry.stackCards).toHaveLength(0);
-  expect(geometry.heldText).toContain("2 requests are waiting on you");
+  // The room's stack, folded to its one line (WP-23, Decided 2).
+  expect(geometry.heldText?.toLowerCase()).toContain("needs you · 2 · show");
   // Show brings them back.
   await page.getByTestId("pending-held").click();
   await expect(page.getByTestId("managed-permission-card")).toBeVisible();

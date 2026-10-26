@@ -29,6 +29,9 @@ type ManagedPermissionCardProps = {
   compact?: boolean;
   /** Who asks, in the ask's words ("Atlas asks"); drawn under the frame. */
   summary?: string;
+  /** Under the frame, the row alone, for a list that holds every ask (a
+   *  room's stack, SHELL_BUILD.md WP-23). */
+  bare?: boolean;
 };
 
 /**
@@ -55,6 +58,7 @@ export function ManagedPermissionCard({
   pending,
   compact = false,
   summary,
+  bare = false,
 }: ManagedPermissionCardProps) {
   const shellFrame = useShellFrameEnabled();
   const [resolving, setResolving] = React.useState<string | null>(null);
@@ -106,19 +110,19 @@ export function ManagedPermissionCard({
   // Under the frame, the one drawing every ask has (SHELL_BUILD.md WP-16,
   // Decided 2): Needs you's row, with the same words and answers, its preview
   // behind Details. The outcome is still announced from here.
-  if (shellFrame)
-    return (
-      <ul className="luca-ask-list">
-        <PermissionAsk
-          common={{
-            "data-pending-id": pending.pendingId,
-            "data-testid": "managed-permission-card",
-          }}
-          pending={pending}
-          summary={summary ?? "Asks you"}
-        />
-      </ul>
+  if (shellFrame) {
+    const row = (
+      <PermissionAsk
+        common={{
+          "data-pending-id": pending.pendingId,
+          "data-testid": "managed-permission-card",
+        }}
+        pending={pending}
+        summary={summary ?? "Asks you"}
+      />
     );
+    return bare ? row : <ul className="luca-ask-list">{row}</ul>;
+  }
 
   /** V1: the owner answers in a tense, and the desktop picks the option. */
   const decide = (tense: ManagedPermissionTense) =>

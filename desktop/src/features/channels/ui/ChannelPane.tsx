@@ -26,6 +26,7 @@ import {
   hasOtherDmParticipant,
 } from "@/features/channels/lib/dmHuddleMembers";
 import { useComposerHeightPadding } from "@/features/messages/ui/useComposerHeightPadding";
+import { observeElementBlockSize } from "@/shared/layout/observeElementBlockSize";
 import { TypingIndicatorRow } from "@/features/messages/ui/TypingIndicatorRow";
 import { UserProfilePanel } from "@/features/profile/ui/UserProfilePanel";
 import { ChannelFindBar } from "@/features/search/ui/ChannelFindBar";
@@ -40,6 +41,7 @@ import { resolveManagedPresentationRetry } from "@/features/messages/lib/managed
 import { projectManagedTimelineMessages } from "@/features/messages/lib/managedTimelineProjection";
 import { projectFocusedThreadTimeline } from "@/features/messages/lib/focusedThreadProjection";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
+import { ConversationRoomStack } from "@/features/channels/ui/ConversationRoomStack";
 import { StopAllWorkingResidents } from "@/features/channels/ui/StopAllWorkingResidents";
 import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
@@ -1050,6 +1052,106 @@ export const ChannelPane = React.memo(function ChannelPane({
     focusedThreadHead !== null &&
     pendingCount > 0 &&
     pendingShownFor !== focusedThreadHead.id;
+  // The room's stack above the message box (SHELL_BUILD.md WP-23): under the
+  // shell it holds the asks and the work as one stack; with the flag off the
+  // strip, the proposal and the receipt stand as they always have.
+  const activityStrip = (
+    <ConversationAgentActivityStrip
+      agents={activityAgents}
+      channelId={activeChannel?.id ?? null}
+      idleContent={
+        hasTypingActivity ? (
+          <TypingIndicatorRow
+            channel={activeChannel}
+            className="min-w-0 flex-1 py-0 pl-[calc(0.75rem+1px)] pr-0 sm:pl-[calc(1rem+1px)]"
+            currentPubkey={currentPubkey}
+            profiles={profiles}
+            typingPubkeys={typingPubkeys}
+          />
+        ) : null
+      }
+      onOpenResident={(pubkey) =>
+        onOpenProfilePanel(pubkey, { tab: "continuity" })
+      }
+      onRetryResident={(target) => void handleRetryResident(target)}
+      permissionLabel={
+        activePermissionRequests.length > 0
+          ? "Permission needed"
+          : "Answer needed"
+      }
+      permissionContent={
+        !shellFrame &&
+        (activePermissionRequests.length > 0 ||
+          activeInputRequests.length > 0) ? (
+          <div className="grid gap-2">
+            {activePermissionRequests.map((pending) => (
+              <ManagedPermissionCard
+                key={pending.pendingId}
+                pending={pending}
+                summary={askedBy(pending.request.residentPubkey)}
+              />
+            ))}
+            {activeInputRequests.map((pending) => (
+              <ManagedInputCard
+                key={pending.pendingId}
+                pending={pending}
+                summary={askedBy(pending.request.residentPubkey)}
+              />
+            ))}
+          </div>
+        ) : null
+      }
+      runtimeTasks={runtimeTasksQuery.data ?? []}
+      sessionAgents={agentSessionAgents}
+      presentationActivityByPubkey={stripPresentationActivity}
+      presentationStateByPubkey={stripPresentationState}
+      workingPubkeys={stripWorkingPubkeys}
+    />
+  );
+  const runtimeTaskProposal = (
+    <RuntimeTaskProposalConfirmation
+      projectSourceIds={projectContext?.sourceIds ?? []}
+      proposals={runtimeTaskProposalsQuery.data ?? []}
+      residentNames={
+        new Map(
+          agentSessionAgents.map((agent) => [
+            normalizePubkey(agent.pubkey),
+            agent.name,
+          ]),
+        )
+      }
+    />
+  );
+  const runtimeTaskReceipts = (
+    <RuntimeTaskResultReceipts
+      onRetrySynthesis={handleRetryRuntimeTaskSynthesis}
+      tasks={runtimeTasksQuery.data ?? []}
+    />
+  );
+  const roomAskCount =
+    activePermissionRequests.length +
+    activeInputRequests.length +
+    (runtimeTaskProposalsQuery.data?.length ? 1 : 0);
+  // Under the shell, "Jump to latest" sits above the room's stack, never
+  // across it (WP-23, Decided 4): the overlay's height, for the pill.
+  React.useLayoutEffect(() => {
+    // A new room or layout mounts a new overlay: measure that one.
+    void activeChannelId;
+    void isSinglePanelView;
+    const overlay = composerWrapperRef.current;
+    const section = overlay?.parentElement;
+    if (!shellFrame || isNonMemberView || !overlay || !section) return;
+    const stop = observeElementBlockSize(overlay, (size) =>
+      section.style.setProperty(
+        "--luca-composer-overlay-height",
+        `${Math.ceil(size)}px`,
+      ),
+    );
+    return () => {
+      stop();
+      section.style.removeProperty("--luca-composer-overlay-height");
+    };
+  }, [activeChannelId, isNonMemberView, isSinglePanelView, shellFrame]);
   const projectedTimelineMessages = openThreadHeadId
     ? focusedThread.messages
     : projectedRoomMessages;
@@ -1365,38 +1467,14 @@ export const ChannelPane = React.memo(function ChannelPane({
                         />
                       </div>
                     ) : null}
-                    <ConversationAgentActivityStrip
-                      agents={activityAgents}
-                      channelId={activeChannel?.id ?? null}
-                      idleContent={
-                        hasTypingActivity ? (
-                          <TypingIndicatorRow
-                            channel={activeChannel}
-                            className="min-w-0 flex-1 py-0 pl-[calc(0.75rem+1px)] pr-0 sm:pl-[calc(1rem+1px)]"
-                            currentPubkey={currentPubkey}
-                            profiles={profiles}
-                            typingPubkeys={typingPubkeys}
-                          />
-                        ) : null
-                      }
-                      onOpenResident={(pubkey) =>
-                        onOpenProfilePanel(pubkey, { tab: "continuity" })
-                      }
-                      onRetryResident={(target) =>
-                        void handleRetryResident(target)
-                      }
-                      permissionLabel={
-                        activePermissionRequests.length > 0
-                          ? "Permission needed"
-                          : "Answer needed"
-                      }
-                      permissionContent={
-                        !holdPending &&
-                        (activePermissionRequests.length > 0 ||
-                          activeInputRequests.length > 0) ? (
-                          <div className="grid gap-2">
+                    {shellFrame ? (
+                      <ConversationRoomStack
+                        askCount={roomAskCount}
+                        asks={
+                          <>
                             {activePermissionRequests.map((pending) => (
                               <ManagedPermissionCard
+                                bare
                                 key={pending.pendingId}
                                 pending={pending}
                                 summary={askedBy(
@@ -1413,58 +1491,31 @@ export const ChannelPane = React.memo(function ChannelPane({
                                 )}
                               />
                             ))}
-                          </div>
-                        ) : null
-                      }
-                      runtimeTasks={runtimeTasksQuery.data ?? []}
-                      sessionAgents={agentSessionAgents}
-                      presentationActivityByPubkey={stripPresentationActivity}
-                      presentationStateByPubkey={stripPresentationState}
-                      workingPubkeys={stripWorkingPubkeys}
-                    />
-                    {/* The overlay is pointer-events-none; every child that
+                            {runtimeTaskProposal}
+                          </>
+                        }
+                        held={holdPending}
+                        onShow={() => {
+                          if (focusedThreadHead)
+                            setPendingShownFor(focusedThreadHead.id);
+                        }}
+                        resetKey={activeChannelId}
+                      >
+                        {activityStrip}
+                        {runtimeTaskReceipts}
+                      </ConversationRoomStack>
+                    ) : (
+                      <>
+                        {activityStrip}
+                        {/* The overlay is pointer-events-none; every child that
                         can be touched opts back in. Without this the task
                         card renders but nothing on it can be clicked. */}
-                    {holdPending && focusedThreadHead ? (
-                      <div className="luca-measure pointer-events-auto">
-                        <button
-                          className="luca-pending-held"
-                          data-testid="pending-held"
-                          onClick={() =>
-                            setPendingShownFor(focusedThreadHead.id)
-                          }
-                          type="button"
-                        >
-                          <span>
-                            {pendingCount === 1
-                              ? "1 request is waiting on you"
-                              : `${pendingCount} requests are waiting on you`}
-                          </span>
-                          <span className="luca-pending-held-show">Show</span>
-                        </button>
-                      </div>
-                    ) : null}
-                    <div
-                      className="luca-measure pointer-events-auto"
-                      hidden={holdPending}
-                    >
-                      <RuntimeTaskProposalConfirmation
-                        projectSourceIds={projectContext?.sourceIds ?? []}
-                        proposals={runtimeTaskProposalsQuery.data ?? []}
-                        residentNames={
-                          new Map(
-                            agentSessionAgents.map((agent) => [
-                              normalizePubkey(agent.pubkey),
-                              agent.name,
-                            ]),
-                          )
-                        }
-                      />
-                    </div>
-                    <RuntimeTaskResultReceipts
-                      onRetrySynthesis={handleRetryRuntimeTaskSynthesis}
-                      tasks={runtimeTasksQuery.data ?? []}
-                    />
+                        <div className="luca-measure pointer-events-auto">
+                          {runtimeTaskProposal}
+                        </div>
+                        {runtimeTaskReceipts}
+                      </>
+                    )}
                     {/* Height zero, so the composer's measured height (and
                         the timeline's padding) never changes for the name. */}
                     <div className="luca-measure luca-first-message-greeting-slot">

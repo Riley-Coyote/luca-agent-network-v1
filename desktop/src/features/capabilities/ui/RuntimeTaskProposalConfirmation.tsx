@@ -75,9 +75,9 @@ export function useProposalDraft(
 }
 
 /** A proposal's card in its conversation. Under the frame, the one drawing
- *  every ask has (SHELL_BUILD.md WP-16, Decided 2): Needs you's row on a
- *  plate of its own, Run · Not now with its defaults, Change… opening the
- *  card under it. */
+ *  every ask has (SHELL_BUILD.md WP-16, Decided 2): Needs you's row, Run ·
+ *  Not now with its defaults, Change… opening the card under it, as one item
+ *  (`li`) of the room's one list of asks (WP-23, ChannelPane.tsx). */
 export function RuntimeTaskProposalConfirmation({
   proposals,
   projectSourceIds,
@@ -93,21 +93,17 @@ export function RuntimeTaskProposalConfirmation({
     if (!proposal) return null;
     const who = residentNames.get(proposal.residentPubkey) ?? "Your resident";
     return (
-      <div className="luca-ask-stack" data-testid="runtime-task-proposal-ask">
-        <ul className="luca-ask-list">
-          <ProposalAsk
-            common={{
-              "data-proposal-id": proposal.proposalId,
-              "data-testid": "runtime-task-proposal-row",
-            }}
-            key={proposal.proposalId}
-            projectSourceIds={projectSourceIds}
-            proposal={proposal}
-            summary={`${who} asks`}
-            who={who}
-          />
-        </ul>
-      </div>
+      <ProposalAsk
+        common={{
+          "data-proposal-id": proposal.proposalId,
+          "data-testid": "runtime-task-proposal-row",
+        }}
+        key={proposal.proposalId}
+        projectSourceIds={projectSourceIds}
+        proposal={proposal}
+        summary={`${who} asks`}
+        who={who}
+      />
     );
   }
   return (
