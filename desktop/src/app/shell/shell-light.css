@@ -90,6 +90,17 @@
     0 12px 32px -8px hsl(var(--mn-ink) / 0.14);
 }
 
+/* The peeking rail's shadow by day is the floor's ink-cast one, the cards'
+ * own values, never the night's black (it reads as dirt on paper); it still
+ * falls only past the rail's right edge (shell-frame.css). */
+:root:root[data-luca-frame="solid"]:not(.dark):not([data-luca-frame-glass])
+  [data-frame][data-peek="true"]
+  > :is([data-testid="app-sidebar"], [data-luca-settings-list]) {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.06),
+    0 12px 32px -8px hsl(var(--mn-ink) / 0.14);
+}
+
 /* ── the frame's words ───────────────────────────────────────────────
  * The lip's name and buttons, and the places. */
 :root[data-luca-frame="solid"]:not(.dark) :is(.luca-lip, .luca-lip-name) {

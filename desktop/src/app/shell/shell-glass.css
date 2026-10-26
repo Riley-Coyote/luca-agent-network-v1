@@ -180,6 +180,17 @@
   box-shadow: none;
 }
 
+/* The peeking rail's shadow on the glass by day: the cards' own daytime
+ * values, ink-cast, never black; only past its right edge
+ * (shell-frame.css). */
+:root:root[data-luca-frame-glass]:not(.dark)
+  [data-frame][data-peek="true"]
+  > :is([data-testid="app-sidebar"], [data-luca-settings-list]) {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.08),
+    0 16px 40px -10px hsl(var(--mn-ink) / 0.22);
+}
+
 /* The cards' shadows by day: one layer on the glass, above the veil and
  * beneath every card, one shadow where each card lies (shellGlass.ts,
  * useShellGlassShadows, places them and fades the rail's as it narrows).
