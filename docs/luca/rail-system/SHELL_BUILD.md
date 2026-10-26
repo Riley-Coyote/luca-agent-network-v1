@@ -2058,3 +2058,18 @@ Not in scope: `AppSidebar.tsx` and `ShellRail.tsx` (WP-21 is building there).
 - Gates: tsc, biome on changed files, px-text, the unit suite.
 
 **Checks JSON keys:** `d1` to `d6`, `flag_off_identical`, `gates`.
+
+**Added from the final flows re-check** (2026-10-26, `~/.claude/plans/polyphonic-shell-build/final-review-flows/`):
+7. **A mind's Notebook shows the proposals it asked.** Luca's proposal "Update the release notes for beta 7" is in the
+   room and in Needs you, but not in Luca's Notebook, while Atlas's and Wren's asks do show in theirs. Every ask a mind
+   makes (permission, question, proposal) appears in its Notebook, answered in place as in Needs you. Fix it outside
+   `MindSpace.tsx` (WP-21 is there): in `MindNotebook.tsx`, `mindStream.ts` or the asks' shared source.
+8. **The room's Change… form shows whole.** WP-16 capped the room's pending stack at the fold's reach, so the opened Run
+   task form is cut off inside a small scroll box at 1440 × 900 (`final-review-flows/shots/r2-room-change.png`). The
+   stack may grow to the room's own height above the composer, never past the lip; it scrolls only beyond that, and
+   opening the form brings it into view, whole wherever it fits (at 1440 × 900 it does).
+9. **Quick Chat never covers the details card.** At 800 × 500 the details card's last card (Luca's instructions)
+   touches the Quick Chat button. The right card keeps the same bottom-right safe area as the place cards (WP-09b
+   Decided 4: one rule for all places).
+
+**Checks JSON keys for the additions:** `d7`, `d8`, `d9`.
