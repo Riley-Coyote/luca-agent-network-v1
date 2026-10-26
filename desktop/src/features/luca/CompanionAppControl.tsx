@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { invokeTauri } from "@/shared/api/tauri";
+import { useIsFullscreen } from "@/shared/lib/useIsFullscreen";
 import "./companionAppControl.css";
 
 type Control = {
@@ -126,6 +127,19 @@ export function useCompanionAppControl() {
   return { visible, run, stop };
 }
 
+/** The halo, square in full screen as the window is (shell-finish.css). */
+function ControlHalo() {
+  const fullscreen = useIsFullscreen();
+  return (
+    <div
+      className="polyphonic-control-halo"
+      data-fullscreen={fullscreen ? "" : undefined}
+      data-testid="app-control-halo"
+      aria-hidden="true"
+    />
+  );
+}
+
 /** Soft halo approved in the control-signal lab. No observation or authority. */
 export function CompanionAppControl({
   control,
@@ -137,11 +151,7 @@ export function CompanionAppControl({
   if (!control) return null;
   return createPortal(
     <>
-      <div
-        className="polyphonic-control-halo"
-        data-testid="app-control-halo"
-        aria-hidden="true"
-      />
+      <ControlHalo />
       <div
         className="polyphonic-control-badge text-sm"
         data-testid="app-control-badge"

@@ -70,13 +70,13 @@ pub fn browser_awareness_native_host_entry() -> Option<i32> {
     luca::companion_awareness::browser_runtime::browser_awareness_native_host_entry()
 }
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 #[cfg(target_os = "macos")]
 use tauri::Listener;
 use tauri::{Emitter, Manager, RunEvent};
-use tauri_plugin_window_state::StateFlags;
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use url::Url;
 
 #[cfg(target_os = "macos")]
@@ -179,6 +179,130 @@ fn size_window_for_first_run(window: &tauri::Window, first_run: bool) {
         return;
     }
     commands::center_on_current_monitor(window);
+}
+
+/// What the window-state plugin keeps: everything but visibility, which the
+/// reveal below owns.
+fn window_state_flags() -> StateFlags {
+    StateFlags::all() & !StateFlags::VISIBLE
+}
+
+/// The window's first size, before anyone has set one (SHELL_BUILD.md,
+/// WP-09a): 1440 × 900, or the screen's usable area less 40 on each side
+/// when that is smaller, never under the window's minimum (800 × 500,
+/// `tauri.conf.json`). Logical points.
+const FIRST_WINDOW_WIDTH: f64 = 1440.0;
+const FIRST_WINDOW_HEIGHT: f64 = 900.0;
+const FIRST_WINDOW_MARGIN: f64 = 40.0;
+const MIN_WINDOW_WIDTH: f64 = 800.0;
+const MIN_WINDOW_HEIGHT: f64 = 500.0;
+
+/// The first size for a screen whose usable area (less the menu bar and
+/// the Dock) is `usable_width` × `usable_height` points.
+fn first_window_size(usable_width: f64, usable_height: f64) -> (f64, f64) {
+    let fit = |preferred: f64, usable: f64, minimum: f64| {
+        preferred
+            .min(usable - 2.0 * FIRST_WINDOW_MARGIN)
+            .max(minimum)
+    };
+    (
+        fit(FIRST_WINDOW_WIDTH, usable_width, MIN_WINDOW_WIDTH),
+        fit(FIRST_WINDOW_HEIGHT, usable_height, MIN_WINDOW_HEIGHT),
+    )
+}
+
+/// Whether the window-state plugin holds a saved geometry for `label`: what
+/// the person last set, which it restores (maximized included).
+fn has_saved_window_state<R: tauri::Runtime>(app: &tauri::AppHandle<R>, label: &str) -> bool {
+    let Ok(dir) = app.path().app_config_dir() else {
+        return false;
+    };
+    let Ok(raw) = std::fs::read(dir.join(app.filename())) else {
+        return false;
+    };
+    serde_json::from_slice::<serde_json::Value>(&raw)
+        .map(|states| states.get(label).is_some())
+        .unwrap_or(false)
+}
+
+/// The main window's first open: the first size, centred on the screen it
+/// is on, not maximized. Every later open restores what was last set.
+fn size_window_for_first_open(window: &tauri::Window) {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        luca_log!(info, "buzz-desktop: no monitor to size the first window on");
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let (width, height) = first_window_size(
+        f64::from(area.size.width) / scale,
+        f64::from(area.size.height) / scale,
+    );
+    if let Err(error) = window.unmaximize() {
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to unmaximize the first window: {error}"
+        );
+    }
+    if let Err(error) = window.set_size(tauri::LogicalSize::new(width, height)) {
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to size the first window: {error}"
+        );
+        return;
+    }
+    commands::center_on_current_monitor(window);
+}
+
+/// How long the window rests before its geometry is written down.
+const WINDOW_STATE_SAVE_DEBOUNCE_MS: u64 = 600;
+
+/// The window-state plugin saves only on a normal quit, so a crash or a
+/// kill lost the size. Also save once a resize or a move has rested. On the
+/// main thread, as the plugin's own save at quit is: it holds its cache
+/// while it reads the window, and the window answers on the main thread.
+fn save_window_state_as_it_changes(window: &tauri::Window) {
+    let generation = Arc::new(AtomicU64::new(0));
+    let app = window.app_handle().clone();
+    window.on_window_event(move |event| {
+        if !matches!(
+            event,
+            tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_)
+        ) {
+            return;
+        }
+        let current = generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let generation = generation.clone();
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(
+                WINDOW_STATE_SAVE_DEBOUNCE_MS,
+            ))
+            .await;
+            if generation.load(Ordering::SeqCst) != current {
+                return;
+            }
+            let saver = app.clone();
+            if let Err(error) = app.run_on_main_thread(move || {
+                if let Err(error) = saver.save_window_state(window_state_flags()) {
+                    luca_log!(
+                        warn,
+                        "buzz-desktop: failed to save the window's state: {error}"
+                    );
+                }
+            }) {
+                luca_log!(
+                    warn,
+                    "buzz-desktop: failed to schedule the window's save: {error}"
+                );
+            }
+        });
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -320,7 +444,7 @@ pub fn run() {
             tauri_plugin_window_state::Builder::default()
                 // Visibility is excluded: the native reveal plugin below
                 // shows the window after saved geometry has been restored.
-                .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
+                .with_state_flags(window_state_flags())
                 .build(),
         )
         .plugin(
@@ -335,6 +459,10 @@ pub fn run() {
                     // commit the startup surface before revealing it.
                     let window = webview.window();
                     let first_run = first_run::is_confirmed_first_run(window.app_handle());
+                    // No geometry saved yet (and not the onboarding card's
+                    // first run, which has its own size): the first size.
+                    let first_open =
+                        !first_run && !has_saved_window_state(window.app_handle(), "main");
 
                     #[cfg(target_os = "macos")]
                     {
@@ -379,8 +507,11 @@ pub fn run() {
                             // After the window-state plugin has issued its
                             // restore, so a first run ends on the card size.
                             size_window_for_first_run(&window, first_run);
+                            if first_open {
+                                size_window_for_first_open(&window);
+                            }
                             wait_for_stable_initial_window_geometry(&window).await;
-                            if first_run {
+                            if first_run || first_open {
                                 // Again, now that the resize has landed: the
                                 // first attempt runs while `set_size` is still
                                 // in flight on the main thread, so it centres
@@ -404,6 +535,7 @@ pub fn run() {
                             }
 
                             reveal_initial_window(&window);
+                            save_window_state_as_it_changes(&window);
                             if !first_run {
                                 clear_initial_window_backing(&window).await;
                             }
@@ -413,7 +545,11 @@ pub fn run() {
                     #[cfg(not(target_os = "macos"))]
                     {
                         size_window_for_first_run(&window, first_run);
+                        if first_open {
+                            size_window_for_first_open(&window);
+                        }
                         reveal_initial_window(&window);
+                        save_window_state_as_it_changes(&window);
                     }
                 })
                 .build(),
@@ -1470,6 +1606,31 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod first_window_size_tests {
+    use super::first_window_size;
+
+    #[test]
+    fn a_small_screen_gets_its_usable_area_less_forty_each_side() {
+        assert_eq!(first_window_size(1280.0, 800.0), (1200.0, 720.0));
+    }
+
+    #[test]
+    fn a_laptop_screen_narrower_than_1440_plus_the_margins() {
+        assert_eq!(first_window_size(1512.0, 982.0), (1432.0, 900.0));
+    }
+
+    #[test]
+    fn a_large_screen_gets_1440_by_900() {
+        assert_eq!(first_window_size(5120.0, 2880.0), (1440.0, 900.0));
+    }
+
+    #[test]
+    fn never_under_the_window_minimum() {
+        assert_eq!(first_window_size(820.0, 520.0), (800.0, 500.0));
+    }
 }
 
 #[cfg(test)]

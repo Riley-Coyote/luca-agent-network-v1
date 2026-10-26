@@ -133,7 +133,25 @@ export const GLASS_THEME_SUCCESSORS: Readonly<Record<string, string>> = {
  */
 export const GLASS_THEME_MOVE_KEY = "polyphonic-glass-theme-moved";
 
-type GlassThemeMove = { from: string; to: string; frame: string | null };
+type GlassThemeMove = {
+  from: string;
+  to: string;
+  frame: string | null;
+  /** The accent saved before the move, when the move set it aside. */
+  accent?: string;
+};
+
+/**
+ * The accent, for a move to a palette that doesn't pin the neutral one
+ * (Obsidian pinned it, Vitesse Black doesn't): a coloured accent the glass
+ * theme kept hidden would show after the move, so it resets to the
+ * successor's own (the neutral default) and comes back with the glass theme.
+ */
+export type GlassThemeMoveAccent = {
+  key: string;
+  neutral: string;
+  pinsNeutral: (theme: string) => boolean;
+};
 
 type MoveStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -148,6 +166,7 @@ function readGlassThemeMove(storage: MoveStorage): GlassThemeMove | null {
       from: move.from,
       to: move.to,
       frame: typeof move.frame === "string" ? move.frame : null,
+      ...(typeof move.accent === "string" ? { accent: move.accent } : {}),
     };
   } catch {
     return null;
@@ -157,8 +176,9 @@ function readGlassThemeMove(storage: MoveStorage): GlassThemeMove | null {
 /**
  * Move someone off a glass theme under the shell's frame, or give it back
  * when the frame goes off again. Returns the theme to show now, or null when
- * nothing changed. Only the theme and the frame setting are touched: the
- * accent, the mode and every other palette stay as chosen.
+ * nothing changed. Only the theme and the frame setting are touched (and,
+ * given `accent`, a coloured accent the successor would show): the mode
+ * and every other palette stay as chosen.
  *
  * - Frame on, a glass theme stored: the move is recorded (once: an earlier
  *   record is kept), the base palette and the Glass frame are stored, and a
@@ -171,19 +191,32 @@ export function settleGlassThemeMove(
   shellFrame: boolean,
   storage: MoveStorage,
   frameKey: string,
+  accent?: GlassThemeMoveAccent,
 ): string | null {
   try {
     const stored = storage.getItem(THEME_STORAGE_KEY);
     if (shellFrame) {
       if (!stored || !isGlassTheme(stored)) return null;
       const to = GLASS_THEME_SUCCESSORS[stored];
+      const savedAccent = accent ? storage.getItem(accent.key) : null;
+      const setsAccentAside =
+        accent !== undefined &&
+        !accent.pinsNeutral(to) &&
+        savedAccent !== null &&
+        savedAccent !== accent.neutral;
       if (!readGlassThemeMove(storage)) {
         const move: GlassThemeMove = {
           from: stored,
           to,
           frame: storage.getItem(frameKey),
+          ...(setsAccentAside && savedAccent !== null
+            ? { accent: savedAccent }
+            : {}),
         };
         storage.setItem(GLASS_THEME_MOVE_KEY, JSON.stringify(move));
+      }
+      if (setsAccentAside && accent) {
+        storage.setItem(accent.key, accent.neutral);
       }
       storage.setItem(THEME_STORAGE_KEY, to);
       storage.setItem(frameKey, "glass");
@@ -207,6 +240,14 @@ export function settleGlassThemeMove(
     if (storage.getItem(frameKey) === "glass") {
       if (move.frame === null) storage.removeItem(frameKey);
       else storage.setItem(frameKey, move.frame);
+    }
+    // The accent set aside comes back, unless another was chosen since.
+    if (
+      accent &&
+      move.accent !== undefined &&
+      storage.getItem(accent.key) === accent.neutral
+    ) {
+      storage.setItem(accent.key, move.accent);
     }
     if (stored !== move.to) return null;
     storage.setItem(THEME_STORAGE_KEY, move.from);

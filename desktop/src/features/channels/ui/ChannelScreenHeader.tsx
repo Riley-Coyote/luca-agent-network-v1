@@ -27,6 +27,7 @@ import {
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useRightCardsSlot } from "@/shared/layout/RightCardsSlot";
+import { getInitials } from "@/shared/lib/initials";
 import { Button } from "@/shared/ui/button";
 import type {
   Channel,
@@ -47,6 +48,21 @@ const DM_LIP_AVATAR_STATUS_GEOMETRY = scaleProfileAvatarStatusGeometry(
   DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
   DM_LIP_AVATAR_SIZE,
 );
+
+/** A group named by its members ("Luca + Wren", railHomes.ts membersName):
+ *  one initial for each of its first two members ("LW"); a name of any
+ *  other shape, its own initials. */
+export function groupInitials(name: string): string {
+  const members = name
+    .split(" + ")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !/^\d/.test(part));
+  if (members.length < 2) return getInitials(name);
+  return members
+    .slice(0, 2)
+    .map((member) => getInitials(member).slice(0, 1))
+    .join("");
+}
 
 type ChannelScreenHeaderProps = {
   activeChannel: Channel | null;
@@ -160,8 +176,13 @@ export function ChannelScreenHeader({
         showCardContent={showHeaderContent}
         showDmPresence={
           activeChannel?.channelType === "dm" &&
+          activeDmHeaderParticipants.length === 1 &&
           primaryDmParticipant !== null &&
           !primaryDmIsResident
+        }
+        showGroupInitials={
+          activeChannel?.channelType === "dm" &&
+          activeDmHeaderParticipants.length > 1
         }
         transparentChrome={transparentChrome}
       />
@@ -275,8 +296,9 @@ export function ChannelScreenHeader({
  * (layout, open as window, conversation details), the last 8 from the card's
  * right edge. The card keeps only a short fade under its top edge, the height
  * of its reading area's top padding (22, chromeLayout.ts). A project room
- * keeps its room picker in the card until the rail's room setting lands
- * (WP-02).
+ * keeps its room picker in the card only when Settings puts its rooms in a
+ * column; in the rail (the default) the lip names the room and the rail
+ * lists its rooms (ChannelRouteScreen, WP-09a).
  */
 function ShellChannelHeader({
   activeChannel,
@@ -295,6 +317,7 @@ function ShellChannelHeader({
   quietPaneName,
   showCardContent,
   showDmPresence,
+  showGroupInitials,
   transparentChrome,
 }: {
   activeChannel: Channel | null;
@@ -317,10 +340,25 @@ function ShellChannelHeader({
    *  single-panel view): only the lip's actions are drawn. */
   showCardContent: boolean;
   showDmPresence: boolean;
+  /** A group conversation: its members' initials, not one member's
+   *  presence (WP-09a). */
+  showGroupInitials: boolean;
   transparentChrome: boolean;
 }) {
   const lipActions = activeChannel ? (
     <>
+      {showGroupInitials ? (
+        <span className="luca-lip-presence">
+          <span
+            aria-hidden="true"
+            className="luca-lip-group"
+            data-testid="shell-lip-group-initials"
+            title={activeChannelTitle}
+          >
+            {groupInitials(activeChannelTitle)}
+          </span>
+        </span>
+      ) : null}
       {showDmPresence ? (
         <span className="luca-lip-presence">
           <ProfileAvatarWithStatus

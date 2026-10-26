@@ -22,12 +22,18 @@ import {
 const MIN_USABLE_PANE_WIDTH_PX = 440;
 const PANE_LOCAL_CONTROL_SELECTOR = "[data-workspace-pane-local-control]";
 
+/** What an empty pane says, in the pane and, focused, as the lip's name. */
+export const EMPTY_PANE_WORDS = "Choose a conversation from the sidebar.";
+
 /**
  * The focused pane holds no conversation, under the shell's frame: the lip
- * names nothing and holds no conversation's actions, but the workspace's own
- * control stays, so the layout can still be changed or undone from here. Its
- * tile stands at the lip's right end, 8 from this pane's right edge, as a
- * conversation's actions would (ShellLip, shell-header.css; WP-04b).
+ * names it in its own empty-state words, so the page's only heading is
+ * never empty (WP-09a), and holds no conversation's actions; the
+ * workspace's own control stays, so the layout can still be changed or
+ * undone from here. Its tile stands at the lip's right end, 8 from this
+ * pane's right edge, as a conversation's actions would (ShellLip,
+ * shell-header.css; WP-04b). The lip leaves its name empty for an empty
+ * focused pane, so the words go into it from here.
  */
 function EmptyPaneLipActions({
   onPresetChange,
@@ -38,15 +44,29 @@ function EmptyPaneLipActions({
 }) {
   const shellFrame = useShellFrameEnabled();
   const lipSlot = useShellLipActionsSlot();
+  const lipName =
+    lipSlot?.parentElement?.querySelector<HTMLElement>(
+      '[data-testid="shell-lip-name"] .luca-lip-name__text',
+    ) ?? null;
   if (!shellFrame || !lipSlot) return null;
-  return createPortal(
-    <WorkspaceLayoutControlsProvider
-      onPresetChange={onPresetChange}
-      preset={preset}
-    >
-      <WorkspaceLayoutMenuButton />
-    </WorkspaceLayoutControlsProvider>,
-    lipSlot,
+  return (
+    <>
+      {lipName
+        ? createPortal(
+            <span data-testid="shell-lip-empty-pane">{EMPTY_PANE_WORDS}</span>,
+            lipName,
+          )
+        : null}
+      {createPortal(
+        <WorkspaceLayoutControlsProvider
+          onPresetChange={onPresetChange}
+          preset={preset}
+        >
+          <WorkspaceLayoutMenuButton />
+        </WorkspaceLayoutControlsProvider>,
+        lipSlot,
+      )}
+    </>
   );
 }
 
@@ -316,7 +336,7 @@ export function ConversationWorkspaceFrame({
                       />
                     ) : null}
                     <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                      Choose a conversation from the sidebar.
+                      {EMPTY_PANE_WORDS}
                     </div>
                   </>
                 )}

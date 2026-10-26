@@ -812,6 +812,11 @@ function settleGlassThemes(shellFrame: boolean): string | null {
       shellFrame,
       window.localStorage,
       FRAME_STORAGE_KEY,
+      {
+        key: ACCENT_STORAGE_KEY,
+        neutral: NEUTRAL_ACCENT,
+        pinsNeutral: isFixedNeutralTheme,
+      },
     );
   } catch {
     return null;
@@ -1031,8 +1036,12 @@ export function ThemeProvider({
   // come back (at boot the state initialisers above have already settled it).
   useEffect(() => {
     const theme = settleGlassThemes(shellFrame);
-    // The frame setting may come back without the theme (chosen since).
+    // The frame setting may come back without the theme (chosen since), and
+    // the accent with the move (set aside, or given back).
     setFrameState(readFrame());
+    setAccentColorState(
+      window.localStorage.getItem(ACCENT_STORAGE_KEY) ?? DEFAULT_ACCENT,
+    );
     if (theme) setSelectedTheme(theme);
   }, [shellFrame]);
 
