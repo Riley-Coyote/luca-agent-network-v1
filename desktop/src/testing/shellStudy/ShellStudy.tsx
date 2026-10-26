@@ -141,6 +141,9 @@ type Choice = {
   rail: boolean;
   /** The rail's surface: the card's own black, or a step lighter. */
   tone: "same" | "lighter";
+  /** The rail and the conversation as two cards side by side, or as one
+   *  card with the rail inside it (NAVIGATION.md, "One card or two"). */
+  cards: "two" | "one";
   /** The glass look on hand: its material, an id from MATERIALS, and the
    *  veil. On the solid frame it waits. */
   material: string;
@@ -163,6 +166,7 @@ const DEFAULT_CHOICE: Choice = {
   tabs: true,
   rail: true,
   tone: "same",
+  cards: "two",
   ...DEFAULT_LOOKS.dark,
   looks: DEFAULT_LOOKS,
   panel: true,
@@ -204,6 +208,8 @@ function fromSaved(source: Record<string, unknown>): Choice {
   if (typeof source.rail === "boolean") choice.rail = source.rail;
   if (source.tone === "same" || source.tone === "lighter")
     choice.tone = source.tone;
+  if (source.cards === "two" || source.cards === "one")
+    choice.cards = source.cards;
   if (typeof source.panel === "boolean") choice.panel = source.panel;
   const saved = (source.looks ?? {}) as Record<string, unknown>;
   for (const mode of MODES) {
@@ -236,7 +242,7 @@ function readChoice(): Choice {
   } catch {
     // A study that can't read its last look opens on the default one.
   }
-  // `?mode=light&frame=liquid&tone=lighter&tabs=1&rail=closed&material=glass-clear&veil=none&panel=0`
+  // `?mode=light&frame=liquid&tone=lighter&cards=one&tabs=1&rail=closed&material=glass-clear&veil=none&panel=0`
   // opens a look directly, for captures. A mode asked for brings its own
   // look, which the rest of the address can then change. The older
   // `direction=black|glass` still works.
@@ -265,6 +271,8 @@ function readChoice(): Choice {
   );
   const tone = params.get("tone");
   if (tone === "same" || tone === "lighter") choice.tone = tone;
+  const cards = params.get("cards");
+  if (cards === "two" || cards === "one") choice.cards = cards;
   for (const key of ["tabs", "rail", "panel"] as const) {
     const value = flag(key);
     if (value !== undefined) choice[key] = value;
@@ -436,8 +444,9 @@ export function ShellStudy() {
       return;
     }
     setChoice((current) => ({ ...current, [key]: value }));
-    // The card slides when the rail opens or closes: follow it frame by frame.
-    if (key === "rail") follow(SLIDE_MS + 120);
+    // The card slides when the rail opens or closes, or the gap between the
+    // two cards closes: follow it frame by frame.
+    if (key === "rail" || key === "cards") follow(SLIDE_MS + 120);
   };
 
   // ── going places ──────────────────────────────────────────────────
@@ -701,8 +710,10 @@ export function ShellStudy() {
 
   // ── what the lip says ─────────────────────────────────────────────
   const placeTitle = placeCard ? placeCard.title : null;
+  const oneCard = choice.cards === "one";
   const railWidth = choice.rail ? RAIL_WIDTH : 0;
-  const cardLeft = PLACES_WIDTH + (choice.rail ? RAIL_WIDTH + CARD_GAP : 0);
+  const cardLeft =
+    PLACES_WIDTH + (choice.rail ? RAIL_WIDTH + (oneCard ? 0 : CARD_GAP) : 0);
 
   const tabTitle = (key: string) => {
     const { home, session } = openOf(key);
@@ -716,6 +727,7 @@ export function ShellStudy() {
   return (
     <div
       className="shell"
+      data-cards={choice.cards}
       data-direction={directionOf(choice.frame)}
       data-mode={choice.mode}
       data-native={native ? "true" : undefined}
@@ -883,6 +895,11 @@ export function ShellStudy() {
         </div>
       </nav>
 
+      {/* One card: drawn once beneath the rail and the conversation, and
+          never moved, so closing the rail folds it into the card. */}
+      {oneCard ? (
+        <div aria-hidden="true" className="shell-onecard" data-luca-card />
+      ) : null}
       <nav
         aria-label={
           listPlace
@@ -890,7 +907,7 @@ export function ShellStudy() {
             : "Chats"
         }
         className="shell-rail"
-        data-luca-card
+        data-luca-card={oneCard ? undefined : true}
         inert={choice.rail ? undefined : true}
       >
         <div className="shell-rail-scroll">
@@ -930,7 +947,7 @@ export function ShellStudy() {
       <main
         aria-label="Conversation"
         className="shell-card"
-        data-luca-card
+        data-luca-card={oneCard ? undefined : true}
         ref={cardRef}
       >
         {listPlace === "agents" && pick && MIND_SPACES[pick] ? (
@@ -1909,6 +1926,15 @@ function LabPanel({
           ["lighter", choice.mode === "light" ? "Darker" : "Lighter"],
         ]}
         value={choice.tone}
+      />
+      <Segment
+        label="Cards"
+        onChange={(value) => choose("cards", value)}
+        options={[
+          ["two", "Two"],
+          ["one", "One"],
+        ]}
+        value={choice.cards}
       />
       <Segment
         label="Tabs"

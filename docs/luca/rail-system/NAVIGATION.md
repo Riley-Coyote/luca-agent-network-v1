@@ -155,6 +155,11 @@ Unchanged: its section list in the rail, the section in the card. It is the mode
 The rail as its own card beside the conversation's (today), or the two as one card with the rail inside it. Decided by
 eye in the real app once the rails are right: the test app gets a switch between the two.
 
+The shell lab has the switch (its panel's Cards row, or `cards=one` in the address), drawn this way: the one card lies
+beneath the rail and the conversation and never moves, so closing the rail folds it into the card instead of moving the
+card's corner. Half a point of ink at 8% divides the two, the lighter rail tone is a wash of ink on the rail's side, and
+there is one shadow.
+
 ## Not in this update
 
 None of these works in the old layout either: forums (browse or create), workflows, the git projects browser, the

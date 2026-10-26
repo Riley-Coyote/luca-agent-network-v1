@@ -829,7 +829,7 @@
  * shadow draw the edge. */
 :root
   .shell[data-direction="glass"]
-  :is(.shell-card, .shell-rail)[data-luca-card] {
+  :is(.shell-card, .shell-rail, .shell-onecard)[data-luca-card] {
   box-shadow:
     0 -0.5px 0 rgb(255 255 255 / 0.12),
     0 1px 2px rgb(0 0 0 / 0.25),
@@ -1316,7 +1316,7 @@
  * neighbour; a closed rail's fades as it narrows. */
 :root
   .shell[data-direction="glass"][data-mode="light"]
-  :is(.shell-card, .shell-rail)[data-luca-card] {
+  :is(.shell-card, .shell-rail, .shell-onecard)[data-luca-card] {
   box-shadow: none;
 }
 
@@ -1358,6 +1358,48 @@
   left: var(--card-left);
   right: var(--edge);
   transition: left var(--slide);
+}
+
+/* ── one card or two (NAVIGATION.md) ────────────────────────────────
+ * One card: the rail and the conversation lie on one card, drawn once
+ * beneath both and never moved, so closing the rail folds it into the card
+ * instead of moving the card's corner. The two keep only their words,
+ * clipped to the card's corners; a hairline of ink divides them, and the
+ * lighter tone is a wash of ink on the rail's side. On light glass the one
+ * card's shadow lies where the two cards' did. */
+.shell-onecard {
+  bottom: var(--edge);
+  left: var(--places);
+  pointer-events: none;
+  position: absolute;
+  right: var(--edge);
+  top: var(--lip);
+  z-index: 1;
+}
+
+/* The hairline: half a point of ink along the rail's edge, one device pixel
+ * on a Retina screen, drawn as the app draws its cards' rims. */
+.shell[data-cards="one"] .shell-rail {
+  border-radius: var(--radius) 0 0 var(--radius);
+  box-shadow: inset -0.5px 0 0 hsl(var(--mn-ink) / 0.08);
+  overflow: hidden;
+}
+
+.shell[data-cards="one"][data-tone="lighter"] .shell-rail {
+  background-color: hsl(var(--mn-ink) / 0.05);
+}
+
+.shell[data-cards="one"] .shell-card {
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.shell[data-cards="one"] .shell-shadow--rail {
+  display: none;
+}
+
+.shell[data-cards="one"] .shell-shadow--card {
+  left: var(--places);
 }
 
 .shell[data-mode="light"] .shell-mine p {
@@ -1426,7 +1468,7 @@
  * floor being calm. */
 :root
   .shell[data-direction="black"][data-mode="light"]
-  :is(.shell-card, .shell-rail)[data-luca-card] {
+  :is(.shell-card, .shell-rail, .shell-onecard)[data-luca-card] {
   box-shadow: none;
 }
 
