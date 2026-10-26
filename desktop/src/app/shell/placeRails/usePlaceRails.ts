@@ -20,6 +20,7 @@ import {
   usePersonasQuery,
   useTeamsQuery,
 } from "@/features/agents/hooks";
+import { useWorkingChannels } from "@/features/agents/agentWorkingSignal";
 import { getPersonaLibraryState } from "@/features/agents/lib/catalog";
 import { buildResidentLibrary } from "@/features/agents/ui/agentLibraryViewModel";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -74,6 +75,17 @@ function useAgentsRail(): PlaceRail {
   const teamsQuery = useTeamsQuery();
   const { isLoading: runtimesLoading, runtimes } = useRuntimeRailConnections();
   const luca = useCanonicalLucaPubkey();
+  // The live signal the Chats rail reads, by agent rather than by chat.
+  const workingChannels = useWorkingChannels();
+  const workingPubkeys = React.useMemo(
+    () =>
+      new Set(
+        workingChannels.flatMap((summary) =>
+          summary.agentPubkeys.map(normalizePubkey),
+        ),
+      ),
+    [workingChannels],
+  );
   const ready =
     agentsQuery.data !== undefined &&
     personasQuery.data !== undefined &&
@@ -84,6 +96,22 @@ function useAgentsRail(): PlaceRail {
       agentsQuery.data ?? [],
       getPersonaLibraryState(personasQuery.data ?? []).libraryPersonas,
     );
+    const managed = new Map(
+      (agentsQuery.data ?? []).map((agent) => [
+        normalizePubkey(agent.pubkey),
+        agent,
+      ]),
+    );
+    const stateOf = (resident: (typeof library)[number]) => {
+      const key = resident.pubkey ? normalizePubkey(resident.pubkey) : null;
+      const agent = key ? managed.get(key) : undefined;
+      return agentStateWord({
+        availability: resident.availability,
+        lastError: agent?.lastError,
+        waking: Boolean(agent?.waking),
+        working: key ? workingPubkeys.has(key) : false,
+      });
+    };
     const isLuca = (pubkey: string | null) =>
       Boolean(luca && pubkey && normalizePubkey(pubkey) === luca);
     const lucaResident = library.find((resident) => isLuca(resident.pubkey));
@@ -91,7 +119,7 @@ function useAgentsRail(): PlaceRail {
       ? {
           id: `mind:${normalizePubkey(lucaResident.pubkey ?? "")}`,
           main: true,
-          note: agentStateWord(lucaResident),
+          note: stateOf(lucaResident),
           title: lucaResident.displayName,
         }
       : { id: "luca", main: true, title: "Luca" };
@@ -101,7 +129,7 @@ function useAgentsRail(): PlaceRail {
         id: resident.pubkey
           ? `mind:${normalizePubkey(resident.pubkey)}`
           : `persona:${resident.personaId ?? resident.residentId}`,
-        note: agentStateWord(resident),
+        note: stateOf(resident),
         title: resident.displayName,
       }));
     const connected = runtimes.map((runtime) => ({
@@ -136,7 +164,14 @@ function useAgentsRail(): PlaceRail {
       title: "Groups",
     });
     return sections;
-  }, [agentsQuery.data, luca, personasQuery.data, runtimes, teamsQuery.data]);
+  }, [
+    agentsQuery.data,
+    luca,
+    personasQuery.data,
+    runtimes,
+    teamsQuery.data,
+    workingPubkeys,
+  ]);
   return { ready, sections };
 }
 
@@ -166,6 +201,10 @@ function useLibraryRail(): PlaceRail {
   });
   const deletedCount =
     deleted.data?.pages[0]?.total ?? deleted.data?.pages[0]?.artifacts.length;
+  // Recently deleted stays while it is the pick, emptied or not (the last
+  // piece restored), so the pick never jumps away under you; it hides once
+  // you leave it empty.
+  const deletedPicked = usePlacePick("library").pick === "deleted";
   const sections = React.useMemo(() => {
     const skills = skillsQuery.data ?? [];
     const runtimeIds = [
@@ -194,13 +233,13 @@ function useLibraryRail(): PlaceRail {
         ],
         title: "Skills",
       });
-    if ((deletedCount ?? 0) > 0)
+    if ((deletedCount ?? 0) > 0 || deletedPicked)
       sections.push({
         key: "deleted",
         rows: [{ id: "deleted", title: "Recently deleted" }],
       });
     return sections;
-  }, [deletedCount, skillsQuery.data]);
+  }, [deletedCount, deletedPicked, skillsQuery.data]);
   return {
     ready:
       (skillsQuery.data !== undefined || skillsQuery.isError) &&
@@ -252,11 +291,14 @@ export function usePlacePick(place: RailPlace): {
     ? pickIdOf(place, location.search as Record<string, unknown>)
     : null;
   const inAddress = fromAddress !== null;
-  const pick = onRoute
+  const resolved = onRoute
     ? (fromAddress ??
       readRememberedPick(sessionStore(), scope, place) ??
       firstPickId(place, luca))
     : null;
+  // With no Luca there is nothing to open on: nothing is picked, and the lip
+  // says the place's own name.
+  const pick = resolved === "luca" ? null : resolved;
   React.useEffect(() => {
     if (inAddress && pick) rememberPick(sessionStore(), scope, place, pick);
   }, [inAddress, pick, place, scope]);

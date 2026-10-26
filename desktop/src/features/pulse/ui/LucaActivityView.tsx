@@ -30,6 +30,8 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { PlaceListRow, placeNoteTime } from "@/app/shell/placeRails/PlacePage";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 type ActivityResident = {
   managed: ManagedAgent | null;
@@ -170,7 +172,15 @@ function idleDetail(resident: ActivityResident) {
   }
 }
 
-function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
+function ResidentActivityCard({
+  flat,
+  resident,
+}: {
+  /** Under the shell: the study's flat stream, a row of who, what they're
+   *  doing and when, Open activity a quiet action on it (WP-10). */
+  flat: boolean;
+  resident: ActivityResident;
+}) {
   const working = useAgentWorking(resident.pubkey);
   const transcript = useAgentTranscript(
     resident.managed?.status === "running" ||
@@ -200,6 +210,45 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
     : activity
       ? "recent"
       : "idle";
+
+  if (flat) {
+    return (
+      <PlaceListRow
+        action={
+          <button
+            disabled={!canOpen}
+            onClick={() => openAgentActivity(resident.pubkey)}
+            type="button"
+          >
+            {canOpen ? "Open activity" : "No accessible conversation"}
+            <ArrowUpRight aria-hidden />
+          </button>
+        }
+        as="div"
+        className={
+          activityGroup === "active"
+            ? "order-[2]"
+            : activityGroup === "recent"
+              ? "order-[4]"
+              : "order-[6]"
+        }
+        data-activity-group={activityGroup}
+        data-activity-state={
+          working.working ? "working" : (activity?.tone ?? "idle")
+        }
+        note={placeNoteTime(activity?.timestamp ?? null)}
+        summary={
+          activity
+            ? runtimeError
+              ? "Runtime needs attention"
+              : activity.detail
+            : idleDetail(resident)
+        }
+        testId={`owner-activity-resident-${normalizePubkey(resident.pubkey)}`}
+        title={resident.name}
+      />
+    );
+  }
 
   if (!activity) {
     return (
@@ -316,12 +365,33 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
 }
 
 function ActivityGroupHeading({
+  flat,
   group,
   title,
 }: {
+  flat: boolean;
   group: "active" | "idle" | "recent";
   title: string;
 }) {
+  if (flat) {
+    // The app's eyebrow over its rows, as the study's lists have.
+    return (
+      <h2
+        className={cn(
+          "type-eyebrow mt-5 mb-1.5 hidden text-ink-faint",
+          group === "active" &&
+            "order-[1] group-has-[[data-activity-group=active]]/activity:block",
+          group === "recent" &&
+            "order-[3] group-has-[[data-activity-group=recent]]/activity:block",
+          group === "idle" &&
+            "order-[5] group-has-[[data-activity-group=idle]]/activity:block",
+        )}
+        data-testid={`owner-activity-group-${group}`}
+      >
+        {title}
+      </h2>
+    );
+  }
   return (
     <div
       className={cn(
@@ -343,7 +413,19 @@ function ActivityGroupHeading({
   );
 }
 
-function QuietActivityState() {
+function QuietActivityState({ flat }: { flat: boolean }) {
+  if (flat) {
+    // Its own words, as a quiet line: no box.
+    return (
+      <p
+        className="luca-place-page-line order-[0] mt-0 group-has-[[data-activity-group=active]]/activity:hidden group-has-[[data-activity-group=recent]]/activity:hidden"
+        data-testid="owner-activity-empty-history"
+      >
+        No resident activity yet. When a resident starts working, live updates
+        will appear here. Completed work will move into Recent automatically.
+      </p>
+    );
+  }
   return (
     <div
       className="order-[0] col-span-full rounded-xl border border-dashed border-border/70 px-5 py-10 text-center group-has-[[data-activity-group=active]]/activity:hidden group-has-[[data-activity-group=recent]]/activity:hidden"
@@ -404,6 +486,7 @@ export function LucaActivityView({
   );
   const loading = managedQuery.isLoading || relayQuery.isLoading;
   const error = managedQuery.error ?? relayQuery.error;
+  const flat = useShellFrameEnabled();
 
   return (
     <main
@@ -416,10 +499,20 @@ export function LucaActivityView({
         data-luca-conversation-surface
       >
         <div
-          className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+          className={
+            flat
+              ? "luca-place-page [overflow-anchor:none]"
+              : "min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+          }
           data-testid="owner-activity-scroll"
         >
-          <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8">
+          <div
+            className={
+              flat
+                ? "luca-place-page-axis"
+                : "mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8"
+            }
+          >
             <ActivityPageHeader
               description="See what your residents are doing and catch up on recent work. Open activity to follow along in the conversation."
               onSectionChange={onSectionChange}
@@ -449,6 +542,14 @@ export function LucaActivityView({
                   the connection recovers.
                 </p>
               </section>
+            ) : residents.length === 0 && flat ? (
+              <p
+                className="luca-place-page-line"
+                data-testid="owner-activity-empty"
+              >
+                No residents yet. Add or import a resident to see their activity
+                here.
+              </p>
             ) : residents.length === 0 ? (
               <section
                 className="mt-6 rounded-xl border border-dashed border-border/70 px-5 py-12 text-center"
@@ -466,15 +567,32 @@ export function LucaActivityView({
             ) : (
               <section
                 aria-label="Resident activity"
-                className="group/activity mt-6 grid grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] gap-3"
+                className={
+                  flat
+                    ? "group/activity flex flex-col"
+                    : "group/activity mt-6 grid grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] gap-3"
+                }
                 data-testid="owner-activity-list"
               >
-                <QuietActivityState />
-                <ActivityGroupHeading group="active" title="Active now" />
-                <ActivityGroupHeading group="recent" title="Recent" />
-                <ActivityGroupHeading group="idle" title="No recent activity" />
+                <QuietActivityState flat={flat} />
+                <ActivityGroupHeading
+                  flat={flat}
+                  group="active"
+                  title="Active now"
+                />
+                <ActivityGroupHeading
+                  flat={flat}
+                  group="recent"
+                  title="Recent"
+                />
+                <ActivityGroupHeading
+                  flat={flat}
+                  group="idle"
+                  title="No recent activity"
+                />
                 {residents.map((resident) => (
                   <ResidentActivityCard
+                    flat={flat}
                     key={normalizePubkey(resident.pubkey)}
                     resident={resident}
                   />

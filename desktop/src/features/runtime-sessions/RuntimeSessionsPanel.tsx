@@ -28,6 +28,11 @@ import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { shellFrameCardLeft } from "@/app/shell/ShellLip";
 import "@/app/shell/shell-runtime.css";
+import {
+  PlaceList,
+  PlaceListRow,
+  placeNoteTime,
+} from "@/app/shell/placeRails/PlacePage";
 
 import {
   useRuntimeSessionContextMutation,
@@ -514,7 +519,10 @@ export function RuntimeSessionsPanelContent({
             title="No sessions found"
           />
         ) : (
-          <div className="space-y-2" data-testid="runtime-session-list">
+          <div
+            className={inCard ? undefined : "space-y-2"}
+            data-testid="runtime-session-list"
+          >
             {sessionsQuery.isError ? (
               <SessionListNotice
                 actionLabel="Try again"
@@ -539,18 +547,53 @@ export function RuntimeSessionsPanelContent({
                 remain available while you repair the connection.
               </div>
             ) : null}
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <span className="sr-only">Search {runtime.label} sessions</span>
-              <input
-                className="h-9 w-full rounded-lg border border-border/50 bg-card/20 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-border focus:bg-card/30"
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search sessions"
-                type="search"
-                value={search}
-              />
-            </label>
-            {visibleSessions.map((session, index) => (
+            {inCard ? (
+              // The card's own list (WP-10): the study's flat rows, under
+              // their eyebrow, the search without an outline.
+              <>
+                <label className="luca-place-search">
+                  <Search aria-hidden />
+                  <span className="sr-only">
+                    Search {runtime.label} sessions
+                  </span>
+                  <input
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search sessions"
+                    type="search"
+                    value={search}
+                  />
+                </label>
+                {visibleSessions.length > 0 ? (
+                  <PlaceList label="Sessions">
+                    {visibleSessions.map((session, index) => (
+                      <SessionRow
+                        isDisabled={
+                          selectedSessionId !== null || contextScopeKey === null
+                        }
+                        isPending={selectedSessionId === session.sessionId}
+                        key={session.sessionId}
+                        onStart={() => void startWithContext(session)}
+                        position={index + 1}
+                        session={session}
+                      />
+                    ))}
+                  </PlaceList>
+                ) : null}
+              </>
+            ) : (
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <span className="sr-only">Search {runtime.label} sessions</span>
+                <input
+                  className="h-9 w-full rounded-lg border border-border/50 bg-card/20 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-border focus:bg-card/30"
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search sessions"
+                  type="search"
+                  value={search}
+                />
+              </label>
+            )}
+            {(inCard ? [] : visibleSessions).map((session, index) => (
               <SessionCard
                 isDisabled={
                   selectedSessionId !== null || contextScopeKey === null
@@ -796,6 +839,46 @@ function SessionCard({
         </Button>
       </div>
     </article>
+  );
+}
+
+/** A session in a connected app's card (WP-10): its title at full ink, its
+ *  summary quiet under it, the date as the row's note, and "Start with this
+ *  context" as a quiet action on hover and focus. */
+function SessionRow({
+  isDisabled,
+  isPending,
+  onStart,
+  position,
+  session,
+}: {
+  isDisabled: boolean;
+  isPending: boolean;
+  onStart: () => void;
+  position: number;
+  session: ConnectedRuntimeSession;
+}) {
+  return (
+    <PlaceListRow
+      action={
+        <button
+          aria-label={runtimeSessionActionLabel(session.title, position)}
+          data-active={isPending ? "true" : undefined}
+          disabled={!session.available || isDisabled}
+          onClick={onStart}
+          type="button"
+        >
+          {isPending ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : null}
+          Start with this context
+        </button>
+      }
+      note={placeNoteTime(session.updatedAt)}
+      summary={session.preview}
+      testId={`runtime-session-${session.sessionId}`}
+      title={session.title}
+    />
   );
 }
 

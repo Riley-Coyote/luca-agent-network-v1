@@ -241,8 +241,10 @@ export class MarkGroup {
       else if (id === this.chosen)
         current.aim(rect, [TRAIL, TRAIL, TRAIL, TRAIL]);
       else current.aim(rect, slideMotions(current.rect, rect));
+      // A new pick's slide starts at the first frame painted after it.
+      const picked = id !== this.chosen;
       this.chosen = id;
-      this.engine.wake();
+      this.engine.wake(picked);
       return;
     }
     this.chosen = id;
@@ -252,7 +254,7 @@ export class MarkGroup {
     const piece = this.add(swell ? sunk(rect) : rect);
     if (swell) piece.aim(rect, [SWELL, SWELL, SWELL, SWELL]);
     this.current = piece;
-    this.engine.wake();
+    this.engine.wake(true);
   }
 
   /** Every piece gone at once: the look changed. */
@@ -328,6 +330,8 @@ export class MarkEngine {
   readonly layer: HTMLElement;
   private frame: number | null = null;
   private last = 0;
+  /** A motion has begun, and its first frame is not yet painted. */
+  private fresh = false;
 
   constructor(layer: HTMLElement, env: Partial<MarkEnvironment> = {}) {
     this.layer = layer;
@@ -340,9 +344,13 @@ export class MarkEngine {
     return group;
   }
 
-  wake() {
+  /** Runs the clock. `fromNextFrame`: a new motion begins, and it starts at
+   *  the next frame painted, whether the clock was asleep or running. */
+  wake(fromNextFrame = false) {
+    if (fromNextFrame) this.fresh = true;
     if (this.frame !== null) return;
     this.last = performance.now();
+    this.fresh = true;
     this.frame = requestAnimationFrame(this.tick);
   }
 
@@ -367,8 +375,16 @@ export class MarkEngine {
 
   private tick = (now: number) => {
     // A frame's time can come before the moment the clock was woken: then no
-    // time has passed yet, and the next frame steps.
-    const moving = this.advance((now - this.last) / 1000);
+    // time has passed yet, and the next frame steps. The motion starts at the
+    // first frame painted after waking, not at the wake: when the page is
+    // busy drawing what the pick opened (a card mounting), the wait before
+    // that frame is the page's, not the mark's, and stepping through it made
+    // the mark leap on its first move (WP-10 review). So the first frame
+    // steps nothing, and the clock starts there, as it does for a pick that
+    // finds the page idle.
+    const elapsed = (now - this.last) / 1000;
+    const moving = this.advance(this.fresh ? 0 : elapsed);
+    this.fresh = false;
     this.last = Math.max(now, this.last);
     this.frame = moving ? requestAnimationFrame(this.tick) : null;
   };

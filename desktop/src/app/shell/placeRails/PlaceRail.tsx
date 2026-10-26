@@ -9,6 +9,7 @@ import {
   searchForPick,
 } from "@/app/shell/placeRails/placePicks";
 import {
+  PLACE_NAMES,
   PLACE_RAIL_HOOKS,
   type PlaceRailAdd,
   type PlaceRailRow,
@@ -137,25 +138,30 @@ function PlaceRailBody({
   };
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the rail's rows, as the Chats rail's do (ShellRail.tsx).
-    <div
-      className="luca-shell-rail luca-place-rail"
-      data-place-rail={place}
-      data-shell-rail=""
-      data-testid={`place-rail-${place}`}
-      onKeyDown={railKeys}
+    <nav
+      aria-label={PLACE_NAMES[place]}
+      data-testid={`place-rail-nav-${place}`}
     >
-      {sections.map((section) => (
-        <RailSection
-          key={section.key}
-          onAdd={add}
-          onPick={choose}
-          pick={pick}
-          place={place}
-          section={section}
-        />
-      ))}
-    </div>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the rail's rows, as the Chats rail's do (ShellRail.tsx). */}
+      <div
+        className="luca-shell-rail luca-place-rail"
+        data-place-rail={place}
+        data-shell-rail=""
+        data-testid={`place-rail-${place}`}
+        onKeyDown={railKeys}
+      >
+        {sections.map((section) => (
+          <RailSection
+            key={section.key}
+            onAdd={add}
+            onPick={choose}
+            pick={pick}
+            place={place}
+            section={section}
+          />
+        ))}
+      </div>
+    </nav>
   );
 }
 

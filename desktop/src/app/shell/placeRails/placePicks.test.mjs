@@ -129,29 +129,28 @@ test("memory_isKeptPerCommunityAndPlace", () => {
   assert.equal(readRememberedPick(null, "community-a", "library"), null);
 });
 
-test("stateWords_followTheRostersOwnFilters", () => {
-  assert.equal(
-    agentStateWord({ availability: "started", needsAttention: false }),
-    "working",
-  );
-  assert.equal(
-    agentStateWord({ availability: "ready", needsAttention: false }),
-    "working",
-  );
-  assert.equal(
-    agentStateWord({ availability: "idle", needsAttention: false }),
-    "resting",
-  );
-  assert.equal(
-    agentStateWord({ availability: "offline", needsAttention: false }),
-    "resting",
-  );
-  assert.equal(
-    agentStateWord({ availability: "failed", needsAttention: true }),
-    "needs attention",
-  );
-  assert.equal(
-    agentStateWord({ availability: "offline", needsAttention: true }),
-    "needs attention",
-  );
+test("stateWords_comeFromTheLiveSignal_notReadiness", () => {
+  const at = (overrides) =>
+    agentStateWord({
+      availability: "ready",
+      lastError: null,
+      waking: false,
+      working: false,
+      ...overrides,
+    });
+  // Ready but idle is resting: only a running turn is working.
+  assert.equal(at({}), "resting");
+  assert.equal(at({ availability: "started" }), "resting");
+  assert.equal(at({ availability: "idle" }), "resting");
+  assert.equal(at({ availability: "offline" }), "resting");
+  assert.equal(at({ working: true }), "working");
+  assert.equal(at({ waking: true }), "waking");
+  assert.equal(at({ lastError: "exited" }), "needs attention");
+  assert.equal(at({ availability: "degraded" }), "needs attention");
+  assert.equal(at({ availability: "failed" }), "needs attention");
+  // A problem outranks work, as the Chats rail orders them.
+  assert.equal(at({ working: true, lastError: "exited" }), "needs attention");
+  assert.equal(at({ waking: true, lastError: "exited" }), "waking");
+  for (const word of [at({}), at({ working: true }), at({ lastError: "x" })])
+    assert.equal(word, word.toLowerCase());
 });

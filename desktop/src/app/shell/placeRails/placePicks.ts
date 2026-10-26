@@ -166,6 +166,11 @@ export function resolvePickId(input: {
 // ── an agent's state word ───────────────────────────────────────────────
 
 export type AgentStateInput = {
+  /** The live signal the Chats rail reads: a turn of theirs is running. */
+  working: boolean;
+  /** Being brought up (the Chats rail's "Waking"). */
+  waking: boolean;
+  lastError: string | null | undefined;
   availability:
     | "ready"
     | "started"
@@ -174,19 +179,22 @@ export type AgentStateInput = {
     | "degraded"
     | "offline"
     | "failed";
-  needsAttention: boolean;
 };
 
-/** The quiet word at an agent's row end (Decided 3), from the roster's own
- *  availability: its Attention filter says needs attention, its Running
- *  filter says working, everyone else is resting. */
+/** The quiet word at an agent's row end (Decided 3), lowercase, as the
+ *  study writes them: waking while they are brought up; needs attention for
+ *  an error, or a degraded or failed agent; working while a turn of theirs
+ *  runs; resting otherwise, however ready they are. */
 export function agentStateWord(agent: AgentStateInput): string {
-  if (agent.needsAttention) return "needs attention";
+  // The Chats rail's order (ShellRail.tsx): waking, then a problem, then
+  // work in progress.
+  if (agent.waking) return "waking";
   if (
-    agent.availability === "ready" ||
-    agent.availability === "started" ||
-    agent.availability === "working"
+    agent.lastError ||
+    agent.availability === "degraded" ||
+    agent.availability === "failed"
   )
-    return "working";
+    return "needs attention";
+  if (agent.working) return "working";
   return "resting";
 }

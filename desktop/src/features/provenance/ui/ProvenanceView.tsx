@@ -177,15 +177,39 @@ export function ProvenanceView({
     [channelLabels, openSearchHit],
   );
 
+  // Under the shell the rail picks one mind's record (WP-10): the page sits
+  // on the shared place page, and the card is the place's own, not a second
+  // card drawn inside it.
+  const recordName = activeAgent?.name;
   return (
     <div
-      className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-      data-luca-conversation-surface
+      className={
+        pickedByRail
+          ? "relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden"
+          : "relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      }
+      data-luca-conversation-surface={pickedByRail ? undefined : ""}
     >
-      <div className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]">
-        <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8">
+      <div
+        className={
+          pickedByRail
+            ? "luca-place-page [overflow-anchor:none]"
+            : "min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+        }
+      >
+        <div
+          className={
+            pickedByRail
+              ? "luca-place-page-axis"
+              : "mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8"
+          }
+        >
           <ActivityPageHeader
-            description="Everything these residents signed and the relay kept, checked against their own keys."
+            description={
+              pickedByRail && recordName
+                ? `Everything ${recordName} signed and the relay kept, checked against ${recordName}'s own key.`
+                : "Everything these residents signed and the relay kept, checked against their own keys."
+            }
             onSectionChange={onSectionChange}
             recordName={activeAgent?.name}
             section="record"

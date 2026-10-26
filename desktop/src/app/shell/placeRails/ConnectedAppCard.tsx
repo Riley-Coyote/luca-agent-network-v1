@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { PlacePage } from "@/app/shell/placeRails/PlacePage";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
@@ -40,47 +41,42 @@ export function ConnectedAppCard({ runtimeKey }: { runtimeKey: string }) {
   const scopeKey = scope ? runtimeSessionContextScopeKey(scope) : null;
 
   return (
-    <div
-      className="flex min-h-0 min-w-0 flex-1 overflow-y-auto"
-      data-testid="connected-app-card"
-    >
-      <div className="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8 sm:py-8">
-        <PlacePageHead
-          eyebrow="Connected · on this Mac"
-          title={runtime?.label ?? (isLoading ? "" : runtimeKey)}
+    <PlacePage testId="connected-app-card">
+      <PlacePageHead
+        eyebrow="Connected · on this Mac"
+        title={runtime?.label ?? (isLoading ? "" : runtimeKey)}
+      />
+      {runtime ? (
+        <RuntimeSessionsPanelContent
+          contextScopeKey={scopeKey}
+          key={runtimeKey}
+          onOpenBrain={() => void goBrain()}
+          onStartContext={(context, authority) => {
+            if (
+              !scope ||
+              authority.scopeKey !== runtimeSessionContextScopeKey(scope) ||
+              authority.runtimeKey !== runtimeConnectionKey(runtime)
+            ) {
+              return false;
+            }
+            const staged = stageRuntimeSessionContext(
+              { ...scope, context },
+              authority.handoffGeneration,
+            );
+            if (!staged) return false;
+            void goNewMessage();
+            return true;
+          }}
+          runtime={runtime}
+          variant="card"
         />
-        {runtime ? (
-          <RuntimeSessionsPanelContent
-            contextScopeKey={scopeKey}
-            key={runtimeKey}
-            onOpenBrain={() => void goBrain()}
-            onStartContext={(context, authority) => {
-              if (
-                !scope ||
-                authority.scopeKey !== runtimeSessionContextScopeKey(scope) ||
-                authority.runtimeKey !== runtimeConnectionKey(runtime)
-              ) {
-                return false;
-              }
-              const staged = stageRuntimeSessionContext(
-                { ...scope, context },
-                authority.handoffGeneration,
-              );
-              if (!staged) return false;
-              void goNewMessage();
-              return true;
-            }}
-            runtime={runtime}
-            variant="card"
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground" role="status">
-            {isLoading
-              ? "Checking installed runtimes…"
-              : "This app is no longer connected on this Mac."}
-          </p>
-        )}
-      </div>
-    </div>
+      ) : (
+        <p className="text-sm text-muted-foreground" role="status">
+          {isLoading
+            ? "Checking installed runtimes…"
+            : "This app is no longer connected on this Mac."}
+        </p>
+      )}
+    </PlacePage>
   );
 }

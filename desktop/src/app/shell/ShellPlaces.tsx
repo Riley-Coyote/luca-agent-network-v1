@@ -304,7 +304,10 @@ export function ShellPlaces({
   // and every unread row on it, is never on screen: the dot always speaks.
   // The same holds for the status cards at the rail's foot (the avatar's dot).
   const railSignalsSpeak = railClosed || here === "settings";
-  const unreadDot = hasUnread && railSignalsSpeak;
+  // Unread conversations are rows of Chats' own rail: wherever the rail on
+  // screen is another place's (Agents, Activity, Library, Brain, Settings),
+  // or closed, Chats' dot says them (WP-10).
+  const unreadDot = hasUnread && (railClosed || here !== "conversations");
   const nav = React.useRef<HTMLElement>(null);
   usePlaceFocusHandOver(nav);
   // The rail's card says an available update with its footer card; while

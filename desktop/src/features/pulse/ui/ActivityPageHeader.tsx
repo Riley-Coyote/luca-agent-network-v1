@@ -80,9 +80,7 @@ export function ActivityPageHeader({
           eyebrow={section === "now" ? "Activity" : "Signed record"}
           title={section === "now" ? "Now" : (recordName ?? "Signed record")}
         />
-        <p className="-mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-          {description}
-        </p>
+        <p className="luca-place-page-line">{description}</p>
       </div>
     );
   }

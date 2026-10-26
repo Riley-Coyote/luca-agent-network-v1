@@ -14,6 +14,11 @@ import {
 import type { CapabilitySkillSummary } from "@/shared/api/tauriCapabilities";
 import { cn } from "@/shared/lib/cn";
 import {
+  PlaceList,
+  PlaceListRow,
+  PlacePage,
+} from "@/app/shell/placeRails/PlacePage";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -24,10 +29,13 @@ import {
 type RuntimeFilter = "all" | string;
 
 export function SkillLibraryPanel({
+  head,
   runtimeFilter: pickedRuntime,
 }: {
+  /** Under the shell, the card's head (WP-10). */
+  head?: React.ReactNode;
   /** Under the shell the Library's rail picks the runtime (WP-10), and the
-   *  runtime chips go. */
+   *  runtime chips go: the list sits on the shared place page. */
   runtimeFilter?: RuntimeFilter;
 } = {}) {
   const skillsQuery = useCapabilitySkills();
@@ -88,6 +96,107 @@ export function SkillLibraryPanel({
     [goNewMessage, runtimesQuery.data],
   );
 
+  const detailSheet = (
+    <SkillDetailSheet
+      onOpenChange={(open) => {
+        if (!open) setSelectedSkill(null);
+      }}
+      onUse={() => {
+        if (selectedSkill) handleUseSkill(selectedSkill);
+      }}
+      handoffRuntime={
+        selectedSkill
+          ? preferredReadySkillRuntime(
+              selectedSkill.runtimeIds,
+              runtimesQuery.data ?? [],
+            )
+          : undefined
+      }
+      skill={selectedSkill}
+    />
+  );
+
+  if (pickedRuntime !== undefined) {
+    return (
+      <PlacePage>
+        {head}
+        <label className="luca-place-search">
+          <Search aria-hidden />
+          <span className="sr-only">Search installed skills</span>
+          <input
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            placeholder="Search installed skills"
+            value={query}
+          />
+        </label>
+        {skillsQuery.isLoading ? <SkillLibraryLoading /> : null}
+        {skillsQuery.isError ? (
+          <SkillLibraryState
+            action="Check again"
+            onAction={() => void skillsQuery.refetch()}
+            text="Your agents still work normally. Polyphonic could not read their installed skill catalogs."
+            title="Skills are unavailable"
+          />
+        ) : null}
+        {!skillsQuery.isLoading &&
+        !skillsQuery.isError &&
+        visibleSkills.length === 0 ? (
+          <SkillLibraryState
+            action={query ? "Clear filters" : null}
+            onAction={() => setQuery("")}
+            text={
+              skills.length === 0
+                ? "Skills installed for your runtimes will appear here automatically."
+                : "No installed skill matches this view."
+            }
+            title={skills.length === 0 ? "No skills found" : "Nothing found"}
+          />
+        ) : null}
+        {visibleSkills.length > 0 ? (
+          <PlaceList testId="skill-library-list">
+            {visibleSkills.map((skill) => {
+              const handoff = preferredReadySkillRuntime(
+                skill.runtimeIds,
+                runtimesQuery.data ?? [],
+              );
+              return (
+                <PlaceListRow
+                  action={
+                    <button
+                      aria-label={
+                        handoff
+                          ? `Use ${skill.name} with ${runtimeLabel(handoff)}`
+                          : `Choose a recipient for ${skill.name}`
+                      }
+                      onClick={() => handleUseSkill(skill)}
+                      type="button"
+                    >
+                      {handoff
+                        ? `Use with ${runtimeLabel(handoff)}`
+                        : "Choose agent"}
+                    </button>
+                  }
+                  key={skill.skillId}
+                  note={skill.runtimeIds.map(runtimeLabel).join(" · ")}
+                  onOpen={() => setSelectedSkill(skill)}
+                  openLabel={skill.name}
+                  summary={skill.description}
+                  testId={`skill-row-${skill.skillId}`}
+                  title={skill.name}
+                />
+              );
+            })}
+          </PlaceList>
+        ) : null}
+        <p className="luca-place-footnote">
+          {visibleSkills.length} installed skills · owned and executed by your
+          runtimes
+        </p>
+        {detailSheet}
+      </PlacePage>
+    );
+  }
+
   return (
     <>
       <div className="skill-library-controls">
@@ -100,32 +209,30 @@ export function SkillLibraryPanel({
             value={query}
           />
         </label>
-        {pickedRuntime === undefined ? (
-          <fieldset
-            aria-label="Filter skills by runtime"
-            className="artifact-library-filters"
+        <fieldset
+          aria-label="Filter skills by runtime"
+          className="artifact-library-filters"
+        >
+          <button
+            aria-pressed={runtimeFilter === "all"}
+            className={cn(runtimeFilter === "all" && "is-active")}
+            onClick={() => setRuntimeFilter("all")}
+            type="button"
           >
+            All runtimes
+          </button>
+          {runtimeIds.map((runtimeId) => (
             <button
-              aria-pressed={runtimeFilter === "all"}
-              className={cn(runtimeFilter === "all" && "is-active")}
-              onClick={() => setRuntimeFilter("all")}
+              aria-pressed={runtimeFilter === runtimeId}
+              className={cn(runtimeFilter === runtimeId && "is-active")}
+              key={runtimeId}
+              onClick={() => setRuntimeFilter(runtimeId)}
               type="button"
             >
-              All runtimes
+              {runtimeLabel(runtimeId)}
             </button>
-            {runtimeIds.map((runtimeId) => (
-              <button
-                aria-pressed={runtimeFilter === runtimeId}
-                className={cn(runtimeFilter === runtimeId && "is-active")}
-                key={runtimeId}
-                onClick={() => setRuntimeFilter(runtimeId)}
-                type="button"
-              >
-                {runtimeLabel(runtimeId)}
-              </button>
-            ))}
-          </fieldset>
-        ) : null}
+          ))}
+        </fieldset>
       </div>
 
       <div className="artifact-library-screen__body">
@@ -142,11 +249,7 @@ export function SkillLibraryPanel({
         !skillsQuery.isError &&
         visibleSkills.length === 0 ? (
           <SkillLibraryState
-            action={
-              query || (pickedRuntime === undefined && runtimeFilter !== "all")
-                ? "Clear filters"
-                : null
-            }
+            action={query || runtimeFilter !== "all" ? "Clear filters" : null}
             onAction={() => {
               setQuery("");
               setRuntimeFilter("all");

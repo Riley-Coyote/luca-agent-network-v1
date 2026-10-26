@@ -482,11 +482,18 @@ export function AgentsView({
                 <h2 className="text-lg font-medium">
                   {library.length > 0 ? "Choose an agent" : "No residents yet"}
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {library.length > 0
-                    ? "The previously selected agent is no longer available. Choose another from the list."
-                    : "Import an agent already on this Mac or create a new resident."}
-                </p>
+                {/* Under the shell with no Luca nothing is picked, and
+                    nothing was before: only the title says what to do. */}
+                {shellFrame &&
+                library.length > 0 &&
+                !selectedPubkey &&
+                !selectedPersonaId ? null : (
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {library.length > 0
+                      ? "The previously selected agent is no longer available. Choose another from the list."
+                      : "Import an agent already on this Mac or create a new resident."}
+                  </p>
+                )}
                 {library.length === 0 ? (
                   <Button className="mt-5" onClick={() => setIsAddOpen(true)}>
                     Add agent

@@ -1,5 +1,7 @@
 import type * as React from "react";
 
+import "@/app/shell/shell-place-rails.css";
+
 import type { AppView } from "@/app/AppShell.helpers";
 import type { RailPlace } from "@/app/shell/placeRails/placePicks";
 import { shellFramePageName } from "@/app/shell/shellFrame";
@@ -27,7 +29,20 @@ export function PlaceLipName({
 function PickName({ fallback, place }: { fallback: string; place: RailPlace }) {
   const { sections } = PLACE_RAIL_HOOKS[place]();
   const { pick } = usePlacePick(place);
-  return <>{pickedRow(sections, pick)?.row.title ?? fallback}</>;
+  const picked = pickedRow(sections, pick);
+  if (!picked) return <>{fallback}</>;
+  // A skill runtime reads under its section, as a session under its home:
+  // "Skills / Claude Code" (SHELL_SPEC.md, "Tabs"). Made's kinds keep their
+  // own name alone.
+  if (picked.section.key === "skills" && picked.section.title)
+    return (
+      <>
+        <span className="luca-lip-home">{picked.section.title}</span>
+        <span className="luca-lip-sep">{" / "}</span>
+        {picked.row.title}
+      </>
+    );
+  return <>{picked.row.title}</>;
 }
 
 const RAIL_PLACE_OF_VIEW: Partial<Record<AppView, RailPlace>> = {
