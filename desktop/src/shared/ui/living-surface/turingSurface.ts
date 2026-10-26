@@ -327,6 +327,9 @@ const STEPS_PER_SECOND = 480;
 const OPENING_STEPS_PER_SECOND = 5400;
 const OPENING_SECONDS = 1.4;
 const MAX_STEPS_PER_FRAME = 96;
+/** Paced warming's first share of steps, and its least; its most is MAX_STEPS_PER_FRAME. */
+const PACED_FIRST = 24;
+const PACED_LEAST = 8;
 /** Opening: the film grows unseen for a moment, then the light comes on out from the body and finds it. */
 const UNSEEN_SECONDS = 0.4;
 const REVEAL_SECONDS = 1.1;
@@ -388,6 +391,10 @@ export class TuringSurface implements LivingSurface {
   private readonly seeds: { x: number; y: number }[] = [];
   private handTravel: [number, number] = [0, 0];
   private drain: { age: number } | null = null;
+  /** Paced warming: the steps a share, the GPU's fence on the last one, and whether it fell behind on it. */
+  private share = PACED_FIRST;
+  private fence: WebGLSync | null = null;
+  private behind = false;
 
   static create(canvas: HTMLCanvasElement): TuringSurface | null {
     const gl = canvas.getContext("webgl2", {
@@ -521,16 +528,46 @@ export class TuringSurface implements LivingSurface {
     }
   }
 
-  /** Grow the film unseen until it has had `seconds` of life; asked again, it only makes up the difference. */
-  warm(seconds: number) {
-    if (!this.sow()) return;
-    let steps = Math.round(seconds * STEPS_PER_SECOND) - this.stepsSinceSown;
-    this.sinceSown = Math.max(OPENING_SECONDS, UNSEEN_SECONDS + REVEAL_SECONDS);
+  /** Grow the film unseen until it has had `seconds` of life; asked again, it only makes up the difference. The
+   *  light comes on once it has had them all. Whether it has.
+   *
+   *  `paced`: one share of the steps a call, and only once the GPU has done the last share, so the page never waits
+   *  on a queue of thousands (WP-20: grown at once under Reduce Motion, the film held the page for half a minute).
+   *  The share doubles while the GPU keeps up and halves when it falls behind. */
+  warm(seconds: number, paced = false) {
+    if (!this.sow()) return false;
+    const gl = this.gl;
+    const life = Math.round(seconds * STEPS_PER_SECOND);
+    let steps = life - this.stepsSinceSown;
+    if (paced && steps > 0) {
+      if (this.fence) {
+        if (gl.getSyncParameter(this.fence, gl.SYNC_STATUS) !== gl.SIGNALED) {
+          if (!this.behind) this.share = Math.max(PACED_LEAST, this.share / 2);
+          this.behind = true;
+          return false;
+        }
+        gl.deleteSync(this.fence);
+        this.fence = null;
+        if (!this.behind)
+          this.share = Math.min(MAX_STEPS_PER_FRAME, this.share * 2);
+        this.behind = false;
+      }
+      steps = Math.min(steps, this.share);
+    }
     while (steps > 0) {
       const n = Math.min(400, steps);
       this.step(n);
       steps -= n;
     }
+    if (this.stepsSinceSown < life) {
+      if (paced) {
+        this.fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gl.flush();
+      }
+      return false;
+    }
+    this.sinceSown = Math.max(OPENING_SECONDS, UNSEEN_SECONDS + REVEAL_SECONDS);
+    return true;
   }
 
   frame(dt: number, fade: number) {
@@ -600,6 +637,8 @@ export class TuringSurface implements LivingSurface {
 
   dispose() {
     const gl = this.gl;
+    if (this.fence) gl.deleteSync(this.fence);
+    this.fence = null;
     for (const t of this.targets) {
       gl.deleteTexture(t.texture);
       gl.deleteFramebuffer(t.framebuffer);

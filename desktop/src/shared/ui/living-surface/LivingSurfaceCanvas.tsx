@@ -183,14 +183,30 @@ export const LivingSurfaceCanvas = React.forwardRef<
     let raf = 0;
     let last = performance.now();
     let pointer: { x: number; y: number } | null = null;
-    const settle = () => {
-      // One quiet moment, already settled, and no motion after it.
-      cancelAnimationFrame(raf);
+    let settling = false;
+    const grow = () => {
       raf = 0;
+      const { width, height } = canvas;
       surface.resize();
       latest.current.beforeFrame?.();
-      surface.warm(settledSeconds);
-      surface.frame(0, 1);
+      const settled = surface.warm(settledSeconds, true);
+      // Drawn only when there is something new to show: the moment, or the
+      // ground again on a canvas a new size has cleared. The steps between
+      // never touch what is on screen.
+      if (settled || canvas.width !== width || canvas.height !== height)
+        surface.frame(0, 1);
+      settling = !settled;
+      if (settling) raf = requestAnimationFrame(grow);
+    };
+    const settle = () => {
+      // One quiet moment, already settled, and no motion after it. The film
+      // grows to it unseen a share a frame, never all at once: grown in one
+      // go, its thousands of steps held the page for half a minute (WP-20).
+      // Until it has, the plain ground shows; then the moment, still.
+      cancelAnimationFrame(raf);
+      raf = 0;
+      settling = true;
+      grow();
     };
     const frame = (now: number) => {
       raf = 0;
@@ -208,6 +224,12 @@ export const LivingSurfaceCanvas = React.forwardRef<
       if (motion.matches) {
         settle();
         return;
+      }
+      if (settling) {
+        // Motion came back mid-settle: the live film takes it from here.
+        cancelAnimationFrame(raf);
+        raf = 0;
+        settling = false;
       }
       if (!raf && !document.hidden) {
         last = performance.now();

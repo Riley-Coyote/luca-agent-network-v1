@@ -15,19 +15,6 @@ type RouterHistoryState = {
   key?: string;
 };
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  return (
-    target.isContentEditable ||
-    target.closest(
-      'input, textarea, select, [contenteditable=""], [contenteditable="true"]',
-    ) !== null
-  );
-}
-
 export function useBackForwardControls() {
   const router = useRouter();
   const canGoBack = useCanGoBack();
@@ -95,7 +82,10 @@ export function useBackForwardControls() {
   }, [canGoForward, router.history]);
 
   const handleKeyDown = React.useEffectEvent((event: KeyboardEvent) => {
-    if (isEditableTarget(event.target)) {
+    // A history key works wherever focus is, the composer included (WP-20):
+    // a text field has no use for ⌘[ and ⌘]. A key the field has taken for
+    // itself (it prevented the default) stays the field's.
+    if (event.defaultPrevented) {
       return;
     }
 
