@@ -575,6 +575,16 @@
   scroll-margin-top: 12px;
 }
 
+/* The row a way in named (WP-26, Decided 4): lit as the current place is,
+ * the frame's plate behind its head, reaching 10 past the words on each
+ * side so they keep the column's axis. Closing the row puts it out. */
+.luca-mind-setting[data-lit] > .luca-mind-row-open {
+  background: var(--luca-frame-plate, hsl(var(--mn-ink) / 0.07));
+  margin-inline: -10px;
+  padding-inline: 10px;
+  width: calc(100% + 20px);
+}
+
 .luca-mind-setting[data-open] .luca-mind-value {
   color: hsl(var(--mn-ink-faint));
 }

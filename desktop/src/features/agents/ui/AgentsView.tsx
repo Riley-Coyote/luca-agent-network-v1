@@ -53,6 +53,7 @@ import {
   type AgentLibrarySection,
 } from "./AgentLibraryWorkspace";
 import { MindSpace } from "@/features/agents/space/MindSpace";
+import type { MindSettingsAt } from "@/features/agents/space/mindSection";
 import type { MindSection } from "@/features/agents/space/mindSection";
 import {
   buildResidentLibrary,
@@ -64,12 +65,12 @@ const AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX = 600;
 export function AgentsView({
   addRequest = null,
   connectedKey = null,
-  focusRead = false,
+  focusAt = null,
   groupId = null,
   mindSection = "notebook",
   onAddConsumed,
   onMindSectionChange,
-  onReadFocused,
+  onFocusAtConsumed,
   onClearSelection,
   onReviewNativeConsumed,
   onSectionChange,
@@ -85,14 +86,15 @@ export function AgentsView({
   /** Under the shell: the connected app picked in the rail. */
   connectedKey?: string | null;
   /** Under the shell: open the mind's space at What they can read. */
-  focusRead?: boolean;
+  /** Under the shell: the row of a mind's Settings a way in names. */
+  focusAt?: MindSettingsAt | null;
   /** Under the shell: the group picked in the rail. */
   groupId?: string | null;
   /** Under the shell: the mind's tab (WP-13). */
   mindSection?: MindSection;
   onAddConsumed?: () => void;
   onMindSectionChange?: (section: MindSection) => void;
-  onReadFocused?: () => void;
+  onFocusAtConsumed?: () => void;
   onClearSelection: () => void;
   onReviewNativeConsumed: () => void;
   onSectionChange: (section: AgentLibrarySection) => void;
@@ -448,8 +450,8 @@ export function AgentsView({
                     void goChannel(channelId);
                   }}
                   onSectionChange={(next) => onMindSectionChange?.(next)}
-                  focusRead={focusRead}
-                  onReadFocused={() => onReadFocused?.()}
+                  focusAt={focusAt}
+                  onFocusAtConsumed={() => onFocusAtConsumed?.()}
                   onStart={() => {
                     if (selectedManagedAgent) {
                       void agents.handleStart(selectedManagedAgent.pubkey);

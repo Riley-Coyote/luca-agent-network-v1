@@ -44,6 +44,7 @@ import {
 } from "./agentLibraryViewModel";
 import { ManagedAgentLogPanel } from "./ManagedAgentLogPanel";
 import { MindSettings } from "@/features/agents/space/MindSettings";
+import type { MindSettingsAt } from "@/features/agents/space/mindSection";
 import { ResidentModelMenu } from "./ResidentModelMenu";
 import { CharacterAppearancePicker } from "./CharacterAppearancePicker";
 
@@ -506,14 +507,14 @@ function NotebookSection({
 
 export function SettingsSection({
   channels,
-  focusRead = false,
+  focusAt = null,
   isActionPending = false,
   layout = "page",
   managedAgent,
   onEdit,
   onOpenChannel,
   onOpenLogs,
-  onReadFocused,
+  onFocusAtConsumed,
   onRestart,
   onStart,
   onStop,
@@ -522,8 +523,8 @@ export function SettingsSection({
   resident,
 }: {
   channels: Array<{ id: string; name: string }>;
-  /** `space`: open at What they can read. */
-  focusRead?: boolean;
+  /** `space`: the row a way in names, opened, in view and lit. */
+  focusAt?: MindSettingsAt | null;
   isActionPending?: boolean;
   /** `space`: a mind's Settings tab (WP-13, Decided 5). */
   layout?: "page" | "space";
@@ -531,7 +532,7 @@ export function SettingsSection({
   onEdit: () => void;
   onOpenChannel: (channelId: string) => void;
   onOpenLogs?: () => void;
-  onReadFocused?: () => void;
+  onFocusAtConsumed?: () => void;
   onRestart: () => void;
   onStart: () => void;
   onStop?: () => void;
@@ -546,13 +547,13 @@ export function SettingsSection({
     return (
       <MindSettings
         channels={channels}
-        focusRead={focusRead}
+        focusAt={focusAt}
         isActionPending={isActionPending}
         managedAgent={managedAgent}
         onEdit={onEdit}
         onOpenChannel={onOpenChannel}
         onOpenLogs={onOpenLogs}
-        onReadFocused={onReadFocused}
+        onFocusAtConsumed={onFocusAtConsumed}
         onRestart={onRestart}
         onStart={onStart}
         onStop={onStop}

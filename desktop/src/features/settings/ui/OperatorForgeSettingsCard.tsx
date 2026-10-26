@@ -25,6 +25,7 @@ import {
   getHermesRuntimeSelection,
   type AgentRuntimeTargetV1,
 } from "@/shared/api/tauriOperatorForge";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import { SectionHeader } from "@/shared/ui/PageHeader";
@@ -254,6 +255,9 @@ function HermesInstallationSettings({
   onChanged: () => Promise<unknown>;
 }) {
   const queryClient = useQueryClient();
+  // Under the frame its secondary actions are the shared quiet button
+  // (SHELL_BUILD.md WP-26, Decided 1).
+  const frame = useShellFrameEnabled();
   const selection = useQuery({
     queryKey: hermesSelectionQueryKey,
     queryFn: getHermesRuntimeSelection,
@@ -342,8 +346,8 @@ function HermesInstallationSettings({
           <Button
             disabled={selection.isFetching}
             onClick={() => void selection.refetch()}
-            size="sm"
-            variant="outline"
+            size={frame ? "quiet" : "sm"}
+            variant={frame ? "quiet" : "outline"}
           >
             {selection.isFetching ? "Checking…" : "Try again"}
           </Button>
@@ -357,8 +361,8 @@ function HermesInstallationSettings({
         <Button
           disabled={busy !== null || !selection.data}
           onClick={() => void changeInstallation("choose")}
-          size="sm"
-          variant="outline"
+          size={frame ? "quiet" : "sm"}
+          variant={frame ? "quiet" : "outline"}
         >
           {busy === "choose" ? "Choosing…" : "Choose Hermes…"}
         </Button>

@@ -476,6 +476,7 @@ export function AgentSessionThreadPanel({
         ref={scrollRef}
         onScroll={onScroll}
         className="overflow-y-auto px-3 pb-4"
+        data-luca-right-scroll=""
         panelPadding
       >
         <div ref={topSentinelRef} aria-hidden className="h-px" />

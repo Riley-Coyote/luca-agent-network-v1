@@ -327,13 +327,50 @@
   );
 }
 
-/* The details card (WP-22, 9): it is the window's rightmost card wherever
- * it opens, a right card beside the conversation or over it under 1024,
- * its edge 6 from the window's right as the cards stand. So its content
- * keeps the launcher's column clear by the same measure (20 + 46 + 8),
- * taken from its own edge: the padding replaces its 16 on that side. */
-:root[data-luca-frame]:has(.qc-launcher) [data-luca-details-body] {
-  padding-right: max(1rem, calc(20px + 46px + 8px - 6px));
+/* The right card keeps clear of the launcher at its foot, not down its side
+ * (WP-26, 2, in place of WP-22's 9). Every right-card panel (details, a
+ * mind's session, a profile, a room's settings) is the window's rightmost
+ * card wherever it opens, its foot 6 above the window's as the cards
+ * stand, so the launcher always sits in its bottom-right corner. A gutter
+ * down the whole card cost its text about 52 at every size; instead each
+ * panel's scroller ends with the launcher's room below its last item
+ * (its bottom + 46 + 8, taken from the card's foot), so the end of its content
+ * scrolls clear of the button and nothing gives up width. */
+/* The launcher's bottom, as shell-huddle.css sets it: 20, raised to 58 over
+ * a live huddle's band (50 under 480). The foot room follows it, less the
+ * card's own foot (6, plus the band while live: --luca-frame-card-bottom),
+ * so it clears the button however the two rise. */
+:root[data-luca-frame]:has(.qc-launcher) {
+  --luca-quickchat-bottom: 20px;
+}
+
+:root[data-luca-frame]:has(.buzz-huddle-shell[data-huddle-open="true"]) {
+  --luca-quickchat-bottom: 58px;
+}
+
+@media (max-width: 480px) {
+  :root[data-luca-frame]:has(.buzz-huddle-shell[data-huddle-open="true"]) {
+    --luca-quickchat-bottom: 50px;
+  }
+}
+
+:root[data-luca-frame]:has(.qc-launcher) [data-luca-right-scroll] {
+  padding-bottom: calc(
+    var(--luca-quickchat-bottom, 20px) +
+    46px +
+    8px -
+    var(--luca-frame-card-bottom, 6px)
+  );
+}
+
+/* A room's settings float their archive and delete at the card's foot, in
+ * the launcher's own corner: they take the other corner instead, still on
+ * the foot, and the scroller's room above clears them too. */
+:root[data-luca-frame]:has(.qc-launcher)
+  [data-luca-right-scroll]
+  ~ [data-testid="channel-management-footer"] {
+  left: 0.75rem;
+  right: auto;
 }
 
 /* A conversation's composer: Send's side, past the overlay's own 20. */

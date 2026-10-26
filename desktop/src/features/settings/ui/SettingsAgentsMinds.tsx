@@ -10,6 +10,10 @@ import {
 } from "@/features/agents/hooks";
 import { getPersonaLibraryState } from "@/features/agents/lib/catalog";
 import {
+  mindSettingsAtOfTab,
+  type MindSettingsAt,
+} from "@/features/agents/space/mindSection";
+import {
   mindStateOf,
   useMindSignals,
 } from "@/features/agents/lib/useMindState";
@@ -87,21 +91,32 @@ export function SettingsAgentsMinds() {
     agentsQuery.data !== undefined && personasQuery.data !== undefined;
 
   const openMind = React.useCallback(
-    (resident: ResidentSummaryViewModel, replace = false) => {
+    (
+      resident: ResidentSummaryViewModel,
+      replace = false,
+      at?: MindSettingsAt,
+    ) => {
       const id = resident.pubkey
         ? `mind:${normalizePubkey(resident.pubkey)}`
         : `persona:${resident.personaId ?? resident.residentId}`;
       void navigate({
         to: "/agents",
-        search: { ...searchForPick("agents", {}, id), section: "settings" },
+        search: {
+          ...searchForPick("agents", {}, id),
+          section: "settings",
+          ...(at ? { at } : {}),
+        },
         replace,
       } as never);
     },
     [navigate],
   );
 
-  // A way in that names one mind lands in that mind's own Settings.
+  // A way in that names one mind lands in that mind's own Settings, on the
+  // row its old tab named (WP-26, Decided 4): runtime on Connected app and
+  // model, capabilities (its access) on Permissions.
   const requested = values.settingsAgent;
+  const requestedAt = mindSettingsAtOfTab(values.settingsAgentTab);
   React.useEffect(() => {
     if (!requested || !ready) return;
     const match = minds.find(
@@ -110,8 +125,8 @@ export function SettingsAgentsMinds() {
         (resident.pubkey &&
           normalizePubkey(resident.pubkey) === normalizePubkey(requested)),
     );
-    if (match) openMind(match.resident, true);
-  }, [minds, openMind, ready, requested]);
+    if (match) openMind(match.resident, true, requestedAt);
+  }, [minds, openMind, ready, requested, requestedAt]);
 
   return (
     <section className="luca-settings-minds" data-testid="settings-agents">
@@ -125,8 +140,8 @@ export function SettingsAgentsMinds() {
           onClick={() =>
             void navigate({ to: "/agents", search: { add: "agent" } } as never)
           }
-          size="sm"
-          variant="outline"
+          size="quiet"
+          variant="quiet"
         >
           Add agent
         </Button>

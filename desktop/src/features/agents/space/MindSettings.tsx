@@ -45,6 +45,7 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import { agentOriginDescription, authorityLabel } from "./mindRunsOn";
+import type { MindSettingsAt } from "./mindSection";
 
 type RowId =
   | "runtime"
@@ -72,13 +73,13 @@ type RowId =
  */
 export function MindSettings({
   channels,
-  focusRead,
+  focusAt,
   isActionPending,
   managedAgent,
   onEdit,
   onOpenChannel,
   onOpenLogs,
-  onReadFocused,
+  onFocusAtConsumed,
   onRestart,
   onStart,
   onStop,
@@ -87,13 +88,14 @@ export function MindSettings({
   resident,
 }: {
   channels: Array<{ id: string; name: string }>;
-  focusRead: boolean;
+  /** The row a way in names (the address's `at`): opened, in view, lit. */
+  focusAt: MindSettingsAt | null;
   isActionPending: boolean;
   managedAgent: ManagedAgent | null;
   onEdit: () => void;
   onOpenChannel: (channelId: string) => void;
   onOpenLogs?: () => void;
-  onReadFocused?: () => void;
+  onFocusAtConsumed?: () => void;
   onRestart: () => void;
   onStart: () => void;
   onStop?: () => void;
@@ -110,24 +112,49 @@ export function MindSettings({
     managedAgent?.status === "running" || managedAgent?.status === "deployed";
   const name = resident.displayName;
   const [open, setOpen] = React.useState<ReadonlySet<RowId>>(
-    () => new Set(focusRead ? ["read"] : []),
+    () => new Set(focusAt ? [focusAt] : []),
   );
-  const readRef = React.useRef<HTMLLIElement | null>(null);
-  const toggle = (id: RowId) =>
+  // The row a way in opened stays lit until it is closed (WP-26, Decided 4).
+  const [lit, setLit] = React.useState<RowId | null>(focusAt);
+  const rows = React.useRef(new Map<RowId, HTMLLIElement>());
+  const scrollTo = React.useRef<RowId | null>(null);
+  const register = React.useCallback(
+    (id: RowId, element: HTMLLIElement | null) => {
+      if (element) rows.current.set(id, element);
+      else rows.current.delete(id);
+    },
+    [],
+  );
+  const toggle = (id: RowId) => {
+    if (open.has(id)) setLit((current) => (current === id ? null : current));
     setOpen((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
 
-  // `/brain` lands here: What they can read, already open.
+  // A way in that names a row lands on it: `/brain` on What they can read,
+  // an agent showing its runtime on Connected app and model, one asking for
+  // access on Permissions. Open and lit at once, then consumed.
   React.useEffect(() => {
-    if (!focusRead) return;
-    setOpen((current) => new Set([...current, "read"]));
-    readRef.current?.scrollIntoView({ block: "start" });
-    onReadFocused?.();
-  }, [focusRead, onReadFocused]);
+    if (!focusAt) return;
+    setOpen((current) => new Set([...current, focusAt]));
+    setLit(focusAt);
+    scrollTo.current = focusAt;
+    onFocusAtConsumed?.();
+  }, [focusAt, onFocusAtConsumed]);
+
+  // Brought into view once it is drawn: a row whose mind is still loading
+  // (Permissions waits for its runtime) is scrolled to when it arrives.
+  React.useEffect(() => {
+    const id = scrollTo.current;
+    const row = id ? rows.current.get(id) : undefined;
+    if (!row) return;
+    scrollTo.current = null;
+    row.scrollIntoView({ block: "start" });
+  });
 
   const readValue = useWhatTheyCanRead(Boolean(resident.pubkey));
   const permissionsValue = usePermissionsValue(managedAgent?.pubkey ?? null);
@@ -143,8 +170,10 @@ export function MindSettings({
     >
       <SettingRow
         id="runtime"
+        lit={lit}
         onToggle={toggle}
         open={open}
+        register={register}
         title="Connected app and model"
         value={[
           residentSourceLabel(resident),
@@ -220,8 +249,8 @@ export function MindSettings({
               <Button
                 disabled={isActionPending}
                 onClick={isRunning ? onStop : onStart}
-                size="sm"
-                variant="outline"
+                size="quiet"
+                variant="quiet"
               >
                 {isRunning ? <Square /> : <Play />}
                 {isRunning ? "Stop agent" : "Start agent"}
@@ -230,8 +259,8 @@ export function MindSettings({
                 <Button
                   disabled={isActionPending}
                   onClick={onRestart}
-                  size="sm"
-                  variant="outline"
+                  size="quiet"
+                  variant="quiet"
                 >
                   <RotateCcw /> Restart agent
                 </Button>
@@ -239,8 +268,8 @@ export function MindSettings({
               <Button
                 data-testid="agent-strip-logs"
                 onClick={onOpenLogs}
-                size="sm"
-                variant="outline"
+                size="quiet"
+                variant="quiet"
               >
                 <ScrollText /> Open logs
               </Button>
@@ -249,8 +278,8 @@ export function MindSettings({
           <Button
             data-testid="agent-settings-advanced"
             onClick={onEdit}
-            size="sm"
-            variant="outline"
+            size="quiet"
+            variant="quiet"
           >
             <Settings2 /> Advanced…
           </Button>
@@ -259,9 +288,9 @@ export function MindSettings({
               data-testid="mind-setting-recheck"
               disabled={managedQuery.isFetching}
               onClick={() => void managedQuery.refetch()}
-              size="sm"
+              size="quiet"
               title="Checks the exact native profile or agent without modifying it."
-              variant="outline"
+              variant="quiet"
             >
               <RefreshCw /> Recheck
             </Button>
@@ -286,8 +315,10 @@ export function MindSettings({
       {managedAgent ? (
         <SettingRow
           id="wakes"
+          lit={lit}
           onToggle={toggle}
           open={open}
+          register={register}
           title="Wakes with the app"
           value={managedAgent.startOnAppLaunch ? "On" : "Off"}
         >
@@ -334,8 +365,10 @@ export function MindSettings({
 
       <SettingRow
         id="workspace"
+        lit={lit}
         onToggle={toggle}
         open={open}
+        register={register}
         title="Workspace"
         value={workspace ?? "No native workspace reported"}
       >
@@ -357,9 +390,10 @@ export function MindSettings({
       {resident.pubkey ? (
         <SettingRow
           id="read"
+          lit={lit}
           onToggle={toggle}
           open={open}
-          rowRef={readRef}
+          register={register}
           testId="mind-what-they-can-read"
           title={`What ${name} can read`}
           value={readValue}
@@ -373,8 +407,10 @@ export function MindSettings({
       {managedAgent || persona ? (
         <SettingRow
           id="permissions"
+          lit={lit}
           onToggle={toggle}
           open={open}
+          register={register}
           title="Permissions"
           value={managedAgent ? permissionsValue : "After setup"}
         >
@@ -389,8 +425,10 @@ export function MindSettings({
 
       <SettingRow
         id="identity"
+        lit={lit}
         onToggle={toggle}
         open={open}
+        register={register}
         title="Identity"
         value={
           managedAgent?.pubkey
@@ -422,8 +460,10 @@ export function MindSettings({
       {resident.pubkey ? (
         <SettingRow
           id="character"
+          lit={lit}
           onToggle={toggle}
           open={open}
+          register={register}
           title="Your character"
           value=""
         >
@@ -438,8 +478,10 @@ export function MindSettings({
       {channels.length > 0 ? (
         <SettingRow
           id="rooms"
+          lit={lit}
           onToggle={toggle}
           open={open}
+          register={register}
           title="Recent rooms"
           value={`${channels.length} ${channels.length === 1 ? "room" : "rooms"}`}
         >
@@ -462,8 +504,10 @@ export function MindSettings({
       {managedAgent?.needsRestart || managedAgent?.lastError ? (
         <SettingRow
           id="health"
+          lit={lit}
           onToggle={toggle}
           open={open}
+          register={register}
           title="Runtime health"
           value={
             managedAgent.lastError ? "Needs attention" : "Restart required"
@@ -476,8 +520,8 @@ export function MindSettings({
           <Button
             className="mt-4"
             onClick={restartFirst ? onRestart : onStart}
-            size="sm"
-            variant="outline"
+            size="quiet"
+            variant="quiet"
           >
             <RotateCcw />
             {restartFirst ? "Restart resident" : "Retry runtime"}
@@ -488,8 +532,10 @@ export function MindSettings({
       {managedAgent ? (
         <SettingRow
           id="companion"
+          lit={lit}
           onToggle={toggle}
           open={open}
+          register={register}
           title="Awareness and initiative"
           value=""
         >
@@ -568,8 +614,8 @@ function MindPermissions({
         <Button
           data-testid="mind-setting-manage-mcp"
           onClick={() => void goSettings("connections")}
-          size="sm"
-          variant="outline"
+          size="quiet"
+          variant="quiet"
         >
           Manage MCP access <ArrowUpRight />
         </Button>
@@ -615,18 +661,20 @@ function NoteRow({
 function SettingRow({
   children,
   id,
+  lit,
   onToggle,
   open,
-  rowRef,
+  register,
   testId,
   title,
   value,
 }: {
   children: React.ReactNode;
   id: RowId;
+  lit: RowId | null;
   onToggle: (id: RowId) => void;
   open: ReadonlySet<RowId>;
-  rowRef?: React.Ref<HTMLLIElement>;
+  register: (id: RowId, element: HTMLLIElement | null) => void;
   testId?: string;
   title: string;
   value: string;
@@ -636,9 +684,10 @@ function SettingRow({
   return (
     <li
       className="luca-mind-setting"
+      data-lit={lit === id ? "true" : undefined}
       data-open={isOpen ? "true" : undefined}
       data-testid={testId ?? `mind-setting-${id}`}
-      ref={rowRef}
+      ref={(element) => register(id, element)}
     >
       <button
         aria-controls={panelId}

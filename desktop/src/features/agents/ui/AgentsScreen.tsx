@@ -6,6 +6,7 @@ import { useRouter } from "@tanstack/react-router";
 import { useKeepPickInAddress } from "@/app/shell/placeRails/usePlaceRails";
 import {
   mindSectionOf,
+  parseMindSettingsAt,
   type MindSection,
 } from "@/features/agents/space/mindSection";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
@@ -87,7 +88,7 @@ export function AgentsScreen() {
     },
     [applyPatch],
   );
-  const consumeRead = React.useCallback(
+  const consumeFocusAt = React.useCallback(
     () => applyPatch({ at: null }, { replace: true }),
     [applyPatch],
   );
@@ -162,11 +163,11 @@ export function AgentsScreen() {
           }
           connectedKey={shellFrame ? values.connected : null}
           groupId={shellFrame ? values.group : null}
-          focusRead={shellFrame && values.at === "read"}
+          focusAt={shellFrame ? (parseMindSettingsAt(values.at) ?? null) : null}
           mindSection={mindSection}
           onAddConsumed={consumeAdd}
           onMindSectionChange={changeMindSection}
-          onReadFocused={consumeRead}
+          onFocusAtConsumed={consumeFocusAt}
           onClearSelection={clearSelection}
           onReviewNativeConsumed={() => applyPatch({ review: null })}
           onSectionChange={changeSection}

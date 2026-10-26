@@ -325,6 +325,7 @@ export function ConversationContextPanel({
         <AuxiliaryPanelBody
           className="overflow-y-auto px-4 pb-6"
           data-luca-details-body=""
+          data-luca-right-scroll=""
         >
           <ResidentDrawer
             agent={activeResident.agent}
@@ -339,6 +340,7 @@ export function ConversationContextPanel({
         <AuxiliaryPanelBody
           className="overflow-y-auto px-4 pb-6"
           data-luca-details-body=""
+          data-luca-right-scroll=""
         >
           <div className="space-y-6 pt-3">
             {/* Name only. The room's description already sits under the
