@@ -42,7 +42,10 @@ import {
   runtimeMcpServerStatusLabel,
 } from "../lib/runtimeMcpPresentation";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
-import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import {
+  SettingsSectionHeader,
+  useSettingsAppName,
+} from "./SettingsSectionHeader";
 
 type ConnectionDraft = {
   connectionId?: string;
@@ -129,6 +132,7 @@ function draftFromConnection(connection: LucaMcpConnectionV1): ConnectionDraft {
 }
 
 export function ConnectionsMcpSettings() {
+  const appName = useSettingsAppName();
   const agentsQuery = useManagedAgentsQuery();
   const [registry, setRegistry] = React.useState<LucaMcpRegistryV1 | null>(
     null,
@@ -315,7 +319,7 @@ export function ConnectionsMcpSettings() {
                 />
               </Button>
             }
-            description="Luca uses the authentication and configuration already owned by each runtime."
+            description={`${appName} uses the authentication and configuration already owned by each runtime.`}
             title="Runtime connections"
           />
           <SettingsOptionGroup>
@@ -337,7 +341,7 @@ export function ConnectionsMcpSettings() {
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           {runtime.linkedResidentName
                             ? `Linked resident · ${runtime.linkedResidentName}`
-                            : "Native identity detected · not linked to a Luca resident"}
+                            : `Native identity detected · not linked to a ${appName} resident`}
                         </p>
                       ) : null}
                       <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
@@ -410,6 +414,7 @@ export function ConnectionsMcpSettings() {
           {showForm ? (
             <div
               className="mb-4 space-y-4 rounded-2xl border border-border/60 bg-muted/15 p-4"
+              data-settings-box=""
               data-testid="mcp-connection-form"
             >
               <div className="grid gap-3 sm:grid-cols-2">
@@ -658,7 +663,7 @@ export function ConnectionsMcpSettings() {
             ) : (
               <SettingsOptionRow>
                 <p className="text-sm text-muted-foreground">
-                  No Luca-owned MCP connections yet.
+                  {`No ${appName}-owned MCP connections yet.`}
                 </p>
               </SettingsOptionRow>
             )}

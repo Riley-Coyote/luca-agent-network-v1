@@ -25,13 +25,17 @@ import { MobilePairingCard } from "./MobilePairingCard";
 import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
 import { ProtectedOwnerBackupRow } from "./ProtectedOwnerBackupRow";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
-import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import {
+  SettingsSectionHeader,
+  useSettingsAppName,
+} from "./SettingsSectionHeader";
 
 export function SecurityBackupSettings() {
+  const appName = useSettingsAppName();
   return (
     <section className="min-w-0" data-testid="settings-security-backup">
       <SettingsSectionHeader
-        description="Protect your owner identity and recovery material on this Mac. Luca never displays or copies your private signing key."
+        description={`Protect your owner identity and recovery material on this Mac. ${appName} never displays or copies your private signing key.`}
         title="Security & backup"
       />
       <SettingsOptionGroup>
@@ -43,8 +47,7 @@ export function SecurityBackupSettings() {
             <div>
               <p className="text-sm font-medium">Native secure storage</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Identity and Luca-owned secret references are held by the OS
-                keychain.
+                {`Identity and ${appName}-owned secret references are held by the OS keychain.`}
               </p>
             </div>
           </div>
@@ -73,6 +76,7 @@ export function MobileDevicesSettings({
 }
 
 export function DefaultsPermissionsSettings() {
+  const appName = useSettingsAppName();
   return (
     <div className="space-y-10" data-testid="settings-defaults-permissions">
       <section>
@@ -99,8 +103,7 @@ export function DefaultsPermissionsSettings() {
             <div>
               <p className="text-sm font-medium">Continuity for new agents</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Keep a small encrypted Luca handoff separate from native agent
-                memory.
+                {`Keep a small encrypted ${appName} handoff separate from native agent memory.`}
               </p>
             </div>
             <span className="text-xs text-muted-foreground">
@@ -208,6 +211,7 @@ export function UpdatesSettings() {
 }
 
 export function AboutLucaSettings() {
+  const appName = useSettingsAppName();
   const [version, setVersion] = React.useState<string | null>(null);
   React.useEffect(() => {
     void getVersion()
@@ -219,12 +223,14 @@ export function AboutLucaSettings() {
     <section className="min-w-0" data-testid="settings-about-luca">
       <SettingsSectionHeader
         description="Build identity, acknowledgements, licenses, and required third-party notices."
-        title="About Luca"
+        title={`About ${appName}`}
       />
       <SettingsOptionGroup>
         <SettingsOptionRow>
           <div>
-            <p className="text-sm font-medium">Luca Agent Network</p>
+            <p className="text-sm font-medium">
+              {appName === "Luca" ? "Luca Agent Network" : appName}
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Version {version ?? "unavailable"}
             </p>
@@ -236,14 +242,10 @@ export function AboutLucaSettings() {
           </summary>
           <div className="space-y-3 border-t border-border/45 px-4 py-4 text-sm leading-6 text-muted-foreground">
             <p>
-              Luca includes open-source software developed by Block, Inc. and
-              other contributors. Required copyrights and license notices are
-              preserved with this distribution.
+              {`${appName} includes open-source software developed by Block, Inc. and other contributors. Required copyrights and license notices are preserved with this distribution.`}
             </p>
             <p>
-              The upstream Buzz collaboration project is licensed under the
-              Apache License 2.0. Buzz is acknowledged here solely as required
-              third-party attribution and is not the Luca product name.
+              {`The upstream Buzz collaboration project is licensed under the Apache License 2.0. Buzz is acknowledged here solely as required third-party attribution and is not the ${appName} product name.`}
             </p>
           </div>
         </details>

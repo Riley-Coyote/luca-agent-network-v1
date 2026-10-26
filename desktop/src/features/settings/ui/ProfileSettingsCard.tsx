@@ -29,12 +29,16 @@ import {
   ProfileAvatarEditor,
   parseEmojiAvatarDataUrl,
 } from "@/features/profile/ui/ProfileAvatarEditor";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
 import { Textarea } from "@/shared/ui/textarea";
-import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import {
+  SettingsSectionHeader,
+  useSettingsAppName,
+} from "./SettingsSectionHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { FinishPolyphonicSetupRow } from "./FinishPolyphonicSetupRow";
 import { ProtectedOwnerBackupRow } from "./ProtectedOwnerBackupRow";
@@ -147,6 +151,8 @@ export function ProfileSettingsCard({
   currentPubkey,
   fallbackDisplayName,
 }: ProfileSettingsCardProps) {
+  const appName = useSettingsAppName();
+  const frame = useShellFrameEnabled();
   const shouldReduceMotion = useReducedMotion();
   const profileQuery = useProfileQuery();
   const updateProfileMutation = useUpdateProfileMutation();
@@ -505,7 +511,7 @@ export function ProfileSettingsCard({
       <div>
         <SettingsSectionHeader
           title="Profile"
-          description="Update how your name, avatar, and bio appear across Luca."
+          description={`Update how your name, avatar, and bio appear across ${appName}.`}
         />
 
         <FinishPolyphonicSetupRow pubkey={currentPubkey} />
@@ -696,6 +702,7 @@ export function ProfileSettingsCard({
                       <div className="space-y-12">
                         <div
                           className="overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-xs divide-y divide-border/55"
+                          data-settings-box=""
                           data-testid="profile-metadata-card"
                         >
                           <div className="flex min-h-14 items-center justify-between gap-4 px-4 py-3">
@@ -786,6 +793,7 @@ export function ProfileSettingsCard({
                         <div>
                           <details
                             className="group overflow-hidden rounded-xl border border-border/70 bg-background/70 shadow-xs"
+                            data-settings-box=""
                             data-testid="profile-identity-card"
                           >
                             <summary
@@ -894,13 +902,19 @@ export function ProfileSettingsCard({
               Back up your private key (nsec) first — this cannot be undone.
             </p>
           </div>
+          {/* Under the frame Sign Out is red words, not a solid red shape:
+              Talk is the only solid action on a page (WP-17, 5). */}
           <Button
-            className="shrink-0"
+            className={cn(
+              "shrink-0",
+              frame &&
+                "text-destructive hover:bg-destructive/10 hover:text-destructive",
+            )}
             data-testid="signout-open-dialog"
             disabled={isSignOutPending}
             onClick={() => setIsSignOutOpen(true)}
             type="button"
-            variant="destructive"
+            variant={frame ? "ghost" : "destructive"}
           >
             {isSignOutPending ? (
               <Spinner aria-label="Signing out" className="h-4 w-4 border-2" />
@@ -918,10 +932,7 @@ export function ProfileSettingsCard({
             <AlertDialogHeader>
               <AlertDialogTitle>Sign out and wipe all data?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will delete your identity key, all agent settings, and
-                cached data from this device, then relaunch Luca into first-run
-                setup. Create a protected owner backup before continuing — this
-                cannot be undone.
+                {`This will delete your identity key, all agent settings, and cached data from this device, then relaunch ${appName} into first-run setup. Create a protected owner backup before continuing — this cannot be undone.`}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

@@ -3,6 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { ArrowLeft, Menu } from "lucide-react";
 
 import { ShellSettingsMarks } from "@/app/shell/ShellMarks";
+import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
@@ -24,6 +25,7 @@ import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
 import { NavigationTransition } from "@/shared/ui/NavigationTransition";
 import {
   renderSettingsSection,
+  settingsSectionLabel,
   settingsSections,
   type SettingsPanelProps,
   type SettingsSection,
@@ -163,7 +165,9 @@ function SettingsFrameSectionList({
                 onClick={() => onSelect(entry.value)}
                 type="button"
               >
-                <span className="luca-settings-row-name">{entry.label}</span>
+                <span className="luca-settings-row-name">
+                  {settingsSectionLabel(entry.value, true)}
+                </span>
               </button>
             );
           })}
@@ -260,6 +264,24 @@ export function SettingsView({
   );
   const activeSectionLabel =
     visibleSectionByValue.get(section)?.label ?? "Settings";
+  const activeGroupLabel =
+    visibleNavGroups.find((group) =>
+      group.sections.some((entry) => entry.value === section),
+    )?.label ?? "Settings";
+  const panel = renderSettingsSection(section, {
+    currentPubkey,
+    fallbackDisplayName,
+    isUpdatingDesktopNotifications,
+    notificationErrorMessage,
+    notificationPermission,
+    notificationSettings,
+    onSetDesktopNotificationsEnabled,
+    onSetHomeBadgeEnabled,
+    onSetSlotAlertsEnabled,
+    onSetNotifyWhileViewing,
+    onSetAllSlotAlertsEnabled,
+    onSetSoundForSlot,
+  });
   const selectSection = React.useCallback(
     (nextSection: SettingsSection) => {
       onSectionChange(nextSection);
@@ -418,37 +440,50 @@ export function SettingsView({
           data-luca-conversation-surface
           data-testid="settings-content-surface"
         >
-          <section
-            className="min-h-0 flex-1 overflow-y-auto px-5 pb-12 pt-6 sm:px-6"
-            data-testid="settings-content-scroll"
-          >
-            <NavigationTransition
-              className={cn(
-                "mx-auto min-h-full w-full",
-                section === "agents" ? "max-w-6xl" : "max-w-4xl",
-              )}
-              contentClassName="flex min-h-full w-full flex-col gap-4"
-              transitionKey={section}
-              variant="section"
+          {frame ? (
+            // The shared place page (WP-17, 1): 30 / 28 in from the card,
+            // the head and the section on one axis 640 wide, centred on the
+            // card; the group's name over the section's. It is the content
+            // plane every place's page is, so Settings arrives by the
+            // places' order as they do (WP-17, 4).
+            <section
+              className="luca-place-page [view-transition-name:luca-content]"
+              data-luca-settings-page=""
+              data-testid="settings-content-scroll"
             >
-              <div data-testid={`settings-panel-${section}`}>
-                {renderSettingsSection(section, {
-                  currentPubkey,
-                  fallbackDisplayName,
-                  isUpdatingDesktopNotifications,
-                  notificationErrorMessage,
-                  notificationPermission,
-                  notificationSettings,
-                  onSetDesktopNotificationsEnabled,
-                  onSetHomeBadgeEnabled,
-                  onSetSlotAlertsEnabled,
-                  onSetNotifyWhileViewing,
-                  onSetAllSlotAlertsEnabled,
-                  onSetSoundForSlot,
-                })}
+              <div className="luca-place-page-axis">
+                <NavigationTransition
+                  className="min-h-full w-full"
+                  contentClassName="flex min-h-full w-full flex-col"
+                  transitionKey={section}
+                  variant="section"
+                >
+                  <PlacePageHead
+                    eyebrow={activeGroupLabel}
+                    title={settingsSectionLabel(section, true)}
+                  />
+                  <div data-testid={`settings-panel-${section}`}>{panel}</div>
+                </NavigationTransition>
               </div>
-            </NavigationTransition>
-          </section>
+            </section>
+          ) : (
+            <section
+              className="min-h-0 flex-1 overflow-y-auto px-5 pb-12 pt-6 sm:px-6"
+              data-testid="settings-content-scroll"
+            >
+              <NavigationTransition
+                className={cn(
+                  "mx-auto min-h-full w-full",
+                  section === "agents" ? "max-w-6xl" : "max-w-4xl",
+                )}
+                contentClassName="flex min-h-full w-full flex-col gap-4"
+                transitionKey={section}
+                variant="section"
+              >
+                <div data-testid={`settings-panel-${section}`}>{panel}</div>
+              </NavigationTransition>
+            </section>
+          )}
         </div>
       </SidebarInset>
     </>

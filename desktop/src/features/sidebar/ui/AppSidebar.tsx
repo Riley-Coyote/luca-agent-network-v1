@@ -88,11 +88,7 @@ import {
   SectionQuickAction,
 } from "@/features/sidebar/ui/CustomChannelSection";
 import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
-import {
-  SidebarProfileAvatarMenu,
-  SidebarProfileCard,
-} from "@/features/sidebar/ui/SidebarProfileCard";
-import { ShellPlaces } from "@/app/shell/ShellPlaces";
+import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { SidebarConnectionStatusCard } from "@/features/sidebar/ui/SidebarConnectionStatusCard";
 import { SidebarRelayConnectionCard } from "@/features/sidebar/ui/SidebarRelayConnectionCard";
@@ -208,12 +204,7 @@ export function AppSidebar({
   const frame = useShellFrameEnabled();
   const { status: updateStatus } = useUpdaterContext();
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
-  const {
-    open: sidebarOpen,
-    openMobile,
-    setOpenMobile,
-    toggleSidebar,
-  } = useSidebar();
+  const { open: sidebarOpen, openMobile, setOpenMobile } = useSidebar();
   const isMobile = useIsMobile();
   const [selectedRuntime, setSelectedRuntime] =
     React.useState<RuntimeConnectionStatusV1 | null>(null);
@@ -672,28 +663,6 @@ export function AppSidebar({
     onNewMessage();
   }, [onNewMessage]);
 
-  // Conversations is the way back from a place (Library, Agents, …): it
-  // returns to the conversation you stepped out of, while it still exists,
-  // and only otherwise to the new-conversation screen.
-  const lastConversationIdRef = React.useRef<string | null>(null);
-  React.useEffect(() => {
-    if (selectedChannelId) lastConversationIdRef.current = selectedChannelId;
-  }, [selectedChannelId]);
-  const handleSelectConversations = React.useCallback(() => {
-    const last = lastConversationIdRef.current;
-    if (
-      last &&
-      channels.some(
-        (channel) =>
-          channel.id === last && channel.isMember && !channel.archivedAt,
-      )
-    ) {
-      onSelectChannel(last);
-      return;
-    }
-    onSelectHome();
-  }, [channels, onSelectChannel, onSelectHome]);
-
   const handleSelectRuntime = React.useCallback(
     (runtime: RuntimeConnectionStatusV1) => {
       if (selectedView !== "messages") {
@@ -756,18 +725,6 @@ export function AppSidebar({
       }
     })();
   });
-  // Conversations in the places column: already in a conversation with the
-  // rail closed, it opens the rail, with the toggle's own motion (or the
-  // sheet on a narrow window); from anywhere else it returns to the
-  // conversation you stepped out of (handleSelectConversations).
-  const selectConversationsPlace = useStableCallback(() => {
-    const railClosed = isMobile ? !openMobile : !sidebarOpen;
-    if (selectedView === "channel" && railClosed) {
-      toggleSidebar();
-      return;
-    }
-    handleSelectConversations();
-  });
   const agentStorageKey = agentRailStorageKey(
     currentPubkey ?? "",
     activeCommunity?.relayUrl ?? "",
@@ -816,45 +773,8 @@ export function AppSidebar({
   return React.createElement(
     React.Fragment,
     null,
-    frame ? (
-      <ShellPlaces
-        avatar={
-          <SidebarProfileAvatarMenu
-            isPresencePending={isPresencePending}
-            onClearUserStatus={onClearUserStatus}
-            onOpenSettings={onSelectSettings}
-            onSendFeedback={onSendFeedback}
-            onSetPresenceStatus={onSetPresenceStatus}
-            onSetUserStatus={onSetUserStatus}
-            profile={profile}
-            resolvedDisplayName={resolvedDisplayName}
-            selfPresenceStatus={selfPresenceStatus}
-            selfUserStatus={selfUserStatus}
-          />
-        }
-        hasUnread={unreadChannelIds.size > 0}
-        key="shell-places"
-        onSelectAgents={onSelectAgents}
-        onSelectArtifacts={onSelectArtifacts}
-        onSelectConversations={selectConversationsPlace}
-        onSelectPulse={onSelectPulse}
-        onSelectSettings={onSelectSettings}
-        search={{
-          channelLabels: dmChannelLabels,
-          channels: searchChannels,
-          currentPubkey,
-          focusRequest: searchFocusRequest,
-          onBrowseChannels,
-          onCreateAgent,
-          onCreateChannel: handleOpenCreateChannel,
-          onOpenChannel: onSelectChannel,
-          onOpenDm,
-          onOpenResult: onOpenSearchResult,
-          suggestionChannels: channels,
-        }}
-        selectedView={selectedView}
-      />
-    ) : null,
+    // The places column is the shell's own (AppShell, ShellPlacesColumn):
+    // one column for every route, Settings included (WP-17, 4).
     newSessionAgent ? (
       <AgentSessionDialog
         key={`${activeCommunity?.id}:${currentPubkey}:${newSessionAgent.pubkey}`}

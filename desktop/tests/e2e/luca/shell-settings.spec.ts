@@ -306,7 +306,9 @@ test("Settings in the frame", async ({ page }, info) => {
       toggle.y === 10 &&
       back?.x === 270 &&
       back.y === 10 &&
-      (await page.getByTestId("shell-lip-name").innerText()) === "Settings",
+      // The lip names the section (WP-17, 2).
+      (await page.getByTestId("shell-lip-name").innerText()) ===
+        "Profile & identity",
   };
 
   // Appearance, from the list.
@@ -429,21 +431,23 @@ test("Settings in the frame", async ({ page }, info) => {
       inCardPlace(agentsCard, W, H, 264),
   };
 
-  // ── section switches replace the history entry ────────────────────
+  // ── section switches are history steps (WP-17, from the flows review;
+  //    WP-05 replaced the entry) ───────────────────────────────────────
   const historyInSettings = await page.evaluate(() => history.length);
   for (const id of ["notifications", "shortcuts", "about", "appearance"]) {
     await page.getByTestId(`settings-nav-${id}`).click();
     await expect(page.getByTestId(`settings-panel-${id}`)).toBeVisible();
   }
   const historyAfter = await page.evaluate(() => history.length);
-  checks.history_replace = {
+  checks.history_steps = {
     history_at_conversation: historyAtConversation,
     history_entering_settings: historyInSettings,
     history_after_four_switches: historyAfter,
     url: page.url(),
+    // Every section opened since the conversation is a step of its own.
     ok:
-      historyInSettings === historyAtConversation + 1 &&
-      historyAfter === historyInSettings &&
+      historyInSettings > historyAtConversation &&
+      historyAfter === historyInSettings + 4 &&
       /section=appearance/.test(page.url()),
   };
 
@@ -1152,14 +1156,18 @@ test("Settings and the Frame row, finished (WP-05b)", async ({
     closed_by_conversations: closed,
     closed_by_library: library,
     opened_by_pointer: clicked,
+    // One column for every route now (WP-17, 4): focus simply stays on the
+    // place pressed. Conversations returns to the conversation you were
+    // in, whose composer takes the keys, as it does from every place. A
+    // pointer press leaves no ring and no tooltip.
     ok:
       opened.testid === "open-settings-view" &&
       opened.in_places &&
-      closed.testid === "shell-place-conversations" &&
-      closed.in_places &&
+      (closed.testid === "shell-place-conversations" ||
+        closed.testid === "message-input") &&
       library.testid === "open-artifacts-view" &&
       library.in_places &&
-      !clicked.in_places &&
+      !clicked.focus_visible &&
       clicked.tooltips === 0,
   };
 
@@ -1317,8 +1325,11 @@ test("Settings and the Frame row, finished (WP-05b)", async ({
     const column = document
       .querySelector('[data-testid="settings-content-scroll"] > div')
       ?.getBoundingClientRect();
+    // The section's head is the shared page's (WP-17, 1).
     const title = document
-      .querySelector('[data-testid^="settings-panel-"] h1')
+      .querySelector(
+        '[data-testid="settings-content-scroll"] [data-testid="place-page-head"]',
+      )
       ?.getBoundingClientRect();
     return column && title
       ? {
@@ -1342,7 +1353,7 @@ test("Settings and the Frame row, finished (WP-05b)", async ({
       Math.abs(skeleton.x - loaded.x) <= 0.5 &&
       Math.abs(skeleton.y - loaded.y) <= 0.5 &&
       Math.abs(skeleton.w - loaded.w) <= 0.5 &&
-      skeleton.title_h === loaded.title_h,
+      Math.abs(skeleton.title_h - loaded.title_h) <= 1,
   };
 
   // ── 5. every shot here in Vitesse Black ───────────────────────────

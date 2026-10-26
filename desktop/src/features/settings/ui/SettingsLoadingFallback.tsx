@@ -1,3 +1,4 @@
+import "@/app/shell/shell-place-rails.css";
 import { Sidebar, SidebarInset } from "@/shared/ui/sidebar";
 import { Skeleton } from "@/shared/ui/skeleton";
 
@@ -29,24 +30,23 @@ function SettingsPanelSkeleton() {
 }
 
 /**
- * The panel under the frame, in the loaded panel's own column (SettingsView:
- * the section's padding, then `mx-auto w-full max-w-4xl`), its header shaped
- * as the section's (PageHeader: a 32 title line, 4 between, a 24 line), so
- * nothing moves when the section arrives.
+ * The panel under the frame, on the shared place page the loaded section is
+ * on (SettingsView, WP-17): the axis 640 wide, the head's 12 eyebrow line
+ * and 22 title, 26 under it, then the group's rows, so nothing moves when
+ * the section arrives.
  */
 function SettingsFramePanelSkeleton() {
   return (
-    <div
-      className="mx-auto w-full max-w-4xl"
-      data-testid="settings-loading-panel"
-    >
-      <div className="flex h-8 items-center">
-        <Skeleton className="h-6 w-40" />
+    <div className="luca-place-page-axis" data-testid="settings-loading-panel">
+      <div className="luca-place-page-head">
+        <div className="flex h-4 items-center">
+          <Skeleton className="h-3 w-20" />
+        </div>
+        <div className="flex h-7 items-center">
+          <Skeleton className="h-5 w-48" />
+        </div>
       </div>
-      <div className="mt-1 flex h-6 items-center">
-        <Skeleton className="h-4 w-72 max-w-full" />
-      </div>
-      <div className="mt-12 space-y-6">
+      <div className="space-y-6">
         {FIELD_ROWS.map((row) => (
           <div key={row}>
             <Skeleton className="h-4 w-32" />
@@ -108,7 +108,9 @@ function SettingsFrameLoadingFallback() {
           data-buzz-content-surface
           data-luca-conversation-surface
         >
-          <section className="min-h-0 flex-1 overflow-hidden px-5 pb-12 pt-6 sm:px-6">
+          {/* The content plane, as the loaded page is, so Settings arrives
+              by the places' order even while its panels load (WP-17, 4). */}
+          <section className="luca-place-page overflow-hidden [view-transition-name:luca-content]">
             <SettingsFramePanelSkeleton />
           </section>
         </div>

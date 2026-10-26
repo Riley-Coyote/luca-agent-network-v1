@@ -26,7 +26,8 @@ import {
   useShellFrameRootAttribute,
 } from "@/app/shell/shellFrame";
 import { shellFrameLipName } from "@/app/shell/placeRails/PlaceLipName";
-import { ShellSettingsPlaces } from "@/app/shell/ShellSettingsPlaces";
+import { ShellPlacesColumn } from "@/app/shell/ShellPlacesColumn";
+import { useSettingsClose } from "@/app/shell/useSettingsClose";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { preloadPrimaryNavigationSurfaces } from "@/app/navigation/preloadPrimarySurfaces";
@@ -101,6 +102,7 @@ import {
   DEFAULT_SETTINGS_SECTION,
   type SettingsSection,
   isSettingsSection,
+  settingsSectionLabel,
 } from "@/features/settings/ui/SettingsPanels";
 import { HuddleBar, HuddleProvider } from "@/features/huddle";
 import { useDueReminderBadgeCount } from "@/features/reminders/hooks";
@@ -779,18 +781,24 @@ export function AppShell() {
     [goSettings],
   );
 
-  const handleCloseSettings = React.useCallback(
-    () => closeSettings(),
-    [closeSettings],
-  );
+  // Under the frame a section is a history step, as every place's pick is
+  // (WP-17), so closing steps back past them all (useSettingsClose).
+  const goChats = React.useCallback(() => void goHome(), [goHome]);
+  const handleCloseSettings = useSettingsClose({
+    close: closeSettings,
+    framed: shellFrame,
+    goChats,
+    settingsOpen,
+  });
 
-  // Section switches rewrite the settings entry rather than stacking one
-  // history entry per section, so back always exits settings in one step.
+  // Without the frame, section switches rewrite the settings entry rather
+  // than stacking one history entry per section, so back always exits
+  // settings in one step.
   const handleSettingsSectionChange = React.useCallback(
     (section: SettingsSection) => {
-      void goSettings(section, { replace: true });
+      void goSettings(section, { replace: !shellFrame });
     },
-    [goSettings],
+    [goSettings, shellFrame],
   );
 
   const handleOpenSearchResult = React.useCallback(
@@ -929,6 +937,85 @@ export function AppShell() {
     selectedView,
   });
 
+  // The one places column (WP-17, 4): the same element in Settings and in
+  // every other place, at the same position in the frame's row, so it is
+  // never unmounted between them and its mark slides.
+  const shellPlacesColumn = shellFrame ? (
+    <ShellPlacesColumn
+      channels={sidebarChannels}
+      onSelectHome={() => void goHome()}
+      selectedChannelId={selectedChannelId}
+      selectedView={
+        settingsOpen ? "settings" : selectedChannelId ? "channel" : selectedView
+      }
+      avatarMenu={{
+        isPresencePending: presenceSession.isPending,
+        onClearUserStatus: () =>
+          setUserStatusMutation.mutate({
+            text: "",
+            emoji: "",
+          }),
+        onOpenSettings: handleOpenSettings,
+        onSendFeedback: () => setIsSendFeedbackOpen(true),
+        onSetPresenceStatus: (status) => presenceSession.setStatus(status),
+        onSetUserStatus: (text, emoji) =>
+          setUserStatusMutation.mutate({
+            text,
+            emoji,
+          }),
+        profile: profileQuery.data,
+        resolvedDisplayName: resolveSelfDisplayName({
+          identityDisplayName: identityQuery.data?.displayName,
+          profileDisplayName: profileQuery.data?.displayName,
+          pubkey: identityQuery.data?.pubkey,
+        }),
+        selfPresenceStatus: presenceSession.currentStatus,
+        selfUserStatus: deferredPubkey
+          ? (selfStatusQuery.data?.[deferredPubkey.toLowerCase()] ?? undefined)
+          : undefined,
+      }}
+      places={{
+        hasUnread: unreadChannelIds.size > 0,
+        onSelectAgents: () => void goAgents(),
+        onSelectArtifacts: () => void goArtifacts(),
+        onSelectPulse: () => void goPulse(),
+        // In Settings already: pressing it keeps your place.
+        onSelectSettings: settingsOpen ? () => {} : handleOpenSettings,
+      }}
+      search={{
+        channels,
+        currentPubkey: identityQuery.data?.pubkey,
+        fallbackDisplayName: identityQuery.data?.displayName,
+        focusRequest: searchFocusRequest,
+        onBrowseChannels: handleOpenBrowseChannels,
+        onCreateAgent: () => requestOpenCreateAgent(),
+        // The create dialog lives with the rail: from
+        // Settings, leave it, then open it there.
+        onCreateChannel: () => {
+          if (settingsOpen) void goHome();
+          handleOpenCreateChannel();
+        },
+        onOpenChannel: (channelId) => void goChannel(channelId),
+        onOpenDm: async ({ pubkeys }) => {
+          try {
+            const directMessage = await openDmMutation.mutateAsync({
+              pubkeys,
+            });
+            await goChannel(directMessage.id);
+          } catch (error) {
+            toast.error("Couldn't open the conversation", {
+              description:
+                error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
+        },
+        onOpenResult: handleOpenSearchResult,
+        suggestionChannels: sidebarChannels,
+      }}
+    />
+  ) : null;
+
   return (
     <PreventSleepProvider>
       <ChannelNavigationProvider channels={channels}>
@@ -1038,7 +1125,7 @@ export function AppShell() {
                             onGoForward={goForward}
                             pageName={
                               settingsOpen
-                                ? "Settings"
+                                ? settingsSectionLabel(settingsSection, true)
                                 : shellFrameLipName(selectedView)
                             }
                             railName={
@@ -1066,93 +1153,9 @@ export function AppShell() {
                             }
                           >
                             {shellFrame ? <ShellOneCard /> : null}
-                            {/* The frame stays in Settings: its places, with
-                                Settings marked (SHELL_SPEC.md, "Settings"). */}
-                            {shellFrame ? (
-                              <ShellSettingsPlaces
-                                avatarMenu={{
-                                  isPresencePending: presenceSession.isPending,
-                                  onClearUserStatus: () =>
-                                    setUserStatusMutation.mutate({
-                                      text: "",
-                                      emoji: "",
-                                    }),
-                                  onOpenSettings: handleOpenSettings,
-                                  onSendFeedback: () =>
-                                    setIsSendFeedbackOpen(true),
-                                  onSetPresenceStatus: (status) =>
-                                    presenceSession.setStatus(status),
-                                  onSetUserStatus: (text, emoji) =>
-                                    setUserStatusMutation.mutate({
-                                      text,
-                                      emoji,
-                                    }),
-                                  profile: profileQuery.data,
-                                  resolvedDisplayName: resolveSelfDisplayName({
-                                    identityDisplayName:
-                                      identityQuery.data?.displayName,
-                                    profileDisplayName:
-                                      profileQuery.data?.displayName,
-                                    pubkey: identityQuery.data?.pubkey,
-                                  }),
-                                  selfPresenceStatus:
-                                    presenceSession.currentStatus,
-                                  selfUserStatus: deferredPubkey
-                                    ? (selfStatusQuery.data?.[
-                                        deferredPubkey.toLowerCase()
-                                      ] ?? undefined)
-                                    : undefined,
-                                }}
-                                places={{
-                                  hasUnread: unreadChannelIds.size > 0,
-                                  onSelectAgents: () => void goAgents(),
-                                  onSelectArtifacts: () => void goArtifacts(),
-                                  onSelectConversations: () => void goHome(),
-                                  onSelectPulse: () => void goPulse(),
-                                  // Already here: pressing it keeps your place.
-                                  onSelectSettings: () => {},
-                                }}
-                                search={{
-                                  channels,
-                                  currentPubkey: identityQuery.data?.pubkey,
-                                  fallbackDisplayName:
-                                    identityQuery.data?.displayName,
-                                  focusRequest: searchFocusRequest,
-                                  onBrowseChannels: handleOpenBrowseChannels,
-                                  onCreateAgent: () => requestOpenCreateAgent(),
-                                  // The create dialog lives with the rail:
-                                  // leave Settings, then open it there.
-                                  onCreateChannel: () => {
-                                    void goHome();
-                                    handleOpenCreateChannel();
-                                  },
-                                  onOpenChannel: (channelId) =>
-                                    void goChannel(channelId),
-                                  onOpenDm: async ({ pubkeys }) => {
-                                    try {
-                                      const directMessage =
-                                        await openDmMutation.mutateAsync({
-                                          pubkeys,
-                                        });
-                                      await goChannel(directMessage.id);
-                                    } catch (error) {
-                                      toast.error(
-                                        "Couldn't open the conversation",
-                                        {
-                                          description:
-                                            error instanceof Error
-                                              ? error.message
-                                              : String(error),
-                                        },
-                                      );
-                                      throw error;
-                                    }
-                                  },
-                                  onOpenResult: handleOpenSearchResult,
-                                  suggestionChannels: sidebarChannels,
-                                }}
-                              />
-                            ) : null}
+                            {/* The one places column, at the same place in
+                                both rows, so it stays mounted (WP-17, 4). */}
+                            {shellPlacesColumn}
                             {/* One broken settings panel must not take the
                                 rail and every conversation with it. */}
                             <AppErrorBoundary screen="Settings">
@@ -1209,6 +1212,7 @@ export function AppShell() {
                             data-luca-frame-row={shellFrame ? "" : undefined}
                           >
                             {shellFrame ? <ShellOneCard /> : null}
+                            {shellPlacesColumn}
                             <AppSidebar
                               activeCommunity={communitiesHook.activeCommunity}
                               channels={sidebarChannels}
