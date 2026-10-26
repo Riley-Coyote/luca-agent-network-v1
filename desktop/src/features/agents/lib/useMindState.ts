@@ -12,7 +12,7 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 
 /**
  * A mind's one state (SHELL_BUILD.md WP-18, Decided 2): working, talking,
- * waking, needs attention or resting, decided once from
+ * waking, needs attention, off (stopped; WP-25) or resting, decided once from
  *   - the live turn (a turn of theirs running in a conversation);
  *   - their running runtime tasks (Claude Code or Codex working for them);
  *   - their live side conversations (an exchange still talking);

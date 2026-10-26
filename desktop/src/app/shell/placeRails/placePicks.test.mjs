@@ -141,7 +141,8 @@ test("stateWords_comeFromTheLiveSignal_notReadiness", () => {
   // Ready but idle is resting: only a running turn is working.
   assert.equal(at({}), "resting");
   assert.equal(at({ availability: "started" }), "resting");
-  assert.equal(at({ availability: "idle" }), "resting");
+  // A stopped mind (availability idle) is off (WP-25, Decided 3).
+  assert.equal(at({ availability: "idle" }), "off");
   assert.equal(at({ availability: "offline" }), "resting");
   assert.equal(at({ working: true }), "working");
   assert.equal(at({ waking: true }), "waking");
@@ -171,4 +172,25 @@ test("oneState_talkingIsALiveSideConversation_belowWork", () => {
   assert.equal(at({ talking: true, lastError: "exited" }), "needs attention");
   assert.equal(at({ talking: true, waking: true }), "waking");
   assert.equal(at({ talking: false }), "resting");
+});
+
+test("oneState_aStoppedMindIsOff_belowWhatIsLive", () => {
+  const at = (overrides) =>
+    agentStateWord({
+      availability: "idle",
+      lastError: null,
+      waking: false,
+      working: false,
+      ...overrides,
+    });
+  // WP-25, Decided 3: stopped reads off, not resting.
+  assert.equal(at({}), "off");
+  // Being brought up, a problem, work and talk all outrank it.
+  assert.equal(at({ waking: true }), "waking");
+  assert.equal(at({ lastError: "exited" }), "needs attention");
+  assert.equal(at({ working: true }), "working");
+  assert.equal(at({ talking: true }), "talking");
+  // Never yet set up, or merely ready, is not off.
+  assert.equal(at({ availability: "offline" }), "resting");
+  assert.equal(at({ availability: "ready" }), "resting");
 });

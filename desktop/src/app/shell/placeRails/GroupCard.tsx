@@ -26,7 +26,8 @@ import {
  * what the Agent groups dialog offered a group (duplicate, share, delete,
  * and importing one from a file) sits behind its quiet More, so nothing the
  * dialog did is lost with it. Both actions are quiet: Talk is the only
- * solid button of its kind on a page (WP-19).
+ * solid button of its kind on a page (WP-19), and a secondary one is the
+ * shared quiet button, at Talk's size (WP-25, Decided 1).
  */
 export function GroupCard({
   isPending,
@@ -62,9 +63,9 @@ export function GroupCard({
           data-testid="group-edit"
           disabled={isPending}
           onClick={() => onEdit(team)}
-          size="sm"
+          size="quiet"
           type="button"
-          variant="outline"
+          variant="quiet"
         >
           Edit
         </Button>
@@ -72,9 +73,9 @@ export function GroupCard({
           data-testid="group-add-to-room"
           disabled={isPending || resolution.hasMissingPersonas}
           onClick={() => onAddToRoom(team)}
-          size="sm"
+          size="quiet"
           type="button"
-          variant="outline"
+          variant="quiet"
         >
           Add to a room
         </Button>

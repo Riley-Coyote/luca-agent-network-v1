@@ -204,14 +204,15 @@ export type MindStateWord =
   | "needs attention"
   | "working"
   | "talking"
+  | "off"
   | "resting";
 
 /** The quiet word at an agent's row end (Decided 3), lowercase, as the
  *  study writes them: waking while they are brought up; needs attention for
  *  an error, or a degraded or failed agent; working while a turn of theirs
  *  or a runtime task of theirs runs; talking while a side conversation of
- *  theirs is still going (WP-18); resting otherwise, however ready they
- *  are. */
+ *  theirs is still going (WP-18); off for a mind that is stopped (WP-25,
+ *  Decided 3); resting otherwise, however ready they are. */
 export function agentStateWord(agent: AgentStateInput): MindStateWord {
   // The Chats rail's order (ShellRail.tsx): waking, then a problem, then
   // work in progress.
@@ -224,5 +225,7 @@ export function agentStateWord(agent: AgentStateInput): MindStateWord {
     return "needs attention";
   if (agent.working) return "working";
   if (agent.talking) return "talking";
+  // Stopped: it isn't resting, it's off, and every place says so.
+  if (agent.availability === "idle") return "off";
   return "resting";
 }

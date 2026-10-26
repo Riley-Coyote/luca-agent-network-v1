@@ -6,12 +6,16 @@ import {
   isValidOwnerBackupPassphrase,
   ownerBackupPassphraseByteLength,
 } from "@/shared/api/tauriIdentity";
-import { Button } from "@/shared/ui/button";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import { cn } from "@/shared/lib/cn";
+import { Button, buttonVariants } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { useSettingsAppName } from "./SettingsSectionHeader";
 
 export function ProtectedOwnerBackupRow() {
   const appName = useSettingsAppName();
+  // Under the frame Back up is the shared quiet button (WP-25, Decided 1).
+  const frame = useShellFrameEnabled();
   const [isOpen, setIsOpen] = React.useState(false);
   const [passphrase, setPassphrase] = React.useState("");
   const [confirmation, setConfirmation] = React.useState("");
@@ -57,7 +61,14 @@ export function ProtectedOwnerBackupRow() {
           aria-label={
             isOpen ? "Cancel protected backup" : "Create protected backup"
           }
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className={
+            frame
+              ? cn(
+                  buttonVariants({ variant: "quiet", size: "quiet" }),
+                  "shrink-0",
+                )
+              : "inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          }
           data-testid="profile-protected-backup-toggle"
           onClick={() => {
             setIsOpen((open) => !open);

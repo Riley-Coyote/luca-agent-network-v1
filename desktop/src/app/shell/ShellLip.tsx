@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, PanelLeft } from "lucide-react";
 
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
@@ -7,6 +8,10 @@ import {
   useConversationWorkspace,
   workspaceSlot,
 } from "@/features/conversation-workspace";
+import { useOpenSideId } from "@/features/exchange/openSide";
+import { isLucas, lucaRowLabel } from "@/features/exchange/sideConversations";
+import { useSideConversations } from "@/features/exchange/useSideConversations";
+import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import type { Channel } from "@/shared/api/types";
 import { setShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
 import { SHELL_FRAME_RAIL_WIDTH, shellShortcuts } from "@/app/shell/shellFrame";
@@ -307,6 +312,9 @@ export function ShellLip({
     workspace.layout.preset !== "single" &&
     !workspaceSlot(workspace.layout, workspace.layout.focusedSlotId).activeTab;
   const named = focusedPaneEmpty ? null : channel;
+  // A side conversation open is named under its home, as the Chats rail
+  // lights it there: "Luca / Atlas · general" (WP-25, Decided 2).
+  const side = useOpenSideName(named?.id ?? null);
   // Under 768 the rail is a sheet: the toggle says the sheet's state.
   const railOpen = sidebar
     ? sidebar.isMobile
@@ -384,7 +392,15 @@ export function ShellLip({
           title={named ? getChannelDescription(named) : undefined}
         >
           <span className="luca-lip-name__text">
-            {named ? (
+            {named && side ? (
+              <>
+                <span className="luca-lip-home">{side.home}</span>
+                <span aria-hidden className="luca-lip-rule">
+                  /
+                </span>
+                {side.name}
+              </>
+            ) : named ? (
               <>
                 {home ? (
                   <>
@@ -415,4 +431,42 @@ export function ShellLip({
       </div>
     </header>
   );
+}
+
+/**
+ * The side conversation open in `channelId`, named as the Chats rail names
+ * its row under Luca (ShellRail.tsx; SPEC.md, "Selection"): Luca's name for
+ * the home, and the row's own words ("Atlas · general") for the session.
+ * Null when what is open is the room itself.
+ */
+function useOpenSideName(
+  channelId: string | null,
+): { home: string; name: string } | null {
+  const luca = useCanonicalLucaPubkey();
+  const side = useSideConversations();
+  const rows = React.useMemo(
+    () =>
+      luca
+        ? side.items
+            .filter((item) => isLucas(item, luca))
+            .map((item) => ({
+              conversationId: item.conversationId,
+              id: `${item.kind}:${item.id}`,
+              label: lucaRowLabel(item, luca, side.nameOf, side.roomOf),
+              messageId: item.kind === "exchange" ? item.rootEventId : null,
+            }))
+        : [],
+    [luca, side.items, side.nameOf, side.roomOf],
+  );
+  const threadTarget = useRouterState({
+    select: (state) => {
+      const search = state.location.search as Record<string, unknown>;
+      const target = search.thread ?? search.threadRootId ?? search.messageId;
+      return typeof target === "string" && target.length > 0 ? target : null;
+    },
+  });
+  const openId = useOpenSideId(channelId, threadTarget, rows);
+  const row = openId ? rows.find((each) => each.id === openId) : undefined;
+  if (!luca || !row) return null;
+  return { home: side.nameOf(luca), name: row.label };
 }

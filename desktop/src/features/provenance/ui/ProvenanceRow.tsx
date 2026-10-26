@@ -182,15 +182,14 @@ export function ProvenanceRow({
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        <span
-          className={cn(
-            "shrink-0 text-2xs text-muted-foreground tabular-nums",
-            framed ? "w-14" : "w-12",
-          )}
-          data-testid="provenance-time"
-        >
-          {framed ? formatTime(record.createdAt) : clockLabel(record.createdAt)}
-        </span>
+        {framed ? null : (
+          <span
+            className="w-12 shrink-0 text-2xs text-muted-foreground tabular-nums"
+            data-testid="provenance-time"
+          >
+            {clockLabel(record.createdAt)}
+          </span>
+        )}
 
         <VerificationMark status={record.verification} />
 
@@ -222,6 +221,17 @@ export function ProvenanceRow({
           </span>
         ) : null}
 
+        {/* Under the frame the time keeps the right-hand column, where
+            every list keeps it (WP-25, Decided 4). */}
+        {framed ? (
+          <span
+            className="w-14 shrink-0 text-right text-2xs text-muted-foreground tabular-nums"
+            data-testid="provenance-time"
+          >
+            {formatTime(record.createdAt)}
+          </span>
+        ) : null}
+
         <ChevronRight
           aria-hidden
           className={cn(
@@ -235,7 +245,9 @@ export function ProvenanceRow({
         <div
           className={cn(
             "mb-2 rounded-lg border border-border/50 bg-foreground/[0.02] px-3 py-2.5",
-            framed ? "ml-14" : "ml-12",
+            // Under the frame the receipt starts under the sentence: the
+            // row's inset, the mark and the gap.
+            framed ? "ml-[1.875rem]" : "ml-12",
           )}
         >
           {/* What was said comes first. The cryptography backs it; it is not

@@ -1,0 +1,61 @@
+/* The quiet button (SHELL_BUILD.md WP-25, Decided 1): every secondary action
+ * under the frame is the ask's plain tint (shell-activity.css,
+ * `.luca-quiet-button`; the study's `.shell-mind-answer`). No outline and no
+ * shadow: the ink at 8%, deeper on hover, the full ink for its words.
+ *
+ * Unlayered on purpose, so it outranks the Button's base utilities (its
+ * `rounded-lg text-sm`) without leaning on tailwind-merge, which reads a
+ * custom text token as a colour and drops it. */
+.luca-button-quiet {
+  background: hsl(var(--mn-ink) / 0.08);
+  border: 0;
+  box-shadow: none;
+  color: hsl(var(--mn-ink));
+  transition:
+    background-color 120ms,
+    color 120ms;
+}
+
+.luca-button-quiet:hover:not(:disabled) {
+  background: hsl(var(--mn-ink) / 0.12);
+}
+
+.luca-button-quiet:is([aria-pressed="true"], [data-state="open"]) {
+  background: hsl(var(--mn-ink) / 0.18);
+}
+
+/* The ask's own focus ring, kept. */
+.luca-button-quiet:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
+/* On a page or a card: Talk's size (shell-mind-space.css, `.luca-mind-talk`). */
+.luca-button-quiet-page {
+  border-radius: 9px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  height: 30px;
+  padding: 0 14px;
+}
+
+/* In a row, as an answer: the ask's size. */
+.luca-button-quiet-row {
+  border-radius: 8px;
+  font-size: 0.78125rem;
+  font-weight: 400;
+  height: 1.625rem;
+  padding: 0 10px;
+}
+
+.luca-button-quiet-page svg,
+.luca-button-quiet-row svg {
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-button-quiet {
+    transition: none;
+  }
+}
