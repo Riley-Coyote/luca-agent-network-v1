@@ -174,7 +174,6 @@ export type GlassFrame = {
   sheet: Box & {
     r: number;
     style: "regular";
-    tint: string | null;
     appearance: "light" | "dark";
   };
 };
@@ -188,13 +187,14 @@ export type FrameGeometry = {
   card: (Box & { r: number }) | null;
 };
 
-/** Apple's dark tint, at night only (ShellStudy.tsx:108, Riley's pick). */
-export const DARK_TINT = "#00000080";
-
 /**
  * One sheet of Liquid Glass the size of the window (ShellStudy.tsx:566-576),
  * square in full screen; no native floor, so the glass sees the desktop
  * (ShellStudy.tsx:563); the conversation's card where it is; no selection.
+ * Never tinted: macOS drops a glass tint whenever the window isn't the one in
+ * use, and the night frame turned into another glass when Riley clicked away
+ * (2026-10-25). The night's darkness is the page's veil (shell-glass.css),
+ * which stays the same whatever has focus.
  */
 export function frameMessage(geometry: FrameGeometry): GlassFrame {
   return {
@@ -209,7 +209,6 @@ export function frameMessage(geometry: FrameGeometry): GlassFrame {
       h: geometry.height,
       r: geometry.fullscreen ? 0 : WINDOW_RADIUS,
       style: "regular",
-      tint: geometry.isDark ? DARK_TINT : null,
       appearance: geometry.isDark ? "dark" : "light",
     },
   };

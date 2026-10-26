@@ -130,11 +130,16 @@ and the mode are independent. The app's System / Light / Dark row is already the
 ### Glass: Liquid Glass (macOS 26 and later)
 
 - Natively: one sheet of Apple's `NSGlassEffectView` the size of the window, behind the transparent page, with the
-  window's corner radius; style Regular; Apple's dark tint (`#00000080`) at night and none by day; its appearance
-  follows the palette (dark or light). No native floor (`floor: "none"`): the window is clear, so the glass sees the
-  desktop.
-- On the page: the root is transparent. A **veil** of our own, drawn by the page in front of the glass, at Soft (22%):
-  black at night; by day a wash of the paper's own tone. The frame's words: at night a warm white
+  window's corner radius; style Regular; never tinted; its appearance follows the palette (dark or light). No native
+  floor (`floor: "none"`): the window is clear, so the glass sees the desktop.
+  - No tint (Riley, 2026-10-25). At night the frame had Apple's dark tint (`#00000080`), and macOS drops a tint
+    whenever the window isn't the one in use: clicking away turned the frame into another glass, more than twice as
+    bright (measured 33 to 74 on his desktop). He liked the glass he saw out of focus better ("the more frosted
+    aesthetic works better, and is what most other apps use"), with the dark of the tinted glass, and a shift "super
+    minimal, like it should be for any apple design".
+- On the page: the root is transparent. A **veil** of our own, drawn by the page in front of the glass: at night black
+  at 64% over Liquid Glass, the frame's whole darkness, which no focus change touches (22% over the frosted glass);
+  by day a wash of the paper's own tone at Soft (22%). The frame's words: at night a warm white
   `rgb(250 248 243)` at 96 / 76 / 56%; by day the page's ink at 100 / 84 / 66% (measured on Riley's desktop: the tab
   names read about 7:1).
 - The cards: dark, a lit top edge (`0 -0.5px 0` white 12%) and a shadow on the glass (`0 1px 2px` black 25%,

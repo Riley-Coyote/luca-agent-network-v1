@@ -535,10 +535,15 @@ test("Tauri, dark, native glass: Liquid Glass and the reporter's messages", asyn
     h: 900,
     r: 16,
     style: "regular",
-    tint: "#00000080",
     appearance: "dark",
   });
   expect(typeof last.t).toBe("number");
+  // No tint, so the night's darkness is the veil, whatever has focus.
+  expect(
+    await page.evaluate(
+      () => getComputedStyle(document.body, "::before").backgroundColor,
+    ),
+  ).toBe("rgba(0, 0, 0, 0.64)");
   // The card reported is the conversation's card where it is now.
   const card = await page.evaluate(() => {
     const cards = [
@@ -663,7 +668,7 @@ test("Tauri, light, native glass: no tint, light appearance", async ({
   const last = (await glassMessages(page))
     .filter((message) => message.type === "frame")
     .at(-1) as { sheet: Record<string, unknown> };
-  expect(last.sheet.tint).toBeNull();
+  expect(last.sheet).not.toHaveProperty("tint");
   expect(last.sheet.appearance).toBe("light");
   // No vibrancy is installed for Liquid Glass.
   const vibrancy = (await commandLog(page)).filter(

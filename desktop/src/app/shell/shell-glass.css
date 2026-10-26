@@ -40,6 +40,15 @@
   --luca-frame-thread: hsl(var(--mn-ink) / 0.18);
 }
 
+/* At night on Liquid Glass the veil is the frame's whole darkness. Apple's
+ * glass is never tinted (macOS drops a tint whenever the window isn't in
+ * use), so the frosted glass Riley saw out of focus keeps the dark of the
+ * tinted glass he saw in focus, and hardly changes with focus (Riley,
+ * 2026-10-25). */
+:root[data-luca-frame-glass="liquid"].dark {
+  --luca-frame-veil: 0.64;
+}
+
 :root[data-luca-frame-glass][data-luca-window-fullscreen] {
   --luca-frame-window-radius: 0px;
 }

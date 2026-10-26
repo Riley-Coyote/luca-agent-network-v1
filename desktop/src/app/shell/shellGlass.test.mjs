@@ -271,7 +271,6 @@ test("frame message: the whole window, radius 16, dark tint, no floor, the card"
         h: 900,
         r: 16,
         style: "regular",
-        tint: "#00000080",
         appearance: "dark",
       },
     },
@@ -286,7 +285,7 @@ test("frame message: no tint and light appearance by day", () => {
     isDark: false,
     card,
   });
-  assert.equal(message.sheet.tint, null);
+  assert.equal("tint" in message.sheet, false);
   assert.equal(message.sheet.appearance, "light");
   assert.equal(message.sheet.style, "regular");
 });
