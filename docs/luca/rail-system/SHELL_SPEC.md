@@ -234,6 +234,11 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
   Settings (Decided, 4). The profile card goes: its menu is the avatar's.
 
 **The places column** (new)
+- **Amended 2026-10-25 (Riley, `NAVIGATION.md`):** six places: Search (⌘K), Chats, Agents, Activity, Library,
+  Settings (⌘,), then the avatar. New conversation becomes the `+` at the top of the Chats rail (⌘N stays); Brain moves
+  into each mind's Settings as "What they can read"; the Inbox becomes "Needs you" at the top of Activity. The rail's
+  card holds the rail of the place you're on; each place's rail and card are in `NAVIGATION.md`. The bullets below are
+  the column as first built.
 - New conversation (⌘N), Search (⌘K, opening today's search dialog), Conversations, Library, Agents, Activity, Brain,
   then Settings (⌘,) and the avatar (today's profile menu: presence, status, communities, feedback). Their tooltips
   quote those keys. When the rail is closed, an unread conversation shows as a dot on Conversations.

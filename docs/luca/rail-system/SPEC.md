@@ -3,53 +3,69 @@
 Spec, 2026-10-23, from Riley's notes on the rail-glass test build. Not built yet. Everything here is measured against
 this file; change the file first when a decision changes.
 
+**Amended 2026-10-25 (Riley):** the rail now follows the place you're on (`NAVIGATION.md`). This file is the rail of
+**Chats**. The other places' rails are in `NAVIGATION.md`. People and Rooms are new, Luca's side conversations nest
+under Luca, every home shows its latest conversations with their times, and Fleets retire (their teams live on as
+Groups in Agents).
+
 ## The sentence
 
 **Luca first; then every place you talk, each with its sessions nested under its name.**
 
-The rail is a short list of homes (Luca, projects, agents, fleets). A home's sessions sit under it on a thin thread,
-the way Claude Code nests task sessions under their session. Nothing is listed twice.
+The rail is a short list of homes (Luca, projects, agents, people, rooms). A home's sessions sit under it on a thin
+thread, the way Claude Code nests task sessions under their session. Nothing is listed twice.
 
 ## Top to bottom
 
 ```
-‹traffic lights›  ‹collapse›  ‹ ›
-Search everything                          ⌘K
-Library · New conversation · Agents · Activity · Brain · Settings     (unchanged)
+CHATS                                     +   ← new conversation (⌘N)
 
 Luca                                        ← the main thread, above everything else
+│ with Fifty · launch notes        ●        ← Luca's side conversations; a talking one never folds
+│ with Claude Code · build
 
 PROJECTS                                  +
 Tidepool  ⌄                               +   ← + appears on hover/focus: new session in this project
-│ Landing page copy
-│ Chapter nine
+│ Landing page copy                   2h
+│ Chapter nine                        1d
 Studio site  ›
-Field guide  ›
 
-AGENTS                                    +
+AGENTS
 Atlas  ›
 Wren  ⌄                                   +   ← + : new session with Wren
-│ Monday plan
-│ The tide tables
+│ Monday plan                         3h
 
-FLEETS                                    +   ← was "Conversations"
-Design team  ›
-Luca + Wren  ›
+PEOPLE                                        ← shown once there is one
+Sam
+
+ROOMS                                     +   ← shown once there is one; was "Fleets"
+Design review
+Luca + Wren
+Browse rooms…
+Archived
 ```
 
-- **Luca** moves above Projects, directly under the pinned links. Clicking Luca opens the main Luca thread. Luca's other
-  sessions, if any, nest under Luca like any agent's (collapsed by default).
-- **Runtimes** leaves the rail (see Decisions); it is infrastructure, not a place you talk.
+- **Luca** is pinned first. Clicking Luca opens the main Luca thread. Under Luca sit Luca's **side conversations**:
+  the agents and connected apps (Claude Code, Codex…) Luca is asking now or asked recently. A side conversation that is
+  talking never folds away; quiet ones fold after the latest few.
+- **Runtimes** leaves the rail (see Decisions); it is in Agents now, named **Connected** (`NAVIGATION.md`).
+- **The places** (Search, Chats, Agents, Activity, Library, Settings) are the column beside the rail
+  (`SHELL_SPEC.md`), so the rail starts with its own heading.
 
 ## One home per chat
 
-Every chat appears exactly once:
+Every chat appears exactly once (amended 2026-10-25):
 
 1. A chat that belongs to a **project** lives under that project.
-2. Otherwise, a chat with **more than one agent** (a group) lives under **Fleets**.
-3. Otherwise, a chat with **one agent** lives under that agent (Luca's under Luca).
-4. A 1:1 chat with someone not in the agent list (a removed agent, a person) is listed under Agents by that
-   participant's name, so it is never lost.
+2. Otherwise, a side conversation **Luca holds with another agent or a connected app** lives under **Luca**.
+3. Otherwise, a 1:1 chat with **an agent** lives under that agent (your own conversation with Luca is Luca's row).
+4. Otherwise, a 1:1 chat with **a person** lives under **People**.
+5. Otherwise (several members, or a shared room) it lives under **Rooms**, by its own name. A conversation with no
+   name shows its members ("Luca + Wren") until it is named.
+
+A chat's home is decided by what it is (a project's, a side conversation, a 1:1, a shared room), never only by who is
+in it: until now (`railHomes.ts`, `homeIdOfChat`) membership alone decided it, so a public room with two others became
+a "fleet" and a 1:1 with a person was filed under Agents.
 
 Today `chatsWithAgent` lists every chat an agent is in, so project rooms and group chats also appear under each agent,
 and groups appear twice. That goes.
@@ -65,7 +81,9 @@ and groups appear twice. That goes.
   room in it; a fleet: a new session with the group). The "New session" and "Chat with …" rows under agents go away.
 - **Child row** (a session): indented, on a 1 px thread line at the left (the ink at 16%), quieter text than parents
   (homes are `ink-muted`, sessions `ink-faint`), the session's title only, no icon, and the same single trailing slot
-  (unread dot or "working…"; no timestamps on children).
+  (unread dot or "working…"; otherwise how long ago it was last active, quietly: "2h", "1d"; amended 2026-10-25).
+- **The latest few show** (amended 2026-10-25): every home shows its latest three conversations without being opened,
+  so the rail never reads empty; the rest are one click away ("3 more"). The open conversation is always visible.
 - **Tones:** homes muted, sessions faint, the thread the ink at 16%; the open session's text and its segment of the
   thread at full ink. (Amended 2026-10-24 in WP-02b, as the shell study draws them.)
 - **Corners:** rows have 8-point corners, never a pill (as `SHELL_SPEC.md`, "Where you are").
@@ -97,16 +115,17 @@ and groups appear twice. That goes.
 - A project's details and sources live on its row's menu (right-click, the menu key, or Shift+F10), and its rooms are
   found by Search (⌘K), which opens them.
 
-## Fleets
+## Rooms (Fleets retired, 2026-10-25)
 
-- "Conversations" is renamed **Fleets**: persistent groups of agents the owner sets up (a design team, a dev team).
-- Its `+` creates a fleet: pick agents, give it a name. A group chat without a name shows its members ("Luca + Wren")
-  until it is named.
-- A group is named by its members, never by one of its chats: a group with one chat is that chat, by its own name
-  (no chevron); a group with several is named by its members ("Luca + Wren", Luca first, then by name; anyone who
-  can't be named is counted, "+ 1 other"), and each chat is a session under it by its own name; opening it opens the
-  most recent. When fleets get their own record and name, the record's name wins. (Amended 2026-10-24 in WP-02b.)
-- A fleet can hold several sessions; they nest under it like an agent's.
+- **Rooms** lists conversations with several members and shared rooms outside a project, each by its own name. A room
+  without a name shows its members ("Luca + Wren", Luca first, then by name; anyone who can't be named is counted,
+  "+ 1 other") until it is named.
+- Its `+` starts a room (most rooms Luca starts for you). Its last rows are **Browse rooms…** (the channel browser:
+  join a room you're not in) and **Archived**.
+- Shown once there is at least one room.
+- Why Fleets went: in code a fleet was only "everyone in this chat", derived from members, with no name, record or
+  page. Riley's idea for them (persistent teams such as a design team) lives on as **Groups** in Agents
+  (`NAVIGATION.md`); a team's conversations are rooms.
 
 ## Keyboard and access
 
@@ -127,6 +146,9 @@ and groups appear twice. That goes.
 2. **"Fleets"** as the name (recommended, Riley's), or "Groups" or "Teams".
 3. **The open session's mark:** lit text and a lit thread segment (recommended), lit text only, or a small glass drop on
    the thread beside it (Apple's glass in native builds; a later experiment).
+4. **2026-10-25** (`NAVIGATION.md`): the rail follows the place; this is the Chats rail; Luca's side conversations
+   under Luca; People and Rooms added; Fleets retired (teams are Groups in Agents); the latest three conversations of
+   every home show, with their times; opening the app lands on Luca.
 
 ## Out of scope here (next)
 
