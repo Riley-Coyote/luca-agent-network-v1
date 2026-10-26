@@ -322,7 +322,10 @@ export function ConversationContextPanel({
         />
       </div>
       {activeResident && activeResidentPresentation ? (
-        <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
+        <AuxiliaryPanelBody
+          className="overflow-y-auto px-4 pb-6"
+          data-luca-details-body=""
+        >
           <ResidentDrawer
             agent={activeResident.agent}
             onOpenAgent={(section) =>
@@ -333,7 +336,10 @@ export function ConversationContextPanel({
           />
         </AuxiliaryPanelBody>
       ) : (
-        <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
+        <AuxiliaryPanelBody
+          className="overflow-y-auto px-4 pb-6"
+          data-luca-details-body=""
+        >
           <div className="space-y-6 pt-3">
             {/* Name only. The room's description already sits under the
                   title in the conversation header — repeating it here costs a

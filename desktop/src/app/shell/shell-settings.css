@@ -240,6 +240,21 @@ button.luca-settings-row:hover:not([data-current]) {
   margin-top: 6px;
 }
 
+/* A head whose label only repeated the page's title keeps its line, which
+ * is then the page's own line under its head (WP-22, 2): 12 under the title,
+ * as `.luca-place-page-line` sits. The title's head closes up to it, rather
+ * than the line reaching up, which a scrolling panel would clip. */
+[data-luca-settings-page]
+  .luca-place-page-head:has(
+    + [data-testid^="settings-panel-"] [data-settings-group-head="page-line"]
+  ) {
+  margin-bottom: 12px;
+}
+
+[data-settings-group-head="page-line"] .luca-settings-group-line {
+  margin-top: 0;
+}
+
 /* A group after another is set apart by space alone (`.luca-place-group`). */
 [data-luca-settings-page] [data-settings-group-head]:not(:first-child),
 .luca-settings-page-group + .luca-settings-page-group {

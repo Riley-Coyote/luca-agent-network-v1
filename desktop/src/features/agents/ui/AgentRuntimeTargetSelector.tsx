@@ -4,6 +4,7 @@ import type {
   AgentRuntimeTargetV1,
   RuntimeTargetOptionV1,
 } from "@/shared/api/tauriOperatorForge";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
 import {
   DropdownMenu,
@@ -32,6 +33,10 @@ export function AgentRuntimeTargetSelector({
   options: RuntimeTargetOptionV1[];
   value: AgentRuntimeTargetV1 | null;
 }) {
+  // Under the frame the cards take the theme's ink and the card's own tint
+  // and hairline, so they read by day as by night (WP-22, 10). The
+  // onboarding door is always dark and keeps its white.
+  const framed = useShellFrameEnabled();
   const selectedKey = value ? runtimeTargetKey(value) : null;
   const selectedOption = selectedKey
     ? options.find((option) => runtimeTargetKey(option.target) === selectedKey)
@@ -118,8 +123,17 @@ export function AgentRuntimeTargetSelector({
   }
 
   return (
-    <fieldset className="space-y-2" disabled={disabled}>
-      <legend className="mb-2 text-xs font-medium text-white/62">
+    <fieldset
+      className="space-y-2"
+      data-testid="default-runtime-picker"
+      disabled={disabled}
+    >
+      <legend
+        className={cn(
+          "mb-2 text-xs font-medium",
+          framed ? "text-ink-muted" : "text-white/62",
+        )}
+      >
         Default runtime
       </legend>
       <div className="grid grid-cols-2 gap-2 max-[520px]:grid-cols-1">
@@ -134,11 +148,24 @@ export function AgentRuntimeTargetSelector({
               }${option.recommended ? ", recommended" : ""}`}
               aria-pressed={selected}
               className={cn(
-                "flex min-h-14 items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
-                selected
-                  ? "border-white/34 bg-white/[0.07]"
-                  : "border-white/10 bg-white/[0.025] hover:bg-white/[0.045]",
-                unavailable && "cursor-not-allowed opacity-45",
+                "flex min-h-14 items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2",
+                framed
+                  ? cn(
+                      "focus-visible:ring-[hsl(var(--mn-ink)/0.55)]",
+                      selected
+                        ? "border-[hsl(var(--mn-ink)/0.3)] bg-[hsl(var(--mn-ink)/0.075)]"
+                        : "border-[hsl(var(--mn-ink)/0.1)] bg-[hsl(var(--mn-ink)/0.03)] hover:bg-[hsl(var(--mn-ink)/0.06)]",
+                      // Unavailable says so in its line, not by fading
+                      // its words below what reads.
+                      unavailable && "cursor-not-allowed",
+                    )
+                  : cn(
+                      "focus-visible:ring-white/60",
+                      selected
+                        ? "border-white/34 bg-white/[0.07]"
+                        : "border-white/10 bg-white/[0.025] hover:bg-white/[0.045]",
+                      unavailable && "cursor-not-allowed opacity-45",
+                    ),
               )}
               disabled={disabled || unavailable}
               key={key}
@@ -146,26 +173,52 @@ export function AgentRuntimeTargetSelector({
               type="button"
             >
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5 text-sm text-white/88">
+                <span
+                  className={cn(
+                    "flex items-center gap-1.5 text-sm",
+                    framed ? "text-ink" : "text-white/88",
+                  )}
+                >
                   {option.label}
                   {option.recommended ? (
-                    <span className="text-2xs uppercase tracking-caps-wide text-white/38">
+                    <span
+                      className={
+                        framed
+                          ? // The shared Fragment Mono label.
+                            "type-eyebrow text-ink-muted"
+                          : "text-2xs uppercase tracking-caps-wide text-white/38"
+                      }
+                    >
                       Recommended
                     </span>
                   ) : null}
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-white/44">
+                <span
+                  className={cn(
+                    "mt-0.5 block truncate text-xs",
+                    framed ? "text-ink-muted" : "text-white/44",
+                  )}
+                >
                   {option.readiness === "ready"
                     ? "Ready"
                     : (option.reason ?? "Needs setup")}
                 </span>
               </span>
               {selected ? (
-                <Check aria-label="Selected" className="size-4 text-white/82" />
+                <Check
+                  aria-label="Selected"
+                  className={cn(
+                    "size-4",
+                    framed ? "text-ink" : "text-white/82",
+                  )}
+                />
               ) : option.readiness === "setup_required" ? (
                 <CircleAlert
                   aria-label="Needs setup"
-                  className="size-4 text-white/42"
+                  className={cn(
+                    "size-4",
+                    framed ? "text-ink-muted" : "text-white/42",
+                  )}
                 />
               ) : null}
             </button>
@@ -173,7 +226,12 @@ export function AgentRuntimeTargetSelector({
         })}
       </div>
       <button
-        className="text-xs text-white/42 hover:text-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        className={
+          framed
+            ? "text-xs text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--mn-ink)/0.55)]"
+            : "text-xs text-white/42 hover:text-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+        }
+        data-testid="default-runtime-none"
         onClick={() => onChange(null)}
         type="button"
       >
