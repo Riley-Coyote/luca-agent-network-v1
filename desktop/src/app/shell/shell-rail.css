@@ -15,15 +15,18 @@
   --rail-faint: hsl(var(--mn-ink-faint));
   --rail-plate: hsl(var(--mn-ink) / 0.06);
   --rail-thread: hsl(var(--mn-ink) / 0.16);
-  display: flex;
-  flex-direction: column;
+  /* A plain block, as the study's list is: a section's 14 above and an open
+   * home's 6 below collapse into one 14, as margins do between blocks (in a
+   * flex column they would add up to 20). */
+  display: block;
   /* No top padding of its own: the rail's scroller already holds the first
    * row 6 below the card's top, inside the scroll, as in the study
    * (shell-frame.css). */
   padding: 0 3px 20px;
 }
 
-/* ── section labels: PROJECTS, AGENTS, FLEETS (Fragment Mono caps, 11) ── */
+/* ── section labels: CHATS, PROJECTS, AGENTS, PEOPLE, ROOMS (Fragment Mono
+ * caps, 11) ── */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-section {
   margin-top: 14px;
 }
@@ -35,6 +38,12 @@
   height: 26px;
   justify-content: space-between;
   padding: 0 6px 0 10px;
+}
+
+/* The rail's own heading, CHATS, with the + for a new conversation: the
+ * study's .shell-rail-head, the first row 2 below it. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-head {
+  margin-bottom: 2px;
 }
 
 /* The section's + and a home's + are the same small round control. */
@@ -63,7 +72,7 @@
   color: var(--rail-ink);
 }
 
-/* ── a home: Luca, a project, an agent, a fleet ─────────────────────
+/* ── a home: Luca, a project, an agent, a person, a room ─────────────
  * The whole row is one button (the hit, beneath); the chevron and the +
  * sit above it. The row is the sidebar's menu button for the selection
  * only; its shape and colours are set here. Its corners are the study's
@@ -174,7 +183,9 @@
 :root[data-luca-shell] [data-shell-rail] .luca-rail-signal {
   align-items: center;
   display: flex;
-  padding-right: 6px;
+  /* The trailing column ends at one x for every row: here 5 inside the row's
+   * 5 of padding, where a session's time and the +'s glyph end too. */
+  padding-right: 5px;
 }
 
 :root[data-luca-shell]
@@ -186,7 +197,9 @@
   opacity: 0;
   pointer-events: none;
   position: absolute;
-  right: 0;
+  /* 1 in from the row's end, so its glyph (4 inside the control) ends on
+   * the trailing column, with the times, the signals and the heading's +. */
+  right: 1px;
   top: 4px;
 }
 
@@ -199,9 +212,11 @@
   pointer-events: auto;
 }
 
+/* Only a row that has a + gives it the slot; a row without one (a person, a
+ * room) keeps its dot or "working…" under the pointer and the focus. */
 :root[data-luca-shell]
   [data-shell-rail]
-  .luca-rail-row:is(:hover, :has(:focus-visible))
+  .luca-rail-row:has(.luca-rail-row-add):is(:hover, :has(:focus-visible))
   .luca-rail-signal {
   visibility: hidden;
 }
@@ -229,13 +244,15 @@
 }
 
 /* ── a home's sessions, on a thread ──────────────────────────────────
- * The way Claude Code nests a session's tasks: quieter than their home, no
- * timestamps, and the open one lit. */
+ * The way Claude Code nests a session's tasks: quieter than their home, each
+ * saying quietly how long ago it was last active, and the open one lit. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-sessions {
   border: 0;
   margin: 1px 0 6px 11px;
   min-width: 0;
-  padding: 0 0 0 13px;
+  /* 5 here and 8 inside each row keep the titles where the study sets them
+   * (13 from the thread) and give a row's focus ring air before its text. */
+  padding: 0 0 0 5px;
   position: relative;
 }
 
@@ -258,7 +275,7 @@
   gap: 8px;
   height: 28px;
   justify-content: space-between;
-  padding-right: 10px;
+  padding: 0 10px 0 8px;
   position: relative;
   text-align: left;
   transition: color 120ms;
@@ -280,6 +297,21 @@
   color: var(--rail-ink);
 }
 
+/* How long ago, at the row's end (the study's .shell-session-ago): 11, faint,
+ * figures of one width so a column of times lines up. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session-ago {
+  color: var(--rail-faint);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* "N more": a session row's place and shape, one size smaller. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session-more {
+  color: var(--rail-faint);
+}
+
 /* The open session's stretch of the thread, lit to its words' tone. */
 :root[data-luca-shell]
   [data-shell-rail]
@@ -287,7 +319,7 @@
   background: var(--rail-ink);
   bottom: 6px;
   content: "";
-  left: -13px;
+  left: -5px;
   position: absolute;
   top: 6px;
   width: 1px;
@@ -297,9 +329,26 @@
   :root[data-luca-shell]
     [data-shell-rail]
     .luca-rail-session[data-current]::before {
-    left: -13.5px;
+    left: -5.5px;
     width: 2px;
   }
+}
+
+/* Rooms ends on two quiet ways in, Browse rooms… and Archived (the study's
+ * .shell-rail-tail): a home row's inset, a session's size and tone. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-tail {
+  border-radius: 8px;
+  color: var(--rail-faint);
+  display: block;
+  height: 28px;
+  padding: 0 10px;
+  text-align: left;
+  transition: color 120ms;
+  width: 100%;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-tail:hover {
+  color: var(--rail-muted);
 }
 
 /* Focus: the row's own edge brightening in place, as in the glass rail. */
@@ -308,6 +357,7 @@
   :is(
     .luca-rail-row-hit,
     .luca-rail-session,
+    .luca-rail-tail,
     .luca-rail-add,
     .luca-rail-chevron
   ):focus-visible {
@@ -364,11 +414,54 @@
       .luca-rail-chevron svg,
       .luca-rail-row-name,
       .luca-rail-session,
+      .luca-rail-tail,
       .luca-rail-add
     ),
   :root[data-luca-frame="solid"]
     [data-agents-runtimes]
     [data-runtime-connection-key] {
+    transition: none;
+  }
+}
+
+/* ── a room's settings, in its details card ──────────────────────────
+ * "Room settings…" opens the room's management panel (members, leave,
+ * archive, delete). The frame's quiet solid control: a plate of the ink at
+ * night; by day a piece of paper standing up with its soft shadow, as a
+ * chosen option and Send do (shell-light.css). No outline either way. */
+:root[data-luca-shell] .luca-room-settings {
+  background: hsl(var(--mn-ink) / 0.07);
+  border: 0;
+  border-radius: 8px;
+  color: hsl(var(--mn-ink));
+  transition: background-color 120ms;
+}
+
+:root[data-luca-shell] .luca-room-settings:hover {
+  background: hsl(var(--mn-ink) / 0.11);
+}
+
+:root[data-luca-shell]:not(.dark) .luca-room-settings {
+  background: hsl(var(--mn-surface));
+  box-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.22),
+    0 1px 3px hsl(var(--mn-ink) / 0.1);
+}
+
+:root[data-luca-shell]:not(.dark) .luca-room-settings:hover {
+  background: hsl(var(--mn-surface));
+  box-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.26),
+    0 2px 6px hsl(var(--mn-ink) / 0.12);
+}
+
+:root[data-luca-shell] .luca-room-settings:focus-visible {
+  outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell] .luca-room-settings {
     transition: none;
   }
 }

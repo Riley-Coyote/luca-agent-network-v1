@@ -281,14 +281,6 @@ export function AppSidebar({
       agent.pubkey === newSessionPubkey &&
       (frame || agent.pubkey !== primaryPubkey),
   );
-  // A fleet's +: a new session with every member at once.
-  const [newFleetSession, setNewFleetSession] = React.useState<string[] | null>(
-    null,
-  );
-  const newFleetAgents = (newFleetSession ?? []).flatMap(
-    (pubkey) =>
-      managedAgentsQuery.data?.filter((agent) => agent.pubkey === pubkey) ?? [],
-  );
   // Agents chosen during setup are brought in behind the first conversation.
   // They are in the rail from the first moment, in the state the rail already
   // has for a resident that exists but is not up yet, and their row becomes an
@@ -781,7 +773,16 @@ export function AppSidebar({
     activeCommunity?.relayUrl ?? "",
     activeCommunity?.id ?? "",
   );
-  const { openCreateChannel } = useAppShell();
+  const { openBrowseChannels, openCreateChannel } = useAppShell();
+  // The Chats rail's Rooms (WP-11): its + starts a room outside any project;
+  // its last rows open the room browser on All, and on Archived.
+  const createRoomFromRail = useStableCallback(() => openCreateChannel());
+  const browseRoomsFromRail = useStableCallback(() =>
+    openBrowseChannels(undefined, { tab: "all" }),
+  );
+  const browseArchivedFromRail = useStableCallback(() =>
+    openBrowseChannels(undefined, { tab: "archived" }),
+  );
   // The + on a home in the shell's rail starts a new session in it; anything
   // the app has no session flow for opens New conversation.
   const addToHomeFromRail = useStableCallback((home: RailHome) => {
@@ -796,13 +797,6 @@ export function AppSidebar({
     const resident = home.pubkey ? managed(home.pubkey) : undefined;
     if (resident) {
       setNewSessionPubkey(resident.pubkey);
-      return;
-    }
-    const members = home.members.map(managed);
-    if (members.length > 1 && members.every(Boolean)) {
-      setNewFleetSession(
-        members.flatMap((agent) => (agent ? [agent.pubkey] : [])),
-      );
       return;
     }
     handleNewMessageNavigation();
@@ -866,15 +860,6 @@ export function AppSidebar({
         key={`${activeCommunity?.id}:${currentPubkey}:${newSessionAgent.pubkey}`}
         agent={newSessionAgent}
         onClose={() => setNewSessionPubkey(null)}
-        onCreated={selectChannelFromRail}
-      />
-    ) : null,
-    newFleetAgents.length > 1 ? (
-      <AgentSessionDialog
-        key={`${activeCommunity?.id}:${currentPubkey}:${newFleetSession?.join("+")}`}
-        agent={newFleetAgents[0]}
-        companions={newFleetAgents.slice(1)}
-        onClose={() => setNewFleetSession(null)}
         onCreated={selectChannelFromRail}
       />
     ) : null,
@@ -993,9 +978,11 @@ export function AppSidebar({
                       agents={railAgents}
                       items={chatListItems}
                       onAddToHome={addToHomeFromRail}
-                      onCreateAgent={createAgentFromRail}
-                      onCreateFleet={handleNewMessageNavigation}
+                      onBrowseArchived={browseArchivedFromRail}
+                      onBrowseRooms={browseRoomsFromRail}
                       onCreateProject={createProjectFromRail}
+                      onCreateRoom={createRoomFromRail}
+                      onNewConversation={handleNewMessageNavigation}
                       onMarkChannelRead={onMarkChannelRead}
                       onMarkChannelUnread={onMarkChannelUnread}
                       onOpenAgent={openAgentFromRail}

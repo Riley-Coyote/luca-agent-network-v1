@@ -1,4 +1,6 @@
 import * as React from "react";
+import { useQueries } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
 import { BookOpen, ChevronRight, FolderCog, Plus } from "lucide-react";
 
 import "@/app/shell/shell-rail.css";
@@ -11,11 +13,17 @@ import {
   readExpandedAgents,
   readExpandedHomes,
 } from "@/features/sidebar/lib/agentRailState";
-import type { ChatListItem } from "@/features/sidebar/lib/chatListModel";
 import {
+  type ChatListItem,
+  relativeTime,
+} from "@/features/sidebar/lib/chatListModel";
+import {
+  activeAt,
   activeRailHome,
   buildRailHomes,
+  type CreatedAtById,
   type RailHome,
+  shownSessions,
 } from "@/features/sidebar/lib/railHomes";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
@@ -29,13 +37,16 @@ import {
   ContextMenuIconSlot,
   deferMenuAction,
 } from "@/features/sidebar/ui/sidebarMenuHelpers";
+import { getChannelDetails } from "@/shared/api/tauri";
 import { ContextMenuItem } from "@/shared/ui/context-menu";
 
 /**
- * The shell's rail (docs/luca/rail-system/SPEC.md, "The rail, ironed out"):
- * Luca first; then every place you talk, each with its sessions nested under
- * its name. Shown only under the `shell-frame` preview feature; today's rail
- * (ChatList, AgentRail) is untouched without it.
+ * The Chats rail (docs/luca/rail-system/SPEC.md, amended 2026-10-25): its own
+ * heading with the + for a new conversation; Luca first; then Projects,
+ * Agents, People and Rooms, each home with its latest conversations nested
+ * under its name, and Rooms ending on Browse rooms… and Archived. Shown only
+ * under the `shell-frame` preview feature; today's rail (ChatList, AgentRail)
+ * is untouched without it.
  *
  * The rows carry the attributes the selection follows and nothing more: the
  * parent of whatever is open is `data-active` (today's pill and the shell's
@@ -61,9 +72,14 @@ export type ShellRailProps = {
   onOpenAgent: (pubkey: string) => void;
   /** The `+` on a home: a new session in it. */
   onAddToHome: (home: RailHome) => void;
+  /** The heading's `+`: New conversation (⌘N). */
+  onNewConversation: () => void;
   onCreateProject: () => void;
-  onCreateAgent: () => void;
-  onCreateFleet: () => void;
+  /** Rooms' `+`: the create-room dialog. */
+  onCreateRoom: () => void;
+  /** Rooms' last two rows: the room browser on All, and on Archived. */
+  onBrowseRooms: () => void;
+  onBrowseArchived: () => void;
   onMarkChannelRead: (
     channelId: string,
     lastMessageAt: string | null | undefined,
@@ -71,21 +87,28 @@ export type ShellRailProps = {
   onMarkChannelUnread: (channelId: string) => void;
 };
 
-const SECTIONS = [
+type Section = {
+  kind: "project" | "agent" | "person" | "room";
+  title: string;
+  add?: { label: string; testId: string };
+};
+
+/** A section shows when it has something in it, or a + to make its first
+ *  thing: Projects and Rooms always; Agents and People once there is one. */
+const SECTIONS: readonly Section[] = [
   {
     kind: "project",
     title: "Projects",
-    add: "New project",
-    testId: "create-channel",
+    add: { label: "New project", testId: "create-channel" },
   },
+  { kind: "agent", title: "Agents" },
+  { kind: "person", title: "People" },
   {
-    kind: "agent",
-    title: "Agents",
-    add: "New agent",
-    testId: "create-direct-message",
+    kind: "room",
+    title: "Rooms",
+    add: { label: "New room", testId: "create-room" },
   },
-  { kind: "fleet", title: "Fleets", add: "New fleet", testId: "create-fleet" },
-] as const;
+];
 
 export function addLabel(home: RailHome) {
   return home.kind === "project"
@@ -165,6 +188,71 @@ function railKeys(event: React.KeyboardEvent<HTMLDivElement>) {
   }
 }
 
+/** Room left above and below a row the rail scrolls to: below, enough to
+ *  clear the rail's bottom fade. */
+const REVEAL_TOP = 12;
+const REVEAL_BOTTOM = 40;
+
+/** The rail's own glide, frame by frame on the house ease (out-cubic), so
+ *  the router's restore of the rail's position after a navigation can't
+ *  swallow it the way it cancels the browser's smooth scroll. A wheel or a
+ *  press on the rail stops it where it is. One per scroller. */
+const GLIDE_MS = 320;
+const glides = new WeakMap<HTMLElement, () => void>();
+
+function glideTo(scroller: HTMLElement, top: number, still: boolean) {
+  glides.get(scroller)?.();
+  if (still) {
+    scroller.scrollTop = top;
+    return;
+  }
+  const from = scroller.scrollTop;
+  const start = performance.now();
+  let frame = 0;
+  const stop = () => {
+    cancelAnimationFrame(frame);
+    glides.delete(scroller);
+    scroller.removeEventListener("wheel", stop);
+    scroller.removeEventListener("pointerdown", stop);
+  };
+  scroller.addEventListener("wheel", stop, { passive: true });
+  scroller.addEventListener("pointerdown", stop);
+  glides.set(scroller, stop);
+  const step = (now: number) => {
+    const t = Math.min(1, (now - start) / GLIDE_MS);
+    scroller.scrollTop = from + (top - from) * (1 - (1 - t) ** 3);
+    if (t < 1) frame = requestAnimationFrame(step);
+    else stop();
+  };
+  frame = requestAnimationFrame(step);
+}
+
+/** Scroll the rail just enough to show `row` (block "nearest"), instantly
+ *  under Reduce Motion. */
+function revealRow(row: HTMLElement) {
+  const scroller = row.closest<HTMLElement>('[data-sidebar="content"]');
+  if (!scroller) return;
+  const view = scroller.getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  const delta =
+    box.top < view.top + REVEAL_TOP
+      ? box.top - (view.top + REVEAL_TOP)
+      : box.bottom > view.bottom - REVEAL_BOTTOM
+        ? box.bottom - (view.bottom - REVEAL_BOTTOM)
+        : 0;
+  if (delta === 0) return;
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  const top = Math.max(0, Math.min(max, scroller.scrollTop + delta));
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  glideTo(scroller, top, still);
+}
+
+/** How long a click in the rail stands for the navigation it starts (an
+ *  agent's thread may be made first), so that one is never scrolled to. */
+const RAIL_CLICK_MS = 3000;
+/** How soon after a reveal the router's restore may undo it. */
+const REVEAL_AGAIN_MS = 1500;
+
 export function ShellRail({
   items,
   agents,
@@ -181,14 +269,17 @@ export function ShellRail({
   onSelectProject,
   onOpenAgent,
   onAddToHome,
+  onNewConversation,
   onCreateProject,
-  onCreateAgent,
-  onCreateFleet,
+  onCreateRoom,
+  onBrowseRooms,
+  onBrowseArchived,
   onMarkChannelRead,
   onMarkChannelUnread,
 }: ShellRailProps) {
-  // People in the rail's chats who are not agents, named from their
-  // profiles, so a group is named by its members and never by a chat.
+  // Everyone in the rail's chats who is not one of this Mac's agents, from
+  // their profiles: their names, so a group is named by its members and never
+  // by a chat, and whether they are an agent (Agents) or a person (People).
   const strangers = React.useMemo(() => {
     const known = new Set(agents.map((agent) => agent.pubkey.toLowerCase()));
     return [
@@ -200,11 +291,13 @@ export function ShellRail({
     ].filter((pubkey) => !known.has(pubkey));
   }, [agents, items]);
   const profiles = useUsersBatchQuery(strangers).data?.profiles;
-  const names = React.useMemo(() => {
+  const { names, agentPubkeys } = React.useMemo(() => {
     const byKey = new Map<string, string>();
+    const agentKeys = new Set<string>();
     for (const pubkey of strangers) {
       const profile = profiles?.[pubkey];
       if (!profile) continue;
+      if (profile.isAgent) agentKeys.add(pubkey);
       const name = resolveIdentityDisplayName({
         displayName: profile.displayName,
         name: profile.name,
@@ -214,24 +307,132 @@ export function ShellRail({
       // "Person" is the resolver's own stand-in, not a name.
       if (name !== "Person") byKey.set(pubkey, name);
     }
-    return byKey;
+    return { names: byKey, agentPubkeys: agentKeys };
   }, [profiles, strangers]);
+  // A chat nothing has been said in yet is as recent as its making: its
+  // creation time, from its details, fetched for those chats only.
+  const quietIds = React.useMemo(
+    () =>
+      items
+        .filter((item) => !item.channel.lastMessageAt)
+        .map((item) => item.channel.id),
+    [items],
+  );
+  const madeAt = useQueries({
+    queries: quietIds.map((id) => ({
+      queryKey: ["channels", id, "detail"],
+      queryFn: () => getChannelDetails(id),
+      staleTime: 30_000,
+    })),
+  });
+  const madeAtKey = madeAt
+    .map((query, index) => `${quietIds[index]}=${query.data?.createdAt ?? ""}`)
+    .join("|");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: madeAtKey is the content of madeAt, which is a new array every render.
+  const createdAtById = React.useMemo<CreatedAtById>(() => {
+    const byId = new Map<string, string>();
+    madeAt.forEach((query, index) => {
+      const at = query.data?.createdAt;
+      if (at) byId.set(quietIds[index], at);
+    });
+    return byId;
+  }, [madeAtKey]);
   const homes = React.useMemo(
     () =>
       buildRailHomes({
         items,
         agents,
+        agentPubkeys,
         primaryPubkey,
         projects,
         projectByChannelId,
         names,
+        createdAtById,
       }),
-    [agents, items, names, primaryPubkey, projectByChannelId, projects],
+    [
+      agentPubkeys,
+      agents,
+      createdAtById,
+      items,
+      names,
+      primaryPubkey,
+      projectByChannelId,
+      projects,
+    ],
   );
   // "In a column": a project's rooms sit in the room column beside the
   // conversation, so the project's row nests nothing (as today's rail).
   const roomsInColumn = useProjectRoomsPlacement() === "column";
   const active = activeRailHome(homes, selectedChannelId, selectedProjectId);
+
+  // When what is open changes from outside the rail (Search, Back and
+  // Forward, a link, where the app opens), the rail scrolls its row into
+  // view, or its home's when the home is folded. A click in the rail never
+  // scrolls it: you are already looking at the row.
+  //
+  // The router puts the rail back where it was after every navigation
+  // (useSidebarScrollLock), which would stop the scroll half-way, so the
+  // reveal runs a frame later, and once more after the router has rendered.
+  const router = useRouter();
+  const railRef = React.useRef<HTMLDivElement>(null);
+  const railClickAt = React.useRef(Number.NEGATIVE_INFINITY);
+  const revealedFor = React.useRef<string | null>(null);
+  const revealedAt = React.useRef(Number.NEGATIVE_INFINITY);
+  const revealing = React.useRef({
+    target: null as string | null,
+    channelId: selectedChannelId,
+  });
+  revealing.current = {
+    target:
+      selectedChannelId ??
+      (selectedProjectId ? `project:${selectedProjectId}` : null),
+    channelId: selectedChannelId,
+  };
+  const reveal = React.useCallback((afterRoute: boolean) => {
+    const { target, channelId } = revealing.current;
+    if (!target) {
+      revealedFor.current = null;
+      return;
+    }
+    const now = performance.now();
+    // Done already, unless the router has just put the rail back.
+    if (
+      revealedFor.current === target &&
+      !(afterRoute && now - revealedAt.current < REVEAL_AGAIN_MS)
+    )
+      return;
+    if (now - railClickAt.current < RAIL_CLICK_MS) {
+      // The click's own navigation: spent, so the next one from outside
+      // the rail is revealed again.
+      railClickAt.current = Number.NEGATIVE_INFINITY;
+      revealedFor.current = target;
+      return;
+    }
+    const rail = railRef.current;
+    const row =
+      (channelId
+        ? rail?.querySelector<HTMLElement>(
+            `[data-rail-focus="session"][data-channel-id="${CSS.escape(channelId)}"]`,
+          )
+        : null) ??
+      rail?.querySelector<HTMLElement>('[data-home][data-active="true"]');
+    // Not drawn yet (the list is still arriving): try again next render.
+    if (!row) return;
+    if (revealedFor.current !== target) revealedAt.current = now;
+    revealedFor.current = target;
+    revealRow(row);
+  }, []);
+  React.useEffect(() => {
+    const frame = requestAnimationFrame(() => reveal(false));
+    return () => cancelAnimationFrame(frame);
+  });
+  React.useEffect(
+    () =>
+      router.subscribe("onRendered", () => {
+        requestAnimationFrame(() => reveal(true));
+      }),
+    [reveal, router],
+  );
 
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>(
     () => {
@@ -317,6 +518,18 @@ export function ShellRail({
   );
 
   const flat = (home: RailHome) => roomsInColumn && home.kind === "project";
+  // The + only where there is a session to start: a new room in a project, a
+  // new session with one of this Mac's agents (never one still arriving). A
+  // person has their one conversation, and a room is itself: ROOMS' + starts
+  // a room, and a group's session starts from Groups in Agents.
+  const managed = (pubkey: string) => {
+    const agent = agentsByPubkey.get(pubkey);
+    return Boolean(agent && !agent.pubkey.includes(":"));
+  };
+  const canAdd = (home: RailHome) =>
+    home.kind === "project" ||
+    ((home.kind === "luca" || home.kind === "agent") &&
+      Boolean(home.pubkey && managed(home.pubkey)));
   const openHome = (home: RailHome) => {
     if (home.sessions.length > 0 && !flat(home)) setOpen(home.id, true);
     if (home.kind === "project" && home.project) {
@@ -347,7 +560,11 @@ export function ShellRail({
     <HomeRow
       active={active?.id === home.id}
       agent={home.pubkey ? agentsByPubkey.get(home.pubkey) : undefined}
-      expanded={expanded[home.id] ?? false}
+      canAdd={canAdd(home)}
+      createdAtById={createdAtById}
+      // Homes start open, so the rail never reads empty; the chevron closes
+      // one, and each home remembers it.
+      expanded={expanded[home.id] ?? true}
       flat={flat(home)}
       home={home}
       key={home.id}
@@ -367,12 +584,14 @@ export function ShellRail({
   const sectionHomes = {
     project: homes.projects,
     agent: homes.agents,
-    fleet: homes.fleets,
+    person: homes.people,
+    room: homes.rooms,
   };
   const create = {
     project: onCreateProject,
-    agent: onCreateAgent,
-    fleet: onCreateFleet,
+    agent: undefined,
+    person: undefined,
+    room: onCreateRoom,
   };
 
   return (
@@ -384,38 +603,96 @@ export function ShellRail({
         projectMenuItems={projectMenuItems}
         unreadChannelIds={unreadChannelIds}
       >
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the rail's rows, as the agent rail's always have (AgentRail.tsx). */}
-        <div
+        {/* The Chats place's own navigation, named as the other places' rails
+            are; arrow keys move between its rows (railKeys). */}
+        <nav
+          aria-label="Chats"
           className="luca-shell-rail"
           data-shell-rail=""
           data-testid="chat-list"
+          onClickCapture={(event) => {
+            // A row of the rail opening something; folding a home (its
+            // chevron, or Left and Right) opens nothing.
+            if (
+              event.target instanceof Element &&
+              event.target.closest("[data-rail-focus], .luca-rail-row-add")
+            )
+              railClickAt.current = performance.now();
+          }}
           onKeyDown={railKeys}
+          ref={railRef}
         >
-          {homes.luca ? row(homes.luca) : null}
-          {SECTIONS.map((section) => (
-            <section
-              aria-label={section.title}
-              className="luca-rail-section"
-              data-testid={`rail-section-${section.kind}`}
-              key={section.kind}
+          <div className="luca-rail-section-head luca-rail-head type-eyebrow">
+            <span>Chats</span>
+            <button
+              aria-label="New conversation"
+              aria-keyshortcuts="Meta+N"
+              className="luca-rail-add"
+              data-testid="rail-new-conversation"
+              onClick={onNewConversation}
+              title="New conversation  ⌘N"
+              type="button"
             >
-              <div className="luca-rail-section-head type-eyebrow">
-                <span>{section.title}</span>
-                <button
-                  aria-label={section.add}
-                  className="luca-rail-add"
-                  data-testid={section.testId}
-                  onClick={create[section.kind]}
-                  title={section.add}
-                  type="button"
-                >
-                  <Plus aria-hidden />
-                </button>
-              </div>
-              {sectionHomes[section.kind].map(row)}
-            </section>
-          ))}
-        </div>
+              <Plus aria-hidden />
+            </button>
+          </div>
+          {homes.luca ? row(homes.luca) : null}
+          {SECTIONS.map((section) => {
+            const members = sectionHomes[section.kind];
+            // A section shows when it has something in it, or a + to make
+            // its first thing: People hides while empty; Rooms always shows,
+            // its + and its two rows being ways in.
+            if (members.length === 0 && !section.add) return null;
+            const add = create[section.kind];
+            return (
+              <section
+                aria-label={section.title}
+                className="luca-rail-section"
+                data-testid={`rail-section-${section.kind}`}
+                key={section.kind}
+              >
+                <div className="luca-rail-section-head type-eyebrow">
+                  <span>{section.title}</span>
+                  {section.add && add ? (
+                    <button
+                      aria-label={section.add.label}
+                      className="luca-rail-add"
+                      data-testid={section.add.testId}
+                      onClick={add}
+                      title={section.add.label}
+                      type="button"
+                    >
+                      <Plus aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
+                {members.map(row)}
+                {section.kind === "room" ? (
+                  <>
+                    <button
+                      className="luca-rail-tail text-lip"
+                      data-rail-focus="tail"
+                      data-testid="rail-browse-rooms"
+                      onClick={onBrowseRooms}
+                      type="button"
+                    >
+                      Browse rooms…
+                    </button>
+                    <button
+                      className="luca-rail-tail text-lip"
+                      data-rail-focus="tail"
+                      data-testid="rail-archived-rooms"
+                      onClick={onBrowseArchived}
+                      type="button"
+                    >
+                      Archived
+                    </button>
+                  </>
+                ) : null}
+              </section>
+            );
+          })}
+        </nav>
       </ChatRowContextMenu>
       {detailsViewModel ? (
         <ProjectDetailsDialog
@@ -455,6 +732,8 @@ function UnreadDot() {
 function HomeRow({
   active,
   agent,
+  canAdd,
+  createdAtById,
   expanded,
   flat,
   home,
@@ -468,6 +747,9 @@ function HomeRow({
 }: {
   active: boolean;
   agent: AgentRailAgent | undefined;
+  /** Whether the home has a session flow for its `+`. */
+  canAdd: boolean;
+  createdAtById: CreatedAtById;
   expanded: boolean;
   /** Nest nothing: a project whose rooms sit in a column. */
   flat: boolean;
@@ -486,30 +768,45 @@ function HomeRow({
       item.channel.id !== selectedChannelId &&
       unreadChannelIds.has(item.channel.id),
   );
+  const nested = !flat && home.sessions.length > 0;
+  // The latest three show, and the open one wherever it falls; the rest wait
+  // behind "N more", which opens to the whole list and ends on "Show fewer".
+  const [all, setAll] = React.useState(false);
+  const { shown, hidden } = shownSessions(
+    home.sessions,
+    selectedChannelId,
+    all,
+  );
+  // "working…" is said once: by the session working, when it shows under
+  // the open home, and by the home only for what you can't see (its own
+  // conversation, a folded home's sessions, those behind "N more").
+  const visible = new Set(
+    nested && expanded ? shown.map((item) => item.channel.id) : [],
+  );
   const working = chats.reduce(
     (count, item) =>
-      count + (workingByChannelId?.get(item.channel.id)?.agentCount ?? 0),
+      visible.has(item.channel.id)
+        ? count
+        : count + (workingByChannelId?.get(item.channel.id)?.agentCount ?? 0),
     0,
   );
-  // Only work in progress trails off: "Waking…" and "working…" keep their
-  // ellipsis; a status such as "Needs attention" has none.
+  // State words are lowercase, as the study and the Agents rail say them.
+  // Only work in progress trails off: "waking…" and "working…" keep their
+  // ellipsis; a status such as "needs attention" has none.
   const waking = Boolean(agent?.waking);
   const status = waking
-    ? "Waking"
+    ? "waking"
     : agent?.lastError
-      ? "Needs attention"
+      ? "needs attention"
       : null;
-  const nested = !flat && home.sessions.length > 0;
   const mainOpen =
     active &&
     (home.main
       ? home.main.channel.id === selectedChannelId
       : !home.sessions.some((item) => item.channel.id === selectedChannelId));
-  // A resident still arriving has no record to start a session with yet.
-  const canAdd = !agent?.pubkey.includes(":");
   // The study's order: a status or "working…" first, then the unread dot.
   const signal = waking ? (
-    <span className="luca-rail-working text-2xs">Waking</span>
+    <span className="luca-rail-working text-2xs">waking</span>
   ) : status ? (
     <StatusLabel>{status}</StatusLabel>
   ) : working > 0 ? (
@@ -518,6 +815,20 @@ function HomeRow({
     <UnreadDot />
   ) : null;
   const sessionsId = `rail-sessions-${home.id}`;
+  // "N more" and "Show fewer" each leave as they act, so the focus moves on:
+  // to the first row "N more" revealed, or back to "N more" from "Show
+  // fewer", and the keyboard never drops out of the rail.
+  const sessionsRef = React.useRef<HTMLFieldSetElement>(null);
+  const focusAfterToggle = React.useRef<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `all` is the trigger: the rows have just been drawn longer or shorter.
+  React.useEffect(() => {
+    const index = focusAfterToggle.current;
+    if (index === null) return;
+    focusAfterToggle.current = null;
+    sessionsRef.current
+      ?.querySelectorAll<HTMLElement>('[data-rail-focus="session"]')
+      [index]?.focus();
+  }, [all]);
   // Onboarding's travelling mark lands on Luca's name: Luca's row has no
   // glyph under the shell, so its name is where the mark settles.
   const nameRef = React.useRef<HTMLSpanElement>(null);
@@ -599,11 +910,13 @@ function HomeRow({
           className="luca-rail-sessions"
           hidden={!expanded}
           id={sessionsId}
+          ref={sessionsRef}
         >
-          {(expanded ? home.sessions : []).map((item) => {
+          {(expanded ? shown : []).map((item) => {
             const current = item.channel.id === selectedChannelId;
             const isUnread = !current && unreadChannelIds.has(item.channel.id);
             const busy = workingByChannelId?.get(item.channel.id)?.agentCount;
+            const ago = relativeTime(activeAt(item, createdAtById));
             return (
               <button
                 aria-current={current ? "page" : undefined}
@@ -625,10 +938,49 @@ function HomeRow({
                   <WorkingLabel count={busy} />
                 ) : isUnread ? (
                   <UnreadDot />
+                ) : ago ? (
+                  <span className="luca-rail-session-ago text-2xs">{ago}</span>
                 ) : null}
               </button>
             );
           })}
+          {expanded && hidden > 0 ? (
+            <button
+              aria-label={`Show ${hidden} more in ${home.name}`}
+              className="luca-rail-session luca-rail-session-more text-xs"
+              data-rail-focus="session"
+              data-testid={`rail-more-${home.id}`}
+              onClick={(event) => {
+                if (event.currentTarget === document.activeElement)
+                  focusAfterToggle.current = shown.length;
+                setAll(true);
+              }}
+              type="button"
+            >
+              {hidden} more
+            </button>
+          ) : null}
+          {expanded && all && home.sessions.length > 3 ? (
+            <button
+              aria-label={`Show fewer in ${home.name}`}
+              className="luca-rail-session luca-rail-session-more text-xs"
+              data-rail-focus="session"
+              data-testid={`rail-fewer-${home.id}`}
+              onClick={(event) => {
+                // "N more" comes back after the latest rows (and the open
+                // one, if it is further down).
+                if (event.currentTarget === document.activeElement)
+                  focusAfterToggle.current = shownSessions(
+                    home.sessions,
+                    selectedChannelId,
+                  ).shown.length;
+                setAll(false);
+              }}
+              type="button"
+            >
+              Show fewer
+            </button>
+          ) : null}
         </fieldset>
       ) : null}
     </div>
