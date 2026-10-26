@@ -1,3 +1,4 @@
+import { MadeThumb } from "@/features/agents/space/MadeThumb";
 import { useArtifactCanvas } from "@/features/artifacts/ArtifactCanvasProvider";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useResidentPlace } from "@/features/agents/place/useResidentPlace";
@@ -12,14 +13,18 @@ import { Switch } from "@/shared/ui/switch";
 export function ResidentPlaceSection({
   residentPubkey,
   residentName,
+  variant = "page",
 }: {
   residentPubkey: string;
   residentName: string;
+  /** `space`: a mind's own words at the top of their Notebook (WP-13). */
+  variant?: "page" | "space";
 }) {
   const identity = useIdentityQuery();
   const { activeCommunity, reinitKey } = useCommunities();
   const ownerPubkey = identity.data?.pubkey;
   if (!ownerPubkey || !activeCommunity || identity.isPending) {
+    if (variant === "space") return null;
     return (
       <p className="text-sm text-muted-foreground">Opening private place…</p>
     );
@@ -29,6 +34,7 @@ export function ResidentPlaceSection({
       key={`${ownerPubkey}:${activeCommunity.id}:${reinitKey}:${residentPubkey}`}
       residentName={residentName}
       residentPubkey={residentPubkey}
+      variant={variant}
     />
   );
 }
@@ -36,15 +42,20 @@ export function ResidentPlaceSection({
 function ScopedResidentPlace({
   residentPubkey,
   residentName,
+  variant,
 }: {
   residentPubkey: string;
   residentName: string;
+  variant: "page" | "space";
 }) {
   const state = useResidentPlace(residentPubkey);
   const { openArtifact } = useArtifactCanvas();
   const place = state.place;
   const draft = state.draft;
 
+  // In a mind's space a place that can't be read is a part with no data:
+  // it hides (Decided 9).
+  if (variant === "space" && !place) return null;
   if (state.loading && !place) {
     return (
       <p className="text-sm text-muted-foreground">Opening private place…</p>
@@ -84,6 +95,84 @@ function ScopedResidentPlace({
       : place.author?.kind === "owner"
         ? "Edited by you"
         : null;
+
+  if (variant === "space" && !draft) {
+    return (
+      <section
+        aria-label={`${residentName}'s own words`}
+        className="luca-mind-own"
+        data-testid="resident-place"
+      >
+        {!isEmpty ? (
+          <figure className="luca-mind-words">
+            <div>
+              {content.introduction.trim() ? (
+                <blockquote data-testid="resident-place-introduction">
+                  {content.introduction}
+                </blockquote>
+              ) : null}
+              {content.exploration.trim() ? (
+                <figcaption data-testid="resident-place-exploration">
+                  Exploring: {content.exploration}
+                </figcaption>
+              ) : null}
+            </div>
+            {content.selectedWork && selectedAvailable ? (
+              <button
+                aria-label={`Open ${selected.title}`}
+                className="luca-mind-piece"
+                data-testid="resident-place-selected-work"
+                onClick={() =>
+                  openArtifact({
+                    artifactId: selected.artifactId,
+                    version: selected.version,
+                    previewSessionId: null,
+                    conversationId: selected.conversationId,
+                    residentPubkey,
+                    turnId: null,
+                    source: "library",
+                  })
+                }
+                title={selected.title}
+                type="button"
+              >
+                <MadeThumb
+                  artifactId={selected.artifactId}
+                  kind={selected.kind}
+                  title={selected.title}
+                  version={selected.version}
+                />
+              </button>
+            ) : null}
+          </figure>
+        ) : null}
+        {state.readError || state.saveError ? (
+          <p className="luca-mind-error" role="alert">
+            {state.saveError ?? state.readError}
+          </p>
+        ) : null}
+        <div className="luca-mind-own-controls">
+          <button
+            className="luca-mind-action"
+            onClick={state.beginEdit}
+            type="button"
+          >
+            Edit
+          </button>
+          <span className="luca-mind-switch">
+            <span id="place-editing-label">Let {residentName} edit this</span>
+            <Switch
+              aria-label={`Let ${residentName} edit this`}
+              aria-describedby="place-editing-label"
+              checked={place.residentEditingEnabled}
+              disabled={state.switching}
+              onCheckedChange={() => void state.toggleEditing()}
+            />
+          </span>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section

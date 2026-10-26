@@ -71,6 +71,7 @@ export function ResidentNotebookDetailView({
   onDetailAnchorChange,
   onChanged,
   residentPubkey,
+  voice,
 }: {
   detail: ResidentNotebookDetail;
   initialDetailAnchor?: "body" | "sources" | "annotations" | "history" | null;
@@ -80,6 +81,9 @@ export function ResidentNotebookDetailView({
   ) => void;
   onChanged: (detail: ResidentNotebookDetail) => Promise<void>;
   residentPubkey: string;
+  /** In a mind's space (WP-13): the page speaks plainly, in their name and
+   *  the journal's italic, with a labelled Back. */
+  voice?: { residentName: string };
 }) {
   const { goChannel } = useAppNavigation();
   const [mode, setMode] = React.useState<EditorMode>(null);
@@ -171,32 +175,68 @@ export function ResidentNotebookDetailView({
 
   return (
     <div className="space-y-4" data-testid="resident-notebook-detail">
-      <header className="flex items-start gap-2 border-b border-border/60 pb-3">
-        <Button
-          aria-label="Back to notebook"
-          onClick={onBack}
-          size="icon"
-          variant="ghost"
+      {voice ? (
+        <header
+          className="border-b border-border/60 pb-4"
+          data-testid="notebook-detail-voice"
         >
-          <ChevronLeft />
-        </Button>
-        <div className="min-w-0 flex-1">
-          <p className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
+          <Button
+            aria-label="Back to notebook"
+            className="-ml-2 mb-3"
+            onClick={onBack}
+            size="sm"
+            variant="ghost"
+          >
+            <ChevronLeft /> Back
+          </Button>
+          <p className="text-xs text-muted-foreground">
             {page
-              ? "Resident-authored journal page"
+              ? `${voice.residentName}'s journal`
               : notebookCategoryLabel(item.category)}
           </p>
-          <h4 className="mt-1 text-base font-medium leading-6 text-foreground">
+          <h4
+            className={cn(
+              "mt-1 text-base leading-6 text-foreground",
+              page && "italic",
+            )}
+          >
             {page ? item.title || "Untitled page" : "Continuity note"}
           </h4>
-          <p className="mt-1 text-2xs uppercase tracking-caps text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             {item.authorship === "resident"
-              ? "Kept by resident"
+              ? `Kept by ${voice.residentName}`
               : "Owner correction"}{" "}
-            · rev {item.revision} · {notebookTimestamp(item.updatedAt)}
+            · {notebookTimestamp(item.updatedAt)}
           </p>
-        </div>
-      </header>
+        </header>
+      ) : (
+        <header className="flex items-start gap-2 border-b border-border/60 pb-3">
+          <Button
+            aria-label="Back to notebook"
+            onClick={onBack}
+            size="icon"
+            variant="ghost"
+          >
+            <ChevronLeft />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <p className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
+              {page
+                ? "Resident-authored journal page"
+                : notebookCategoryLabel(item.category)}
+            </p>
+            <h4 className="mt-1 text-base font-medium leading-6 text-foreground">
+              {page ? item.title || "Untitled page" : "Continuity note"}
+            </h4>
+            <p className="mt-1 text-2xs uppercase tracking-caps text-muted-foreground">
+              {item.authorship === "resident"
+                ? "Kept by resident"
+                : "Owner correction"}{" "}
+              · rev {item.revision} · {notebookTimestamp(item.updatedAt)}
+            </p>
+          </div>
+        </header>
+      )}
 
       {error ? (
         <div className="border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
@@ -204,7 +244,10 @@ export function ResidentNotebookDetailView({
         </div>
       ) : null}
 
-      <div data-notebook-detail-anchor="body">
+      <div
+        className={voice && page ? "italic" : undefined}
+        data-notebook-detail-anchor="body"
+      >
         {page ? (
           <JournalPageBody item={item} />
         ) : (
@@ -222,14 +265,17 @@ export function ResidentNotebookDetailView({
       {detail.annotations.length > 0 ? (
         <div data-notebook-detail-anchor="annotations">
           <section className="space-y-2 border-l border-border/70 pl-3">
-            <SectionLabel>Owner annotations</SectionLabel>
+            <SectionLabel>
+              {voice ? "Your notes" : "Owner annotations"}
+            </SectionLabel>
             {detail.annotations.map((annotation) => (
               <div className="py-1" key={annotation.itemId}>
                 <p className="text-sm leading-6 text-ink-muted">
                   {annotation.body}
                 </p>
                 <p className="mt-1 text-2xs uppercase tracking-caps text-muted-foreground">
-                  Owner · {notebookTimestamp(annotation.updatedAt)}
+                  {voice ? "You" : "Owner"} ·{" "}
+                  {notebookTimestamp(annotation.updatedAt)}
                 </p>
               </div>
             ))}

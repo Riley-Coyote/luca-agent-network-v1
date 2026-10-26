@@ -62,7 +62,19 @@ const categoryLabels: Record<BrainCategory, string> = {
   files: "Files",
 };
 
-export function BrainView() {
+/**
+ * Brain: what residents can read. `embedded` is its body without its page
+ * header (SHELL_BUILD.md WP-13, Decided 6): the views, the scan, the four
+ * cards, the consent dialogs and the details, inside a mind's Settings as
+ * What they can read, with that mind's access grants in the details.
+ */
+export function BrainView({
+  embedded = false,
+  residentPubkey = null,
+}: {
+  embedded?: boolean;
+  residentPubkey?: string | null;
+} = {}) {
   const connectedQuery = useConnectedBrainInventoryQuery();
   const ownerQuery = useOwnerBrainStateQuery();
   const residentsQuery = useLucaResidentsQuery();
@@ -94,7 +106,13 @@ export function BrainView() {
   const busySourceIdsRef = React.useRef(new Set<string>());
 
   const inventory = connectedQuery.data;
-  const residents = residentsQuery.data?.residents ?? [];
+  const allResidents = residentsQuery.data?.residents ?? [];
+  const residentKey = residentPubkey?.toLowerCase() ?? null;
+  const residents = residentKey
+    ? allResidents.filter(
+        (resident) => resident.residentPubkey.toLowerCase() === residentKey,
+      )
+    : allResidents;
   const run = React.useCallback(async (operation: () => Promise<unknown>) => {
     setOperationError(null);
     try {
@@ -249,35 +267,76 @@ export function BrainView() {
     connectionQueueRunning ? connectionCategory : null,
   );
 
+  const Body = embedded ? "div" : "main";
   return (
-    <div className="h-full overflow-y-auto" data-testid="brain-view">
-      <main className="mx-auto w-full max-w-5xl px-5 pb-12 pt-14 sm:px-7 sm:pt-7 lg:px-9">
-        <PageHeader
-          action={
-            <div className="hidden items-center gap-2 rounded-full border border-border/55 bg-card/30 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
-              <LockKeyhole className="h-3.5 w-3.5" />
-              Private and local
-            </div>
-          }
-          description="Connect the work your residents should know. Luca keeps it current in the background."
-          title="Brain"
-        />
+    <div
+      className={embedded ? undefined : "h-full overflow-y-auto"}
+      data-testid={embedded ? "brain-body" : "brain-view"}
+    >
+      <Body
+        className={
+          embedded
+            ? undefined
+            : "mx-auto w-full max-w-5xl px-5 pb-12 pt-14 sm:px-7 sm:pt-7 lg:px-9"
+        }
+      >
+        {embedded ? null : (
+          <PageHeader
+            action={
+              <div className="hidden items-center gap-2 rounded-full border border-border/55 bg-card/30 px-3 py-1.5 text-xs text-muted-foreground sm:flex">
+                <LockKeyhole className="h-3.5 w-3.5" />
+                Private and local
+              </div>
+            }
+            description="Connect the work your residents should know. Luca keeps it current in the background."
+            title="Brain"
+          />
+        )}
 
-        <div className="mt-6 flex items-center justify-between gap-3 border-b border-border/45">
-          <div aria-label="Brain views" className="flex" role="tablist">
-            <ViewTab
-              active={mode === "connections"}
-              icon={GitBranch}
-              label="Connections"
-              onClick={() => setMode("connections")}
-            />
-            <ViewTab
-              active={mode === "activity"}
-              icon={Activity}
-              label="Activity"
-              onClick={() => setMode("activity")}
-            />
-          </div>
+        <div
+          className={cn(
+            "flex items-center justify-between gap-3",
+            embedded ? "luca-mind-read-bar" : "mt-6 border-b border-border/45",
+          )}
+        >
+          {embedded ? (
+            // In a mind's Settings the two views are a quiet filter, like
+            // the Notebook's, not a second strip of tabs.
+            <fieldset aria-label="Brain views" className="luca-mind-filters">
+              {(
+                [
+                  ["connections", "Connections"],
+                  ["activity", "Activity"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  aria-pressed={mode === id}
+                  className="luca-mind-filter"
+                  data-selected={mode === id ? "true" : undefined}
+                  key={id}
+                  onClick={() => setMode(id)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </fieldset>
+          ) : (
+            <div aria-label="Brain views" className="flex" role="tablist">
+              <ViewTab
+                active={mode === "connections"}
+                icon={GitBranch}
+                label="Connections"
+                onClick={() => setMode("connections")}
+              />
+              <ViewTab
+                active={mode === "activity"}
+                icon={Activity}
+                label="Activity"
+                onClick={() => setMode("activity")}
+              />
+            </div>
+          )}
           <Button
             aria-label="Scan for Brain sources"
             disabled={connectedQuery.isFetching}
@@ -307,7 +366,10 @@ export function BrainView() {
           {mode === "connections" ? (
             <section
               aria-label="Brain connections"
-              className="mt-6 grid gap-4 md:grid-cols-2"
+              className={cn(
+                "mt-6 grid gap-4",
+                embedded ? "@lg:grid-cols-2" : "md:grid-cols-2",
+              )}
             >
               {cards.map((card) => {
                 const hasDetails = card.connectedCount > 0;
@@ -373,7 +435,7 @@ export function BrainView() {
             </div>
           )}
         </NavigationTransition>
-      </main>
+      </Body>
 
       <BrainConnectionDialog
         consentCopy={inventory.consentCopy}

@@ -66,6 +66,12 @@ export { AgentInstructionsFocusedView } from "@/features/profile/ui/UserProfileP
 
 export type ProfileSummaryViewProps = {
   activityAgent: ProfileActivityAgent | null;
+  /**
+   * Under the shell, an agent's short summary (WP-13, Decided 8): it takes
+   * the hero's place, the agent's controls move to their space, and the
+   * Continuity and Memories tabs go (they're the space's Notebook).
+   */
+  agentSummary?: React.ReactNode;
   callerChannelId: string | null;
   defaultContinuitySurface?: "handoff" | "notebook";
   canAddToChannel: boolean;
@@ -180,6 +186,7 @@ function RuntimeTabStatusDot({ status }: { status: RuntimeTabStatus }) {
 
 export function ProfileSummaryView({
   activityAgent,
+  agentSummary,
   callerChannelId,
   defaultContinuitySurface,
   canAddToChannel,
@@ -232,8 +239,12 @@ export function ProfileSummaryView({
 }: ProfileSummaryViewProps) {
   const activeTurns = useAgentWorking(isBot ? pubkey : null).channels;
 
-  const showMemoriesTab = isOwner === true && Boolean(pubkey);
-  const showContinuityTab = isOwner === true && managedAgent !== undefined;
+  const inSpace = agentSummary !== undefined;
+  // In the summary the rest sits behind one quiet More (WP-13 review).
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const showMemoriesTab = !inSpace && isOwner === true && Boolean(pubkey);
+  const showContinuityTab =
+    !inSpace && isOwner === true && managedAgent !== undefined;
   const showInstructionBlock =
     isOwner === true &&
     (agentInstruction !== null || handleEditPersona !== undefined);
@@ -346,26 +357,30 @@ export function ProfileSummaryView({
 
   return (
     <div className="flex flex-col gap-6 pt-4">
-      <ProfileHero
-        agentVisualState={
-          managedAgent
-            ? managedAgent.lastError
-              ? "fault"
-              : managedAgent.status === "running" ||
-                  managedAgent.status === "deployed"
-                ? "present"
-                : "unavailable"
-            : undefined
-        }
-        displayName={displayName}
-        isBot={isBot}
-        presenceStatus={presenceStatus}
-        profile={profile}
-        pubkey={pubkey}
-        userStatus={userStatus}
-      />
+      {inSpace ? (
+        agentSummary
+      ) : (
+        <ProfileHero
+          agentVisualState={
+            managedAgent
+              ? managedAgent.lastError
+                ? "fault"
+                : managedAgent.status === "running" ||
+                    managedAgent.status === "deployed"
+                  ? "present"
+                  : "unavailable"
+              : undefined
+          }
+          displayName={displayName}
+          isBot={isBot}
+          presenceStatus={presenceStatus}
+          profile={profile}
+          pubkey={pubkey}
+          userStatus={userStatus}
+        />
+      )}
 
-      {canInstantiateAgent ? (
+      {inSpace ? null : canInstantiateAgent ? (
         <ProfilePersonaPrimaryActions
           canEditAgent={canEditAgent}
           disabled={isAgentActionPending}
@@ -408,7 +423,31 @@ export function ProfileSummaryView({
         />
       ) : null}
 
-      {showTabSection ? (
+      {inSpace ? (
+        <button
+          aria-expanded={moreOpen}
+          className="self-start text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          data-testid="profile-agent-more"
+          onClick={() => setMoreOpen((open) => !open)}
+          type="button"
+        >
+          {moreOpen ? "Less" : "More"}
+        </button>
+      ) : null}
+
+      {inSpace && moreOpen && pubkey ? (
+        <ProfilePrimaryActions
+          canEditAgent={false}
+          followMutation={followMutation}
+          onEditAgent={handleEditAgent}
+          agentActionDisabled={isAgentActionPending}
+          isFollowing={isFollowing}
+          pubkey={pubkey}
+          unfollowMutation={unfollowMutation}
+        />
+      ) : null}
+
+      {showTabSection && (!inSpace || moreOpen) ? (
         <section className="space-y-3">
           {showTabBar ? (
             <ProfileTabBar

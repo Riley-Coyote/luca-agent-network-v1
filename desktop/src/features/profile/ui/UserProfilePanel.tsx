@@ -103,6 +103,8 @@ import { UserProfilePanelFrame } from "@/features/profile/ui/UserProfilePanelFra
 import { getUserProfilePanelHeaderContent } from "@/features/profile/ui/UserProfilePanelHeaderContent";
 import { ConversationDrawerNavigation } from "@/shared/ui/ConversationDrawerNavigation";
 import { ChatResidentPreview } from "@/features/profile/ui/ChatResidentPreview";
+import { UserProfilePanelAgentSummary } from "@/features/profile/ui/UserProfilePanelAgentSummary";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 export type { ProfilePanelTab, ProfilePanelView };
 
 export function UserProfilePanel({
@@ -778,6 +780,19 @@ export function UserProfilePanel({
     },
   );
 
+  // Under the shell an agent's card is a short summary with Open their
+  // space (WP-13, Decided 8); a person's card is unchanged.
+  const shellFrame = useShellFrameEnabled();
+  const agentSummary =
+    shellFrame && isBot && managedAgent && effectivePubkey ? (
+      <UserProfilePanelAgentSummary
+        displayName={displayName}
+        managedAgent={managedAgent}
+        messagePending={isOpeningDm}
+        onMessage={onOpenDm ? handleMessage : undefined}
+        onOpenSpace={() => void goAgent(effectivePubkey)}
+      />
+    ) : undefined;
   const profileBody = (
     <AuxiliaryPanelBody
       className={cn(
@@ -809,7 +824,10 @@ export function UserProfilePanel({
           onOpenConversation={onBackToConversation}
         />
       ) : null}
-      {view === "summary" && callerChannelId && effectivePubkey ? (
+      {view === "summary" &&
+      callerChannelId &&
+      effectivePubkey &&
+      !agentSummary ? (
         <ChatResidentPreview
           displayName={displayName}
           managedAgent={managedAgent}
@@ -819,8 +837,10 @@ export function UserProfilePanel({
           pubkey={effectivePubkey}
         />
       ) : null}
-      {view === "summary" && (!callerChannelId || !effectivePubkey) ? (
+      {view === "summary" &&
+      (!callerChannelId || !effectivePubkey || agentSummary) ? (
         <ProfileSummaryView
+          agentSummary={agentSummary}
           canAddToChannel={managedAgent !== undefined && isOwner === true}
           canEditAgent={canEditAgent}
           canInstantiateAgent={canInstantiateAgent}

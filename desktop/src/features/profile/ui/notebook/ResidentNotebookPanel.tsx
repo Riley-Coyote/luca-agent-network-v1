@@ -565,7 +565,7 @@ function NotebookTab({
   );
 }
 
-function JournalJobStrip({
+export function JournalJobStrip({
   job,
   onCancel,
   onRetry,
@@ -616,12 +616,15 @@ function JournalJobStrip({
   );
 }
 
-function NewJournalPageForm({
+export function NewJournalPageForm({
   busy,
   onCancel,
   onCreate,
+  residentName,
 }: {
   busy: boolean;
+  /** Named in the submit button ("Ask Luca"), in a mind's space. */
+  residentName?: string;
   onCancel: () => void;
   onCreate: (input: {
     prompt: string;
@@ -711,7 +714,7 @@ function NewJournalPageForm({
           }
         >
           {busy ? <LoaderCircle className="animate-spin" /> : <BookOpen />}
-          Ask resident
+          {residentName ? `Ask ${residentName}` : "Ask resident"}
         </Button>
       </div>
     </section>

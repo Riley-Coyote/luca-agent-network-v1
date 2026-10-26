@@ -52,6 +52,8 @@ import {
   AgentLibraryWorkspace,
   type AgentLibrarySection,
 } from "./AgentLibraryWorkspace";
+import { MindSpace } from "@/features/agents/space/MindSpace";
+import type { MindSection } from "@/features/agents/space/mindSection";
 import {
   buildResidentLibrary,
   type ResidentSummaryViewModel,
@@ -62,8 +64,12 @@ const AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX = 600;
 export function AgentsView({
   addRequest = null,
   connectedKey = null,
+  focusRead = false,
   groupId = null,
+  mindSection = "notebook",
   onAddConsumed,
+  onMindSectionChange,
+  onReadFocused,
   onClearSelection,
   onReviewNativeConsumed,
   onSectionChange,
@@ -78,9 +84,15 @@ export function AgentsView({
   addRequest?: "agent" | "group" | null;
   /** Under the shell: the connected app picked in the rail. */
   connectedKey?: string | null;
+  /** Under the shell: open the mind's space at What they can read. */
+  focusRead?: boolean;
   /** Under the shell: the group picked in the rail. */
   groupId?: string | null;
+  /** Under the shell: the mind's tab (WP-13). */
+  mindSection?: MindSection;
   onAddConsumed?: () => void;
+  onMindSectionChange?: (section: MindSection) => void;
+  onReadFocused?: () => void;
   onClearSelection: () => void;
   onReviewNativeConsumed: () => void;
   onSectionChange: (section: AgentLibrarySection) => void;
@@ -406,69 +418,132 @@ export function AgentsView({
                   : "flex min-h-0 min-w-0 flex-1"
               }
             >
-              <AgentLibraryWorkspace
-                channels={
-                  selectedResident.pubkey
-                    ? (agents.channelsByPubkey[
-                        normalizePubkey(selectedResident.pubkey)
-                      ] ?? [])
-                    : []
-                }
-                actionErrorMessage={agents.actionErrorMessage}
-                actionNoticeMessage={agents.actionNoticeMessage}
-                isActionPending={isActionPending}
-                managedAgent={selectedManagedAgent}
-                onBack={() => {
-                  setShowMobileRoster(true);
-                  onClearSelection();
-                }}
-                onEdit={() => {
-                  if (selectedManagedAgent) {
-                    setInstanceToEdit(selectedManagedAgent);
-                  } else if (selectedPersona) {
-                    personas.openEdit(selectedPersona);
+              {shellFrame ? (
+                <MindSpace
+                  channels={
+                    selectedResident.pubkey
+                      ? (agents.channelsByPubkey[
+                          normalizePubkey(selectedResident.pubkey)
+                        ] ?? [])
+                      : []
                   }
-                }}
-                onMessage={() => {
-                  if (!selectedManagedAgent) return;
-                  void openDmMutation
-                    .mutateAsync({ pubkeys: [selectedManagedAgent.pubkey] })
-                    .then((dm) => goChannel(dm.id));
-                }}
-                onOpenChannel={(channelId) => {
-                  void goChannel(channelId);
-                }}
-                onSectionChange={onSectionChange}
-                onStart={() => {
-                  if (selectedManagedAgent) {
-                    void agents.handleStart(selectedManagedAgent.pubkey);
-                  } else if (selectedPersona) {
-                    void agents.handleStartPersona(selectedPersona);
+                  actionErrorMessage={agents.actionErrorMessage}
+                  actionNoticeMessage={agents.actionNoticeMessage}
+                  isActionPending={isActionPending}
+                  managedAgent={selectedManagedAgent}
+                  onEdit={() => {
+                    if (selectedManagedAgent) {
+                      setInstanceToEdit(selectedManagedAgent);
+                    } else if (selectedPersona) {
+                      personas.openEdit(selectedPersona);
+                    }
+                  }}
+                  onMessage={() => {
+                    if (!selectedManagedAgent) return;
+                    void openDmMutation
+                      .mutateAsync({ pubkeys: [selectedManagedAgent.pubkey] })
+                      .then((dm) => goChannel(dm.id));
+                  }}
+                  onOpenChannel={(channelId) => {
+                    void goChannel(channelId);
+                  }}
+                  onSectionChange={(next) => onMindSectionChange?.(next)}
+                  focusRead={focusRead}
+                  onReadFocused={() => onReadFocused?.()}
+                  onStart={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleStart(selectedManagedAgent.pubkey);
+                    } else if (selectedPersona) {
+                      void agents.handleStartPersona(selectedPersona);
+                    }
+                  }}
+                  onStop={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleStop(selectedManagedAgent.pubkey);
+                    }
+                  }}
+                  onRestart={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleRestart(selectedManagedAgent.pubkey);
+                    }
+                  }}
+                  onToggleStartOnLaunch={(enabled) => {
+                    if (selectedManagedAgent) {
+                      void agents.handleToggleStartOnAppLaunch(
+                        selectedManagedAgent.pubkey,
+                        enabled,
+                      );
+                    }
+                  }}
+                  persona={selectedPersona}
+                  resident={selectedResident}
+                  section={mindSection}
+                />
+              ) : (
+                <AgentLibraryWorkspace
+                  channels={
+                    selectedResident.pubkey
+                      ? (agents.channelsByPubkey[
+                          normalizePubkey(selectedResident.pubkey)
+                        ] ?? [])
+                      : []
                   }
-                }}
-                onStop={() => {
-                  if (selectedManagedAgent) {
-                    void agents.handleStop(selectedManagedAgent.pubkey);
-                  }
-                }}
-                onRestart={() => {
-                  if (selectedManagedAgent) {
-                    void agents.handleRestart(selectedManagedAgent.pubkey);
-                  }
-                }}
-                onToggleStartOnLaunch={(enabled) => {
-                  if (selectedManagedAgent) {
-                    void agents.handleToggleStartOnAppLaunch(
-                      selectedManagedAgent.pubkey,
-                      enabled,
-                    );
-                  }
-                }}
-                persona={selectedPersona}
-                resident={selectedResident}
-                section={section}
-                showBackButton={!shellFrame && isSinglePaneLibrary}
-              />
+                  actionErrorMessage={agents.actionErrorMessage}
+                  actionNoticeMessage={agents.actionNoticeMessage}
+                  isActionPending={isActionPending}
+                  managedAgent={selectedManagedAgent}
+                  onBack={() => {
+                    setShowMobileRoster(true);
+                    onClearSelection();
+                  }}
+                  onEdit={() => {
+                    if (selectedManagedAgent) {
+                      setInstanceToEdit(selectedManagedAgent);
+                    } else if (selectedPersona) {
+                      personas.openEdit(selectedPersona);
+                    }
+                  }}
+                  onMessage={() => {
+                    if (!selectedManagedAgent) return;
+                    void openDmMutation
+                      .mutateAsync({ pubkeys: [selectedManagedAgent.pubkey] })
+                      .then((dm) => goChannel(dm.id));
+                  }}
+                  onOpenChannel={(channelId) => {
+                    void goChannel(channelId);
+                  }}
+                  onSectionChange={onSectionChange}
+                  onStart={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleStart(selectedManagedAgent.pubkey);
+                    } else if (selectedPersona) {
+                      void agents.handleStartPersona(selectedPersona);
+                    }
+                  }}
+                  onStop={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleStop(selectedManagedAgent.pubkey);
+                    }
+                  }}
+                  onRestart={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleRestart(selectedManagedAgent.pubkey);
+                    }
+                  }}
+                  onToggleStartOnLaunch={(enabled) => {
+                    if (selectedManagedAgent) {
+                      void agents.handleToggleStartOnAppLaunch(
+                        selectedManagedAgent.pubkey,
+                        enabled,
+                      );
+                    }
+                  }}
+                  persona={selectedPersona}
+                  resident={selectedResident}
+                  section={section}
+                  showBackButton={!shellFrame && isSinglePaneLibrary}
+                />
+              )}
             </div>
           ) : (
             <div

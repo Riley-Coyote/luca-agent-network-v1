@@ -1,0 +1,662 @@
+/* ── a mind's own space (SHELL_BUILD.md WP-13; NAVIGATION.md) ─────────
+ * Where you raise them. One reading column (the place page's 640 axis):
+ * their mark and what they're doing now, then Notebook, Self, Settings.
+ * Type does the work: their own words largest, their days in one quiet
+ * stream, each entry's kind in small capitals at the left, its time at the
+ * right. Every value is the shell study's (shellStudy.css, "a mind's own
+ * space"); text is rem, so ⌘+ and ⌘− scale it. */
+
+.luca-mind-head {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-bottom: 20px;
+}
+
+/* Their mark on a 40 column: the specimen's box is larger than its body
+ * (it leaves room for its light), so it is centred on the column and
+ * allowed past it. */
+.luca-mind-mark {
+  display: grid;
+  height: 40px;
+  overflow: visible;
+  place-items: center;
+  width: 40px;
+}
+
+/* Measured: at 55 the body draws 40 × 39, its centre 7 right of and 9
+ * below the box's; brought back onto the column's centre. */
+.luca-mind-mark > .agent-identity-specimen {
+  flex: none;
+  translate: -7px -9px;
+}
+
+/* One not yet set up: the roster's mark for it, its initial in a dashed
+ * square. */
+.luca-mind-initial {
+  align-items: center;
+  border: 1px dashed hsl(var(--mn-ink) / 0.25);
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.luca-mind-who {
+  min-width: 0;
+}
+
+.luca-mind-who .luca-place-page-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-mind-now {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 7px;
+  margin-top: 3px;
+}
+
+.luca-mind-now[data-working]::before {
+  animation: luca-mind-breathe 2.4s ease-in-out infinite;
+  background: hsl(var(--mn-ink));
+  border-radius: 50%;
+  content: "";
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+@keyframes luca-mind-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* One solid button, never an outline: talk to them. */
+.luca-mind-talk {
+  align-items: center;
+  background: hsl(var(--mn-ink));
+  border-radius: 9px;
+  color: hsl(var(--mn-surface));
+  display: inline-flex;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  transition: opacity 120ms;
+  white-space: nowrap;
+}
+
+.luca-mind-talk:hover:not(:disabled) {
+  opacity: 0.86;
+}
+
+.luca-mind-talk:disabled {
+  opacity: 0.5;
+}
+
+.luca-mind-talk svg {
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+.luca-mind-talk:focus-visible,
+.luca-mind-tab:focus-visible,
+.luca-mind-filter:focus-visible,
+.luca-mind-action:focus-visible,
+.luca-mind-entry-open:focus-visible,
+.luca-mind-made:focus-visible,
+.luca-mind-piece:focus-visible,
+.luca-mind-row-open:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 3px;
+}
+
+.luca-mind-tabs {
+  border-bottom: 1px solid hsl(var(--mn-ink) / 0.08);
+  display: flex;
+  gap: 22px;
+}
+
+.luca-mind-tab {
+  border-radius: 4px 4px 0 0;
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.84375rem;
+  padding: 0 0 9px;
+  transition: color 120ms;
+}
+
+.luca-mind-tab:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mind-tab[data-selected] {
+  box-shadow: inset 0 -1px 0 hsl(var(--mn-ink));
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mind-body {
+  padding-top: 24px;
+}
+
+.luca-mind-notebook {
+  display: grid;
+  gap: 22px;
+}
+
+/* Their own words: the largest type in the space. */
+.luca-mind-own {
+  display: grid;
+  gap: 12px;
+}
+
+.luca-mind-words {
+  align-items: center;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0;
+}
+
+.luca-mind-words blockquote {
+  color: hsl(var(--mn-ink));
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+  white-space: pre-wrap;
+}
+
+.luca-mind-words figcaption {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.luca-mind-piece {
+  border-radius: 6px;
+  display: block;
+}
+
+.luca-mind-own-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  justify-content: space-between;
+}
+
+.luca-mind-switch {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: inline-flex;
+  font-size: 0.75rem;
+  gap: 10px;
+}
+
+/* On is a quiet tone, never solid ink: Talk is the one solid shape here. */
+.luca-mind [role="switch"][data-state="checked"] {
+  background: hsl(var(--mn-ink) / 0.28);
+}
+
+/* A quiet action: a word, lit on hover. */
+.luca-mind-action {
+  align-items: center;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.75rem;
+  gap: 5px;
+  list-style: none;
+  min-height: 1.5rem;
+  transition: color 120ms;
+}
+
+.luca-mind-action::-webkit-details-marker {
+  display: none;
+}
+
+.luca-mind-action:hover:not(:disabled) {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mind-action:disabled {
+  opacity: 0.5;
+}
+
+.luca-mind-action svg {
+  height: 0.75rem;
+  width: 0.75rem;
+}
+
+/* The filters' row: the filters at the left, today's notebook actions at
+ * its end, on one line. */
+.luca-mind-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.luca-mind-actions {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  margin-left: auto;
+}
+
+.luca-mind-handoff-body {
+  margin: -8px 0 22px;
+}
+
+/* What they're asking you: the study's one line each, its kind, the
+ * question, and Answer in the faint fill. Answer opens today's card in
+ * place under the line. */
+.luca-mind-asks {
+  display: grid;
+  gap: 10px;
+}
+
+.luca-mind-ask {
+  border: 1px solid hsl(var(--mn-ink) / 0.12);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.luca-mind-ask-line {
+  align-items: baseline;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+}
+
+.luca-mind-ask-line p {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.luca-mind-answer {
+  background: hsl(var(--mn-ink) / 0.08);
+  border-radius: 8px;
+  color: hsl(var(--mn-ink));
+  font-size: 0.78125rem;
+  padding: 4px 10px;
+  transition: background-color 120ms;
+}
+
+.luca-mind-answer:hover {
+  background: hsl(var(--mn-ink) / 0.12);
+}
+
+.luca-mind-answer:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
+.luca-mind-ask-card {
+  border-top: 1px solid hsl(var(--mn-ink) / 0.06);
+  margin: 12px 0 0 90px;
+  min-width: 0;
+  padding-top: 12px;
+}
+
+/* Today's card, answered in place, on the ask's one outline: its own
+ * border, fill and padding give way to the row's. */
+.luca-mind-ask-card > section {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.luca-mind-ask-card > section > :is(form, div):first-child {
+  padding: 0;
+}
+
+.luca-mind-filters {
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.luca-mind-filter {
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  transition:
+    color 120ms,
+    background-color 120ms;
+}
+
+.luca-mind-filter:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mind-filter[data-selected] {
+  background: hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mind-day + .luca-mind-day {
+  margin-top: 22px;
+}
+
+.luca-mind-day h2 {
+  color: hsl(var(--mn-ink-faint));
+  margin-bottom: 2px;
+}
+
+.luca-mind-day li,
+.luca-mind-list li {
+  border-top: 1px solid hsl(var(--mn-ink) / 0.06);
+}
+
+.luca-mind-day li {
+  align-items: baseline;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  padding: 11px 0;
+}
+
+.luca-mind-day li:first-child,
+.luca-mind-list li:first-child {
+  border-top: 0;
+}
+
+.luca-mind-kind {
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.59375rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.luca-mind-day li[data-kind="you"] .luca-mind-kind,
+.luca-mind-ask .luca-mind-kind {
+  color: hsl(var(--mn-ink-muted));
+}
+
+.luca-mind-entry {
+  min-width: 0;
+}
+
+.luca-mind-entry p {
+  overflow-wrap: anywhere;
+}
+
+.luca-mind-entry .luca-mind-line {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.luca-mind-entry-open {
+  border-radius: 4px;
+  display: block;
+  text-align: left;
+  width: 100%;
+}
+
+.luca-mind-entry-open:hover .luca-mind-line {
+  color: hsl(var(--mn-ink));
+}
+
+/* The journal speaks in italic: the page's own line, and its first lines,
+ * fainter; your note under it reads in your own, upright type. */
+.luca-mind-day li[data-kind="journal"] .luca-mind-line {
+  color: hsl(var(--mn-ink-muted));
+  font-style: italic;
+}
+
+.luca-mind-entry .luca-mind-page-lines {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.8125rem;
+  font-style: italic;
+  line-height: 1.45;
+  margin-top: 3px;
+}
+
+.luca-mind-entry .luca-mind-annotation {
+  border-left: 1px solid hsl(var(--mn-ink) / 0.14);
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.75rem;
+  font-style: normal;
+  margin-top: 6px;
+  padding-left: 8px;
+}
+
+.luca-mind-day time,
+.luca-mind-list time {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* What they made, as a picture of it. */
+.luca-mind-made {
+  align-items: center;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  display: inline-flex;
+  font-size: 0.75rem;
+  gap: 9px;
+  margin-top: 9px;
+  max-width: 100%;
+  text-align: left;
+  transition: color 120ms;
+}
+
+.luca-mind-entry > .luca-mind-made:first-child {
+  margin-top: 0;
+}
+
+.luca-mind-made:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mind-made > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-mind-thumb {
+  align-items: center;
+  background: hsl(var(--mn-ink) / 0.04);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.1);
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  flex: none;
+  height: 36px;
+  justify-content: center;
+  overflow: hidden;
+  width: 52px;
+}
+
+.luca-mind-piece .luca-mind-thumb {
+  height: 62px;
+  width: 90px;
+}
+
+.luca-mind-thumb img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.luca-mind-thumb svg {
+  height: 1rem;
+  width: 1rem;
+}
+
+.luca-mind-more {
+  display: flex;
+  justify-content: center;
+  min-height: 24px;
+  padding-top: 12px;
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-mind-more svg {
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+.luca-mind-quiet {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.luca-mind-error {
+  color: hsl(var(--destructive));
+  font-size: 0.8125rem;
+}
+
+.luca-mind-alert {
+  align-items: flex-start;
+  color: hsl(var(--destructive));
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.luca-mind-alert svg {
+  flex: none;
+  height: 1rem;
+  margin-top: 1px;
+  width: 1rem;
+}
+
+/* Self: who they are, and who writes each part. */
+.luca-mind-list {
+  display: grid;
+}
+
+.luca-mind-row-open,
+.luca-mind-list li[data-quiet] {
+  align-items: baseline;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 11px 0;
+  text-align: left;
+  width: 100%;
+}
+
+.luca-mind-row-open {
+  border-radius: 6px;
+}
+
+.luca-mind-row-open > span:first-child {
+  display: grid;
+  min-width: 0;
+}
+
+.luca-mind-title {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
+}
+
+.luca-mind-excerpt {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-mind-list li[data-quiet] .luca-mind-title,
+.luca-mind-list li[data-quiet] .luca-mind-excerpt {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-mind-row-open:hover .luca-mind-title {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mind-writer {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.78125rem;
+  white-space: nowrap;
+}
+
+/* Settings: one row per section, its title and its current value; a row
+ * opens today's controls beneath it. */
+.luca-mind-settings .luca-mind-row-open {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.luca-mind-value {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.78125rem;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-mind-setting {
+  scroll-margin-top: 12px;
+}
+
+.luca-mind-setting[data-open] .luca-mind-value {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-mind-setting-panel {
+  padding: 2px 0 20px;
+}
+
+/* What they can read: Brain's body, its cards at the space's sizes. */
+.luca-mind-read-bar {
+  margin-bottom: 4px;
+}
+
+.luca-mind-setting-panel [data-testid^="brain-card-"] {
+  border-radius: 10px;
+}
+
+.luca-mind-setting-panel [data-testid^="brain-card-"] h2 {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-mind-now[data-working]::before {
+    animation: none;
+  }
+}
