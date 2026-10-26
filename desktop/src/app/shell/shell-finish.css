@@ -204,19 +204,9 @@
 
 /* ── the companion ────────────────────────────────────────────────────
  * Its badge keeps its place, 6 under the lip (shell-edges.css). While it
- * shows, a day pill stuck at the card's top under it steps aside, and
- * comes back when the badge goes (CompanionAppControl marks it). In full
- * screen the window's corner is square, and so is the halo's. */
-:root[data-luca-frame] [data-testid="message-timeline-day-divider"] > p {
-  transition: opacity 160ms;
-}
-
-:root[data-luca-frame]
-  [data-testid="message-timeline-day-divider"][data-companion-aside]
-  > p {
-  opacity: 0;
-}
-
+ * shows, the conversation's reading area starts below it (MessageTimeline,
+ * WP-29), so nothing is drawn under it. In full screen the window's corner
+ * is square, and so is the halo's. */
 :root[data-luca-frame] .polyphonic-control-halo[data-fullscreen] {
   border-radius: 0;
 }
@@ -400,7 +390,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-frame] [data-quickchat] .qc-panel,
-  :root[data-luca-frame] [data-testid="message-timeline-day-divider"] > p,
   :root[data-luca-frame] .luca-huddle-band .buzz-huddle-drawer,
   :root[data-luca-frame] .luca-huddle-band .buzz-huddle-drawer > :first-child {
     transition: none;

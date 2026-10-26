@@ -1015,7 +1015,10 @@ async function holdCompanion(
   );
 }
 
-test("the companion's badge keeps its place and the stuck day pill steps aside; its halo goes square in full screen", async ({
+// WP-29 (SHELL_BUILD.md): while the companion's badge shows, the reading
+// area starts below it, so no message's words are ever under it, at rest or
+// scrolled, and the day stuck at the top sits below it.
+test("the companion's badge keeps its place with nothing under it, the stuck day below it; its halo goes square in full screen", async ({
   page,
 }) => {
   test.setTimeout(150_000);
@@ -1034,26 +1037,55 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
       ],
     } as Mock,
   });
+  // Enough of today's words that the room scrolls at both sizes.
+  await openRoute(page, GENERAL_ID, "general");
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName: "general",
+            }) ?? false,
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+  await page.evaluate(() => {
+    for (let i = 0; i < 24; i++)
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "general",
+        content: `Release note line ${i + 1}: what changed, and why it matters to the people reading it.`,
+      });
+  });
   await holdCompanion(page);
   // The surface request opens Settings; the conversation, with its day pill.
   await openRoute(page, GENERAL_ID, "general");
   await expect(
     page.getByTestId("message-timeline-day-divider").first(),
-  ).toBeVisible({ timeout: 15_000 });
+  ).toBeAttached({ timeout: 15_000 });
   await page.mouse.move(1200, 700);
   await settle(page);
-  // The badge at its place; the stuck pill under it steps aside; no
-  // message's words beneath the badge.
+  // The badge at its place; no message's words beneath it (what shows of
+  // them: clipped by what clips them); the day stuck at the top below it.
   const measure = () =>
     page.evaluate(() => {
       const badgeEl = document.querySelector(
         '[data-testid="app-control-badge"]',
       );
       const badge = badgeEl?.getBoundingClientRect();
-      const section = document.querySelector(
-        '[data-testid="message-timeline-day-divider"]',
-      ) as HTMLElement | null;
-      const pill = section?.firstElementChild as HTMLElement | null;
+      const shown = (el: Element) => {
+        for (let node: Element | null = el; node; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (
+            style.visibility === "hidden" ||
+            style.display === "none" ||
+            Number.parseFloat(style.opacity) === 0
+          )
+            return false;
+        }
+        return true;
+      };
       const covered: string[] = [];
       if (badge) {
         const card = document.querySelector(
@@ -1066,29 +1098,37 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
           const text = node.textContent?.trim();
           const parent = node.parentElement;
-          if (!text || !parent) continue;
-          if (parent.closest('[data-testid="message-timeline-day-divider"]'))
-            continue;
-          // Only words that show: no hidden or fully transparent ancestor
-          // (a message's hover toolbar waits at opacity 0).
-          let shown = true;
+          if (!text || !parent || !shown(parent)) continue;
+          let clip = {
+            bottom: Number.POSITIVE_INFINITY,
+            left: Number.NEGATIVE_INFINITY,
+            right: Number.POSITIVE_INFINITY,
+            top: Number.NEGATIVE_INFINITY,
+          };
           for (let el: Element | null = parent; el; el = el.parentElement) {
             const style = getComputedStyle(el);
-            if (
-              style.visibility === "hidden" ||
-              style.display === "none" ||
-              Number.parseFloat(style.opacity) === 0
-            ) {
-              shown = false;
-              break;
-            }
+            if (style.overflowX === "visible" && style.overflowY === "visible")
+              continue;
+            const r = el.getBoundingClientRect();
+            clip = {
+              bottom: Math.min(clip.bottom, r.bottom),
+              left: Math.max(clip.left, r.left),
+              right: Math.min(clip.right, r.right),
+              top: Math.max(clip.top, r.top),
+            };
           }
-          if (!shown) continue;
           const range = document.createRange();
           range.selectNodeContents(node);
-          for (const r of range.getClientRects()) {
+          for (const raw of range.getClientRects()) {
+            const r = {
+              bottom: Math.min(raw.bottom, clip.bottom),
+              left: Math.max(raw.left, clip.left),
+              right: Math.min(raw.right, clip.right),
+              top: Math.max(raw.top, clip.top),
+            };
             if (
-              r.width > 0 &&
+              r.right > r.left &&
+              r.bottom > r.top &&
               r.left < badge.right &&
               r.right > badge.left &&
               r.top < badge.bottom &&
@@ -1100,6 +1140,28 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
           }
         }
       }
+      // The day stuck at the top: the pill shown on the scroller's top line.
+      const scroller = document.querySelector<HTMLElement>(
+        '[data-buzz-conversation-scroll="true"]',
+      );
+      const line = scroller
+        ? scroller.getBoundingClientRect().top +
+          scroller.clientTop +
+          Number.parseFloat(getComputedStyle(scroller).paddingTop || "0")
+        : null;
+      const stuck = [
+        document.querySelector(
+          '[data-testid="message-timeline-stuck-day"] > p',
+        ),
+        ...document.querySelectorAll(
+          '[data-testid="message-timeline-day-divider"] > p',
+        ),
+      ]
+        .filter((el): el is Element => Boolean(el) && shown(el as Element))
+        .map((el) => el.getBoundingClientRect())
+        .find(
+          (r) => line !== null && r.height > 0 && Math.abs(r.top - line) <= 1.5,
+        );
       return {
         badge: badge
           ? {
@@ -1109,16 +1171,26 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
               right: badge.right,
             }
           : null,
-        pill: pill
-          ? {
-              top: pill.getBoundingClientRect().top,
-              aside: section?.hasAttribute("data-companion-aside") ?? false,
-              opacity: getComputedStyle(pill).opacity,
-            }
-          : null,
+        pill: stuck ? { top: stuck.top, bottom: stuck.bottom } : null,
         words_under_badge: covered,
       };
     });
+  const scrolledUp = async () => {
+    const viewport = await page
+      .locator("[data-luca-timeline-viewport]")
+      .boundingBox();
+    if (!viewport) return null;
+    await page.mouse.move(
+      viewport.x + viewport.width / 2,
+      viewport.y + viewport.height * 0.45,
+    );
+    await page.mouse.wheel(0, -260);
+    await page.waitForTimeout(900);
+    const read = await measure();
+    await page.mouse.wheel(0, 8000);
+    await page.waitForTimeout(600);
+    return read;
+  };
   await page.waitForTimeout(800);
   const at1440 = await measure();
   await shot(page, "13-companion-badge-1440", {
@@ -1127,23 +1199,34 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
     w: 1172,
     h: 220,
   });
+  const at1440Scrolled = await scrolledUp();
   await page.setViewportSize({ width: 800, height: 500 });
   await holdAgainIfGone(page);
+  if ((await page.getByTestId("shell-lip-name").textContent()) !== "general")
+    await openRoute(page, GENERAL_ID, "general");
   await page.waitForTimeout(1200);
   await settle(page);
   const at800 = await measure();
   await shot(page, "13-companion-badge-800x500");
+  const at800Scrolled = await scrolledUp();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(800);
-  const placed = (m: Awaited<ReturnType<typeof measure>>) =>
+  const placed = (m: Awaited<ReturnType<typeof measure>> | null) =>
+    m !== null &&
     m.badge?.top === 42 &&
-    m.pill?.aside === true &&
-    m.pill.opacity === "0" &&
-    m.words_under_badge.length === 0;
+    m.words_under_badge.length === 0 &&
+    m.pill !== null &&
+    m.pill.top >= m.badge.bottom;
   checks.companion_badge = {
     "1440x900": at1440,
+    "1440x900 scrolled": at1440Scrolled,
     "800x500": at800,
-    ok: placed(at1440) && placed(at800),
+    "800x500 scrolled": at800Scrolled,
+    ok:
+      placed(at1440) &&
+      placed(at1440Scrolled) &&
+      placed(at800) &&
+      placed(at800Scrolled),
   };
 
   // Full screen under Black: the halo's corner is the window's, square.
@@ -1182,7 +1265,7 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
     w: 120,
     h: 120,
   });
-  // The badge goes: the pill comes back.
+  // The badge goes: the reading area returns, the day stuck at its top.
   await page.evaluate(() => {
     (window as unknown as { __FULLSCREEN__: boolean }).__FULLSCREEN__ = false;
   });
@@ -1192,23 +1275,35 @@ test("the companion's badge keeps its place and the stuck day pill steps aside; 
     timeout: 10_000,
   });
   await page.waitForTimeout(400);
-  // The pill fades back in: let its fade finish before reading it.
   await settle(page);
   const back = await page.evaluate(() => {
-    const section = document.querySelector(
-      '[data-testid="message-timeline-day-divider"]',
+    const lip = document
+      .querySelector('[data-testid="shell-lip"]')
+      ?.getBoundingClientRect();
+    const viewport = document.querySelector<HTMLElement>(
+      "[data-luca-timeline-viewport]",
     );
-    const pill = section?.firstElementChild;
+    const stand = document.querySelector(
+      '[data-testid="message-timeline-stuck-day"]',
+    );
+    const pill = stand?.hasAttribute("data-shown")
+      ? stand.firstElementChild?.getBoundingClientRect()
+      : document
+          .querySelector('[data-testid="message-timeline-day-divider"] > p')
+          ?.getBoundingClientRect();
     return {
-      aside: section?.hasAttribute("data-companion-aside") ?? null,
-      opacity: pill ? getComputedStyle(pill).opacity : null,
+      area_top: viewport?.style.top ?? null,
+      pill_top: pill?.top ?? null,
+      lip_bottom: lip?.bottom ?? null,
     };
   });
   (checks.companion_badge as Record<string, unknown>).after_badge_goes = back;
   (checks.companion_badge as { ok: boolean }).ok =
     (checks.companion_badge as { ok: boolean }).ok &&
-    back.aside === false &&
-    back.opacity === "1";
+    back.area_top === "" &&
+    back.pill_top !== null &&
+    back.lip_bottom !== null &&
+    back.pill_top >= back.lip_bottom;
   await shot(page, "13-companion-gone-pill-back", {
     x: 268,
     y: 0,

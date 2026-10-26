@@ -19,6 +19,7 @@ import type { ChannelWindowThreadSummary } from "@/features/messages/lib/channel
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ChannelType } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { formatDayHeading } from "@/features/messages/lib/dateFormatters";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { channelChrome } from "@/shared/layout/chromeLayout";
 import { Spinner } from "@/shared/ui/spinner";
@@ -43,6 +44,22 @@ function newResponseLabel(count: number): string {
 export type MessageTimelineHandle = {
   scrollToBottomOnNextUpdate: () => void;
 };
+
+/** The page's gap between the companion's badge and the reading area under
+ *  the shell (WP-29), as the room's stack keeps from the card's top. */
+const TIMELINE_TOP_GAP = 12;
+/** The room the next day's pill keeps above it as it pushes the stuck one
+ *  up (WP-29). */
+const STUCK_DAY_PUSH_GAP = 6;
+/** Under the shell, what floats at the timeline's top starts where its
+ *  reading area does: below the companion's badge while it shows (WP-29). */
+const TIMELINE_TOP_STYLE: React.CSSProperties = {
+  top: "calc(var(--luca-timeline-top-inset, 0px) + var(--buzz-channel-content-top-padding, 5.75rem))",
+};
+/** The reading area's top edge while it starts below the badge: the words
+ *  fade out over the scroller's top padding (the card's top veil's ramp). */
+const TIMELINE_TOP_FADE =
+  "linear-gradient(to bottom, transparent, #000 var(--buzz-channel-content-top-padding, 22px))";
 
 type MessageTimelineProps = {
   channelId?: string | null;
@@ -580,6 +597,140 @@ const MessageTimelineBase = React.forwardRef<
     holdBottomSoonRef.current();
   }, [renderedMessages]);
 
+  // ── the timeline's top edge, under the shell (SHELL_BUILD.md WP-29) ──
+  // The day you're reading always shows, just inside the card's top: a
+  // virtualized list can't keep one day's pill stuck across that day's rows
+  // (each pill sticks only inside its own row), so once a day's own pill has
+  // gone up past the line, this one stands in for it there, and the passed
+  // one hides. While the companion's badge shows over the conversation, the
+  // reading area starts below it, by the page's gap, so nothing is ever
+  // under the badge; the stuck pill sits below it. When the badge goes, the
+  // area returns, and the bottom-hold keeps the newest message in place.
+  const timelineRootRef = React.useRef<HTMLDivElement>(null);
+  const stuckDayRef = React.useRef<HTMLDivElement>(null);
+  const messageTimesRef = React.useRef(new Map<string, number>());
+  messageTimesRef.current = React.useMemo(
+    () =>
+      new Map(
+        renderedMessages.map((message) => [message.id, message.createdAt]),
+      ),
+    [renderedMessages],
+  );
+  const placeTopEdgeRef = React.useRef<() => void>(() => {});
+  React.useEffect(() => {
+    const scroller = virtualizerScrollParent;
+    const root = timelineRootRef.current;
+    const stuck = stuckDayRef.current;
+    const viewport = scrollContainerRef.current;
+    if (!shellFrame || !scroller || !root || !stuck || !viewport) return;
+    const label = stuck.firstElementChild as HTMLElement | null;
+    let frame = 0;
+    const place = () => {
+      frame = 0;
+      const rootBox = root.getBoundingClientRect();
+      // The badge: the reading area starts the page's gap below it.
+      const badge = document
+        .querySelector(".polyphonic-control-badge")
+        ?.getBoundingClientRect();
+      const inset =
+        badge &&
+        badge.left < rootBox.right &&
+        badge.right > rootBox.left &&
+        badge.bottom > rootBox.top
+          ? Math.ceil(badge.bottom - rootBox.top + TIMELINE_TOP_GAP)
+          : 0;
+      const top = inset > 0 ? `${inset}px` : "";
+      if (viewport.style.top !== top) {
+        viewport.style.top = top;
+        if (inset > 0) root.style.setProperty("--luca-timeline-top-inset", top);
+        else root.style.removeProperty("--luca-timeline-top-inset");
+        // Its new top edge fades over the scroller's top padding, as the
+        // card's top veil does where the badge isn't.
+        const fade = inset > 0 ? TIMELINE_TOP_FADE : "";
+        viewport.style.maskImage = fade;
+        viewport.style.setProperty("-webkit-mask-image", fade);
+      }
+      // The line a stuck pill sits on: the scroller's padding edge.
+      const box = scroller.getBoundingClientRect();
+      const line =
+        box.top +
+        scroller.clientTop +
+        Number.parseFloat(getComputedStyle(scroller).paddingTop || "0");
+      // The day of the first row read below the line.
+      let first: { top: number; time: number } | null = null;
+      for (const row of scroller.querySelectorAll<HTMLElement>(
+        "[data-message-id]",
+      )) {
+        const time = messageTimesRef.current.get(row.dataset.messageId ?? "");
+        if (time === undefined) continue;
+        const r = row.getBoundingClientRect();
+        if (r.height === 0 || r.bottom <= line + 1 || r.top >= box.bottom)
+          continue;
+        if (!first || r.top < first.top) first = { top: r.top, time };
+      }
+      const day = first ? formatDayHeading(first.time) : null;
+      // Each day's own pill: hidden once it has gone up past the line; one
+      // standing on the line is the stuck pill itself. The next day's pill,
+      // coming up from below, pushes the stand-in up ahead of it (clipped at
+      // the card's top), so the two never overlap and the line is never
+      // empty while that day is read.
+      let own: "passed" | "here" | "below" | null = null;
+      let incoming = Number.POSITIVE_INFINITY;
+      const pillHeight = label?.offsetHeight || 26;
+      for (const divider of scroller.querySelectorAll<HTMLElement>(
+        '[data-testid="message-timeline-day-divider"]',
+      )) {
+        const pill = divider.firstElementChild?.getBoundingClientRect();
+        if (!pill) continue;
+        const passed = pill.top < line - 0.5;
+        divider.toggleAttribute("data-day-passed", passed);
+        if (!passed && pill.top > line + 0.5)
+          incoming = Math.min(incoming, pill.top);
+        if (divider.dataset.dayLabel === day)
+          own = passed ? "passed" : pill.top <= line + 0.5 ? "here" : "below";
+      }
+      const show = day !== null && (own === null || own === "passed");
+      stuck.toggleAttribute("data-shown", show);
+      if (label && day !== null && label.textContent !== day)
+        label.textContent = day;
+      const at = Math.min(line, incoming - pillHeight - STUCK_DAY_PUSH_GAP);
+      stuck.style.top = `${at - rootBox.top}px`;
+      stuck.style.left = `${box.left + scroller.clientLeft - rootBox.left}px`;
+      stuck.style.width = `${scroller.clientWidth}px`;
+    };
+    const schedule = () => {
+      if (!frame) frame = window.requestAnimationFrame(place);
+    };
+    placeTopEdgeRef.current = schedule;
+    const sizes = new ResizeObserver(schedule);
+    sizes.observe(root);
+    sizes.observe(scroller);
+    // The badge comes and goes as a child of the body (a portal).
+    const portals = new MutationObserver(schedule);
+    portals.observe(document.body, { childList: true });
+    scroller.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    place();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      placeTopEdgeRef.current = () => {};
+      sizes.disconnect();
+      portals.disconnect();
+      scroller.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      viewport.style.top = "";
+      root.style.removeProperty("--luca-timeline-top-inset");
+      viewport.style.maskImage = "";
+      viewport.style.removeProperty("-webkit-mask-image");
+      for (const divider of scroller.querySelectorAll("[data-day-passed]"))
+        divider.removeAttribute("data-day-passed");
+    };
+  }, [scrollContainerRef, shellFrame, virtualizerScrollParent]);
+  React.useEffect(() => {
+    void renderedMessages;
+    placeTopEdgeRef.current();
+  }, [renderedMessages]);
+
   const timelineIntroSurface = selectTimelineIntroSurface({
     hasChannelIntro: channelIntro !== null && directMessageIntro === null,
     hasDirectMessageIntro: directMessageIntro !== null,
@@ -923,6 +1074,7 @@ const MessageTimelineBase = React.forwardRef<
       <div
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         data-focused-view={focusedView ? "" : undefined}
+        ref={timelineRootRef}
       >
         {/* Under everything else in the timeline: the water paints first. */}
         <AnimatePresence>
@@ -935,9 +1087,12 @@ const MessageTimelineBase = React.forwardRef<
           <div
             className={cn(
               "pointer-events-none absolute inset-x-0 z-30 flex justify-center px-4",
-              focusedView ? "translate-y-9" : "translate-y-3",
+              // Under the shell, below the day stuck at the top, never on it
+              // (WP-29), as the focused view has always placed it.
+              focusedView || shellFrame ? "translate-y-9" : "translate-y-3",
               channelChrome.top,
             )}
+            style={shellFrame ? TIMELINE_TOP_STYLE : undefined}
           >
             <UnreadPill
               direction="up"
@@ -959,6 +1114,7 @@ const MessageTimelineBase = React.forwardRef<
               channelChrome.top,
             )}
             data-testid="message-timeline-fetching-older"
+            style={shellFrame ? TIMELINE_TOP_STYLE : undefined}
           >
             <span className="flex items-center rounded-full bg-background/80 p-1.5 shadow-sm ring-1 ring-border/40 backdrop-blur-sm">
               <Spinner className="h-4 w-4 border-2 text-muted-foreground" />
@@ -1066,6 +1222,21 @@ const MessageTimelineBase = React.forwardRef<
           )}
         </div>
 
+        {shellFrame ? (
+          // The day you're reading, stuck at the card's top once its own
+          // pill has gone up past it (WP-29); placed and named by the
+          // top-edge effect above, drawn as DayDivider draws its pill.
+          <div
+            aria-hidden
+            className="pointer-events-none absolute z-20 hidden justify-center px-2 data-[shown]:flex"
+            data-testid="message-timeline-stuck-day"
+            ref={stuckDayRef}
+          >
+            {/* The pill itself takes the pointer, as a solid thing over
+                the words would: nothing under it is readable anyway. */}
+            <p className="pointer-events-auto relative z-10 shrink-0 rounded-full border border-border/70 bg-background px-2.5 py-1 type-eyebrow text-ink-faint" />
+          </div>
+        ) : null}
         {!isAtBottom ? (
           <div
             className={cn(
