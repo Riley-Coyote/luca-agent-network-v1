@@ -483,6 +483,103 @@ const MessageTimelineBase = React.forwardRef<
     [onVirtualizerAtBottomStateChange, queueSemanticBottom],
   );
 
+  // Under the shell, a room opens on its newest message and stays on it
+  // until the owner moves (SHELL_BUILD.md WP-27, Decided 1): its stack
+  // arrives, grows and folds after the first paint, and rows land late, above
+  // as well as below; Virtua keeps the top row still for rows that land
+  // above. So while the owner hasn't scrolled away, any change in the list's
+  // size or the space under it is met at the bottom. Scrolling up lets go;
+  // reaching the bottom again takes hold. A room opened on a message, or a
+  // jump to one, starts let go.
+  const holdBottomRef = React.useRef(!targetMessageId);
+  const holdBottomForRef = React.useRef(channelId);
+  if (holdBottomForRef.current !== channelId) {
+    holdBottomForRef.current = channelId;
+    holdBottomRef.current = !targetMessageId;
+  }
+  if (targetMessageId) holdBottomRef.current = false;
+  // Each change asks for the bottom over the next frames, until the list has
+  // settled there: Virtua measures new rows a frame or two after they commit.
+  // Nothing here observes Virtua's own nodes, which it resizes inside its
+  // ResizeObserver callback (WebKit then reports a loop).
+  const holdBottomSoonRef = React.useRef<() => void>(() => {});
+  React.useEffect(() => {
+    const scroller = virtualizerScrollParent;
+    if (!shellFrame || !scroller || typeof ResizeObserver === "undefined")
+      return;
+    let moved = false;
+    let frame = 0;
+    let frames = 0;
+    let still = 0;
+    const fromBottom = () =>
+      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    const step = () => {
+      frame = 0;
+      if (!holdBottomRef.current) return;
+      if (fromBottom() > 1) {
+        still = 0;
+        if (timelineVirtualizerApi)
+          timelineVirtualizerApi.scrollToBottom("auto");
+        else scroller.scrollTop = scroller.scrollHeight;
+      } else still += 1;
+      frames += 1;
+      if (still < 4 && frames < 40) frame = window.requestAnimationFrame(step);
+    };
+    const hold = () => {
+      frames = 0;
+      still = 0;
+      if (!frame) frame = window.requestAnimationFrame(step);
+    };
+    holdBottomSoonRef.current = hold;
+    // Only a move away from the bottom lets go: a wheel or drag upwards, a
+    // key that scrolls up, a press on the scrollbar. A click on a message
+    // does not.
+    const letGo = (event: Event) => {
+      const up =
+        event instanceof WheelEvent
+          ? event.deltaY < 0
+          : event instanceof KeyboardEvent
+            ? ["ArrowUp", "Home", "PageUp"].includes(event.key)
+            : event instanceof PointerEvent
+              ? event.offsetX > scroller.clientWidth
+              : true;
+      if (!up) return;
+      moved = true;
+      holdBottomRef.current = false;
+    };
+    const onScroll = () => {
+      if (moved && fromBottom() <= 2) {
+        moved = false;
+        holdBottomRef.current = true;
+      }
+    };
+    // The room's own size, and the stack under it (the composer's overlay):
+    // neither is Virtua's.
+    const sizes = new ResizeObserver(hold);
+    sizes.observe(scroller);
+    const overlay = scroller
+      .closest('[data-testid="channel-drop-zone"]')
+      ?.querySelector('[data-testid="channel-composer-overlay"]');
+    if (overlay) sizes.observe(overlay);
+    const inputs = ["wheel", "touchmove", "pointerdown", "keydown"] as const;
+    for (const name of inputs)
+      scroller.addEventListener(name, letGo, { passive: true });
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    hold();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      holdBottomSoonRef.current = () => {};
+      sizes.disconnect();
+      for (const name of inputs) scroller.removeEventListener(name, letGo);
+      scroller.removeEventListener("scroll", onScroll);
+    };
+  }, [shellFrame, timelineVirtualizerApi, virtualizerScrollParent]);
+  // Rows that land, wherever they sort.
+  React.useEffect(() => {
+    void renderedMessages;
+    holdBottomSoonRef.current();
+  }, [renderedMessages]);
+
   const timelineIntroSurface = selectTimelineIntroSurface({
     hasChannelIntro: channelIntro !== null && directMessageIntro === null,
     hasDirectMessageIntro: directMessageIntro !== null,
@@ -575,6 +672,7 @@ const MessageTimelineBase = React.forwardRef<
   // `scrollToMessage` always finds the target row. No virtualizer convergence.
   const jumpToMessage = React.useCallback(
     (messageId: string, options?: { behavior?: ScrollBehavior }) => {
+      holdBottomRef.current = false;
       return scrollToMessage(messageId, { highlight: true, ...options });
     },
     [scrollToMessage],
