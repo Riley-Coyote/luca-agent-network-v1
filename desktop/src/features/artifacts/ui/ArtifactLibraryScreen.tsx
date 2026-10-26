@@ -198,7 +198,20 @@ export function ArtifactLibraryScreen() {
               ) : null}
               {!library.isLoading &&
               !library.isError &&
-              artifacts.length === 0 ? (
+              artifacts.length === 0 &&
+              deletedState === "deleted" &&
+              !deferredQuery ? (
+                // Nothing in Recently deleted (its last piece restored, say):
+                // said plainly, with nothing to clear.
+                <p
+                  className="luca-place-page-line"
+                  data-testid="library-deleted-empty"
+                >
+                  Nothing recently deleted.
+                </p>
+              ) : !library.isLoading &&
+                !library.isError &&
+                artifacts.length === 0 ? (
                 deferredQuery ||
                 filter !== "all" ||
                 deletedState === "deleted" ? (

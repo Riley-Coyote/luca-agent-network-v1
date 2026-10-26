@@ -1092,7 +1092,10 @@ test("an emptied pick stays; no Luca, no pick", async ({ page }) => {
     hash: await hashOf(page),
     row: await activeRow(page),
     lip: await page.getByTestId("shell-lip-name").innerText(),
-    words: await page.locator(".artifact-library-state").innerText(),
+    words: await page.getByTestId("library-deleted-empty").innerText(),
+    clearFilters: await page
+      .getByRole("button", { name: "Clear filters" })
+      .count(),
   };
   await fixShot(page, "library-deleted-emptied");
   await pick(page, "made:all");
