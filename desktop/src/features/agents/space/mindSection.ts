@@ -9,3 +9,24 @@ export function mindSectionOf(section: string | null | undefined): MindSection {
     return "self";
   return "notebook";
 }
+
+/** The rows of a mind's Settings a way in may name (WP-26, Decided 4). */
+export type MindSettingsAt = "read" | "runtime" | "permissions";
+
+export function parseMindSettingsAt(
+  value: unknown,
+): MindSettingsAt | undefined {
+  return value === "read" || value === "runtime" || value === "permissions"
+    ? value
+    : undefined;
+}
+
+/** Settings > Agents' old detail tabs, still sent by ways in (an agent asking
+ *  to show its runtime or its access), read onto the row that now holds them. */
+export function mindSettingsAtOfTab(
+  tab: string | null | undefined,
+): MindSettingsAt | undefined {
+  if (tab === "runtime") return "runtime";
+  if (tab === "capabilities") return "permissions";
+  return undefined;
+}

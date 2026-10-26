@@ -801,6 +801,7 @@ export function UserProfilePanel({
           ? "flex flex-col overflow-hidden"
           : "overflow-y-auto",
       )}
+      data-luca-right-scroll=""
     >
       {view === "summary" && onBackToConversation ? (
         <ConversationDrawerNavigation

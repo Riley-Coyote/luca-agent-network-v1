@@ -735,6 +735,7 @@ function ChannelManagementPanelContent({
           "overflow-y-auto overflow-x-hidden overscroll-contain bg-background px-4 [overflow-anchor:none]",
           showModerationActions ? "pb-20" : "pb-8",
         )}
+        data-luca-right-scroll={mode === "panel" ? undefined : ""}
         mode={mode}
         panelPadding
         ref={scrollRef}

@@ -7,6 +7,10 @@ import {
   type ProfilePanelTab,
   type ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanelUtils";
+import {
+  parseMindSettingsAt,
+  type MindSettingsAt,
+} from "@/features/agents/space/mindSection";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 type AgentsRouteSearch = {
@@ -20,8 +24,13 @@ type AgentsRouteSearch = {
   profileTab?: ProfilePanelTab;
   profileView?: ProfilePanelView;
   review?: "native";
-  /** Under the shell: a mind's space opened at What they can read (`/brain`). */
-  at?: "read";
+  /**
+   * Under the shell: the row of a mind's Settings a way in names, opened, in
+   * view and lit (WP-26, Decided 4): What they can read (`/brain`), their
+   * connected app and model (an agent showing its runtime), or their
+   * permissions (an agent asking for access).
+   */
+  at?: MindSettingsAt;
   /** A mind's tab. Under the shell: notebook, self or settings (WP-13). */
   section?: "place" | "documents" | "notebook" | "self" | "settings";
 };
@@ -44,7 +53,7 @@ function validateAgentsSearch(
   return {
     add:
       search.add === "agent" || search.add === "group" ? search.add : undefined,
-    at: search.at === "read" ? "read" : undefined,
+    at: parseMindSettingsAt(search.at),
     connected: nonEmptyString(search.connected),
     group: nonEmptyString(search.group),
     profile: nonEmptyString(search.profile),

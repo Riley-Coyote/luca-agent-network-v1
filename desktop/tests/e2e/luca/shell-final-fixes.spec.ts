@@ -15,7 +15,8 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
  * the rail's more-unread pill says "N unread" (d4), the places column
  * survives Settings without a focus hand-over (d5), Defaults says
  * "Polyphonic runtime" (d6), a mind's Notebook holds its proposals (d7),
- * the details card keeps the Quick Chat column clear (d9), the default
+ * the details card keeps Quick Chat clear at its foot (d9, as WP-26
+ * Decided 2 has it), the default
  * runtime picker reads by day (d10). d3 and d8 moved to WP-24 and WP-23.
  * Flag off, the same views match the base build by hash.
  *
@@ -690,7 +691,9 @@ test("d7 every mind's asks in its Notebook, Luca's proposal too", async ({
 });
 
 // ── d9 · Quick Chat never covers the details card ──────────────────────
-test("d9 the details card keeps the launcher's column clear", async ({
+// WP-26 Decided 2 replaced the gutter down the card's side: the card keeps
+// its full width, and its content scrolls clear of the launcher at its foot.
+test("d9 the details card keeps the launcher clear at its foot", async ({
   browser,
 }) => {
   test.setTimeout(180_000);
@@ -711,7 +714,7 @@ test("d9 the details card keeps the launcher's column clear", async ({
       await expect(panel).toBeVisible({ timeout: 10_000 });
       await page.waitForTimeout(600);
       await waitForAnimations(page);
-      const reading = await page.evaluate(() => {
+      const reading = await page.evaluate(async () => {
         const launcher = document
           .querySelector(".qc-launcher")
           ?.getBoundingClientRect();
@@ -719,22 +722,37 @@ test("d9 the details card keeps the launcher's column clear", async ({
           "[data-luca-details-body]",
         );
         if (!launcher || !body) return null;
-        // Everything drawn in the body: its text and its plates.
-        const reach = Array.from(body.querySelectorAll<HTMLElement>("*"))
+        // Long content: a spacer at the top, so its last item scrolls.
+        const spacer = document.createElement("div");
+        spacer.style.height = "1600px";
+        body.prepend(spacer);
+        body.scrollTop = body.scrollHeight;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const drawn = Array.from(body.querySelectorAll<HTMLElement>("*"))
+          .filter((el) => el !== spacer)
           .map((el) => el.getBoundingClientRect())
-          .filter((r) => r.width > 0 && r.height > 0)
-          .reduce((max, r) => Math.max(max, r.right), 0);
+          .filter((r) => r.width > 0 && r.height > 0);
+        const lowest = drawn.reduce((max, r) => Math.max(max, r.bottom), 0);
+        const style = getComputedStyle(body);
         const b = body.getBoundingClientRect();
+        spacer.remove();
         return {
-          launcherLeft: Math.round(launcher.left),
-          bodyRight: Math.round(b.right),
-          contentRight: Math.round(reach),
-          clearance: Math.round(launcher.left - reach),
+          launcherTop: Math.round(launcher.top),
+          contentBottom: Math.round(lowest),
+          clearance: Math.round(launcher.top - lowest),
+          // The text keeps the card's width: only the 16 of each side.
+          textWidth: Math.round(
+            body.clientWidth -
+              Number.parseFloat(style.paddingLeft) -
+              Number.parseFloat(style.paddingRight),
+          ),
+          bodyWidth: Math.round(b.width),
         };
       });
       out[`${size.width}-${mode}`] = reading;
       expect(reading).not.toBeNull();
       expect(reading?.clearance ?? -1).toBeGreaterThanOrEqual(8);
+      expect(reading?.textWidth ?? 0).toBe((reading?.bodyWidth ?? 0) - 32);
       if (mode === "dark" || size.width === 800) {
         out[`${size.width}-${mode}-shot`] = (
           await shoot(page, `d9-${size.width}-${mode}-details`)

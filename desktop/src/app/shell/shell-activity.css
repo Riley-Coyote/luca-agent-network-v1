@@ -211,33 +211,6 @@
   }
 }
 
-/* ── a room's waiting cards, held while one exchange is focused ──────
- * One quiet line where the stack stood (ChannelPane.tsx): what waits, and
- * Show. The plate and hairline of the exchange strip; no fill, no accent. */
-.luca-pending-held {
-  align-items: center;
-  background: hsl(var(--mn-ink) / 0.04);
-  border-radius: 10px;
-  color: hsl(var(--mn-ink-muted));
-  display: flex;
-  font-size: 0.8125rem;
-  gap: 12px;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  padding: 8px 12px;
-  transition: color 120ms;
-  width: 100%;
-}
-
-.luca-pending-held:hover {
-  color: hsl(var(--mn-ink));
-}
-
-.luca-pending-held-show {
-  color: hsl(var(--mn-ink-faint));
-  flex: none;
-}
-
 .luca-measure[hidden] {
   display: none;
 }
@@ -292,32 +265,6 @@
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
-}
-
-/* ── the conversation's own asks (WP-16, Decided 2) ───────────────────
- * The same rows as Needs you's, in the room's pending stack: in the
- * fold's own plate (conversationAgentActivityShelf.css), or, for a
- * proposal, on a plate of its own over the conversation, the fold's
- * raised surface without its outline. */
-.luca-ask-stack {
-  background: hsl(var(--mn-raised));
-  border-radius: 16px;
-  box-shadow: 0 18px 48px rgb(0 0 0 / 0.24);
-  margin-bottom: 8px;
-  /* The fold's own reach (conversationAgentActivityShelf.css): a long form
-   * opened under the row scrolls inside the plate, never off the window. */
-  max-height: min(40vh, 28rem);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 4px 18px;
-}
-
-/* The ask's words on the same inset in both: 18 from the plate's edge. The
- * rows have no fill of their own, so the fold's list is solid beneath them:
- * nothing of the conversation shows through the words. */
-.luca-work-tray__permissions .luca-ask-list {
-  background: hsl(var(--mn-raised));
-  padding: 0 8px;
 }
 
 /* The long forms an ask opens (a question's fields, a proposal's details)

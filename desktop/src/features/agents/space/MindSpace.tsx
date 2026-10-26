@@ -23,7 +23,7 @@ import {
 } from "@/features/agents/ui/AgentLibraryWorkspace";
 import type { ResidentSummaryViewModel } from "@/features/agents/ui/agentLibraryViewModel";
 import { MindNotebook } from "./MindNotebook";
-import type { MindSection } from "./mindSection";
+import type { MindSection, MindSettingsAt } from "./mindSection";
 
 /** The specimen's box, for a 40 body: it draws its body at 29 of 40. */
 const MARK_SIZE = 55;
@@ -45,13 +45,13 @@ export function MindSpace({
   actionErrorMessage,
   actionNoticeMessage,
   channels,
-  focusRead,
+  focusAt,
   isActionPending,
   managedAgent,
   onEdit,
   onMessage,
   onOpenChannel,
-  onReadFocused,
+  onFocusAtConsumed,
   onRestart,
   onSectionChange,
   onStart,
@@ -65,13 +65,13 @@ export function MindSpace({
   actionNoticeMessage: string | null;
   channels: Array<{ id: string; name: string }>;
   /** Open on What they can read (`/brain`'s landing). */
-  focusRead: boolean;
+  focusAt: MindSettingsAt | null;
   isActionPending: boolean;
   managedAgent: ManagedAgent | null;
   onEdit: () => void;
   onMessage: () => void;
   onOpenChannel: (channelId: string) => void;
-  onReadFocused: () => void;
+  onFocusAtConsumed: () => void;
   onRestart: () => void;
   onSectionChange: (section: MindSection) => void;
   onStart: () => void;
@@ -188,14 +188,14 @@ export function MindSpace({
           ) : (
             <SettingsSection
               channels={channels}
-              focusRead={focusRead}
+              focusAt={focusAt}
               isActionPending={isActionPending}
               layout="space"
               managedAgent={managedAgent}
               onEdit={onEdit}
               onOpenChannel={onOpenChannel}
               onOpenLogs={() => setLogsOpen(true)}
-              onReadFocused={onReadFocused}
+              onFocusAtConsumed={onFocusAtConsumed}
               onRestart={onRestart}
               onStart={onStart}
               onStop={onStop}
