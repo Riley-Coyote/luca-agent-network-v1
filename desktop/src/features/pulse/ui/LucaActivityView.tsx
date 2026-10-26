@@ -180,11 +180,15 @@ function idleDetail(resident: ActivityResident) {
 
 function ResidentActivityCard({
   flat,
+  inSideConversation = false,
   resident,
 }: {
   /** Under the shell: the study's flat stream, a row of who, what they're
    *  doing and when, Open activity a quiet action on it (WP-10). */
   flat: boolean;
+  /** Already listed as active by a live side conversation (WP-14 recheck):
+   *  not listed again lower down. */
+  inSideConversation?: boolean;
   resident: ActivityResident;
 }) {
   const working = useAgentWorking(resident.pubkey);
@@ -216,6 +220,8 @@ function ResidentActivityCard({
     : activity
       ? "recent"
       : "idle";
+
+  if (flat && inSideConversation && activityGroup !== "active") return null;
 
   if (flat) {
     return (
@@ -543,6 +549,20 @@ export function LucaActivityView({
   const loading = managedQuery.isLoading || relayQuery.isLoading;
   const error = managedQuery.error ?? relayQuery.error;
   const flat = useShellFrameEnabled();
+  // Who the live side conversations already list as active, by the name
+  // their row says (the one asking, or the one running the task).
+  const side = useSideConversations();
+  const sideActive = React.useMemo(
+    () =>
+      new Set(
+        side.items
+          .filter((item) => item.live)
+          .map((item) =>
+            item.kind === "task" ? item.residentPubkey : item.openedBy,
+          ),
+      ),
+    [side.items],
+  );
 
   return (
     <main
@@ -649,6 +669,9 @@ export function LucaActivityView({
                 {residents.map((resident) => (
                   <ResidentActivityCard
                     flat={flat}
+                    inSideConversation={sideActive.has(
+                      normalizePubkey(resident.pubkey),
+                    )}
                     key={normalizePubkey(resident.pubkey)}
                     resident={resident}
                   />

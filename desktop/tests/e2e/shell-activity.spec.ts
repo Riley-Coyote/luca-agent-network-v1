@@ -405,6 +405,14 @@ test("needs you: every kind, answered in place, counted", async ({ page }) => {
       : null;
   });
   measure("needs_you_kinds", { firstRowGap, kinds });
+  expect(kinds.find((each) => each.kind === "question")?.title).toBe(
+    "Should the Tidepool page say preview or beta?",
+  );
+  const questionCut = await page
+    .getByTestId("needs-you-question:question-word")
+    .locator(".luca-place-row-title")
+    .evaluate((title) => title.scrollWidth > title.clientWidth + 1);
+  expect(questionCut).toBe(false);
   for (const each of kinds) {
     expect(each.forms).toBe(0);
     expect(each.answers.length).toBeGreaterThan(0);
@@ -961,6 +969,25 @@ test("800 x 500: needs you and side conversations", async ({ page }) => {
   }));
   measure("narrow_overflow", overflow);
   expect(overflow.page).toBeLessThanOrEqual(0);
+  const asks = await page.locator("[data-needs-kind]").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const title = node.querySelector(".luca-place-row-title") as HTMLElement;
+      const what = node.querySelector(".luca-place-row-what") as HTMLElement;
+      const answers = node.querySelector(".luca-ask-answers") as HTMLElement;
+      return {
+        title: title.textContent,
+        cut: title.scrollWidth > title.clientWidth + 1,
+        answersBelow:
+          answers.getBoundingClientRect().top >=
+          what.getBoundingClientRect().bottom - 1,
+      };
+    }),
+  );
+  measure("narrow_asks", asks);
+  for (const ask of asks) {
+    expect(ask.cut).toBe(false);
+    expect(ask.answersBelow).toBe(true);
+  }
   measure("shot_needs_you_800", await shot(page, "needs-you-800"));
   await page
     .getByTestId("place-row-side")
@@ -1158,6 +1185,14 @@ test("now: the live side conversations among who's working", async ({
     expect(row.group).toBe("active");
     expect(row.underActiveHeading).toBe(true);
   }
+  // A resident listed as active isn't listed again lower down.
+  const lucaRows = await page
+    .locator('[data-testid="owner-activity-list"] .luca-place-row-title')
+    .evaluateAll(
+      (titles) => titles.filter((title) => title.textContent === "Luca").length,
+    );
+  measure("now_luca_rows", lucaRows);
+  expect(lucaRows).toBe(2);
   measure("shot_now_side", await shot(page, "now-side"));
 });
 

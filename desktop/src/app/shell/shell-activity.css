@@ -251,3 +251,47 @@
 :root[data-luca-shell] .luca-place:has(> .luca-place-badge[data-wide]) > svg {
   mask-image: linear-gradient(to bottom, transparent 9px, #000 9.5px);
 }
+
+/* The ask is the content: never cut short. It wraps to as many lines as it
+ * needs; when the list is narrow, the answers take their own line under the
+ * text, and the time keeps its column (WP-14 recheck). */
+.luca-ask-list {
+  container-type: inline-size;
+}
+
+.luca-ask-row .luca-place-row-title {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+@container (max-width: 34rem) {
+  .luca-ask-row {
+    grid-template-columns: minmax(0, 1fr) 84px;
+    row-gap: 10px;
+  }
+
+  .luca-ask-row > .luca-place-row-what {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .luca-ask-row > .luca-place-row-note {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .luca-ask-row > .luca-ask-extra {
+    grid-row: 2;
+    margin-top: -4px;
+  }
+
+  .luca-ask-row > .luca-ask-answers {
+    align-self: auto;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-content: flex-start;
+    margin-top: 0;
+  }
+}
