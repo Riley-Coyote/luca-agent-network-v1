@@ -59,6 +59,10 @@ with screenshots compared by hash against the base build Claude serves at `http:
 branch as your branch started; read-only, never stop it).
 
 **How to prove it** (every command from `desktop/`).
+- **One heavy job at a time** (Riley, 2026-10-26: "do everything we can to make all of this testing run as quickly as
+  we can"): run every build, Playwright run and cargo command through the shared queue,
+  `bash ~/.claude/plans/polyphonic-shell-build/tools/heavy.sh <command> [args...]`, with `--workers=2` for Playwright.
+  It waits for the job ahead and clears a dead job's lock itself. Never build while your own test run is going.
 - Build: `./node_modules/.bin/tsc && ./node_modules/.bin/vite build --mode e2e` (about 12 seconds).
 - Serve: `python3 -m http.server <your port> --bind 127.0.0.1 -d dist`, and leave it running.
 - Tests: `LUCA_PLAYWRIGHT_PORT=<your port> ./node_modules/.bin/playwright test <spec> --project=smoke` (register a new
