@@ -2326,3 +2326,60 @@ list in your report, for the merge.
 each; flag-off views identical by hash to the base (`http://127.0.0.1:4300/`, the pre-shell build); the gates.
 
 **Checks JSON keys:** `d1` to `d3`, `flag_off_identical`, `gates`.
+
+## WP-28 · The whole suite, green on the finished app (2026-10-26, Claude's design, from the final suite run)
+
+**Why.** The whole shell suite (31 files) ran on the finished app (4b2639be0, served at :4334): 288 passed, 23 failed, 8
+skipped, 9 did not run. Its log is `~/.claude/plans/polyphonic-shell-build/final-suite/suite.clean.log`. That run set
+every `*_BASE_URL` to the pre-shell build (:4300) and every `*_SHOTS` to one shared folder, so some failures are the
+run's, not the app's. The failures, with my first read (verify each):
+
+| # | Test | Seen | First read |
+|---|---|---|---|
+| 1 | `luca/shell-chats-rail.spec.ts:365` top to bottom | one line differs | find which: a later word, or a real change |
+| 2 | `luca/shell-frame.spec.ts:1027` | expects "All", gets "Made / All" | stale: WP-19 Decided 5 |
+| 3 | `luca/shell-header-fixes.spec.ts:470` | 144 unique shots of 166 | the shared shots folder |
+| 4, 5 | `luca/shell-header-finish.spec.ts:164`, `:646` | expects the lip "Settings", gets "Profile & identity" | stale: WP-17 Decided 2 |
+| 6 | `luca/shell-header-finish.spec.ts:916` flag off | differs from :4300 | mock data, or the old layout changed? |
+| 7 | `luca/shell-navigation-containment.spec.ts:31` | moves 21.06, expects under 2 | likely real |
+| 8 | `luca/shell-runtime.spec.ts:499` flag off | differs from :4300 | as 6 |
+| 9, 10 | `luca/shell-settings-page.spec.ts:386` every section | 3 lines where 1 was expected | find: WP-22, WP-24 or WP-26 |
+| 11, 12 | `luca/shell-status.spec.ts:438`, `:990` | the update dot on Settings with the rail closed: not found | likely real (WP-17's one column?) |
+| 13 to 17 | `shell-glass.spec.ts:201`, `:221`, `:1605`, `:1625`, `:1740` | the Frame row holds 4 controls, and 2 fieldsets match | WP-17 put Mode's segment inside `[data-testid="appearance-frame"]` |
+| 18 | `luca/shell-huddle.spec.ts:376` | the huddle bar: not found | find |
+| 19 | `luca/shell-finish.spec.ts:203` | a click times out | covered or moved? |
+| 20, 21 | `shell-one-state.spec.ts:467` | the profile card's buttons read as solid | WP-25's quiet tint (ink 8%) against the spec's idea of solid |
+| 22 | `shell-motion-keys.spec.ts:234` | the settled film's hash changed | WP-16 changed the film's ground after WP-20 recorded it |
+| 23 | `shell-room-asks.spec.ts:745` flag off | | WP-27's file: leave it |
+
+**Files in scope:**
+- the shell specs (`desktop/tests/e2e/shell-*.spec.ts`, `desktop/tests/e2e/luca/shell-*.spec.ts`);
+- whatever app file a real failure leads to, except WP-27's files: `ConversationRoomStack.tsx`, `ChannelPane.tsx`,
+  `conversationAgentActivityShelf.*`, `MessageTimeline.tsx`, `UserProfilePanel*.tsx`, `shell-room-asks.spec.ts`. A
+  cause in those goes in your report.
+
+**Decisions:**
+1. **Fix the app where the app is wrong;** change a test only where a later package's decision changed what is right,
+   and cite that package in the test. Nothing is weakened: no assertion goes without a contract reason, and no
+   threshold loosens except to a value a later decision set.
+2. **The Frame row keeps its contract.** In a browser it is a statement with no choice, and Glass is offered only where
+   it can be drawn. Mode lives in its own row with its own test id, outside `appearance-frame`, drawn as before.
+3. **A flag-off failure against :4300 is traced to its exact difference.**
+   - If the difference is mock data (newer seeds), compare against :4334 instead and say so.
+   - If the old layout itself changed, find the change. Fix it at its source, unless it is one of the deliberate
+     app-wide ones: WP-20's film under Reduce Motion, WP-09a's first window size, WP-17's new `data-settings-*`
+     attributes, WP-22's optional `UnreadPill` label. Name which.
+4. **"Solid" in the specs means the primary fill,** as WP-25 defines the quiet button. Ink at 8% is quiet, not solid.
+5. **The film's expected hash is re-derived on the finished app,** after you prove the difference is WP-16's ground (the
+   ground pixel against the one card's surface).
+6. **Each spec writes its shots to its own folder,** so the uniqueness checks compare something.
+
+**Verification:** at the end, the whole shell suite (31 files) on your build, once, through the queue:
+- every test green except `shell-room-asks.spec.ts` (WP-27's);
+- a flaky test listed with its repeat results;
+- the bases each flag-off test used;
+- the gates.
+
+**Checks JSON keys:** one per row group (`chats_rail`, `frame_made_all`, `header_shots_unique`, `header_lip`,
+`flag_off_header`, `containment`, `flag_off_runtime`, `settings_page`, `status_dot`, `glass_frame_row`, `huddle_bar`,
+`finish_click`, `one_state_buttons`, `motion_film`), plus `suite` and `gates`.
