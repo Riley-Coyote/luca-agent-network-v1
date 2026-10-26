@@ -1,9 +1,17 @@
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
-import { PlacePage } from "@/app/shell/placeRails/PlacePage";
+import "@/app/shell/shell-activity.css";
+import {
+  PlaceList,
+  PlaceListRow,
+  PlacePage,
+  placeNoteTime,
+} from "@/app/shell/placeRails/PlacePage";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { useCommunities } from "@/features/communities/useCommunities";
+import type { TaskSide } from "@/features/exchange/sideConversations";
+import { useSideConversations } from "@/features/exchange/useSideConversations";
 import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
 import { RuntimeSessionsPanelContent } from "@/features/runtime-sessions/RuntimeSessionsPanel";
 import {
@@ -77,6 +85,54 @@ export function ConnectedAppCard({ runtimeKey }: { runtimeKey: string }) {
             : "This app is no longer connected on this Mac."}
         </p>
       )}
+      {runtime ? <WhatLucaDid runtimeId={runtime.runtimeId} /> : null}
     </PlacePage>
+  );
+}
+
+/**
+ * What Luca did with it (SHELL_BUILD.md WP-14, Decided 7): this app's
+ * runtime tasks, newest first, each opening its room, where its receipt is.
+ * Shown once there is one, as a rail's sections are.
+ */
+function WhatLucaDid({ runtimeId }: { runtimeId: string }) {
+  const { items, nameOf, roomOf } = useSideConversations();
+  const { goChannel } = useAppNavigation();
+  const tasks = items.filter(
+    (item): item is TaskSide =>
+      item.kind === "task" && item.runtimeFamily === runtimeId,
+  );
+  if (tasks.length === 0) return null;
+  return (
+    <div className="luca-connected-history">
+      <PlaceList label="What Luca did with it" testId="connected-what-luca-did">
+        {tasks.map((task) => {
+          const room = roomOf(task.conversationId);
+          const who = nameOf(task.residentPubkey);
+          return (
+            <PlaceListRow
+              data-side-state={task.word}
+              detail={
+                <span
+                  className="luca-side-state"
+                  data-live={task.live || undefined}
+                >
+                  {task.word}
+                </span>
+              }
+              key={task.id}
+              note={placeNoteTime(new Date(task.at).toISOString())}
+              onOpen={() => void goChannel(task.conversationId)}
+              openLabel={[task.summary, who, task.word, room && `in ${room}`]
+                .filter(Boolean)
+                .join(", ")}
+              summary={room ? `${who} · ${room}` : who}
+              testId={`connected-task-${task.id}`}
+              title={task.summary}
+            />
+          );
+        })}
+      </PlaceList>
+    </div>
   );
 }

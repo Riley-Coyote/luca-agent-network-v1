@@ -28,7 +28,7 @@ test("agents_pickRoundTripsThroughTheAddress", () => {
 });
 
 test("activity_andLibrary_pickRoundTrips", () => {
-  for (const id of ["now", `record:${"b".repeat(64)}`]) {
+  for (const id of ["needs-you", "now", "side", `record:${"b".repeat(64)}`]) {
     assert.equal(pickIdOf("activity", paramsOfPick("activity", id)), id, id);
   }
   for (const id of [
@@ -60,7 +60,7 @@ test("anAddressWithoutAPick_namesNone", () => {
 test("firstVisit_opensOnTheFirstRow", () => {
   assert.equal(firstPickId("agents", LUCA), `mind:${"a".repeat(64)}`);
   assert.equal(firstPickId("agents", null), "luca");
-  assert.equal(firstPickId("activity", null), "now");
+  assert.equal(firstPickId("activity", null), "needs-you");
   assert.equal(firstPickId("library", null), "made:all");
 });
 

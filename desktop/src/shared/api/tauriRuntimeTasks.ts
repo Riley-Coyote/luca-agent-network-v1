@@ -143,6 +143,12 @@ export function listRuntimeTasks(
   return invokeTauri("list_runtime_tasks", { conversationId });
 }
 
+/** Every conversation's runtime tasks, newest first (WP-14): the Activity
+ *  place's side conversations and a connected app's history. */
+export function listAllRuntimeTasks(): Promise<RuntimeTaskProjection[]> {
+  return invokeTauri("list_all_runtime_tasks");
+}
+
 export function getRuntimeTaskResult(
   taskId: string,
 ): Promise<RuntimeTaskResult> {
@@ -158,6 +164,11 @@ export function listRuntimeTaskProposals(
   conversationId: string,
 ): Promise<RuntimeTaskProposal[]> {
   return invokeTauri("list_runtime_task_proposals", { conversationId });
+}
+
+/** Every conversation's open proposals (WP-14): Activity's Needs you. */
+export function listAllRuntimeTaskProposals(): Promise<RuntimeTaskProposal[]> {
+  return invokeTauri("list_all_runtime_task_proposals");
 }
 
 export function respondRuntimeTaskProposal(input: {

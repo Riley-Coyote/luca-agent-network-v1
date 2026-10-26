@@ -28,6 +28,12 @@ function word(search: Search, key: string): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+/** Activity's streams, by the row's id and the address's `stream` word
+ *  (WP-14, Decided 2): Needs you, Now, Side conversations. */
+export const ACTIVITY_STREAMS = ["needs-you", "now", "side"] as const;
+
+export type ActivityStream = (typeof ACTIVITY_STREAMS)[number];
+
 /** Library's kinds, by the row's id, as the Library names them. */
 export const LIBRARY_KINDS = [
   { id: "all", label: "All", kind: "all" },
@@ -57,7 +63,10 @@ export function pickIdOf(place: RailPlace, search: Search): string | null {
   if (place === "activity") {
     const record = word(search, "record");
     if (record) return `record:${record.toLowerCase()}`;
-    return word(search, "stream") === "now" ? "now" : null;
+    const stream = word(search, "stream");
+    return stream && (ACTIVITY_STREAMS as readonly string[]).includes(stream)
+      ? stream
+      : null;
   }
   if (word(search, "deleted") === "recently") return "deleted";
   const skills = word(search, "skills");
@@ -81,7 +90,11 @@ export function paramsOfPick(place: RailPlace, id: string): PickParams {
   }
   if (place === "activity") {
     if (head === "record") return { record: tail };
-    return { stream: "now" };
+    return {
+      stream: (ACTIVITY_STREAMS as readonly string[]).includes(id)
+        ? id
+        : "needs-you",
+    };
   }
   // Words, never numbers: the router reads `1` in an address as a number.
   if (head === "deleted") return { deleted: "recently" };
@@ -104,12 +117,12 @@ export function searchForPick(
 }
 
 /** The row a place opens on, the first time (Decided 7): Agents, Luca;
- *  Activity, Now; Library, All. Luca's row, before Luca is known, is the
- *  bare `luca`. */
+ *  Activity, Needs you (WP-14, Decided 2); Library, All. Luca's row, before
+ *  Luca is known, is the bare `luca`. */
 export function firstPickId(place: RailPlace, lucaPubkey: string | null) {
   if (place === "agents")
     return lucaPubkey ? `mind:${lucaPubkey.toLowerCase()}` : "luca";
-  if (place === "activity") return "now";
+  if (place === "activity") return "needs-you";
   return "made:all";
 }
 

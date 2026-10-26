@@ -7,6 +7,7 @@ import {
   preloadArtifactsSurface,
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
+import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { ShellPlacesMarks } from "@/app/shell/ShellMarks";
 import { useShellStatus } from "@/app/shell/useShellStatus";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
@@ -149,7 +150,9 @@ function PlaceTile({
               ? `${label}, update available`
               : dot
                 ? `${label}, unread`
-                : label
+                : badge && badge > 0
+                  ? `${label}, ${badge} waiting on you`
+                  : label
           }
           className="luca-place"
           data-current={current ? "true" : undefined}
@@ -315,6 +318,9 @@ export function ShellPlaces({
   const status = useShellStatus();
   const { frameDrawn } = useTheme();
   const updateDot = status.updateAvailable && railSignalsSpeak;
+  // What waits on you, counted on Activity, where the Inbox's count drew
+  // (WP-14, Decided 4). At zero nothing shows.
+  const needsYou = useNeedsYou();
   return (
     <nav
       aria-label="Places"
@@ -354,6 +360,7 @@ export function ShellPlaces({
           <Bot />
         </PlaceTile>
         <PlaceTile
+          badge={needsYou.count}
           current={here === "activity"}
           label="Activity"
           onClick={onSelectPulse}

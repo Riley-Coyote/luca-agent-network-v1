@@ -188,6 +188,64 @@ type MockExchangeSeed = {
   phase?: "open" | "paused" | "closed" | "expired";
 };
 
+/** One runtime task (WP-14): the projection the desktop lists, placed in a
+ *  room by id or by name. */
+type MockRuntimeTaskSeed = {
+  taskId: string;
+  conversationId?: string;
+  channelName?: string;
+  residentPubkey: string;
+  runtimeFamily: "codex" | "claude_code";
+  summary: string;
+  state:
+    | "queued"
+    | "active"
+    | "stopping"
+    | "awaiting_native"
+    | "succeeded"
+    | "stopped"
+    | "failed"
+    | "interrupted";
+  startedAt: string;
+  updatedAt?: string;
+  completedAt?: string | null;
+  workingFolder?: string;
+};
+
+/** One open proposal to run Codex or Claude Code (WP-14). */
+type MockRuntimeTaskProposalSeed = {
+  proposalId: string;
+  conversationId?: string;
+  channelName?: string;
+  residentPubkey: string;
+  runtimeFamily: "codex" | "claude_code";
+  summary: string;
+  createdAt: string;
+};
+
+/** One question a resident asks the owner (WP-14), in the wire shape. */
+type MockManagedInputSeed = {
+  pendingId: string;
+  channelName?: string;
+  request: {
+    conversation_id?: string;
+    resident_pubkey: string;
+    message: string;
+    fields: Array<{
+      key: string;
+      label: string;
+      description: string | null;
+      kind: "text" | "single" | "multiple";
+      options: Array<{
+        value: string;
+        label: string;
+        description: string | null;
+      }>;
+      required: boolean;
+    }>;
+  };
+};
+
 /** One remembered permission rule, in the wire shape the desktop sends. */
 type MockPermissionRuleSeed = {
   protocol?: "luca.permission.rule.v1";
@@ -288,6 +346,12 @@ type E2eConfig = {
     activityTraces?: ActivityTrace[];
     /** Seeded exchange heads — see tests/helpers/bridge.ts:MockExchangeSeed. */
     exchanges?: MockExchangeSeed[];
+    /** Runtime tasks across rooms (WP-14); empty when unseeded. */
+    runtimeTasks?: MockRuntimeTaskSeed[];
+    /** Open runtime-task proposals across rooms (WP-14). */
+    runtimeTaskProposals?: MockRuntimeTaskProposalSeed[];
+    /** Questions residents are asking the owner (WP-14). */
+    managedInputs?: MockManagedInputSeed[];
     /** Body-free UX-203A restart outcomes returned for operational presentation. */
     managedOperationalStatuses?: Array<{
       dispatchReceiptId: string;
@@ -3529,6 +3593,75 @@ function mockExchangeFromSeed(
     seededSpent: seed.spent ?? 0,
     forcedPhase: seed.phase ?? null,
   };
+}
+
+// ── Runtime tasks, proposals and questions (WP-14) ──────────────────────────
+// The lists the desktop keeps in native memory, seeded per spec. A respond or
+// an answer removes its item and announces it, as the native host does.
+let mockRuntimeTasks: MockRuntimeTaskSeed[] = [];
+let mockRuntimeTaskProposals: MockRuntimeTaskProposalSeed[] = [];
+let mockManagedInputs: MockManagedInputSeed[] = [];
+
+function mockRoomId(seed: { conversationId?: string; channelName?: string }) {
+  return (
+    seed.conversationId ??
+    mockChannels.find((channel) => channel.name === seed.channelName)?.id ??
+    STARTER_GENERAL_CHANNEL_ID
+  );
+}
+
+function mockRuntimeTaskProjection(seed: MockRuntimeTaskSeed) {
+  const finished = ["succeeded", "stopped", "failed", "interrupted"].includes(
+    seed.state,
+  );
+  return {
+    taskId: seed.taskId,
+    conversationId: mockRoomId(seed),
+    residentPubkey: seed.residentPubkey,
+    runtimeFamily: seed.runtimeFamily,
+    summary: seed.summary,
+    workingFolder: seed.workingFolder ?? "/synthetic/projects/studio",
+    permissionMode: "normal",
+    operation: "new_task",
+    controlOwner: "polyphonic",
+    state: seed.state,
+    providerSessionId: null,
+    currentStep: finished ? null : "Working",
+    completedSteps: finished ? 1 : 0,
+    steps: [],
+    startedAt: seed.startedAt,
+    updatedAt: seed.updatedAt ?? seed.completedAt ?? seed.startedAt,
+    completedAt: seed.completedAt ?? null,
+    error: null,
+    canRetry: false,
+    retryOfTaskId: null,
+    deliveryState: null,
+    deliveryCanRetry: false,
+  };
+}
+
+function mockRuntimeTaskProposal(seed: MockRuntimeTaskProposalSeed) {
+  return {
+    proposalId: seed.proposalId,
+    conversationId: mockRoomId(seed),
+    residentPubkey: seed.residentPubkey,
+    runtimeFamily: seed.runtimeFamily,
+    summary: seed.summary,
+    operation: "new_task",
+    sourceId: null,
+    sessionId: null,
+    targetLabel: null,
+    targetWorkingFolder: null,
+    createdAt: seed.createdAt,
+  };
+}
+
+function resetMockRuntimeWork(config?: E2eConfig) {
+  mockRuntimeTasks = structuredClone(config?.mock?.runtimeTasks ?? []);
+  mockRuntimeTaskProposals = structuredClone(
+    config?.mock?.runtimeTaskProposals ?? [],
+  );
+  mockManagedInputs = structuredClone(config?.mock?.managedInputs ?? []);
 }
 
 function resetMockExchanges(config?: E2eConfig) {
@@ -10475,6 +10608,7 @@ export function maybeInstallE2eTauriMocks() {
   resetMockResidentDocuments(config);
   resetMockManagedAgents(config);
   resetMockExchanges(config);
+  resetMockRuntimeWork(config);
   resetMockLucaMcpRegistry();
   resetMockPersonas(config);
   resetMockTeams(config);
@@ -13854,13 +13988,75 @@ export function maybeInstallE2eTauriMocks() {
         return activeConfig?.mock?.managedOperationalStatuses ?? [];
       case "list_pending_managed_permissions":
         return activeConfig?.mock?.managedPermissions ?? [];
-      // Authoritative empty snapshots for ordinary mock conversations.
-      // Specs that seed tasks/questions intercept these commands before
+      // Authoritative snapshots: empty for ordinary mock conversations, the
+      // seeded lists for a spec that names them (WP-14). Specs that seed
+      // tasks/questions their own way intercept these commands before
       // delegating to this fallback; no result or control is fabricated.
       case "list_pending_managed_inputs":
-      case "list_runtime_tasks":
-      case "list_runtime_task_proposals":
-        return [];
+        return mockManagedInputs.map((seed) => ({
+          pendingId: seed.pendingId,
+          request: {
+            ...seed.request,
+            conversation_id:
+              seed.request.conversation_id ??
+              mockRoomId({ channelName: seed.channelName }),
+          },
+        }));
+      case "list_runtime_tasks": {
+        const room = (payload as { conversationId?: string } | null)
+          ?.conversationId;
+        return mockRuntimeTasks
+          .map(mockRuntimeTaskProjection)
+          .filter((task) => task.conversationId === room)
+          .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      }
+      case "list_all_runtime_tasks":
+        return mockRuntimeTasks
+          .map(mockRuntimeTaskProjection)
+          .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      case "list_runtime_task_proposals": {
+        const room = (payload as { conversationId?: string } | null)
+          ?.conversationId;
+        return mockRuntimeTaskProposals
+          .map(mockRuntimeTaskProposal)
+          .filter((proposal) => proposal.conversationId === room)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      }
+      case "list_all_runtime_task_proposals":
+        return mockRuntimeTaskProposals
+          .map(mockRuntimeTaskProposal)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      case "respond_runtime_task_proposal": {
+        const input = (payload as { input?: { proposalId?: string } } | null)
+          ?.input;
+        const seed = mockRuntimeTaskProposals.find(
+          (candidate) => candidate.proposalId === input?.proposalId,
+        );
+        if (!seed)
+          throw new Error("This runtime task proposal is no longer open.");
+        mockRuntimeTaskProposals = mockRuntimeTaskProposals.filter(
+          (candidate) => candidate !== seed,
+        );
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+          "luca://runtime-task-proposal-resolved",
+          { proposalId: seed.proposalId, conversationId: mockRoomId(seed) },
+        );
+        return null;
+      }
+      // The proposal card's folder lookups: nothing resolved, nothing picked.
+      case "resolve_runtime_task_project_folder":
+      case "pick_runtime_task_folder":
+        return null;
+      case "resolve_managed_input": {
+        const pendingId = (payload as { pendingId?: string } | null)?.pendingId;
+        mockManagedInputs = mockManagedInputs.filter(
+          (candidate) => candidate.pendingId !== pendingId,
+        );
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("managed-input-resolved", {
+          pendingId,
+        });
+        return null;
+      }
       case "resolve_managed_permission": {
         const input = payload as {
           pendingId: string;

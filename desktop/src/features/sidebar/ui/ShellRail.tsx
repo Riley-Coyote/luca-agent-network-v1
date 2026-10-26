@@ -23,8 +23,15 @@ import {
   buildRailHomes,
   type CreatedAtById,
   type RailHome,
-  shownSessions,
+  type RailSideRow,
+  shownHomeEntries,
 } from "@/features/sidebar/lib/railHomes";
+import {
+  isLucas,
+  lucaRowLabel,
+  shownAt,
+} from "@/features/exchange/sideConversations";
+import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectDetailsDialog } from "@/features/projects/ui/ProjectRoomWorkspace";
@@ -365,6 +372,28 @@ export function ShellRail({
   const roomsInColumn = useProjectRoomsPlacement() === "column";
   const active = activeRailHome(homes, selectedChannelId, selectedProjectId);
 
+  // Luca's side conversations, among Luca's sessions (WP-14, Decided 6): the
+  // exchanges Luca took part in and Luca's runtime tasks.
+  const side = useSideConversations();
+  const lucaKey = homes.luca?.pubkey ?? null;
+  const lucaSide = React.useMemo<RailSideRow[]>(
+    () =>
+      lucaKey
+        ? side.items
+            .filter((item) => isLucas(item, lucaKey))
+            .map((item) => ({
+              at: item.at,
+              shownAt: shownAt(item),
+              conversationId: item.conversationId,
+              id: `${item.kind}:${item.id}`,
+              label: lucaRowLabel(item, lucaKey, side.nameOf, side.roomOf),
+              live: item.live,
+              messageId: item.kind === "exchange" ? item.rootEventId : null,
+            }))
+        : NO_SIDE_ROWS,
+    [lucaKey, side.items, side.nameOf, side.roomOf],
+  );
+
   // When what is open changes from outside the rail (Search, Back and
   // Forward, a link, where the app opens), the rail scrolls its row into
   // view, or its home's when the home is folded. A click in the rail never
@@ -467,7 +496,12 @@ export function ShellRail({
   // A project's details (its name, its grouping) and its sources: in the
   // room column's footer when rooms sit in a column, and on the project
   // row's menu here, so they keep a home when the rooms nest in the rail.
-  const { goBrain } = useAppNavigation();
+  const { goBrain, goChannel } = useAppNavigation();
+  const openSide = (side: RailSideRow) => {
+    if (side.messageId)
+      void goChannel(side.conversationId, { messageId: side.messageId });
+    else onSelectChannel(side.conversationId);
+  };
   const [details, setDetails] = React.useState<{
     projectId: string;
     open: boolean;
@@ -575,6 +609,8 @@ export function ShellRail({
       }}
       onOpen={openHome}
       onSession={onSelectChannel}
+      onSide={openSide}
+      side={home.kind === "luca" ? lucaSide : NO_SIDE_ROWS}
       onToggle={(open) => setOpen(home.id, open)}
       selectedChannelId={selectedChannelId}
       unreadChannelIds={unreadChannelIds}
@@ -707,6 +743,8 @@ export function ShellRail({
   );
 }
 
+const NO_SIDE_ROWS: RailSideRow[] = [];
+
 /** A status the agent is in, not work in progress: no ellipsis. */
 function StatusLabel({ children }: { children: string }) {
   return <span className="luca-rail-status text-2xs">{children}</span>;
@@ -740,8 +778,10 @@ function HomeRow({
   onAdd,
   onOpen,
   onSession,
+  onSide,
   onToggle,
   selectedChannelId,
+  side,
   unreadChannelIds,
   workingByChannelId,
 }: {
@@ -757,8 +797,11 @@ function HomeRow({
   onAdd: (home: RailHome) => void;
   onOpen: (home: RailHome) => void;
   onSession: (channelId: string) => void;
+  onSide: (row: RailSideRow) => void;
   onToggle: (open: boolean) => void;
   selectedChannelId: string | null;
+  /** Luca's side conversations (WP-14); none for any other home. */
+  side: readonly RailSideRow[];
   unreadChannelIds: ReadonlySet<string>;
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
 }) {
@@ -768,20 +811,27 @@ function HomeRow({
       item.channel.id !== selectedChannelId &&
       unreadChannelIds.has(item.channel.id),
   );
-  const nested = !flat && home.sessions.length > 0;
-  // The latest three show, and the open one wherever it falls; the rest wait
-  // behind "N more", which opens to the whole list and ends on "Show fewer".
+  const nested = !flat && (home.sessions.length > 0 || side.length > 0);
+  // The latest three show, and the open one wherever it falls, and (Luca's)
+  // every side conversation still talking; the rest wait behind "N more",
+  // which opens to the whole list and ends on "Show fewer".
   const [all, setAll] = React.useState(false);
-  const { shown, hidden } = shownSessions(
+  const { shown, hidden, total } = shownHomeEntries(
     home.sessions,
+    side,
     selectedChannelId,
     all,
+    createdAtById,
   );
   // "working…" is said once: by the session working, when it shows under
   // the open home, and by the home only for what you can't see (its own
   // conversation, a folded home's sessions, those behind "N more").
   const visible = new Set(
-    nested && expanded ? shown.map((item) => item.channel.id) : [],
+    nested && expanded
+      ? shown.flatMap((entry) =>
+          entry.kind === "chat" ? [entry.item.channel.id] : [],
+        )
+      : [],
   );
   const working = chats.reduce(
     (count, item) =>
@@ -912,7 +962,38 @@ function HomeRow({
           id={sessionsId}
           ref={sessionsRef}
         >
-          {(expanded ? shown : []).map((item) => {
+          {(expanded ? shown : []).map((entry) => {
+            if (entry.kind === "side") {
+              const row = entry.row;
+              const ago = row.shownAt
+                ? relativeTime(new Date(row.shownAt).toISOString())
+                : "";
+              return (
+                <button
+                  aria-label={[row.label, row.live ? "working" : null]
+                    .filter(Boolean)
+                    .join(", ")}
+                  className="luca-rail-session text-lip"
+                  data-rail-focus="session"
+                  data-side-row={row.live ? "live" : "quiet"}
+                  data-testid={`rail-side-${row.id}`}
+                  key={row.id}
+                  onClick={() => onSide(row)}
+                  title={row.label}
+                  type="button"
+                >
+                  <span className="luca-rail-session-title">{row.label}</span>
+                  {row.live ? (
+                    <WorkingLabel count={1} />
+                  ) : ago ? (
+                    <span className="luca-rail-session-ago text-2xs">
+                      {ago}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            }
+            const item = entry.item;
             const current = item.channel.id === selectedChannelId;
             const isUnread = !current && unreadChannelIds.has(item.channel.id);
             const busy = workingByChannelId?.get(item.channel.id)?.agentCount;
@@ -960,7 +1041,7 @@ function HomeRow({
               {hidden} more
             </button>
           ) : null}
-          {expanded && all && home.sessions.length > 3 ? (
+          {expanded && all && total > 3 ? (
             <button
               aria-label={`Show fewer in ${home.name}`}
               className="luca-rail-session luca-rail-session-more text-xs"
@@ -970,9 +1051,12 @@ function HomeRow({
                 // "N more" comes back after the latest rows (and the open
                 // one, if it is further down).
                 if (event.currentTarget === document.activeElement)
-                  focusAfterToggle.current = shownSessions(
+                  focusAfterToggle.current = shownHomeEntries(
                     home.sessions,
+                    side,
                     selectedChannelId,
+                    false,
+                    createdAtById,
                   ).shown.length;
                 setAll(false);
               }}

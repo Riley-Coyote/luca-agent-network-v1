@@ -58,6 +58,14 @@ pub fn list_runtime_tasks(
     crate::luca::runtime_tasks::list_runtime_tasks(app, conversation_id)
 }
 
+/// Every conversation's runtime tasks, newest first (WP-14).
+#[tauri::command]
+pub fn list_all_runtime_tasks(
+    app: AppHandle,
+) -> Result<Vec<crate::luca::runtime_tasks::RuntimeTaskProjectionV1>, String> {
+    crate::luca::runtime_tasks::list_all_runtime_tasks(app)
+}
+
 #[tauri::command]
 pub fn get_runtime_task_result(
     app: AppHandle,
@@ -72,6 +80,14 @@ pub fn list_runtime_task_proposals(
     conversation_id: String,
 ) -> Result<Vec<crate::luca::runtime_tasks::RuntimeTaskProposalV1>, String> {
     crate::luca::runtime_tasks::list_runtime_task_proposals(app, conversation_id)
+}
+
+/// Every conversation's open runtime-task proposals (WP-14).
+#[tauri::command]
+pub fn list_all_runtime_task_proposals(
+    app: AppHandle,
+) -> Result<Vec<crate::luca::runtime_tasks::RuntimeTaskProposalV1>, String> {
+    crate::luca::runtime_tasks::list_all_runtime_task_proposals(app)
 }
 
 #[tauri::command]
