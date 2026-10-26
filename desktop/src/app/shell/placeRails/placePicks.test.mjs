@@ -154,3 +154,21 @@ test("stateWords_comeFromTheLiveSignal_notReadiness", () => {
   for (const word of [at({}), at({ working: true }), at({ lastError: "x" })])
     assert.equal(word, word.toLowerCase());
 });
+
+test("oneState_talkingIsALiveSideConversation_belowWork", () => {
+  const at = (overrides) =>
+    agentStateWord({
+      availability: "ready",
+      lastError: null,
+      waking: false,
+      working: false,
+      ...overrides,
+    });
+  // WP-18, Decided 2: a side conversation still talking reads talking.
+  assert.equal(at({ talking: true }), "talking");
+  // Work outranks talk; a problem and waking outrank both.
+  assert.equal(at({ talking: true, working: true }), "working");
+  assert.equal(at({ talking: true, lastError: "exited" }), "needs attention");
+  assert.equal(at({ talking: true, waking: true }), "waking");
+  assert.equal(at({ talking: false }), "resting");
+});

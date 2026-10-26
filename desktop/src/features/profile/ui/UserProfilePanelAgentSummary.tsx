@@ -1,7 +1,9 @@
 import * as React from "react";
 
-import { agentStateWord } from "@/app/shell/placeRails/placePicks";
-import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
+import {
+  mindStateLabel,
+  useMindState,
+} from "@/features/agents/lib/useMindState";
 import {
   managedAgentSummary,
   residentSourceLabel,
@@ -16,6 +18,10 @@ import { Button } from "@/shared/ui/button";
  * a short summary (their mark, name and state, the first line of their
  * introduction, their runtime) with Open their space. Their notebook and
  * memories live in their space now, so the card doesn't repeat them.
+ *
+ * Its one action is Open their space; beside it, Talk, the space's own word
+ * (WP-18, Decided 3). Neither is solid here: Talk is solid only in the
+ * space.
  */
 export function UserProfilePanelAgentSummary({
   displayName,
@@ -31,13 +37,12 @@ export function UserProfilePanelAgentSummary({
   onOpenSpace: () => void;
 }) {
   const resident = managedAgentSummary(managedAgent);
-  // The state word the Agents rail and their space say (agentStateWord).
-  const working = useAgentWorking(managedAgent.pubkey).working;
-  const word = agentStateWord({
+  // Their one state, as the Agents rail, their space and Now say it
+  // (WP-18, Decided 2).
+  const word = useMindState(managedAgent.pubkey, {
     availability: resident.availability,
     lastError: managedAgent.lastError,
     waking: Boolean(managedAgent.waking),
-    working,
   });
   const intro = useIntroductionFirstLine(
     managedAgent.backend.type === "local" ? managedAgent.pubkey : null,
@@ -70,7 +75,7 @@ export function UserProfilePanelAgentSummary({
               className="shrink-0 text-2xs text-muted-foreground"
               data-testid="profile-agent-summary-state"
             >
-              {word.charAt(0).toUpperCase() + word.slice(1)}
+              {mindStateLabel(word)}
             </span>
           </div>
           <p
@@ -108,7 +113,7 @@ export function UserProfilePanelAgentSummary({
             onClick={onMessage}
             variant="outline"
           >
-            Message
+            Talk
           </Button>
         ) : null}
       </div>

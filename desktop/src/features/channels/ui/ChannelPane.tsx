@@ -1279,13 +1279,15 @@ export const ChannelPane = React.memo(function ChannelPane({
                       </span>
                     </span>
                   </div>
+                  {/* Under the frame the lip's Join is the one solid button
+                      (WP-18, Decided 1): this one is quiet. */}
                   <Button
                     disabled={isJoining}
                     onClick={() => {
                       void onJoinChannel?.();
                     }}
                     size="sm"
-                    variant="default"
+                    variant={shellFrame ? "outline" : "default"}
                   >
                     <LogIn className="mr-1.5 h-4 w-4" />
                     {isJoining ? "Joining..." : "Join to participate"}

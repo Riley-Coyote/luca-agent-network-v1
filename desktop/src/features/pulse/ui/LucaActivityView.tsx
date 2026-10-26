@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import "@/app/shell/shell-activity.css";
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
 import { useRunningRuntimeTask } from "@/features/capabilities/useAllRuntimeTasks";
 import {
@@ -34,10 +35,12 @@ import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { PlaceListRow, placeNoteTime } from "@/app/shell/placeRails/PlacePage";
 import {
-  namesAsList,
   runtimeLabel as runtimeAppLabel,
+  sideTitle,
 } from "@/features/exchange/sideConversations";
+import { noteOpenSide } from "@/features/exchange/openSide";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
+import { useMindState } from "@/features/agents/lib/useMindState";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 type ActivityResident = {
@@ -187,8 +190,8 @@ function ResidentActivityCard({
   /** Under the shell: the study's flat stream, a row of who, what they're
    *  doing and when, Open activity a quiet action on it (WP-10). */
   flat: boolean;
-  /** Already listed as active by a live side conversation (WP-14 recheck):
-   *  not listed again lower down. */
+  /** Named by a live side conversation, asking or asked (WP-18, Decided
+   *  4): each mind is listed once, so not again lower down. */
   inSideConversation?: boolean;
   resident: ActivityResident;
 }) {
@@ -209,6 +212,15 @@ function ResidentActivityCard({
     resident.pubkey,
   );
   const { canOpenAgentActivity, openAgentActivity } = useOpenAgentActivity();
+  // Their one state (WP-18, Decided 2), as the Agents rail, their space and
+  // their profile card say it.
+  const state = useMindState(resident.pubkey, {
+    availability: resident.managed
+      ? managedAgentSummary(resident.managed).availability
+      : "offline",
+    lastError: resident.managed?.lastError,
+    waking: Boolean(resident.managed?.waking),
+  });
   const lastItem = latestActivityItem(transcript);
   const published = summarizeActivity(lastItem);
   const activity = working.working
@@ -234,9 +246,9 @@ function ResidentActivityCard({
       ? "recent"
       : "idle";
 
-  // Listed once: a live side conversation names them already, unless they
-  // are also at work in a conversation of their own.
-  if (flat && inSideConversation && !agentWorking.working) return null;
+  // Listed once (WP-18, Decided 4): a live side conversation names them
+  // already, as the one asking or the one asked.
+  if (flat && inSideConversation) return null;
 
   if (flat) {
     return (
@@ -263,6 +275,7 @@ function ResidentActivityCard({
         data-activity-state={
           working.working ? "working" : (activity?.tone ?? "idle")
         }
+        data-mind-state={state}
         note={placeNoteTime(activity?.timestamp ?? null)}
         summary={
           activity
@@ -395,7 +408,8 @@ function ResidentActivityCard({
  * Under the shell, Now and Side conversations agree (WP-14 review, fix 13):
  * every side conversation still going (a mind working with Claude Code or
  * Codex, two minds talking) is a row among who's working on what, opening
- * where it happens.
+ * where it happens. Named as Side conversations names it (WP-18, Decided
+ * 4): "Luca asked Atlas", the room or the task under it, its word.
  */
 function LiveSideConversations() {
   const { items, nameOf, roomOf } = useSideConversations();
@@ -405,35 +419,39 @@ function LiveSideConversations() {
       {items
         .filter((item) => item.live)
         .map((item) => {
+          const title = sideTitle(item, nameOf);
           const room = roomOf(item.conversationId);
-          const who =
-            item.kind === "task"
-              ? nameOf(item.residentPubkey)
-              : nameOf(item.openedBy);
-          const doing =
-            item.kind === "task"
-              ? `Working with ${runtimeAppLabel(item.runtimeFamily)} · ${item.summary}`
-              : `Talking with ${namesAsList(item.others.map(nameOf))}${room ? ` · ${room}` : ""}`;
+          const summary = item.kind === "task" ? item.summary : room;
           return (
             <PlaceListRow
               as="div"
               className="order-[2]"
               data-activity-group="active"
-              data-activity-state="working"
+              data-activity-state={item.word}
+              data-side-kind={item.kind}
+              detail={
+                <span className="luca-side-state" data-live>
+                  {item.word}
+                </span>
+              }
               key={`${item.kind}:${item.id}`}
               note="now"
-              onOpen={() =>
+              onOpen={() => {
+                // The rail marks it under Luca, not its room (WP-18).
+                noteOpenSide(item);
                 void goChannel(
                   item.conversationId,
                   item.kind === "exchange"
                     ? { messageId: item.rootEventId }
                     : undefined,
-                )
-              }
-              openLabel={`${who}, ${doing}`}
-              summary={doing}
+                );
+              }}
+              openLabel={[title, summary, item.word, room && `in ${room}`]
+                .filter(Boolean)
+                .join(", ")}
+              summary={summary}
               testId={`owner-activity-side-${item.id}`}
-              title={who}
+              title={title}
             />
           );
         })}
@@ -564,16 +582,18 @@ export function LucaActivityView({
   const loading = managedQuery.isLoading || relayQuery.isLoading;
   const error = managedQuery.error ?? relayQuery.error;
   const flat = useShellFrameEnabled();
-  // Who the live side conversations already list as active, by the name
-  // their row says (the one asking, or the one running the task).
+  // Who the live side conversations already name (WP-18, Decided 4): the
+  // one asking, and every mind asked; each mind is listed once.
   const side = useSideConversations();
   const sideActive = React.useMemo(
     () =>
       new Set(
         side.items
           .filter((item) => item.live)
-          .map((item) =>
-            item.kind === "task" ? item.residentPubkey : item.openedBy,
+          .flatMap((item) =>
+            item.kind === "task"
+              ? [item.residentPubkey]
+              : [item.openedBy, ...item.members],
           ),
       ),
     [side.items],

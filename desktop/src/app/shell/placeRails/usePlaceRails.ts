@@ -2,7 +2,6 @@ import * as React from "react";
 import { useRouterState } from "@tanstack/react-router";
 
 import {
-  agentStateWord,
   firstPickId,
   LIBRARY_KINDS,
   PICK_KEYS,
@@ -15,7 +14,6 @@ import {
 import { needsYouNote } from "@/app/shell/placeRails/needsYou";
 import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { useArtifactLibrary } from "@/features/artifacts/hooks";
-import { useRuntimeWorkingPubkeys } from "@/features/capabilities/useAllRuntimeTasks";
 import { useCapabilitySkills } from "@/features/capabilities/hooks";
 import { skillRuntimeLabel } from "@/features/capabilities/lib/skillHandoff";
 import {
@@ -23,8 +21,11 @@ import {
   usePersonasQuery,
   useTeamsQuery,
 } from "@/features/agents/hooks";
-import { useWorkingChannels } from "@/features/agents/agentWorkingSignal";
 import { getPersonaLibraryState } from "@/features/agents/lib/catalog";
+import {
+  mindStateOf,
+  useMindSignals,
+} from "@/features/agents/lib/useMindState";
 import { buildResidentLibrary } from "@/features/agents/ui/agentLibraryViewModel";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
@@ -78,20 +79,9 @@ function useAgentsRail(): PlaceRail {
   const teamsQuery = useTeamsQuery();
   const { isLoading: runtimesLoading, runtimes } = useRuntimeRailConnections();
   const luca = useCanonicalLucaPubkey();
-  // The live signal the Chats rail reads, by agent rather than by chat.
-  const workingChannels = useWorkingChannels();
-  // A runtime task of theirs running counts too (WP-14 review).
-  const runtimeWorking = useRuntimeWorkingPubkeys();
-  const workingPubkeys = React.useMemo(
-    () =>
-      new Set([
-        ...workingChannels.flatMap((summary) =>
-          summary.agentPubkeys.map(normalizePubkey),
-        ),
-        ...runtimeWorking,
-      ]),
-    [runtimeWorking, workingChannels],
-  );
+  // Each mind's one state (WP-18, Decided 2): its live turn, its runtime
+  // tasks, its live side conversations and its errors.
+  const signals = useMindSignals();
   const ready =
     agentsQuery.data !== undefined &&
     personasQuery.data !== undefined &&
@@ -111,11 +101,10 @@ function useAgentsRail(): PlaceRail {
     const stateOf = (resident: (typeof library)[number]) => {
       const key = resident.pubkey ? normalizePubkey(resident.pubkey) : null;
       const agent = key ? managed.get(key) : undefined;
-      return agentStateWord({
+      return mindStateOf(signals, key, {
         availability: resident.availability,
         lastError: agent?.lastError,
         waking: Boolean(agent?.waking),
-        working: key ? workingPubkeys.has(key) : false,
       });
     };
     const isLuca = (pubkey: string | null) =>
@@ -175,8 +164,8 @@ function useAgentsRail(): PlaceRail {
     luca,
     personasQuery.data,
     runtimes,
+    signals,
     teamsQuery.data,
-    workingPubkeys,
   ]);
   return { ready, sections };
 }

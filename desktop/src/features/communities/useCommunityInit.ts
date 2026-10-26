@@ -22,6 +22,7 @@ import {
 import { resetAgentWorkingSignal } from "@/features/agents/agentWorkingSignal";
 import { resetAgentObserverStore } from "@/features/agents/observerRelayStore";
 import { resetExchangeStore } from "@/features/exchange/exchangeStore";
+import { resetOpenSide } from "@/features/exchange/openSide";
 import { resetPaneState } from "@/features/panes/paneState";
 import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
@@ -63,6 +64,7 @@ function resetCommunityState(): void {
   clearSearchHitEventCache();
   clearMarkdownNodeCache();
   resetExchangeStore();
+  resetOpenSide();
   resetPaneState();
   resetBackgroundTasks();
   resetAgentColumnStore();

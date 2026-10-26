@@ -511,7 +511,11 @@ test("2: a mind running a task reads working, in their space and in Now", async 
           title: node.querySelector(".luca-place-row-title")?.textContent,
           summary: node.querySelector(".luca-place-row-summary")?.textContent,
         }))
-        .filter((row) => row.title === "Luca"),
+        // Luca's row, or the live side conversation that names Luca as the
+        // one asking (WP-18, Decided 4: "Luca asked Claude Code").
+        .filter(
+          (row) => row.title === "Luca" || row.title?.startsWith("Luca asked"),
+        ),
     );
   const nowShot = await shot(page, "02-now-luca-working");
   const checks = {

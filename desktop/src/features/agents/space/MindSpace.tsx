@@ -2,12 +2,19 @@ import * as React from "react";
 import { CircleAlert, Play } from "lucide-react";
 
 import "@/app/shell/shell-mind-space.css";
-import { agentStateWord } from "@/app/shell/placeRails/placePicks";
 import { ResidentDocumentsSection } from "@/features/agents/documents/ResidentDocumentsSection";
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
+import {
+  mindStateLabel,
+  useMindState,
+} from "@/features/agents/lib/useMindState";
 import { useRunningRuntimeTask } from "@/features/capabilities/useAllRuntimeTasks";
 import { useChannelsQuery } from "@/features/channels/hooks";
-import { runtimeLabel } from "@/features/exchange/sideConversations";
+import {
+  namesAsList,
+  runtimeLabel,
+} from "@/features/exchange/sideConversations";
+import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import {
@@ -230,41 +237,52 @@ function MindHead({
   // A task they run with Claude Code or Codex is work too (WP-09b, Decided
   // 2): the line says so, as Now's row does.
   const task = useRunningRuntimeTask(resident.pubkey);
-  const working = React.useMemo(
-    () => ({
-      channels: agentWorking.channels,
-      working: agentWorking.working || task !== null,
-    }),
-    [agentWorking, task],
-  );
+  // Their one state (WP-18, Decided 2), as the Agents rail, their profile
+  // card and Now say it; the line says what it is about.
+  const state = useMindState(resident.pubkey, {
+    availability: resident.availability,
+    lastError: managedAgent?.lastError,
+    waking: Boolean(managedAgent?.waking),
+  });
+  const side = useSideConversations();
+  const key = resident.pubkey?.toLowerCase() ?? null;
+  const talk =
+    state === "talking" && key
+      ? (side.items.find(
+          (item) =>
+            item.kind === "exchange" &&
+            item.live &&
+            (item.openedBy === key || item.members.includes(key)),
+        ) ?? null)
+      : null;
   const now = React.useMemo(() => {
-    if (agentWorking.working && working.channels.length > 0) {
-      if (working.channels.length > 1)
-        return `Working in ${working.channels.length} conversations`;
-      const channelId = working.channels[0]?.channelId;
-      const channel = channelsQuery.data?.find((each) => each.id === channelId);
-      return channel
-        ? `Working in ${channel.name}`
-        : "Working in one conversation";
+    if (state === "working") {
+      if (agentWorking.working && agentWorking.channels.length > 0) {
+        if (agentWorking.channels.length > 1)
+          return `Working in ${agentWorking.channels.length} conversations`;
+        const channelId = agentWorking.channels[0]?.channelId;
+        const channel = channelsQuery.data?.find(
+          (each) => each.id === channelId,
+        );
+        return channel
+          ? `Working in ${channel.name}`
+          : "Working in one conversation";
+      }
+      if (task)
+        return `Working with ${runtimeLabel(task.runtimeFamily)} · ${task.summary}`;
     }
-    if (task)
-      return `Working with ${runtimeLabel(task.runtimeFamily)} · ${task.summary}`;
-    const word = agentStateWord({
-      availability: resident.availability,
-      lastError: managedAgent?.lastError,
-      waking: Boolean(managedAgent?.waking),
-      working: working.working,
-    });
-    return word.charAt(0).toUpperCase() + word.slice(1);
-  }, [
-    channelsQuery.data,
-    managedAgent?.lastError,
-    managedAgent?.waking,
-    resident.availability,
-    agentWorking.working,
-    task,
-    working,
-  ]);
+    if (talk && talk.kind === "exchange" && key) {
+      const others = [talk.openedBy, ...talk.members]
+        .filter(
+          (member, index, all) =>
+            member !== key && all.indexOf(member) === index,
+        )
+        .map(side.nameOf);
+      const room = side.roomOf(talk.conversationId);
+      return `Talking with ${namesAsList(others)}${room ? ` · ${room}` : ""}`;
+    }
+    return mindStateLabel(state);
+  }, [agentWorking, channelsQuery.data, key, side, state, talk, task]);
 
   return (
     <header className="luca-mind-head" data-testid="mind-head">
@@ -292,8 +310,9 @@ function MindHead({
         <h1 className="luca-place-page-name">{resident.displayName}</h1>
         <p
           className="luca-mind-now"
+          data-mind-state={state}
           data-testid="mind-now"
-          data-working={working.working ? "true" : undefined}
+          data-working={state === "working" ? "true" : undefined}
         >
           {now}
         </p>

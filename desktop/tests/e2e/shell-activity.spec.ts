@@ -897,7 +897,8 @@ test("a connected app: what Luca did with it", async ({ page }) => {
     timeout: 20_000,
   });
   // A mind running a runtime task counts as working (review, fix 5); Atlas,
-  // whose Codex task is done, rests.
+  // whose Codex task is done, is talking with Luca in general (an exchange
+  // still open): one state for each mind (WP-18, Decided 2).
   const stateOf = (pubkey: string) =>
     page
       .getByTestId(`place-row-mind:${pubkey}`)
@@ -908,7 +909,7 @@ test("a connected app: what Luca did with it", async ({ page }) => {
     atlas: await stateOf(ATLAS),
     luca: await stateOf(LUCA),
   });
-  expect(await stateOf(ATLAS)).toBe("resting");
+  expect(await stateOf(ATLAS)).toBe("talking");
   const history = page.getByTestId("connected-what-luca-did");
   await expect(history).toBeVisible({ timeout: 20_000 });
   await history.scrollIntoViewIfNeeded();
@@ -1177,22 +1178,27 @@ test("now: the live side conversations among who's working", async ({
     })),
   );
   measure("now_side", rows);
-  expect(rows.map((row) => row.summary).sort()).toEqual([
-    "Talking with Atlas · general",
-    "Working with Claude Code · Rail glass plates",
+  // Named as Side conversations names them (WP-18, Decided 4).
+  expect(rows.map((row) => `${row.title} · ${row.summary}`).sort()).toEqual([
+    "Luca asked Atlas · general",
+    "Luca asked Claude Code · Rail glass plates",
   ]);
   for (const row of rows) {
     expect(row.group).toBe("active");
     expect(row.underActiveHeading).toBe(true);
   }
-  // A resident listed as active isn't listed again lower down.
-  const lucaRows = await page
+  // Each mind once (WP-18, Decided 4): Luca and Atlas, named by the live
+  // side conversations, have no row of their own lower down.
+  const ownRows = await page
     .locator('[data-testid="owner-activity-list"] .luca-place-row-title')
     .evaluateAll(
-      (titles) => titles.filter((title) => title.textContent === "Luca").length,
+      (titles) =>
+        titles.filter((title) =>
+          ["Luca", "Atlas"].includes(title.textContent ?? ""),
+        ).length,
     );
-  measure("now_luca_rows", lucaRows);
-  expect(lucaRows).toBe(2);
+  measure("now_own_rows", ownRows);
+  expect(ownRows).toBe(0);
   measure("shot_now_side", await shot(page, "now-side"));
 });
 

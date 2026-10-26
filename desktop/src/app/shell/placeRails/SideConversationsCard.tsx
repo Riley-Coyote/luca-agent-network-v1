@@ -13,6 +13,7 @@ import {
   sideTitle,
   turnsLabel,
 } from "@/features/exchange/sideConversations";
+import { noteOpenSide } from "@/features/exchange/openSide";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 
 /**
@@ -46,14 +47,16 @@ export function SideConversationsCard() {
                 item={item}
                 key={`${item.kind}:${item.id}`}
                 nameOf={nameOf}
-                onOpen={() =>
+                onOpen={() => {
+                  // The rail marks it under Luca, not its room (WP-18).
+                  noteOpenSide(item);
                   void goChannel(
                     item.conversationId,
                     item.kind === "exchange"
                       ? { messageId: item.rootEventId }
                       : undefined,
-                  )
-                }
+                  );
+                }}
                 roomOf={roomOf}
               />
             ))}
