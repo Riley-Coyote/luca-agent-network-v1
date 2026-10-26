@@ -15,7 +15,19 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import { LIBRARY_KINDS, pickIdOf } from "@/app/shell/placeRails/placePicks";
+import {
+  PlaceList,
+  PlaceListRow,
+  PlacePage,
+  placeNoteTime,
+} from "@/app/shell/placeRails/PlacePage";
+import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
+import { useKeepPickInAddress } from "@/app/shell/placeRails/usePlaceRails";
 import { SkillLibraryPanel } from "@/features/capabilities/ui/SkillLibraryPanel";
+import { skillRuntimeLabel } from "@/features/capabilities/lib/skillHandoff";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { useArtifactCanvas } from "@/features/artifacts/ArtifactCanvasProvider";
 import {
   useArtifactLibrary,
@@ -37,15 +49,43 @@ const FILTERS: readonly { label: string; value: "all" | ArtifactKind }[] = [
   { label: "Code", value: "code" },
 ];
 
+const LIBRARY_SEARCH_KEYS = ["deleted", "import", "made", "skills"] as const;
+
 export function ArtifactLibraryScreen() {
-  const [libraryView, setLibraryView] = React.useState<"artifacts" | "skills">(
+  const [localView, setLibraryView] = React.useState<"artifacts" | "skills">(
     "artifacts",
   );
   const [query, setQuery] = React.useState("");
-  const [filter, setFilter] = React.useState<"all" | ArtifactKind>("all");
-  const [deletedState, setDeletedState] = React.useState<"active" | "deleted">(
-    "active",
-  );
+  const [localFilter, setFilter] = React.useState<"all" | ArtifactKind>("all");
+  const [localDeletedState, setDeletedState] = React.useState<
+    "active" | "deleted"
+  >("active");
+  // Under the shell the rail picks the list, in the address (WP-10,
+  // Decided 6): Made by kind, Skills by runtime, or Recently deleted. The
+  // mode tabs, kind chips and the deleted toggle go; the search stays.
+  const shellFrame = useShellFrameEnabled();
+  const { applyPatch, values } = useHistorySearchState(LIBRARY_SEARCH_KEYS);
+  const pick = shellFrame
+    ? (pickIdOf("library", values as Record<string, unknown>) ?? "made:all")
+    : null;
+  const pickedKind = LIBRARY_KINDS.find((each) => pick === `made:${each.id}`);
+  const libraryView = shellFrame
+    ? pick?.startsWith("skills:")
+      ? "skills"
+      : "artifacts"
+    : localView;
+  const filter: "all" | ArtifactKind = shellFrame
+    ? (pickedKind?.kind ?? "all")
+    : localFilter;
+  const deletedState = shellFrame
+    ? pick === "deleted"
+      ? "deleted"
+      : "active"
+    : localDeletedState;
+  const skillsRuntime =
+    shellFrame && pick?.startsWith("skills:")
+      ? pick.slice("skills:".length)
+      : null;
   const [actionMessage, setActionMessage] = React.useState("");
   const deferredQuery = React.useDeferredValue(query.trim());
   const library = useArtifactLibrary({
@@ -58,6 +98,24 @@ export function ArtifactLibraryScreen() {
   const { openArtifact, presentation } = useArtifactCanvas();
   const artifacts = library.data?.pages.flatMap((page) => page.artifacts) ?? [];
   const total = library.data?.pages[0]?.total ?? artifacts.length;
+
+  // The rail's Import (at Made's heading) asks through the address, as the
+  // Agents page's `+` does; the file picker opens here, where the Canvas is.
+  const importRequested = shellFrame && values.import === "file";
+  const importArtifact = mutations.importArtifact.mutate;
+  // `open` is rebuilt each render; the request is what matters.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  React.useEffect(() => {
+    if (!importRequested) return;
+    applyPatch({ import: null }, { replace: true });
+    importArtifact(undefined, {
+      onSuccess: (artifact) => {
+        if (artifact) open(artifact);
+        else setActionMessage("Import cancelled");
+      },
+      onError: () => setActionMessage("Could not import that file"),
+    });
+  }, [applyPatch, importArtifact, importRequested]);
 
   React.useEffect(() => {
     if (!actionMessage) return;
@@ -75,6 +133,208 @@ export function ArtifactLibraryScreen() {
       turnId: artifact.provenance.turnId,
       source: "library",
     });
+
+  const head = shellFrame ? (
+    <PlacePageHead
+      eyebrow={
+        pick === "deleted"
+          ? "Library"
+          : libraryView === "skills"
+            ? "Skills"
+            : "Made"
+      }
+      title={
+        pick === "deleted"
+          ? "Recently deleted"
+          : skillsRuntime && skillsRuntime !== "all"
+            ? skillRuntimeLabel(skillsRuntime)
+            : (pickedKind?.label ?? "All")
+      }
+    />
+  ) : null;
+
+  // Under the shell the list the rail picked sits on the shared place page
+  // (WP-10): the head, the search without an outline, the study's flat rows
+  // on the page's axis, and the count as a quiet line under them.
+  if (shellFrame) {
+    return (
+      <main
+        className="artifact-library-screen"
+        data-luca-floor-host
+        data-testid="artifact-library-screen"
+      >
+        <KeepLibraryPick applyPatch={applyPatch} />
+        <div
+          className="artifact-library-screen__focal-card relative z-10 bg-background"
+          data-luca-conversation-surface
+          data-place-pick=""
+        >
+          {libraryView === "skills" ? (
+            <SkillLibraryPanel
+              head={head}
+              runtimeFilter={skillsRuntime ?? "all"}
+            />
+          ) : (
+            <PlacePage>
+              {head}
+              <label className="luca-place-search">
+                <Search aria-hidden />
+                <span className="sr-only">Search Library</span>
+                <input
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                  placeholder="Search artifact titles"
+                  value={query}
+                />
+              </label>
+              {library.isLoading ? <LibraryLoading /> : null}
+              {library.isError ? (
+                <LibraryState
+                  action="Try again"
+                  icon={<FileCode2 aria-hidden />}
+                  onAction={() => void library.refetch()}
+                  text="Library is unavailable. Conversations and resident replies continue normally."
+                  title="Couldn’t open Library"
+                />
+              ) : null}
+              {!library.isLoading &&
+              !library.isError &&
+              artifacts.length === 0 &&
+              deletedState === "deleted" &&
+              !deferredQuery ? (
+                // Nothing in Recently deleted (its last piece restored, say):
+                // said plainly, with nothing to clear.
+                <p
+                  className="luca-place-page-line"
+                  data-testid="library-deleted-empty"
+                >
+                  Nothing recently deleted.
+                </p>
+              ) : !library.isLoading &&
+                !library.isError &&
+                artifacts.length === 0 ? (
+                deferredQuery ||
+                filter !== "all" ||
+                deletedState === "deleted" ? (
+                  <LibraryState
+                    action="Clear filters"
+                    icon={<Search aria-hidden />}
+                    onAction={() => {
+                      setQuery("");
+                      applyPatch({ deleted: null, made: "all", skills: null });
+                    }}
+                    text="No artifact metadata matches this view."
+                    title="Nothing found"
+                  />
+                ) : (
+                  <LibraryState
+                    action="Import a file"
+                    icon={<FileCode2 aria-hidden />}
+                    onAction={() => mutations.importArtifact.mutate()}
+                    text="When a resident creates something durable, it will appear here."
+                    title="Your created work lives here"
+                  />
+                )
+              ) : null}
+              {artifacts.length > 0 ? (
+                <PlaceList testId="artifact-library-list">
+                  {artifacts.map((artifact) => (
+                    <PlaceListRow
+                      action={
+                        artifact.deletedAt ? (
+                          <button
+                            aria-label={`Restore ${artifact.title}`}
+                            onClick={() =>
+                              mutations.restoreArtifact.mutate(artifact.id, {
+                                onError: () =>
+                                  setActionMessage(
+                                    "Could not restore artifact",
+                                  ),
+                              })
+                            }
+                            type="button"
+                          >
+                            <RotateCcw aria-hidden />
+                            Restore
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              aria-label={`${artifact.pinned ? "Unpin" : "Pin"} ${artifact.title}`}
+                              data-active={artifact.pinned ? "true" : undefined}
+                              onClick={() =>
+                                mutations.pinArtifact.mutate(
+                                  {
+                                    artifactId: artifact.id,
+                                    pinned: !artifact.pinned,
+                                  },
+                                  {
+                                    onError: () =>
+                                      setActionMessage("Could not update pin"),
+                                  },
+                                )
+                              }
+                              type="button"
+                            >
+                              <Pin aria-hidden />
+                            </button>
+                            <button
+                              aria-label={`Move ${artifact.title} to Recently deleted`}
+                              onClick={() =>
+                                mutations.deleteArtifact.mutate(artifact.id, {
+                                  onError: () =>
+                                    setActionMessage(
+                                      "Could not move artifact to Recently deleted",
+                                    ),
+                                })
+                              }
+                              type="button"
+                            >
+                              <Trash2 aria-hidden />
+                            </button>
+                          </>
+                        )
+                      }
+                      data-selected={
+                        presentation?.artifactId === artifact.id
+                          ? "true"
+                          : undefined
+                      }
+                      key={artifact.id}
+                      note={placeNoteTime(artifact.updatedAt)}
+                      onOpen={() => open(artifact)}
+                      openLabel={`Open ${artifact.title}`}
+                      summary={`${artifact.summary ?? kindLabel(artifact.kind)} · ${formatProvenanceLabel(provenanceLabels(artifact.provenance))}`}
+                      testId={`artifact-row-${artifact.id}`}
+                      title={artifact.title}
+                    />
+                  ))}
+                </PlaceList>
+              ) : null}
+              {library.hasNextPage ? (
+                <button
+                  className="artifact-library-load-more"
+                  disabled={library.isFetchingNextPage}
+                  onClick={() => void library.fetchNextPage()}
+                  type="button"
+                >
+                  {library.isFetchingNextPage ? "Loading…" : "Load more"}
+                </button>
+              ) : null}
+              <p className="luca-place-footnote" data-testid="library-footnote">
+                {total} {deletedState === "deleted" ? "deleted " : ""}
+                artifacts · stored on this Mac
+              </p>
+            </PlacePage>
+          )}
+          {actionMessage ? (
+            <div className="artifact-library-notice" role="status">
+              {actionMessage}
+            </div>
+          ) : null}
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main
@@ -444,4 +704,17 @@ function LibraryState({
       </button>
     </div>
   );
+}
+
+/** Under the shell the rail picks, and the pick is in the address (WP-10). */
+function KeepLibraryPick({
+  applyPatch,
+}: {
+  applyPatch: (
+    patch: Record<string, string | null>,
+    options?: { replace?: boolean },
+  ) => void;
+}) {
+  useKeepPickInAddress("library", applyPatch);
+  return null;
 }

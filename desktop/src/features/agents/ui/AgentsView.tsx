@@ -40,8 +40,8 @@ import {
 } from "@/shared/ui/dialog";
 import type { ManagedAgent } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { RuntimeRailSection } from "@/features/runtime-sessions/RuntimeRailSection";
-import { requestOpenRuntimeSessions } from "@/features/runtime-sessions/openRuntimeSessionsEvent";
+import { ConnectedAppCard } from "@/app/shell/placeRails/ConnectedAppCard";
+import { GroupCard } from "@/app/shell/placeRails/GroupCard";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useElementWidth } from "@/shared/hooks/use-mobile";
 import {
@@ -60,6 +60,10 @@ import {
 const AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX = 600;
 
 export function AgentsView({
+  addRequest = null,
+  connectedKey = null,
+  groupId = null,
+  onAddConsumed,
   onClearSelection,
   onReviewNativeConsumed,
   onSectionChange,
@@ -70,6 +74,13 @@ export function AgentsView({
   selectedPersonaId,
   selectedPubkey,
 }: {
+  /** Under the shell: the rail's `+` asking for Add agent or New group. */
+  addRequest?: "agent" | "group" | null;
+  /** Under the shell: the connected app picked in the rail. */
+  connectedKey?: string | null;
+  /** Under the shell: the group picked in the rail. */
+  groupId?: string | null;
+  onAddConsumed?: () => void;
   onClearSelection: () => void;
   onReviewNativeConsumed: () => void;
   onSectionChange: (section: AgentLibrarySection) => void;
@@ -187,8 +198,9 @@ export function AgentsView({
         null
       );
     }
-    return library[0] ?? null;
-  }, [library, selectedPersonaId, selectedPubkey]);
+    // Under the shell the rail picks (WP-10): nothing named, nothing shown.
+    return shellFrame ? null : (library[0] ?? null);
+  }, [library, selectedPersonaId, selectedPubkey, shellFrame]);
   // A removed/stale selection must not strand compact windows in an empty
   // detail pane. Keep the list available without silently selecting an agent.
   const showRoster = showMobileRoster || !selectedResident;
@@ -213,8 +225,24 @@ export function AgentsView({
     [personas.libraryPersonas, selectedResident],
   );
 
+  // The rail's `+` (WP-10) asks through the address, as `review=native`
+  // does: Add agent opens this page's Add an agent dialog; New group, its
+  // Create group dialog.
+  const { openCreateDialog: openCreateGroup } = teamActions;
+  React.useEffect(() => {
+    if (!addRequest) return;
+    if (addRequest === "agent") setIsAddOpen(true);
+    else openCreateGroup();
+    onAddConsumed?.();
+  }, [addRequest, onAddConsumed, openCreateGroup]);
+  const selectedTeam =
+    shellFrame && groupId
+      ? (teamActions.teams.find((team) => team.id === groupId) ?? null)
+      : null;
+
   React.useEffect(() => {
     if (
+      shellFrame ||
       libraryContentWidthPx === 0 ||
       isSinglePaneLibrary ||
       selectedPubkey ||
@@ -236,6 +264,7 @@ export function AgentsView({
     selectedPersonaId,
     selectedPubkey,
     selectedResident,
+    shellFrame,
   ]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only; personas.handleImportSnapshotFile and teamActions.handleImportTeamSnapshotFile are stable
@@ -319,50 +348,60 @@ export function AgentsView({
           data-luca-conversation-surface
           ref={libraryContentRef}
         >
-          <div
-            className={
-              isSinglePaneLibrary
-                ? showRoster
-                  ? "flex min-h-0 w-full"
-                  : "hidden min-h-0"
-                : "flex min-h-0"
-            }
-          >
-            <AgentLibraryRoster
-              after={
-                // The shell moves Runtimes out of the rail and onto this page.
-                // Its rows take the roster's geometry (shell-rail.css).
-                shellFrame ? (
-                  <div data-agents-runtimes="">
-                    <RuntimeRailSection
-                      onSelect={requestOpenRuntimeSessions}
-                      selectedRuntimeKey={null}
-                    />
-                  </div>
-                ) : undefined
-              }
-              fillPane={isSinglePaneLibrary}
-              filter={filter}
-              onAdd={() => setIsAddOpen(true)}
-              onFilterChange={setFilter}
-              onGroups={openGroups}
-              onOpenDefaults={() => setIsAiDefaultsOpen(true)}
-              onQueryChange={setQuery}
-              onSelect={(resident: ResidentSummaryViewModel) => {
-                setShowMobileRoster(false);
-                if (resident.pubkey) onSelectResident(resident.pubkey);
-                else if (resident.personaId)
-                  onSelectPersona(resident.personaId);
-              }}
-              query={query}
-              residents={library}
-              selectedId={selectedResident?.residentId ?? null}
-            />
-          </div>
-          {selectedResident ? (
+          {/* Under the shell the roster is the rail (WP-10): its rows,
+              Runtimes as Connected, and Groups are the Agents rail. */}
+          {shellFrame ? null : (
             <div
               className={
-                isSinglePaneLibrary && showMobileRoster
+                isSinglePaneLibrary
+                  ? showRoster
+                    ? "flex min-h-0 w-full"
+                    : "hidden min-h-0"
+                  : "flex min-h-0"
+              }
+            >
+              <AgentLibraryRoster
+                fillPane={isSinglePaneLibrary}
+                filter={filter}
+                onAdd={() => setIsAddOpen(true)}
+                onFilterChange={setFilter}
+                onGroups={openGroups}
+                onOpenDefaults={() => setIsAiDefaultsOpen(true)}
+                onQueryChange={setQuery}
+                onSelect={(resident: ResidentSummaryViewModel) => {
+                  setShowMobileRoster(false);
+                  if (resident.pubkey) onSelectResident(resident.pubkey);
+                  else if (resident.personaId)
+                    onSelectPersona(resident.personaId);
+                }}
+                query={query}
+                residents={library}
+                selectedId={selectedResident?.residentId ?? null}
+              />
+            </div>
+          )}
+          {shellFrame && connectedKey ? (
+            <ConnectedAppCard runtimeKey={connectedKey} />
+          ) : shellFrame && selectedTeam ? (
+            <GroupCard
+              isPending={isActionPending}
+              onAddToRoom={teamActions.setTeamToAddToChannel}
+              onDelete={teamActions.setTeamToDelete}
+              onDuplicate={teamActions.openDuplicateDialog}
+              onEdit={teamActions.openEditDialog}
+              onImport={() => teamImportInputRef.current?.click()}
+              onShare={teamActions.openShare}
+              personas={personas.libraryPersonas}
+              team={selectedTeam}
+            />
+          ) : shellFrame &&
+            (groupId ||
+              (!selectedResident &&
+                !residentsQuery.data)) ? // The pick is still arriving: Luca, or the group, is not known yet.
+          null : selectedResident ? (
+            <div
+              className={
+                !shellFrame && isSinglePaneLibrary && showMobileRoster
                   ? "hidden min-h-0 min-w-0 flex-1"
                   : "flex min-h-0 min-w-0 flex-1"
               }
@@ -428,13 +467,13 @@ export function AgentsView({
                 persona={selectedPersona}
                 resident={selectedResident}
                 section={section}
-                showBackButton={isSinglePaneLibrary}
+                showBackButton={!shellFrame && isSinglePaneLibrary}
               />
             </div>
           ) : (
             <div
               className={
-                isSinglePaneLibrary
+                !shellFrame && isSinglePaneLibrary
                   ? "hidden"
                   : "flex min-h-0 min-w-0 flex-1 items-center justify-center px-8 text-center"
               }
@@ -443,11 +482,18 @@ export function AgentsView({
                 <h2 className="text-lg font-medium">
                   {library.length > 0 ? "Choose an agent" : "No residents yet"}
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {library.length > 0
-                    ? "The previously selected agent is no longer available. Choose another from the list."
-                    : "Import an agent already on this Mac or create a new resident."}
-                </p>
+                {/* Under the shell with no Luca nothing is picked, and
+                    nothing was before: only the title says what to do. */}
+                {shellFrame &&
+                library.length > 0 &&
+                !selectedPubkey &&
+                !selectedPersonaId ? null : (
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {library.length > 0
+                      ? "The previously selected agent is no longer available. Choose another from the list."
+                      : "Import an agent already on this Mac or create a new resident."}
+                  </p>
+                )}
                 {library.length === 0 ? (
                   <Button className="mt-5" onClick={() => setIsAddOpen(true)}>
                     Add agent

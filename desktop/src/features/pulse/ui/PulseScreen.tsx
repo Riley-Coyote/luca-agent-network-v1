@@ -17,18 +17,29 @@ import { ProvenanceView } from "@/features/provenance/ui/ProvenanceView";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
+import { useKeepPickInAddress } from "@/app/shell/placeRails/usePlaceRails";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 
 const PULSE_PANEL_SEARCH_KEYS = [
   "profile",
   "profileTab",
   "profileView",
+  "record",
+  "stream",
 ] as const;
 
 export function PulseScreen() {
-  const [section, setSection] = React.useState<ActivitySection>("now");
+  const [localSection, setSection] = React.useState<ActivitySection>("now");
   const identityQuery = useIdentityQuery();
   const { applyPatch, values } = useHistorySearchState(PULSE_PANEL_SEARCH_KEYS);
+  // Under the shell the rail picks the stream, in the address (WP-10).
+  const shellFrame = useShellFrameEnabled();
+  const section: ActivitySection = shellFrame
+    ? values.record
+      ? "record"
+      : "now"
+    : localSection;
   const profilePanelPubkey = values.profile;
   const profilePanelTab = profilePanelTabFromSearch(values.profileTab);
   const profilePanelView = profilePanelViewFromSearch(values.profileView);
@@ -67,10 +78,14 @@ export function PulseScreen() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {shellFrame ? <KeepActivityPick applyPatch={applyPatch} /> : null}
             {section === "now" ? (
               <LucaActivityView onSectionChange={setSection} />
             ) : (
-              <ProvenanceView onSectionChange={setSection} />
+              <ProvenanceView
+                onSectionChange={setSection}
+                pubkey={shellFrame ? values.record : undefined}
+              />
             )}
           </div>
           {profilePanelPubkey ? (
@@ -94,4 +109,17 @@ export function PulseScreen() {
       </div>
     </ProfilePanelProvider>
   );
+}
+
+/** Under the shell the rail picks, and the pick is in the address (WP-10). */
+function KeepActivityPick({
+  applyPatch,
+}: {
+  applyPatch: (
+    patch: Record<string, string | null>,
+    options?: { replace?: boolean },
+  ) => void;
+}) {
+  useKeepPickInAddress("activity", applyPatch);
+  return null;
 }

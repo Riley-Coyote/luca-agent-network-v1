@@ -110,8 +110,12 @@ function ResidentTab({
 
 export function ProvenanceView({
   onSectionChange,
+  pubkey,
 }: {
   onSectionChange: (section: ActivitySection) => void;
+  /** Under the shell the rail picks whose record is read (WP-10), and the
+   *  page's own resident tabs go. */
+  pubkey?: string | null;
 }) {
   const managedAgentsQuery = useManagedAgentsQuery();
   const channelsQuery = useChannelsQuery();
@@ -123,12 +127,14 @@ export function ProvenanceView({
   const [selectedPubkey, setSelectedPubkey] = React.useState<string | null>(
     null,
   );
+  const pickedByRail = pubkey !== undefined;
+  const wanted = pickedByRail ? pubkey : selectedPubkey;
   const activeAgent =
     agents.find(
       (agent) =>
-        normalizePubkey(agent.pubkey) === normalizePubkey(selectedPubkey ?? ""),
+        normalizePubkey(agent.pubkey) === normalizePubkey(wanted ?? ""),
     ) ??
-    agents[0] ??
+    (pickedByRail ? null : agents[0]) ??
     null;
   const activePubkey = activeAgent?.pubkey ?? null;
 
@@ -171,16 +177,41 @@ export function ProvenanceView({
     [channelLabels, openSearchHit],
   );
 
+  // Under the shell the rail picks one mind's record (WP-10): the page sits
+  // on the shared place page, and the card is the place's own, not a second
+  // card drawn inside it.
+  const recordName = activeAgent?.name;
   return (
     <div
-      className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
-      data-luca-conversation-surface
+      className={
+        pickedByRail
+          ? "relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden"
+          : "relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      }
+      data-luca-conversation-surface={pickedByRail ? undefined : ""}
     >
-      <div className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]">
-        <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8">
+      <div
+        className={
+          pickedByRail
+            ? "luca-place-page [overflow-anchor:none]"
+            : "min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+        }
+      >
+        <div
+          className={
+            pickedByRail
+              ? "luca-place-page-axis"
+              : "mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8"
+          }
+        >
           <ActivityPageHeader
-            description="Everything these residents signed and the relay kept, checked against their own keys."
+            description={
+              pickedByRail && recordName
+                ? `Everything ${recordName} signed and the relay kept, checked against ${recordName}'s own key.`
+                : "Everything these residents signed and the relay kept, checked against their own keys."
+            }
             onSectionChange={onSectionChange}
+            recordName={activeAgent?.name}
             section="record"
           />
 
@@ -191,9 +222,12 @@ export function ProvenanceView({
               size="md"
             />
             <div className="min-w-0 flex-1">
-              <h2 className="truncate font-medium text-base text-foreground">
-                {activeAgent?.name ?? "No resident"}
-              </h2>
+              {/* Under the shell the card's head already names them. */}
+              {pickedByRail ? null : (
+                <h2 className="truncate font-medium text-base text-foreground">
+                  {activeAgent?.name ?? "No resident"}
+                </h2>
+              )}
               <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
                 <ShieldCheck aria-hidden className="h-3 w-3" />
                 <span>signed by</span>
@@ -223,7 +257,7 @@ export function ProvenanceView({
             </p>
           ) : null}
 
-          {agents.length > 1 ? (
+          {agents.length > 1 && !pickedByRail ? (
             <div
               aria-label="Residents"
               className="-mx-1 mt-4 flex items-center gap-4 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"

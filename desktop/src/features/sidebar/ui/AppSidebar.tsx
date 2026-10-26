@@ -8,7 +8,8 @@ import {
 } from "@/features/sidebar/lib/agentRailState";
 import { useAppShell } from "@/app/AppShellContext";
 import { ShellRailMarks } from "@/app/shell/ShellMarks";
-import { subscribeOpenRuntimeSessions } from "@/features/runtime-sessions/openRuntimeSessionsEvent";
+import { PlaceRail } from "@/app/shell/placeRails/PlaceRail";
+import type { RailPlace } from "@/app/shell/placeRails/placePicks";
 import type { RailHome } from "@/features/sidebar/lib/railHomes";
 import { ShellRail } from "@/features/sidebar/ui/ShellRail";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
@@ -125,6 +126,15 @@ type CollapsibleSidebarGroup =
   | "directMessages";
 
 type CreateChannelKind = "stream" | "forum";
+
+/** The views whose place has a rail of its own (SHELL_BUILD.md WP-10). */
+const RAIL_PLACES: Partial<Record<AppSidebarProps["selectedView"], RailPlace>> =
+  {
+    agents: "agents",
+    brain: "agents",
+    pulse: "activity",
+    artifacts: "library",
+  };
 
 export function AppSidebar({
   addCommunityPrefill,
@@ -797,11 +807,17 @@ export function AppSidebar({
     }
     handleNewMessageNavigation();
   });
-  React.useEffect(
-    () =>
-      frame ? subscribeOpenRuntimeSessions(handleSelectRuntime) : undefined,
-    [handleSelectRuntime, frame],
-  );
+  // Under the frame the runtime sessions column retires: a connected app's
+  // sessions are its card in Agents (SHELL_SPEC.md; WP-10), so nothing asks
+  // for the column and it never opens.
+  const runtimeColumnRuntime =
+    !frame && selectedView === "messages" ? selectedRuntime : null;
+  // The rail of the place you're on (NAVIGATION.md): Agents, Activity and
+  // Library list their own things; Chats keeps its rail.
+  const railPlace = RAIL_PLACES[selectedView] ?? null;
+  const closeSheetAfterPick = useStableCallback(() => {
+    if (isMobile) setOpenMobile(false);
+  });
 
   return React.createElement(
     React.Fragment,
@@ -823,14 +839,10 @@ export function AppSidebar({
           />
         }
         hasUnread={unreadChannelIds.size > 0}
-        homeBadgeCount={homeBadgeCount}
         key="shell-places"
-        onNewConversation={handleNewMessageNavigation}
         onSelectAgents={onSelectAgents}
         onSelectArtifacts={onSelectArtifacts}
-        onSelectBrain={onSelectBrain}
         onSelectConversations={selectConversationsPlace}
-        onSelectInbox={onSelectInbox}
         onSelectPulse={onSelectPulse}
         onSelectSettings={onSelectSettings}
         search={{
@@ -968,7 +980,13 @@ export function AppSidebar({
                   {/* Luca navigation: loose conversations remain immediately
                       available under Rooms while projects open their contextual
                       room navigator in the main application card. */}
-                  {USE_CHAT_LIST && frame ? (
+                  {frame && railPlace ? (
+                    // Every place but Chats lists its own things (WP-10).
+                    <PlaceRail
+                      onPicked={closeSheetAfterPick}
+                      place={railPlace}
+                    />
+                  ) : USE_CHAT_LIST && frame ? (
                     // The shell's rail: Runtimes lives on the Agents page.
                     <ShellRail
                       agentStorageKey={agentStorageKey}
@@ -1476,7 +1494,7 @@ export function AppSidebar({
         onNewMessage();
         return true;
       }}
-      runtime={selectedView === "messages" ? selectedRuntime : null}
+      runtime={runtimeColumnRuntime}
     />,
   );
 }

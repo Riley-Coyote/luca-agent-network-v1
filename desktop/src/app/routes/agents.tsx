@@ -10,6 +10,11 @@ import {
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 type AgentsRouteSearch = {
+  /** Under the shell, the rail's `+`: Add agent or New group (WP-10). */
+  add?: "agent" | "group";
+  /** Under the shell, the connected app or group picked in the rail. */
+  connected?: string;
+  group?: string;
   profile?: string;
   profilePersona?: string;
   profileTab?: ProfilePanelTab;
@@ -33,6 +38,10 @@ function validateAgentsSearch(
       ? search.section
       : undefined;
   return {
+    add:
+      search.add === "agent" || search.add === "group" ? search.add : undefined,
+    connected: nonEmptyString(search.connected),
+    group: nonEmptyString(search.group),
     profile: nonEmptyString(search.profile),
     profilePersona: nonEmptyString(search.profilePersona),
     profileTab: parseProfilePanelTab(search.profileTab) ?? undefined,

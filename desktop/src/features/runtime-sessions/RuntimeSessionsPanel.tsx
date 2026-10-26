@@ -28,6 +28,11 @@ import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { shellFrameCardLeft } from "@/app/shell/ShellLip";
 import "@/app/shell/shell-runtime.css";
+import {
+  PlaceList,
+  PlaceListRow,
+  placeNoteTime,
+} from "@/app/shell/placeRails/PlacePage";
 
 import {
   useRuntimeSessionContextMutation,
@@ -255,22 +260,31 @@ export function RuntimeSessionsPanel({
   );
 }
 
-function RuntimeSessionsPanelContent({
+/**
+ * A runtime's local sessions: its search, its empty states and "Start with
+ * this context". The column draws it with its own header and close; under
+ * the shell a connected app's card in Agents draws it (`variant="card"`,
+ * SHELL_BUILD.md WP-10), under the card's own head, which names it.
+ */
+export function RuntimeSessionsPanelContent({
   contextScopeKey,
   onClose,
   onOpenBrain,
   onStartContext,
   runtime,
+  variant = "panel",
 }: {
   contextScopeKey: string | null;
-  onClose: () => void;
+  onClose?: () => void;
   onOpenBrain: () => void;
   onStartContext: (
     context: ConnectedRuntimeSessionContext,
     authority: RuntimeSessionStartAuthority,
   ) => boolean;
   runtime: RuntimeConnectionStatusV1;
+  variant?: "panel" | "card";
 }) {
+  const inCard = variant === "card";
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const indexedId = indexedRuntimeId(runtime.runtimeId);
   const runtimeKey = runtimeConnectionKey(runtime);
@@ -315,8 +329,10 @@ function RuntimeSessionsPanelContent({
     setOperationError(null);
     setSearch("");
     setLoadAttempt(0);
-    headingRef.current?.focus({ preventScroll: true });
-  }, [contextScopeKey, runtimeKey]);
+    // The column takes focus to its heading as it opens; a card is picked
+    // from the rail, where focus stays.
+    if (!inCard) headingRef.current?.focus({ preventScroll: true });
+  }, [contextScopeKey, inCard, runtimeKey]);
 
   React.useEffect(() => {
     setIsSlowRead(false);
@@ -410,41 +426,50 @@ function RuntimeSessionsPanelContent({
 
   return (
     <>
-      <header className="shrink-0 border-b border-border/45 px-4 pb-3 pt-4">
-        <div className="flex items-start gap-3 pr-7">
-          <HarnessLogo
-            className="mt-0.5 text-foreground"
-            decorative
-            harness={harnessIdFromRuntimeId(runtime.runtimeId)}
-            size={20}
-          />
-          <div className="min-w-0 flex-1">
-            <h2
-              className="truncate text-sm font-semibold tracking-tight outline-none"
-              ref={headingRef}
-              tabIndex={-1}
-            >
-              {runtime.label} sessions
-            </h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Browse local history or bring one session into a new Polyphonic
-              conversation as context.
-            </p>
+      {inCard ? null : (
+        <header className="shrink-0 border-b border-border/45 px-4 pb-3 pt-4">
+          <div className="flex items-start gap-3 pr-7">
+            <HarnessLogo
+              className="mt-0.5 text-foreground"
+              decorative
+              harness={harnessIdFromRuntimeId(runtime.runtimeId)}
+              size={20}
+            />
+            <div className="min-w-0 flex-1">
+              <h2
+                className="truncate text-sm font-semibold tracking-tight outline-none"
+                ref={headingRef}
+                tabIndex={-1}
+              >
+                {runtime.label} sessions
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Browse local history or bring one session into a new Polyphonic
+                conversation as context.
+              </p>
+            </div>
           </div>
-        </div>
-        <Button
-          aria-label={`Close ${runtime.label} sessions`}
-          className="absolute right-2.5 top-2.5"
-          onClick={onClose}
-          size="icon-xs"
-          type="button"
-          variant="ghost"
-        >
-          <X />
-        </Button>
-      </header>
+          <Button
+            aria-label={`Close ${runtime.label} sessions`}
+            className="absolute right-2.5 top-2.5"
+            onClick={onClose}
+            size="icon-xs"
+            type="button"
+            variant="ghost"
+          >
+            <X />
+          </Button>
+        </header>
+      )}
 
-      <div className="buzz-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div
+        className={
+          inCard
+            ? "min-w-0"
+            : "buzz-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        }
+        data-testid={inCard ? "connected-sessions" : undefined}
+      >
         {!indexedId ? (
           <EmptyState
             detail={`${runtime.label} is installed, but Polyphonic does not currently discover or index its local session history.`}
@@ -494,7 +519,10 @@ function RuntimeSessionsPanelContent({
             title="No sessions found"
           />
         ) : (
-          <div className="space-y-2" data-testid="runtime-session-list">
+          <div
+            className={inCard ? undefined : "space-y-2"}
+            data-testid="runtime-session-list"
+          >
             {sessionsQuery.isError ? (
               <SessionListNotice
                 actionLabel="Try again"
@@ -519,18 +547,53 @@ function RuntimeSessionsPanelContent({
                 remain available while you repair the connection.
               </div>
             ) : null}
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <span className="sr-only">Search {runtime.label} sessions</span>
-              <input
-                className="h-9 w-full rounded-lg border border-border/50 bg-card/20 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-border focus:bg-card/30"
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search sessions"
-                type="search"
-                value={search}
-              />
-            </label>
-            {visibleSessions.map((session, index) => (
+            {inCard ? (
+              // The card's own list (WP-10): the study's flat rows, under
+              // their eyebrow, the search without an outline.
+              <>
+                <label className="luca-place-search">
+                  <Search aria-hidden />
+                  <span className="sr-only">
+                    Search {runtime.label} sessions
+                  </span>
+                  <input
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search sessions"
+                    type="search"
+                    value={search}
+                  />
+                </label>
+                {visibleSessions.length > 0 ? (
+                  <PlaceList label="Sessions">
+                    {visibleSessions.map((session, index) => (
+                      <SessionRow
+                        isDisabled={
+                          selectedSessionId !== null || contextScopeKey === null
+                        }
+                        isPending={selectedSessionId === session.sessionId}
+                        key={session.sessionId}
+                        onStart={() => void startWithContext(session)}
+                        position={index + 1}
+                        session={session}
+                      />
+                    ))}
+                  </PlaceList>
+                ) : null}
+              </>
+            ) : (
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <span className="sr-only">Search {runtime.label} sessions</span>
+                <input
+                  className="h-9 w-full rounded-lg border border-border/50 bg-card/20 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-border focus:bg-card/30"
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search sessions"
+                  type="search"
+                  value={search}
+                />
+              </label>
+            )}
+            {(inCard ? [] : visibleSessions).map((session, index) => (
               <SessionCard
                 isDisabled={
                   selectedSessionId !== null || contextScopeKey === null
@@ -776,6 +839,46 @@ function SessionCard({
         </Button>
       </div>
     </article>
+  );
+}
+
+/** A session in a connected app's card (WP-10): its title at full ink, its
+ *  summary quiet under it, the date as the row's note, and "Start with this
+ *  context" as a quiet action on hover and focus. */
+function SessionRow({
+  isDisabled,
+  isPending,
+  onStart,
+  position,
+  session,
+}: {
+  isDisabled: boolean;
+  isPending: boolean;
+  onStart: () => void;
+  position: number;
+  session: ConnectedRuntimeSession;
+}) {
+  return (
+    <PlaceListRow
+      action={
+        <button
+          aria-label={runtimeSessionActionLabel(session.title, position)}
+          data-active={isPending ? "true" : undefined}
+          disabled={!session.available || isDisabled}
+          onClick={onStart}
+          type="button"
+        >
+          {isPending ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : null}
+          Start with this context
+        </button>
+      }
+      note={placeNoteTime(session.updatedAt)}
+      summary={session.preview}
+      testId={`runtime-session-${session.sessionId}`}
+      title={session.title}
+    />
   );
 }
 

@@ -269,7 +269,7 @@ export function ShellLip({
   onGoBack,
   onGoForward,
   pageName,
-  railName = "conversations rail",
+  railName = "chats rail",
 }: {
   canGoBack: boolean;
   canGoForward: boolean;
@@ -278,10 +278,11 @@ export function ShellLip({
   currentPubkey?: string;
   onGoBack: () => void;
   onGoForward: () => void;
-  /** The page's own name when no conversation is open. */
-  pageName: string;
-  /** What the toggle opens and closes, in its words: the conversations
-   *  rail, or Settings' section list (WP-04b). */
+  /** The page's own name when no conversation is open: on a place with its
+   *  own rail, the picked row's name (PlaceLipName). */
+  pageName: React.ReactNode;
+  /** What the toggle opens and closes, in its words: the place's rail, or
+   *  Settings' section list (WP-04b). */
   railName?: string;
 }) {
   const sidebar = useOptionalSidebar();

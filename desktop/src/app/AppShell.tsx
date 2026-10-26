@@ -21,10 +21,11 @@ import { AppTopChrome } from "@/app/AppTopChrome";
 import { ShellLip } from "@/app/shell/ShellLip";
 import {
   SHELL_FRAME_SLIDE_MS,
-  shellFramePageName,
+  shellFrameRailName,
   shellFrameSidebarStyle,
   useShellFrameRootAttribute,
 } from "@/app/shell/shellFrame";
+import { shellFrameLipName } from "@/app/shell/placeRails/PlaceLipName";
 import { ShellSettingsPlaces } from "@/app/shell/ShellSettingsPlaces";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -1017,9 +1018,13 @@ export function AppShell() {
                             pageName={
                               settingsOpen
                                 ? "Settings"
-                                : shellFramePageName(selectedView)
+                                : shellFrameLipName(selectedView)
                             }
-                            railName={settingsOpen ? "section list" : undefined}
+                            railName={
+                              settingsOpen
+                                ? "section list"
+                                : shellFrameRailName(selectedView)
+                            }
                           />
                         ) : null}
                         {!settingsOpen && !shellFrame ? (
@@ -1078,16 +1083,9 @@ export function AppShell() {
                                 }}
                                 places={{
                                   hasUnread: unreadChannelIds.size > 0,
-                                  homeBadgeCount: inboxSidebarBadgeCount,
-                                  onNewConversation: handleOpenNewDm,
                                   onSelectAgents: () => void goAgents(),
                                   onSelectArtifacts: () => void goArtifacts(),
-                                  onSelectBrain: () => void goBrain(),
                                   onSelectConversations: () => void goHome(),
-                                  onSelectInbox: () =>
-                                    void (inboxSurfaceEnabled
-                                      ? goInbox()
-                                      : goHome()),
                                   onSelectPulse: () => void goPulse(),
                                   // Already here: pressing it keeps your place.
                                   onSelectSettings: () => {},

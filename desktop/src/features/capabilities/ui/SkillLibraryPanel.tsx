@@ -3,13 +3,21 @@ import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useAcpRuntimesQuery } from "@/features/agents/hooks";
-import { preferredReadySkillRuntime } from "@/features/capabilities/lib/skillHandoff";
+import {
+  preferredReadySkillRuntime,
+  skillRuntimeLabel as runtimeLabel,
+} from "@/features/capabilities/lib/skillHandoff";
 import {
   useCapabilitySkillDetail,
   useCapabilitySkills,
 } from "@/features/capabilities/hooks";
 import type { CapabilitySkillSummary } from "@/shared/api/tauriCapabilities";
 import { cn } from "@/shared/lib/cn";
+import {
+  PlaceList,
+  PlaceListRow,
+  PlacePage,
+} from "@/app/shell/placeRails/PlacePage";
 import {
   Sheet,
   SheetContent,
@@ -20,13 +28,23 @@ import {
 
 type RuntimeFilter = "all" | string;
 
-export function SkillLibraryPanel() {
+export function SkillLibraryPanel({
+  head,
+  runtimeFilter: pickedRuntime,
+}: {
+  /** Under the shell, the card's head (WP-10). */
+  head?: React.ReactNode;
+  /** Under the shell the Library's rail picks the runtime (WP-10), and the
+   *  runtime chips go: the list sits on the shared place page. */
+  runtimeFilter?: RuntimeFilter;
+} = {}) {
   const skillsQuery = useCapabilitySkills();
   const runtimesQuery = useAcpRuntimesQuery();
   const { goNewMessage } = useAppNavigation();
   const [query, setQuery] = React.useState("");
-  const [runtimeFilter, setRuntimeFilter] =
+  const [localRuntimeFilter, setRuntimeFilter] =
     React.useState<RuntimeFilter>("all");
+  const runtimeFilter = pickedRuntime ?? localRuntimeFilter;
   const [selectedSkill, setSelectedSkill] =
     React.useState<CapabilitySkillSummary | null>(null);
   const deferredQuery = React.useDeferredValue(
@@ -77,6 +95,107 @@ export function SkillLibraryPanel() {
     },
     [goNewMessage, runtimesQuery.data],
   );
+
+  const detailSheet = (
+    <SkillDetailSheet
+      onOpenChange={(open) => {
+        if (!open) setSelectedSkill(null);
+      }}
+      onUse={() => {
+        if (selectedSkill) handleUseSkill(selectedSkill);
+      }}
+      handoffRuntime={
+        selectedSkill
+          ? preferredReadySkillRuntime(
+              selectedSkill.runtimeIds,
+              runtimesQuery.data ?? [],
+            )
+          : undefined
+      }
+      skill={selectedSkill}
+    />
+  );
+
+  if (pickedRuntime !== undefined) {
+    return (
+      <PlacePage>
+        {head}
+        <label className="luca-place-search">
+          <Search aria-hidden />
+          <span className="sr-only">Search installed skills</span>
+          <input
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            placeholder="Search installed skills"
+            value={query}
+          />
+        </label>
+        {skillsQuery.isLoading ? <SkillLibraryLoading /> : null}
+        {skillsQuery.isError ? (
+          <SkillLibraryState
+            action="Check again"
+            onAction={() => void skillsQuery.refetch()}
+            text="Your agents still work normally. Polyphonic could not read their installed skill catalogs."
+            title="Skills are unavailable"
+          />
+        ) : null}
+        {!skillsQuery.isLoading &&
+        !skillsQuery.isError &&
+        visibleSkills.length === 0 ? (
+          <SkillLibraryState
+            action={query ? "Clear filters" : null}
+            onAction={() => setQuery("")}
+            text={
+              skills.length === 0
+                ? "Skills installed for your runtimes will appear here automatically."
+                : "No installed skill matches this view."
+            }
+            title={skills.length === 0 ? "No skills found" : "Nothing found"}
+          />
+        ) : null}
+        {visibleSkills.length > 0 ? (
+          <PlaceList testId="skill-library-list">
+            {visibleSkills.map((skill) => {
+              const handoff = preferredReadySkillRuntime(
+                skill.runtimeIds,
+                runtimesQuery.data ?? [],
+              );
+              return (
+                <PlaceListRow
+                  action={
+                    <button
+                      aria-label={
+                        handoff
+                          ? `Use ${skill.name} with ${runtimeLabel(handoff)}`
+                          : `Choose a recipient for ${skill.name}`
+                      }
+                      onClick={() => handleUseSkill(skill)}
+                      type="button"
+                    >
+                      {handoff
+                        ? `Use with ${runtimeLabel(handoff)}`
+                        : "Choose agent"}
+                    </button>
+                  }
+                  key={skill.skillId}
+                  note={skill.runtimeIds.map(runtimeLabel).join(" · ")}
+                  onOpen={() => setSelectedSkill(skill)}
+                  openLabel={skill.name}
+                  summary={skill.description}
+                  testId={`skill-row-${skill.skillId}`}
+                  title={skill.name}
+                />
+              );
+            })}
+          </PlaceList>
+        ) : null}
+        <p className="luca-place-footnote">
+          {visibleSkills.length} installed skills · owned and executed by your
+          runtimes
+        </p>
+        {detailSheet}
+      </PlacePage>
+    );
+  }
 
   return (
     <>
@@ -343,25 +462,6 @@ function SkillLibraryState({
       ) : null}
     </div>
   );
-}
-
-function runtimeLabel(runtimeId: string): string {
-  switch (runtimeId) {
-    case "claude":
-      return "Claude Code";
-    case "codex":
-      return "Codex";
-    case "openclaw":
-      return "OpenClaw";
-    case "hermes":
-      return "Hermes";
-    case "goose":
-      return "Goose";
-    case "polyphonic":
-      return "Polyphonic";
-    default:
-      return runtimeId;
-  }
 }
 
 function runtimeList(runtimeIds: readonly string[]): string {

@@ -49,7 +49,23 @@ export function shellFramePageName(view: AppView): string {
     case "projects":
       return "Projects";
     default:
-      return "Conversations";
+      return "Chats";
+  }
+}
+
+/** What the lip's toggle opens and closes, in its words: the rail of the
+ *  place you're on (SHELL_BUILD.md WP-10). */
+export function shellFrameRailName(view: AppView): string {
+  switch (view) {
+    case "agents":
+    case "brain":
+      return "agents rail";
+    case "pulse":
+      return "activity rail";
+    case "artifacts":
+      return "library rail";
+    default:
+      return "chats rail";
   }
 }
 
