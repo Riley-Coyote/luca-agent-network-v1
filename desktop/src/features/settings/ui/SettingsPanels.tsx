@@ -589,8 +589,10 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
 
       {shellFrame ? (
         // Under the frame Mode is Frame's segment, on a row of the same
-        // group (WP-17, 3): the study's Appearance, Mode then Frame.
-        <SettingsOptionGroup className="mb-4" data-testid="appearance-frame">
+        // group (WP-17, 3): the study's Appearance, Mode then Frame. Each
+        // row has its own test id; the Frame row's is only the Frame row,
+        // so it stays a statement in a browser (WP-28, 2).
+        <SettingsOptionGroup className="mb-4">
           <SettingsOptionRow data-testid="appearance-mode">
             <p
               className="min-w-0 text-sm font-medium"
@@ -919,7 +921,10 @@ function FrameSetting() {
   // choice share one line, and the sentence sits beneath on its own, so its
   // length never moves the choice. A row of Appearance's first group.
   return (
-    <SettingsOptionRow className="flex-col items-stretch justify-center gap-1.5">
+    <SettingsOptionRow
+      className="flex-col items-stretch justify-center gap-1.5"
+      data-testid="appearance-frame"
+    >
       <div className="flex items-center justify-between gap-4">
         <p className="min-w-0 text-sm font-medium" id="appearance-frame-label">
           Frame

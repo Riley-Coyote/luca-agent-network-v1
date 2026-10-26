@@ -21,6 +21,11 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 
 const SHOTS = process.env.WP20_SHOTS ?? "test-results/shell-motion-keys";
 const BASE_URL = process.env.WP20_BASE_URL ?? "http://127.0.0.1:4300";
+/** The settled film's base: a build with WP-16's ground, where the film
+ *  takes its ground from the one card (rgb(6, 6, 6) in Black) and not the
+ *  floor (rgb(0, 0, 0) on the builds before it, :4300 among them). The
+ *  expected picture is re-derived on the finished app (WP-28, Decided 5). */
+const FILM_BASE_URL = process.env.WP20_FILM_BASE_URL ?? "http://127.0.0.1:4334";
 const GENERAL = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const AGENTS = [
   {
@@ -244,7 +249,10 @@ test("WP-20: under Reduce Motion the film settles to the base's moment, and the 
       })
       .then((context) => context.newPage());
   const settled: Record<string, unknown> = {};
-  for (const build of BUILDS) {
+  for (const build of [
+    { name: "base", origin: FILM_BASE_URL },
+    { name: "this", origin: "" },
+  ] as const) {
     const page = await fresh();
     await boot(page, { hash: "/", origin: build.origin, reduce: true });
     // The base's film holds the page while it grows: wait it out.
@@ -255,7 +263,12 @@ test("WP-20: under Reduce Motion the film settles to the base's moment, and the 
     const count = await untilStill(page);
     const still = Date.now() - at;
     const picture = await shot(page, `${build.name}-reduce-settled-film`);
-    settled[build.name] = { ...picture, draws: count, still_after_ms: still };
+    settled[build.name] = {
+      ...picture,
+      draws: count,
+      origin: build.origin || "this build",
+      still_after_ms: still,
+    };
     await page.context().close();
   }
   measure("settled", settled);

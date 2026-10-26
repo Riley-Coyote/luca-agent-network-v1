@@ -23,7 +23,13 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
  * http://127.0.0.1:4300).
  */
 
-const SHOTS = process.env.SHELL_SHOTS ?? "test-results/shell-marks";
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-marks")
+  : undefined;
+
+const SHOTS = SHELL_SHOTS ?? "test-results/shell-marks";
 const STUDY_URL =
   process.env.SHELL_STUDY_URL ??
   "http://127.0.0.1:4333/scripts/shell-lab.template.html";

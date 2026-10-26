@@ -80,8 +80,14 @@ const CONVERSATION_CARD =
 const AVATAR = '[data-testid="shell-profile-avatar-button"]';
 const DISC = '[data-testid="shell-profile-avatar"]';
 
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-avatar")
+  : undefined;
+
 function shotsDir(fallback: string) {
-  const dir = process.env.SHELL_SHOTS ?? fallback;
+  const dir = SHELL_SHOTS ?? fallback;
   mkdirSync(dir, { recursive: true });
   return dir;
 }

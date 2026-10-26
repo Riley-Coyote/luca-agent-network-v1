@@ -78,13 +78,17 @@ async function shot(
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-/** Solid: filled with the ink, light on dark or dark on light, rather than
- *  the page's own ground (an outline button is filled with the ground). */
+/** Solid: the primary fill, opaque and light on dark or dark on light,
+ *  rather than the page's own ground (an outline button is filled with the
+ *  ground). A tint of the ink (WP-25's quiet button, ink at 8%) is quiet,
+ *  not solid (WP-28, Decided 4). */
 function solid(background: string | undefined, mode: Mode) {
-  const [r, g, b] = (background?.match(/\d+(\.\d+)?/g) ?? []).map(Number);
+  const [r, g, b, a = 1] = (background?.match(/\d+(\.\d+)?/g) ?? []).map(
+    Number,
+  );
   if ([r, g, b].some((each) => each === undefined || Number.isNaN(each)))
     return false;
-  if (/rgba\(.*,\s*0\)$/.test(background ?? "")) return false;
+  if (a < 0.9) return false;
   const light = (r + g + b) / 3 > 128;
   return mode === "dark" ? light : !light;
 }

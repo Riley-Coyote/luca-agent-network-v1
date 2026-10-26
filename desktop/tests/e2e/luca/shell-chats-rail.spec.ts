@@ -415,13 +415,14 @@ test.describe("the Chats rail", () => {
       agents: agents.map((each) => each.home),
     };
     expect(people.map((each) => each.channel)).toEqual([BOB_DM]);
-    // This Mac's agents by name, then any other agent (the mock names the
-    // stock 1:1s "alice-tyler" and "bob-tyler").
+    // This Mac's agents by name, then any other agent, named by the agent's
+    // profile name, not the conversation's title "alice-tyler" (WP-19,
+    // Decided 7).
     expect(agents.map((each) => each.home)).toEqual([
       "Atlas",
       "Codex",
       "Wren",
-      "alice-tyler",
+      "alice",
     ]);
     // Rooms, by their own names; unnamed groups by their members.
     const rooms = homes.filter((each) => each.kind === "room");
