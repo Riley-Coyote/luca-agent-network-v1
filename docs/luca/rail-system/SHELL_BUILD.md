@@ -1996,3 +1996,22 @@ page is `app/shell/placeRails/PlacePage.tsx`.
 **Checks JSON keys:** `freeze_cause` (what spun, with the evidence), `reduced_motion_responsive` (first-interaction
 times, before and after, with and without Reduce Motion), `marks_instant`, `history_keys_from_composer`,
 `flag_off_identical`, `gates`.
+
+## WP-21 · Three last things (2026-10-26, Claude's design, from WP-15b and WP-18)
+
+**Files in scope:**
+- the rail's status cards where Chats draws them (`features/sidebar/ui/AppSidebar.tsx`, `ShellRail.tsx`);
+- `features/agents/space/MindSpace.tsx` (the head's live dot);
+- the flag-off comparison tests (`desktop/tests/e2e/**`).
+
+**Decisions:**
+1. **On Chats, a relay that refuses sign-in shows the connection card.** Today the rail goes blank on
+   `#/messages/new` and `#/channels/<id>`, while Activity and Agents show the card at once (WP-15b's finding; tests
+   `luca/shell-status.spec.ts:290` and `:990`, evidence in the scratchpad's `evidence/status-card-missing-on-chats-auth-error.png`).
+   The status cards sit at the foot of the rail in every place, Chats included, whatever the rail's rows are doing.
+2. **A mind's head shows its live dot for "talking" as well as "working",** both being live (the same breathing dot as
+   Side conversations, still under Reduce Motion).
+3. **The flag-off comparisons fix the page clock** (Playwright's `page.clock`) on both builds, so a message time can't
+   differ by a minute between two shots. Fix every flag-off comparison spec that compares a view with times in it.
+
+**Checks JSON keys:** `chats_status_card`, `talking_dot`, `frozen_clock_specs`, `gates`.
