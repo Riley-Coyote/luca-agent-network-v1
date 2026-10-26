@@ -40,6 +40,7 @@ export default defineConfig({
         "**/shell-one-state.spec.ts",
         "**/shell-motion-keys.spec.ts",
         "**/shell-first-screen-asks.spec.ts",
+        "**/shell-settings-agents.spec.ts",
         "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",

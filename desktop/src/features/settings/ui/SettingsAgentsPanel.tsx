@@ -32,9 +32,12 @@ import {
   agentConfigurationViewModel,
   buildResidentLibrary,
   residentAvailabilityLabel,
-  residentSourceLabel,
   type ResidentSummaryViewModel,
 } from "@/features/agents/ui/agentLibraryViewModel";
+import {
+  agentOriginDescription,
+  authorityLabel,
+} from "@/features/agents/space/mindRunsOn";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
@@ -42,7 +45,9 @@ import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import type { ManagedAgent } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { ResidentAccessControl } from "./ResidentCapabilitySettings";
+import { SettingsAgentsMinds } from "./SettingsAgentsMinds";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { useSettingsAppName } from "./SettingsSectionHeader";
 
@@ -53,27 +58,6 @@ const SETTINGS_AGENT_SEARCH_KEYS = [
 ] as const;
 type AgentSettingsTab = "general" | "runtime" | "capabilities" | "advanced";
 
-function agentOriginLabel(resident: ResidentSummaryViewModel) {
-  if (resident.nativeSource === "hermes") return "Hermes";
-  if (resident.nativeSource === "openclaw") return "OpenClaw";
-  if (resident.kind === "managed_luca" || resident.kind === "persona_only") {
-    return "Polyphonic Agent";
-  }
-  return "External agent";
-}
-
-function agentOriginDescription(resident: ResidentSummaryViewModel) {
-  return resident.kind === "managed_native"
-    ? `${agentOriginLabel(resident)} · Native-managed agent`
-    : `${agentOriginLabel(resident)} · ${residentSourceLabel(resident)}`;
-}
-
-function authorityLabel(resident: ResidentSummaryViewModel, appName: string) {
-  return resident.kind === "managed_native"
-    ? `Native-managed binding · ${appName}-managed overlays`
-    : `${appName}-managed`;
-}
-
 function identityState(resident: ResidentSummaryViewModel) {
   if (resident.availability === "failed") return "fault" as const;
   if (resident.availability === "offline") return "unavailable" as const;
@@ -82,7 +66,21 @@ function identityState(resident: ResidentSummaryViewModel) {
   return "present" as const;
 }
 
+/**
+ * Settings > Agents. Under the shell's frame it lists every mind and what is
+ * for all of them, and each mind's settings live in its own space
+ * (SHELL_BUILD.md WP-24: SettingsAgentsMinds). Without the frame, the roster
+ * and its detail, unchanged.
+ */
 export function SettingsAgentsPanel() {
+  return useShellFrameEnabled() ? (
+    <SettingsAgentsMinds />
+  ) : (
+    <SettingsAgentsRosterPanel />
+  );
+}
+
+function SettingsAgentsRosterPanel() {
   const isMobile = useIsMobile();
   const managedQuery = useManagedAgentsQuery();
   const personasQuery = usePersonasQuery();

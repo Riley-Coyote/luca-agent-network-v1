@@ -1,0 +1,76 @@
+/* ── Settings > Agents under the frame (SHELL_BUILD.md WP-24) ──────────
+ * A list of every mind, as the Agents rail lists them, on the shared page's
+ * rows (shell-place-rails.css, `.luca-place-row`): the mind's mark in a
+ * column of its own before the name, the connected app beside it, the state
+ * word at the end. A row is one target; it opens the mind's own Settings.
+ * Then Connected, under the shared small label. Text is rem. */
+
+.luca-settings-minds-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.luca-settings-minds-line {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  max-width: 44ch;
+}
+
+.luca-settings-minds-group {
+  margin-top: 32px;
+}
+
+.luca-settings-minds-group > h2 {
+  color: hsl(var(--mn-ink-faint));
+  margin-bottom: 6px;
+}
+
+/* The mark's column, then the place row's three. The note's column takes
+ * "needs attention", the longest state word. */
+.luca-place-row.luca-settings-mind {
+  align-items: center;
+  grid-template-columns: 20px minmax(0, 1fr) auto 104px;
+  gap: 12px;
+}
+
+.luca-settings-minds-group .luca-place-row {
+  grid-template-columns: minmax(0, 1fr) auto 104px;
+}
+
+.luca-settings-mind[data-main] .luca-place-row-title {
+  font-weight: 600;
+}
+
+/* The specimen draws its body inside its box with room for its light: the
+ * box is held to the 20 column and the body centred on it (measured: at 28
+ * the body draws 20 across, its centre 4 below the box's). */
+.luca-settings-mind-mark {
+  display: grid;
+  height: 20px;
+  overflow: visible;
+  place-items: center;
+  width: 20px;
+}
+
+.luca-settings-mind-mark > .agent-identity-specimen {
+  flex: none;
+  translate: 0 -4px;
+}
+
+/* One not yet set up: the roster's mark, its initial in a dashed square. */
+.luca-settings-mind-initial {
+  align-items: center;
+  border: 1px dashed hsl(var(--mn-ink) / 0.25);
+  border-radius: 5px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+}
