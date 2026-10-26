@@ -51,6 +51,10 @@ type Item =
   | (NeedsYouEntry<RuntimeTaskProposal> & { kind: "proposal" })
   | (NeedsYouEntry<ExchangeEntry> & { kind: "exchange" });
 
+/** An item's controls, in order: its Open, then its answer's. */
+const FOCUSABLE =
+  'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 function ms(iso: string) {
   const at = Date.parse(iso);
   return Number.isFinite(at) ? at : null;
@@ -124,17 +128,59 @@ export function NeedsYouCard() {
     return orderNeedsYou(entries);
   }, [needs, side.items]);
 
+  // An answered item leaves while it holds focus: focus moves on to the
+  // next item's first control, or after the last to the empty line, so the
+  // next Tab carries on from here rather than from the top of the page.
+  const listRef = React.useRef<HTMLUListElement>(null);
+  const emptyRef = React.useRef<HTMLParagraphElement>(null);
+  const focusedKey = React.useRef<string | null>(null);
+  const shownKeys = React.useRef<string[]>([]);
+  React.useLayoutEffect(() => {
+    const keys = items.map((item) => item.key);
+    const before = shownKeys.current;
+    shownKeys.current = keys;
+    const held = focusedKey.current;
+    if (!held || keys.includes(held)) return;
+    focusedKey.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const next =
+      keys[Math.min(Math.max(0, before.indexOf(held)), keys.length - 1)];
+    if (!next) {
+      emptyRef.current?.focus();
+      return;
+    }
+    listRef.current
+      ?.querySelector(`[data-needs-key="${CSS.escape(next)}"]`)
+      ?.querySelector<HTMLElement>(FOCUSABLE)
+      ?.focus();
+  }, [items]);
+
   return (
     <PlacePage testId="needs-you-card">
       <PlacePageHead eyebrow="Activity" title="Needs you" />
       {items.length === 0 ? (
-        <p className="luca-place-page-line" data-testid="needs-you-empty">
+        <p
+          className="luca-place-page-line"
+          data-testid="needs-you-empty"
+          ref={emptyRef}
+          tabIndex={-1}
+        >
           Nothing is waiting on you.
         </p>
       ) : (
         <section aria-label="Waiting on you" className="luca-place-group">
           <h2 className="type-eyebrow">Waiting on you</h2>
-          <ul className="luca-needs-list">
+          <ul
+            className="luca-needs-list"
+            onFocus={(event) => {
+              const item = (event.target as HTMLElement).closest<HTMLElement>(
+                "[data-needs-key]",
+              );
+              focusedKey.current = item?.dataset.needsKey ?? null;
+            }}
+            ref={listRef}
+          >
             {items.map((item) => (
               <NeedsYouItem
                 item={item}
@@ -187,6 +233,7 @@ function NeedsYouItem({
   return (
     <li
       className="luca-needs-item"
+      data-needs-key={item.key}
       data-needs-kind={item.kind}
       data-testid={`needs-you-${item.key}`}
     >

@@ -145,3 +145,27 @@ export function useAllRuntimeTaskProposals(): RuntimeTaskProposal[] {
   }, [queryClient, refetch]);
   return query.data ?? EMPTY_PROPOSALS;
 }
+
+/** The residents running a runtime task right now (lowercase): they count as
+ *  working (WP-14 review, decided by the orchestrator), in the Agents rail
+ *  and in their own space's now line. */
+export function runtimeWorkingPubkeys(
+  tasks: readonly RuntimeTaskProjection[],
+): Set<string> {
+  return new Set(
+    tasks
+      .filter(
+        (task) =>
+          task.state === "queued" ||
+          task.state === "active" ||
+          task.state === "stopping",
+      )
+      .map((task) => task.residentPubkey.toLowerCase()),
+  );
+}
+
+/** `runtimeWorkingPubkeys` of every conversation's tasks, kept live. */
+export function useRuntimeWorkingPubkeys(): ReadonlySet<string> {
+  const tasks = useAllRuntimeTasks();
+  return React.useMemo(() => runtimeWorkingPubkeys(tasks), [tasks]);
+}

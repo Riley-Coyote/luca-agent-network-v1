@@ -184,3 +184,50 @@
     opacity: 1;
   }
 }
+
+/* ── a room's waiting cards, held while one exchange is focused ──────
+ * One quiet line where the stack stood (ChannelPane.tsx): what waits, and
+ * Show. The plate and hairline of the exchange strip; no fill, no accent. */
+.luca-pending-held {
+  align-items: center;
+  background: hsl(var(--mn-ink) / 0.04);
+  border-radius: 10px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  transition: color 120ms;
+  width: 100%;
+}
+
+.luca-pending-held:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-pending-held:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
+.luca-pending-held-show {
+  color: hsl(var(--mn-ink-faint));
+  flex: none;
+}
+
+.luca-measure[hidden] {
+  display: none;
+}
+
+/* The empty line takes focus after the last answer; it is not a control. */
+.luca-place-page-line:focus {
+  outline: none;
+}
+
+/* The focused view (one exchange): room under the day label for the
+ * new-messages pill, so neither sits on the other or on the message. */
+[data-focused-view] [data-testid="message-timeline-day-divider"] {
+  margin-bottom: 2.75rem;
+}

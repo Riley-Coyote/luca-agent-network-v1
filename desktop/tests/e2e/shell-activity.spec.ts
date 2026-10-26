@@ -415,31 +415,72 @@ test("needs you: every kind, answered in place, counted", async ({ page }) => {
   await page.goBack();
   await expect(items).toHaveCount(4, { timeout: 20_000 });
 
-  // Answer one of each where it stands.
+  // Answer one of each where it stands, from the keyboard: after each, focus
+  // is on the next item's first control, and after the last on the empty
+  // line, never back at the page's top.
   const answered: Record<string, number> = {};
-  const permission = page.getByTestId(
-    "needs-you-permission:permission-release",
+  const focusAfter: Record<string, string | null> = {};
+  const whereFocus = () =>
+    page.evaluate(() => {
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || active === document.body) return "body";
+      const item = active.closest<HTMLElement>("[data-needs-key]");
+      return item
+        ? `${item.dataset.needsKey} ${active.dataset.testid ?? active.tagName}`
+        : (active.dataset.testid ?? active.tagName);
+    });
+  const order = await items.evaluateAll((nodes) =>
+    nodes.map((node) => (node as HTMLElement).dataset.needsKey),
   );
-  await permission.getByRole("button", { name: /once/i }).first().click();
-  await expect(permission).toHaveCount(0, { timeout: 10_000 });
-  answered.permission = await items.count();
-
-  const question = page.getByTestId("needs-you-question:question-word");
-  await question.getByLabel("Beta").check();
-  await question.getByRole("button", { name: "Send answer" }).click();
-  await expect(question).toHaveCount(0, { timeout: 10_000 });
-  answered.question = await items.count();
-
-  const proposal = page.getByTestId("needs-you-proposal:proposal-notes");
-  await proposal.getByRole("button", { name: "Cancel runtime task" }).click();
-  await expect(proposal).toHaveCount(0, { timeout: 10_000 });
-  answered.proposal = await items.count();
-
-  const exchange = page.getByTestId(`needs-you-exchange:${X_PAUSED}`);
-  await exchange.getByTestId("needs-you-exchange-go").click();
-  await expect(exchange).toHaveCount(0, { timeout: 10_000 });
-  answered.exchange = await items.count();
-
+  measure("needs_you_order", order);
+  const answer = async (key: string, press: () => Promise<void>) => {
+    const item = page.getByTestId(`needs-you-${key}`);
+    await press();
+    await expect(item).toHaveCount(0, { timeout: 10_000 });
+    await page.waitForTimeout(200);
+    answered[key] = await items.count();
+    focusAfter[key] = await whereFocus();
+  };
+  await answer("permission:permission-release", async () => {
+    await page
+      .getByTestId("needs-you-permission:permission-release")
+      .getByRole("button", { name: /once/i })
+      .first()
+      .focus();
+    await page.keyboard.press("Enter");
+  });
+  await answer("question:question-word", async () => {
+    const question = page.getByTestId("needs-you-question:question-word");
+    await question.getByLabel("Beta").focus();
+    await page.keyboard.press("Space");
+    await question.getByRole("button", { name: "Send answer" }).focus();
+    await page.keyboard.press("Enter");
+  });
+  await answer("proposal:proposal-notes", async () => {
+    await page
+      .getByTestId("needs-you-proposal:proposal-notes")
+      .getByRole("button", { name: "Cancel runtime task" })
+      .focus();
+    await page.keyboard.press("Enter");
+  });
+  await answer(`exchange:${X_PAUSED}`, async () => {
+    await page
+      .getByTestId(`needs-you-exchange:${X_PAUSED}`)
+      .getByTestId("needs-you-exchange-go")
+      .focus();
+    await page.keyboard.press("Enter");
+  });
+  measure("focus_after_answer", focusAfter);
+  // The next item's Open (its first control) after each; the line at the end.
+  let left = [...order];
+  for (const key of Object.keys(focusAfter)) {
+    const at = left.indexOf(key);
+    left = left.filter((each) => each !== key);
+    const next = left[Math.min(at, left.length - 1)];
+    expect(focusAfter[key]).toBe(
+      next ? `${next} needs-you-open` : "needs-you-empty",
+    );
+  }
   await expect(page.getByTestId("needs-you-empty")).toHaveText(
     "Nothing is waiting on you.",
   );
@@ -511,11 +552,13 @@ test("side conversations: one feed, by day", async ({ page }) => {
   // An exchange opens its room at its first message.
   await page.getByTestId(`side-row-${X_OPEN}`).getByRole("button").click();
   await expect
-    .poll(() => page.evaluate(() => window.location.hash))
-    .toContain(`/channels/${GENERAL}`);
+    .poll(() => page.evaluate(() => window.location.hash), { timeout: 15_000 })
+    .toContain(`thread=${ROOT.open}`);
+  // It stays there: nothing rewrites it afterwards.
+  await page.waitForTimeout(1500);
   const opened = await page.evaluate(() => window.location.hash);
   measure("side_open", opened);
-  expect(opened).toContain(`messageId=${ROOT.open}`);
+  expect(opened).toContain(`thread=${ROOT.open}`);
 });
 
 test("Luca's side conversations under Luca in the Chats rail", async ({
@@ -591,7 +634,11 @@ test("Luca's side conversations under Luca in the Chats rail", async ({
   await page.getByTestId(`rail-side-exchange:${X_DONE}`).click();
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
-    .toMatch(new RegExp(`(messageId|thread)=${ROOT.done}`));
+    .toContain(`thread=${ROOT.done}`);
+  await page.waitForTimeout(1500);
+  expect(await page.evaluate(() => window.location.hash)).toContain(
+    `thread=${ROOT.done}`,
+  );
 });
 
 test("a connected app: what Luca did with it", async ({ page }) => {
@@ -599,6 +646,19 @@ test("a connected app: what Luca did with it", async ({ page }) => {
   await expect(page.getByTestId("connected-app-card")).toBeVisible({
     timeout: 20_000,
   });
+  // A mind running a runtime task counts as working (review, fix 5); Atlas,
+  // whose Codex task is done, rests.
+  const stateOf = (pubkey: string) =>
+    page
+      .getByTestId(`place-row-mind:${pubkey}`)
+      .locator(".luca-rail-note")
+      .textContent();
+  await expect.poll(() => stateOf(LUCA), { timeout: 20_000 }).toBe("working");
+  measure("working_rule", {
+    atlas: await stateOf(ATLAS),
+    luca: await stateOf(LUCA),
+  });
+  expect(await stateOf(ATLAS)).toBe("resting");
   const history = page.getByTestId("connected-what-luca-did");
   await expect(history).toBeVisible({ timeout: 20_000 });
   await history.scrollIntoViewIfNeeded();
@@ -716,4 +776,93 @@ test("flag off: the same as the base build", async ({ browser }) => {
   }
   measure("flag_off", result);
   for (const each of Object.values(result)) expect(each.same).toBe(true);
+});
+
+test("landing on an exchange: its message in view, named for you", async ({
+  page,
+}) => {
+  await boot(page, { hash: "/pulse?stream=side" });
+  await expect(page.getByTestId("side-conversations-card")).toBeVisible({
+    timeout: 20_000,
+  });
+  await speak(page);
+  await expect(page.getByTestId(`side-row-${X_OPEN}`)).toBeVisible({
+    timeout: 20_000,
+  });
+  // general holds a permission request and a proposal: the waiting stack.
+  await page.getByTestId(`side-row-${X_OPEN}`).getByRole("button").click();
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash), { timeout: 15_000 })
+    .toContain(`thread=${ROOT.open}`);
+  const bar = page.getByTestId("focused-thread-bar");
+  await expect(bar).toBeVisible({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  const geometry = await page.evaluate((root) => {
+    const rect = (el: Element | null | undefined) => {
+      if (!el) return null;
+      const box = el.getBoundingClientRect();
+      return {
+        top: Math.round(box.top),
+        bottom: Math.round(box.bottom),
+        left: Math.round(box.left),
+        right: Math.round(box.right),
+      };
+    };
+    const message = document.querySelector(
+      `[data-message-id="${root}"], [data-event-id="${root}"]`,
+    );
+    const visible = (el: Element | null) =>
+      el
+        ? getComputedStyle(el).display !== "none" &&
+          el.getClientRects().length > 0
+        : false;
+    const stackCards = [
+      ...document.querySelectorAll(
+        '[data-testid="managed-permission-card"], [data-testid="runtime-task-confirmation"]',
+      ),
+    ].filter(visible);
+    return {
+      barText: document
+        .querySelector('[data-testid="focused-thread-bar"]')
+        ?.textContent?.replace(/\s+/g, " "),
+      bar: rect(document.querySelector('[data-testid="focused-thread-bar"]')),
+      day: rect(
+        [
+          ...document.querySelectorAll(".type-eyebrow, [data-day-divider]"),
+        ].find((el) => /today/i.test(el.textContent ?? "")),
+      ),
+      pill: rect(document.querySelector('[data-testid="message-unread-pill"]')),
+      message: rect(message),
+      messageFound: Boolean(message),
+      held: rect(document.querySelector('[data-testid="pending-held"]')),
+      heldText: document.querySelector('[data-testid="pending-held"]')
+        ?.textContent,
+      stackCards: stackCards.map((el) => rect(el)),
+      overlayTop: rect(
+        document.querySelector('[data-testid="channel-composer-overlay"]'),
+      ),
+    };
+  }, ROOT.open);
+  measure("landing", geometry);
+  measure("shot_landing", await shot(page, "exchange-landing"));
+  expect(geometry.barText).toContain("Your message");
+  // The message is clear of the bar, the day label, the pill and the stack.
+  if (!geometry.message || !geometry.day || !geometry.bar)
+    throw new Error("Expected the message, its day and the bar.");
+  expect(geometry.day.top).toBeGreaterThanOrEqual(geometry.bar.bottom);
+  if (geometry.pill) {
+    expect(geometry.pill.top).toBeGreaterThanOrEqual(geometry.day.bottom);
+    expect(geometry.message.top).toBeGreaterThanOrEqual(geometry.pill.bottom);
+  }
+  if (geometry.overlayTop)
+    expect(geometry.message.bottom).toBeLessThanOrEqual(
+      geometry.overlayTop.top,
+    );
+  expect(geometry.stackCards).toHaveLength(0);
+  expect(geometry.heldText).toContain("2 requests are waiting on you");
+  // Show brings them back.
+  await page.getByTestId("pending-held").click();
+  await expect(page.getByTestId("managed-permission-card")).toBeVisible();
+  await expect(page.getByTestId("runtime-task-confirmation")).toBeVisible();
+  measure("shot_landing_shown", await shot(page, "exchange-landing-shown"));
 });

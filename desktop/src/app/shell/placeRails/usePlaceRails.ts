@@ -15,6 +15,7 @@ import {
 import { needsYouNote } from "@/app/shell/placeRails/needsYou";
 import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { useArtifactLibrary } from "@/features/artifacts/hooks";
+import { useRuntimeWorkingPubkeys } from "@/features/capabilities/useAllRuntimeTasks";
 import { useCapabilitySkills } from "@/features/capabilities/hooks";
 import { skillRuntimeLabel } from "@/features/capabilities/lib/skillHandoff";
 import {
@@ -79,14 +80,17 @@ function useAgentsRail(): PlaceRail {
   const luca = useCanonicalLucaPubkey();
   // The live signal the Chats rail reads, by agent rather than by chat.
   const workingChannels = useWorkingChannels();
+  // A runtime task of theirs running counts too (WP-14 review).
+  const runtimeWorking = useRuntimeWorkingPubkeys();
   const workingPubkeys = React.useMemo(
     () =>
-      new Set(
-        workingChannels.flatMap((summary) =>
+      new Set([
+        ...workingChannels.flatMap((summary) =>
           summary.agentPubkeys.map(normalizePubkey),
         ),
-      ),
-    [workingChannels],
+        ...runtimeWorking,
+      ]),
+    [runtimeWorking, workingChannels],
   );
   const ready =
     agentsQuery.data !== undefined &&
