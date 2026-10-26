@@ -59,11 +59,12 @@ with screenshots compared by hash against the base build Claude serves at `http:
 branch as your branch started; read-only, never stop it).
 
 **How to prove it** (every command from `desktop/`).
-- **Two heavy jobs at a time, Mac-wide** (Riley, 2026-10-26: "do everything we can to make all of this testing run as
+- **Heavy jobs take turns, Mac-wide** (Riley, 2026-10-26: "do everything we can to make all of this testing run as
   quickly as we can"): run every build, Playwright run and cargo command through the shared queue,
   `bash ~/.claude/plans/polyphonic-shell-build/tools/heavy.sh <command> [args...]`, with `--workers=2` for Playwright.
-  It has three slots (Ghost's sessions share them), runs a wrapped job's own wrapped steps at once, and clears a dead
-  job's lock itself. Never build while your own test run is going. Put every script on the command line: a job that
+  One job may always run; more start while the Mac has room (load under its core count, one newcomer every 45 s, six
+  at most), so the queue gives way when something outside it is busy. Ghost's sessions share it. It runs a wrapped
+  job's own wrapped steps at once, clears a dead job's lock, and hands on a slot held past an hour. Never build while your own test run is going. Put every script on the command line: a job that
   reads its program from stdin waits forever inside the queue and blocks everyone (it happened, 2026-10-26).
 - Build: `./node_modules/.bin/tsc && ./node_modules/.bin/vite build --mode e2e` (about 12 seconds).
 - Serve: `python3 -m http.server <your port> --bind 127.0.0.1 -d dist`, and leave it running.
