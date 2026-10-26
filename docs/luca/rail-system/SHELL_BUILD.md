@@ -116,6 +116,8 @@ LOST. LOST is a failure unless the spec retires it.
 | WP-09a the finishing list | 2026-10-26, merge `e4d7a4ac2` | The reviews' small items, a project room without its own header, and the window's first size (1440 × 900 or the screen less a margin, kept across runs; its unit tests run at the final Rust build). |
 | WP-13 a mind's own space | 2026-10-26, merge `393d8c39a` | Every mind's card is their space: a head with Talk; Notebook (their own words, asks in one line, their days by kind), Self (their documents' own first lines), Settings (one quiet row per section, What they can read inside); /brain lands there; an agent's profile card is a summary. Review: the flag-off proof compared blank shots (now non-blank and distinct), the forms became lines and rows. |
 | WP-14 what agents say to each other, and what needs you | 2026-10-26, merge `c4dc71a22` | Needs you (permission requests, questions, proposals, paused exchanges) as calm rows answered in place, the count on the Activity icon; one Side conversations feed; Luca's under Luca in the Chats rail; what Luca did with a connected app; Now lists what's live. Rust list-alls with a unit test. |
+| WP-15 the frame's tests | 2026-10-26, merge `d85a44ca8` | Twelve shell specs follow the contracts as amended; tests only, nothing weakened; it found two app bugs, fixed in WP-09b. |
+| WP-09b the last of the list | 2026-10-26, merge `36f02e81b` | One ask row in two places; a working mind says so; "Tidepool / general"; Quick Chat never covers content; tiles 120 ms; Back and Forward keep Forward; the sheet's Escape; the first mark no longer leaps; Paper's dot at 3:1; Ctrl+N off the Mac. |
 
 ## WP-01 · The frame, Black, dark (2026-10-24, Riley and Claude's design; Riley: "Start the team on the narrowed scope")
 
@@ -1832,3 +1834,139 @@ fails on your base.
 **Checks JSON keys:** `ask_row_shared`, `working_everywhere`, `project_lip`, `quick_chat_clear`, `thumb_name`,
 `tiles_120`, `back_forward_keys`, `sheet_escape`, `search_room_open`, `first_mark`, `paper_dot`, `flag_off_identical`,
 `gates`.
+
+## The last round: where the pieces meet (2026-10-26)
+
+**Why.** A design review of the whole merged app (`~/.claude/plans/polyphonic-shell-build/final-review-design/`: its
+`shots/` and `measures/`) found that the frame is right everywhere, but the pieces disagree where they meet. Its first
+three were:
+- the first screen sits off the card;
+- Settings looks like another app;
+- the same ask is drawn three ways.
+
+Four packages, built together, each on its own files, then one combined review of the whole before the test app:
+- WP-16, the first screen and one ask;
+- WP-17, Settings on the shared page;
+- WP-18, one state, one mark;
+- WP-19, one voice for the small things.
+
+Every package works from the integration branch with everything merged. Reference: the shell study
+(`desktop/src/testing/shellStudy/`), served at
+`http://localhost:1488/scripts/shell-lab.template.html?experience=shell&mode=dark&panel=0&cards=one`. The shared place
+page is `app/shell/placeRails/PlacePage.tsx`.
+
+## WP-16 · The first screen, and one ask everywhere (2026-10-26, Claude's design, from the final design review B1 and H3)
+
+**Files in scope:**
+- `shared/ui/living-surface/LivingSurfaceCanvas.tsx`;
+- the ask row (`app/shell/placeRails/PlaceAskRow.tsx`, `ManagedAsks.tsx`, `shell-activity.css`);
+- the conversation's own ask cards: `ManagedPermissionCard.tsx`, `ManagedInputCard.tsx`, `RuntimeTaskProposalConfirmation.tsx`, and their stack in `ChannelPane.tsx`.
+
+**Decisions** (under `shell-frame`):
+1. **The first screen sits on the card.**
+   - Under the frame, the first-message canvas takes its ground from the one card (`[data-luca-one-card]`,
+     `--mn-surface`), never from the floor and never from the fallback.
+   - Measure Luca's empty conversation in Black and Liquid Glass, dark and light: the conversation half reads the
+     card's colour, the same as the rail half, and its title reads at 4.5:1 or better.
+2. **One ask, one drawing, everywhere.**
+   - A permission, a question or a proposal is drawn the same in a conversation's pending stack, in Needs you and in a
+     mind's Notebook, with the same words.
+   - The answers sit under the ask's text at every width, never beside it, so the ask is never squeezed.
+   - In the study's material: a plain tint (ink at 8%), not an outline. The room's stack keeps its fold, the same
+     answers, and Details on request.
+   - The conversation's solid "Run" becomes the same quiet button. Talk stays the only solid action on a screen.
+
+## WP-17 · Settings on the shared page (2026-10-26, Claude's design, from the final design review H1, M1, M2, M8, L4)
+
+**Files in scope:**
+- Settings' views and panels (`features/settings/ui/SettingsView.tsx`, `SettingsSectionHeader.tsx`, `SettingsPanels.tsx`,
+  the profile card's Sign Out);
+- `app/AppShell.tsx` (only Settings' places column and its page transition);
+- `app/shell/ShellSettingsPlaces.tsx`;
+- `app/shell/shell-settings.css`.
+
+**Decisions** (under `shell-frame`):
+1. **Every Settings section uses the shared place page.**
+   - Padding 30 / 28, the 640 column centred on the card's axis, the 22 title.
+   - The group's name (Account, Experience…) is the eyebrow; the section's name is the title. "Profile & identity" in
+     the rail is the title too, not "Profile".
+   - Sections lose their boxes: rows and groups on the page, as the study draws them.
+2. **The lip names the section** ("Appearance"), not "Settings".
+3. **Mode is drawn as Frame's segment, on the same row:** the study's pill segment, not three tiles in the accent
+   colour.
+4. **One places column across Settings and the rest of the app.**
+   - Keep the column mounted, so its mark slides into Settings and out again rather than jumping 600 points.
+   - Settings arrives with the same page transition as every place.
+5. **Sign Out is red text, not a solid red button.** Any solid button left in Settings is Talk's size (30 tall, 13, radius 9).
+6. **The app is called Polyphonic** wherever it names itself ("Choose a theme for Polyphonic", "About"), never "Luca",
+   who is the companion now.
+
+## WP-18 · One state and one mark for each mind (2026-10-26, Claude's design, from the final design review H2, M4, M5, M9)
+
+**Files in scope:**
+- `features/sidebar/ui/ShellRail.tsx` (side rows' marking);
+- a new shared hook for a mind's state (e.g. `features/agents/lib/useMindState.ts`);
+- where the state is shown: `placeRails/placePicks.ts` (the Agents rail), `features/agents/space/MindSpace.tsx` (the
+  now line), `features/profile/ui/UserProfilePanelAgentSummary.tsx`, `features/pulse/ui/LucaActivityView.tsx` (Now).
+
+**Decisions** (under `shell-frame`):
+1. **A side conversation marks where it belongs.**
+   - Opening one of Luca's side conversations (from the rail, Side conversations or Needs you) puts the mark on Luca's
+     home and lights that side row (`SPEC.md`, "Selection"). It never marks the room it happens in.
+   - In a room you haven't joined, the lip's Join is the only solid button: the in-card "Join to participate" becomes
+     quiet.
+2. **One state for each mind, said the same everywhere.** One hook decides working, talking, waking, needs attention or
+   resting, from:
+   - the live turn;
+   - the mind's running runtime tasks;
+   - its live side conversations;
+   - its errors.
+   The Agents rail, a mind's head, its profile card and Now all use it. Atlas talking with Luca reads talking in all four.
+3. **An agent's profile card:**
+   - its one action is "Open their space";
+   - "Message" becomes "Talk", the same word as the space;
+   - neither is solid on the card, since Talk is solid only in the space.
+4. **Now names a live side conversation the way Side conversations does** ("Luca asked Atlas", "Luca asked Claude
+   Code"). Each mind is listed once.
+
+## WP-19 · One voice for the small things (2026-10-26, Claude's design, from the final design review M3, M6, M7, M10, L1–L3, L5, L6)
+
+**Files in scope:**
+- `features/provenance/ui/ProvenanceView.tsx`, `ProvenanceRow.tsx`;
+- `features/channels/ui/ConversationContextPanel.tsx` (its labels);
+- `app/navigationChoreography.ts`;
+- `features/messages/ui/NewMessageScreen.tsx`;
+- `app/shell/placeRails/PlaceLipName.tsx`, `PlacePage.tsx`;
+- `features/artifacts/ui/ArtifactLibraryScreen.tsx` (its kind labels);
+- `features/sidebar/lib/railHomes.ts` (only an agent home's name);
+- the empty pane's words (`features/conversation-workspace/`);
+- `app/shell/placeRails/GroupCard.tsx` (its solid button).
+
+**Decisions** (under `shell-frame`):
+1. **Signed record speaks like the rest:**
+   - times as "6:41 AM", the app's shared format;
+   - the shared Fragment Mono day label, with no rule;
+   - the mind's own mark, not an initial;
+   - the end note and the empty line on the left axis.
+2. **Every small capital label is the shared Fragment Mono label.** That covers the details card ("At a glance",
+   "Agents", "People", "Between agents"), "Current work" and "Action preview".
+3. **Chats drifts like the other places.** Arriving at a conversation from another place moves the page by the places'
+   order, as Agents, Activity and Library do. Moving from one conversation to another stays still.
+4. **New conversation's "To:" sits on the reading column,** with no band or border at rest. At 800 × 500 the recipient
+   list never covers the message box.
+5. **The lip names a pick as "section / row" wherever a row's name alone is ambiguous:** "Skills / All",
+   "Made / All", and "Signed record / Luca" for a mind's record.
+6. **A place card drops its eyebrow when it would only repeat the place's own name** ("Activity" over Now, "Library"
+   over All). Keep it when it says something else ("Connected · on this Mac", "Group", "Signed record").
+7. **Small words:**
+   - Library's kinds in sentence case ("Image", "Markdown"), never "IMAGE artifact";
+   - the empty pane says "Choose a conversation from the rail";
+   - another agent's home is named after the agent's profile name, not the conversation's title.
+8. **A group's "Add to a room"** is a quiet button: Talk is the app's only solid shape of its kind on a page.
+
+**For all four:**
+- Verification: Playwright headless, 1440 × 900 and 800 × 500, dark and light, flag on; no video or trace; one
+  measurement or screenshot per decision.
+- The flag-off views must match the base by hash, on non-blank shots.
+- Gates.
+- Checks JSON keys: one per decision (`d1`, `d2`, …), plus `flag_off_identical` and `gates`.
