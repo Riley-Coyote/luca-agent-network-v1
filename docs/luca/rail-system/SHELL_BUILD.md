@@ -2073,3 +2073,180 @@ Not in scope: `AppSidebar.tsx` and `ShellRail.tsx` (WP-21 is building there).
    Decided 4: one rule for all places).
 
 **Checks JSON keys for the additions:** `d7`, `d8`, `d9`.
+
+**Changed after the final design re-check** (2026-10-26, `~/.claude/plans/polyphonic-shell-build/final-review-design/`,
+its `shots-r2/` and `measures-r2/`):
+- Decided 3 (the Agents detail's tabs) moves to WP-24, which takes the whole of Settings > Agents.
+- Decided 8 (the room's Change… form) moves to WP-23, which takes the whole of the room's asks.
+- 10. **The default runtime picker reads by day.** Settings > Defaults & permissions > Default runtime
+  (`AgentRuntimeTargetSelector.tsx:43-176`, drawn by `OperatorForgeSettingsCard.tsx:119`) hard-codes white text,
+  borders and fills: by day its label, all four runtime tiles, "Recommended" and "Use no default runtime" are white
+  on paper, about 1.0:1 (`shots-r2/caps-light-defaults.png`). Under the frame it takes the theme's ink tokens and the
+  card's own tint and hairline, legible at 4.5:1 or better in both modes, and "Recommended" is the shared Fragment Mono
+  label. Check key `d10`.
+
+## WP-23 · The room's asks, in the page (2026-10-26, Claude's design, from the final design re-check 2 and 3, the final flows re-check 2 and 3, and WP-22 Decided 8)
+
+**Why.**
+- In a room, the asks float over the conversation. The expanded "Current work" shelf (`conversationAgentActivityShelf.css:37-53`) floats above the timeline at 98% opacity, capped at 40% of the window's height and held 54 above its row.
+  - At 1440 × 900 its 190-tall panel covers alice's latest message, its time, its four reactions and the artifact row.
+  - At 800 × 500 the permission starts at y −67 and its Deny and Once sit under the lip. No message in the room shows.
+- The two asks in one room wear two containers:
+  - the permission in a bordered floating panel (1 px strong border, radius 16) under "Current work";
+  - the proposal in a borderless raised plate (radius 16, the same shadow);
+  - a "Permission needed ⌄" row between them.
+  Needs you and the Notebook draw both as flat rows.
+- The Change… form is cut off inside a small scroll box at 1440 × 900: WP-16's cap
+  (`final-review-flows/shots/r2-room-change.png`).
+- In a side conversation's thread view, "Jump to latest" sits about 17 px across the bottom of a work card.
+
+Evidence: `final-review-design/shots-r2/1440-dark-black-chats-general.jpg`, `800-dark-black-chats-general.jpg`,
+`room-asks-dark.jpg`, `room-asks-light.jpg`.
+
+**Files in scope:**
+- the room's stack above the message box:
+  - `features/channels/ui/ChannelPane.tsx` (the pending stack and its fold);
+  - `ConversationAgentActivityStrip.tsx`, `conversationAgentActivityShelf.css` and `.ts`;
+- the room's drawing of the asks:
+  - `ManagedPermissionCard.tsx`;
+  - `capabilities/ui/ManagedInputCard.tsx`;
+  - `RuntimeTaskProposalConfirmation.tsx` and `RuntimeTaskConfirmationCard.tsx`;
+- the "Jump to latest" pills' position under the frame: `messages/ui/MessageTimeline.tsx` and `MessageThreadPanel.tsx`.
+
+Not in scope:
+- the ask rows' shared data and words (`PlaceAskRow.tsx`, `ManagedAsks.tsx`), Needs you and the Notebook (WP-22 is in
+  `MindNotebook.tsx`);
+- Settings (WP-22, WP-24);
+- the files WP-25 lists.
+
+**Decisions** (under `shell-frame`; flag off unchanged):
+1. **One stack, in the page, above the message box.** A room's asks and its current work are one stack between the
+   timeline and the composer. The timeline ends above it, so nothing is ever drawn over a message, and the newest
+   message stays in view as the stack comes, goes and grows (the timeline keeps its bottom anchor). The stack never
+   rises above the card's top or under the lip.
+2. **One material, one label.**
+   - Every item in the stack is a flat row on the card, as Needs you draws it: a permission, a question, a proposal, a
+     piece of work running or done. No border, no raised plate, no shadow, rows apart by the page's own rhythm.
+   - The stack has one Fragment Mono label: "Needs you" while it holds asks (the Activity stream's own words), "Current
+     work" while it holds only work. Work rows under asks need no label of their own.
+   - Folded, the stack is one line: "Needs you · 2 · Show".
+3. **Its height.**
+   - At rest the stack takes at most 40% of the conversation's height (from the lip to the message box), and scrolls
+     inside beyond that.
+   - Where that can't hold one whole ask, it folds to its one line.
+   - While a form is open (a proposal's Change…, a question's Answer), the stack may take the conversation's whole height
+     above the message box, so the form shows whole wherever it fits (at 1440 × 900 it does). Opening the form brings it
+     into view; closing it returns the stack to rest.
+4. **"Jump to latest" sits above the stack,** in the timeline's own corner, never across a row or a card.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, dark and light, flag on, a room holding a permission, a
+proposal, a question and a finished piece of work):
+- bounding boxes: no stack pixel over any message;
+- the stack's top below the card's top;
+- its rest height at or under 40% of the conversation;
+- the Change… form whole at 1440 × 900;
+- "Jump to latest" above the stack, in the room and in a side conversation's thread;
+- every answer still works in place (Deny, Once, Always where offered, Run, Not now, Change…, a question's choices,
+  Send, Skip);
+- the flag-off room identical by hash to the base;
+- the gates.
+
+**Checks JSON keys:** `d1` to `d4`, `answers_in_place`, `flag_off_identical`, `gates`.
+
+## WP-24 · Settings > Agents points to each mind's own space (2026-10-26, Claude's design, from the final design re-check 5 and M7, and WP-22 Decided 3)
+
+**Why.**
+- Settings > Agents is a second Agents place: its own roster of nine agents with search and filters, and its own detail
+  with General, Runtime, Capabilities and Advanced tabs. The tabs are cut off at 640.
+- Its state words ("Ready", "Idle", "Offline", a "READY" label in system-font capitals at `SettingsAgentsPanel.tsx:304`)
+  disagree with the Agents place, where Atlas is talking and Wren is resting.
+- "Open in Agent Library" (`:319`) names a place that no longer exists.
+- Every mind's settings live in its own space now (WP-13: Notebook, Self, Settings).
+
+Evidence: `final-review-design/shots-r2gpu/settings-dark-agents.jpg`.
+
+**Files in scope:**
+- `features/settings/ui/SettingsAgentsPanel.tsx` and the detail components it draws;
+- `features/agents/space/MindSettings.tsx`, to receive what moves;
+- `features/agents/space/` only as that needs.
+
+Not in scope: WP-22's files (`SettingsPanels.tsx`, `SettingsSectionHeader.tsx`, `SettingsOptionGroup.tsx`,
+`shell-settings.css`, `AgentDefaultsEditor.tsx`, `AgentRuntimeTargetSelector.tsx`, `OperatorForgeSettingsCard.tsx`,
+`MindNotebook.tsx`, `mindStream.ts`), WP-23's and WP-25's. Leave every button's style as it is: WP-25 makes the quiet
+button, and the merge switches yours to it.
+
+**Decisions** (under `shell-frame`; flag off unchanged):
+1. **The section lists every mind as the Agents rail does:** its mark, its name and its word from the shared state
+   (`features/agents/lib/useMindState.ts`). A row opens that mind's space on its Settings tab.
+2. **What is for all agents stays here,** in the page's own rows and labels: the runtimes and their readiness, adding an
+   agent, whatever your recon finds that belongs to no one mind.
+3. **The second roster's search and filters, its detail and tabs, and "Open in Agent Library" go.**
+4. **Map first, lose nothing.**
+   - Map every control in the old detail (General, Runtime, Capabilities, Advanced) to its home in the mind's own
+     Settings tab, or mark it LOST.
+   - Nothing may be LOST. Anything the mind's Settings tab lacks moves there first and works as before, drawn as that
+     tab draws (one quiet row per section, "What they can read" inside).
+5. **Every small capital label here is the shared Fragment Mono label.**
+
+**Verification:**
+- the capability map as a table;
+- Playwright headless, 1440 × 900 and 800 × 500, dark and light, flag on: one screenshot or measurement per decision,
+  and every moved control used once in a mind's space;
+- the flag-off Settings > Agents identical by hash to the base;
+- the gates.
+
+**Checks JSON keys:** `d1` to `d5`, `capability_map`, `flag_off_identical`, `gates`.
+
+## WP-25 · One quiet button, and the last small words (2026-10-26, Claude's design, from the final design re-check 4, 6, 8, 9, 10 and M5)
+
+**Files in scope:**
+- `shared/ui/button.tsx` (a quiet variant);
+- `app/shell/placeRails/GroupCard.tsx`;
+- `features/profile/ui/UserProfilePanelAgentSummary.tsx`;
+- `features/settings/ui/ProfileSettingsCard.tsx`;
+- Security & backup's buttons: if they're in `SettingsPanels.tsx`, only their lines, since WP-22 is editing the theme grid
+  in that file;
+- the lip's name for a side conversation (`PlaceLipName.tsx`, `ShellLip.tsx`, or wherever WP-09b named a project room);
+- `features/agents/lib/useMindState.ts`, and where its words are drawn (`placeRails/placePicks.ts`,
+  `features/agents/space/MindSpace.tsx`, `features/pulse/ui/LucaActivityView.tsx`);
+- `features/provenance/ui/ProvenanceRow.tsx`;
+- `app/AppShell.tsx` (only Settings' preload).
+
+Not in scope: WP-22's, WP-23's and WP-24's files (each listed above). A secondary button in one of those files goes on a
+list in your report, for the merge.
+
+**Decisions** (under `shell-frame`; flag off unchanged):
+1. **One quiet button.** Today secondary buttons come in four shapes:
+
+   | Shape | Size | Where |
+   |---|---|---|
+   | plain tint | 26 tall, radius 8, 12.5 px | the asks |
+   | outline | 32 tall, radius 10, 12 px | the group's Edit and Add to a room; Settings' Recheck and "Open in Agent Library" |
+   | outline | 36 tall, radius 10, 14 px | the profile card's Open their space and Talk |
+   | pill | 32 to 34 tall | Settings > Profile's Edit; Security's buttons |
+
+   Under the frame every secondary action is the plain tint:
+   - no outline, ink at 8%, deeper on hover, the focus ring kept;
+   - on a page or card, Talk's size (30 tall, 13 px, radius 9);
+   - in a row, as an answer, the ask's size (26 tall, 12.5 px, radius 8).
+
+   Make it a quiet variant of the shared Button and use it at each source. No blanket overrides.
+2. **The lip names a side conversation under its home:** "Luca / Atlas · general", the way a project room reads
+   "Tidepool / general" (WP-09b Decided 3). Today the rail lights "Atlas · general" under Luca and the lip says
+   "general".
+3. **A mind that's off says so.**
+   - The shared state gets "off" for a stopped mind. Today Wren is stopped but reads "resting" in the rail and its
+     space, while Now says "You can start this resident in Agents".
+   - "Off" reads the same in the Agents rail, a mind's head, its profile card and Now.
+4. **Signed record's rows keep the time where every list does:** in the right-hand column, not leading the row.
+5. **Settings opens at once.** Its code loads when the app is idle, so the first visit never shows a blank card (about
+   330 ms on the M4's GPU today).
+
+**Verification:**
+- Playwright headless, 1440 × 900 and 800 × 500, dark and light, flag on, one measurement per decision: every quiet button's
+  box and computed style, the lip's text, the state word in all four places, the row's columns, and the first Settings
+  paint;
+- flag-off views identical by hash to the base;
+- the gates.
+
+**Checks JSON keys:** `d1` to `d5`, `buttons_left_for_the_merge`, `flag_off_identical`, `gates`.
