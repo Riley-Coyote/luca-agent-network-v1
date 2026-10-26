@@ -348,10 +348,12 @@ management, the artifact Canvas)
 
 **Search, dialogs, toasts, the quick chat panel**
 - Page layers above the frame, unchanged. The quick chat panel keeps its bottom-right corner (20 from the window's
-  right and bottom) above the cards.
+  right and bottom) above the cards; while a huddle's band is live it sits 20 above the band (58 from the bottom),
+  sliding there on the frame's slide (amended 2026-10-26, WP-09a).
 - The companion control's halo (`companionAppControl.css`, 3 in from the window's edge with corners of 11) takes the
   window's corner less 3 (13), so it stays concentric; its badge (fixed 14 from the top, centred) moves below the lip,
-  clear of the tabs.
+  clear of the tabs. While it shows, the conversation's day pill steps aside when the pill is stuck at the card's top,
+  so the badge never covers what's being read (amended 2026-10-26, WP-09a's review).
 
 **The reconnecting card** (`app/RelayConnectionOverlay.tsx`)
 - Shows today only while the rail is closed, 12 from the window's bottom-left, which would sit over the places. It
