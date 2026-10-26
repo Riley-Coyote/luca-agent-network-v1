@@ -388,11 +388,8 @@ for (const mode of ["dark", "light"] as const) {
       const root = document.documentElement;
       const style = getComputedStyle(root);
       const veil = getComputedStyle(document.body, "::before");
-      const card = [
-        ...document.querySelectorAll<HTMLElement>("[data-luca-card]"),
-      ]
-        .filter((element) => !element.closest('[data-testid="app-sidebar"]'))
-        .find((element) => element.getBoundingClientRect().width > 0);
+      // The one card the rail and the conversation lie on (WP-12).
+      const card = document.querySelector<HTMLElement>("[data-luca-one-card]");
       const floors = [
         ...document.querySelectorAll<HTMLElement>(
           ".luca-theme-shell-layer, .buzz-huddle-shell, .buzz-huddle-app-surface, [data-buzz-glass-inset], [data-luca-floor-host]",
@@ -544,16 +541,12 @@ test("Tauri, dark, native glass: Liquid Glass and the reporter's messages", asyn
       () => getComputedStyle(document.body, "::before").backgroundColor,
     ),
   ).toBe("rgba(0, 0, 0, 0.64)");
-  // The card reported is the conversation's card where it is now.
+  // The card reported is the one card the conversation lies on (WP-12),
+  // where it is now.
   const card = await page.evaluate(() => {
-    const cards = [
-      ...document.querySelectorAll<HTMLElement>("[data-luca-card]"),
-    ]
-      .filter((element) => !element.closest('[data-testid="app-sidebar"]'))
-      .map((element) => element.getBoundingClientRect())
-      .filter((rect) => rect.width > 0 && rect.height > 0)
-      .sort((a, b) => a.x - b.x);
-    const rect = cards[0];
+    const rect = document
+      .querySelector("[data-luca-one-card]")
+      ?.getBoundingClientRect();
     return rect
       ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height }
       : null;
@@ -810,23 +803,38 @@ const NIGHT_CARD_LIGHT =
 /** The cards on the frame, as shellGlass.ts finds them, with their light. */
 const measureCards = (page: Page) =>
   page.evaluate(() => {
+    // The shell's cards (shellGlass.ts, frameCards): the one card (WP-12)
+    // and the cards beside it; what lies on the one card (the rail, the
+    // conversation and everything in it) is no card of its own.
     const selector = [
+      "[data-luca-one-card]",
       "[data-luca-card]",
       "[data-luca-conversation-surface]:not(:has([data-luca-workspace-floor]))",
       '[data-frame] [data-sidebar="sidebar"]',
     ].join(", ");
+    const onOneCard = [
+      '[data-luca-frame-row] [data-frame]:not([data-peek="true"]) [data-sidebar="sidebar"]',
+      "[data-luca-frame-row] [data-luca-conversation-surface]",
+      "[data-luca-frame-row] [data-luca-conversation-surface] *",
+    ].join(", ");
     const all = [...document.querySelectorAll<HTMLElement>(selector)];
+    const oneCard = all.some((card) => card.matches("[data-luca-one-card]"));
     return all
       .filter(
         (card) =>
           !all.some((other) => other !== card && other.contains(card)) &&
+          !(oneCard && card.matches(onOneCard)) &&
           card.getBoundingClientRect().width >= 1 &&
           getComputedStyle(card).visibility === "visible",
       )
       .map((card) => {
         const rect = card.getBoundingClientRect();
         return {
-          kind: card.hasAttribute("data-luca-card") ? "card" : "surface",
+          kind: card.hasAttribute("data-luca-one-card")
+            ? "one card"
+            : card.hasAttribute("data-luca-card")
+              ? "card"
+              : "surface",
           rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
           radius: getComputedStyle(card).borderTopLeftRadius,
           boxShadow: getComputedStyle(card).boxShadow,
@@ -1308,7 +1316,7 @@ test.describe("with the frame merged", () => {
       expect(measured.railRadius).toBe("10px");
       expect(measured.railShadow).toBe(NIGHT_CARD_LIGHT);
       expect(measured.card?.y).toBe(36);
-      expect(measured.card?.x).toBe(268);
+      expect(measured.card?.x).toBe(264);
       expect(measured.chatTitle).toBe("none");
 
       // Glass shows at every part of the frame: a flat red desktop under the

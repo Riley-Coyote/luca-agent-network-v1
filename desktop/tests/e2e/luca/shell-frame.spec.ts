@@ -192,12 +192,13 @@ async function sampleSlide(page: Page, ms: number) {
 }
 
 /** Back rides the study's path: the lip's part over the card and back's
- *  place inside it both glide on the rail's curve, so back runs from 274 to
- *  112 as the card runs from 268 to 44, never stopping on the way. */
+ *  place inside it both glide on the rail's curve, so back runs from 270 to
+ *  112 as the conversation's edge runs from 264 (the rail's hairline on the
+ *  one card, WP-12) to 44, never stopping on the way. */
 function slideFollows(samples: number[][]) {
   const offPath = samples.map(([, card, back]) => {
-    const e = (268 - card) / 224;
-    return Math.abs(back - (274 - 162 * e));
+    const e = (264 - card) / 220;
+    return Math.abs(back - (270 - 158 * e));
   });
   return {
     frames: samples.length,
@@ -342,26 +343,28 @@ test("the frame, Black, dark", async ({ page }, info) => {
       right: W - (card.x + card.w),
       bottom: H - (card.y + card.h),
     },
-    expected: { left: 268, top: 36, right: 6, bottom: 6 },
+    expected: { left: 264, top: 36, right: 6, bottom: 6 },
     ok:
-      card.x === 268 &&
+      card.x === 264 &&
       card.y === 36 &&
       W - (card.x + card.w) === 6 &&
       H - (card.y + card.h) === 6,
   };
+  // One card (WP-12): the conversation begins at the rail's hairline, and
+  // the corners are the one card's, beneath both.
   checks.card_gap = {
     measured: card.x - (rail.x + rail.w),
-    expected: 4,
-    ok: card.x - (rail.x + rail.w) === 4,
+    expected: 0,
+    ok: card.x - (rail.x + rail.w) === 0,
   };
   const corners = {
     rail: await radius(page, RAIL_CARD),
-    conversation: await radius(page, CONVERSATION_CARD),
+    one_card: await radius(page, "[data-luca-one-card]"),
   };
   checks.corner_radius = {
     measured: corners,
     expected: "10px",
-    ok: corners.rail === "10px" && corners.conversation === "10px",
+    ok: corners.rail === "10px" && corners.one_card === "10px",
   };
   const nameCentre = name.x + name.w / 2;
   const cardCentre = card.x + card.w / 2;
@@ -383,7 +386,7 @@ test("the frame, Black, dark", async ({ page }, info) => {
     back: { x: back.x, y: back.y },
     // No native lights in a browser: the toggle on the places' axis, its
     // centre at 22, its left at 10 (WP-08g).
-    ok: toggle.x === 10 && toggle.y === 10 && back.x === 274 && back.y === 10,
+    ok: toggle.x === 10 && toggle.y === 10 && back.x === 270 && back.y === 10,
   };
 
   // The name is the conversation header's own title source.
@@ -673,7 +676,7 @@ test("the frame, Black, dark", async ({ page }, info) => {
     edge_light: libraryEdge,
     ok:
       edgeLit(libraryEdge) &&
-      library?.x === 268 &&
+      library?.x === 264 &&
       library?.y === 36 &&
       W - (library.x + library.w) === 6 &&
       H - (library.y + library.h) === 6,
@@ -691,7 +694,7 @@ test("the frame, Black, dark", async ({ page }, info) => {
     edge_light: brainEdge,
     ok:
       edgeLit(brainEdge) &&
-      brain?.x === 268 &&
+      brain?.x === 264 &&
       brain?.y === 36 &&
       W - (brain.x + brain.w) === 6 &&
       H - (brain.y + brain.h) === 6,
@@ -712,7 +715,7 @@ test("the frame, Black, dark", async ({ page }, info) => {
       edge_light: routeEdge,
       ok:
         edgeLit(routeEdge) &&
-        routeCard?.x === 268 &&
+        routeCard?.x === 264 &&
         routeCard?.y === 36 &&
         W - (routeCard.x + routeCard.w) === 6 &&
         H - (routeCard.y + routeCard.h) === 6,
@@ -743,7 +746,7 @@ test("the frame, Black, dark", async ({ page }, info) => {
       ok:
         r?.x === 44 &&
         r?.w === 220 &&
-        c?.x === 268 &&
+        c?.x === 264 &&
         c?.y === 36 &&
         c !== null &&
         width - (c.x + c.w) === 6 &&
@@ -1384,11 +1387,13 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
         .every(([, value]) =>
           grainReachesEdge(value as Awaited<ReturnType<typeof cardEdgeGrain>>),
         ) &&
-      // Against the rail's: the conversation card's outer column carries
-      // the grain as the rail card's does.
+      // Against the rail's: the conversation's outer column carries the
+      // grain as the one card's left edge, under the rail, does. (The rail's
+      // own right column is the hairline between them on the one card,
+      // WP-12, so it is not the grain's measure any more.)
       Math.abs(
         ((edges.conversation as { left: Stats }).left?.sd ?? 0) -
-          railEdge.right.sd,
+          railEdge.left.sd,
       ) <= 1,
   };
   checks.new_conversation_surface = newConversation;

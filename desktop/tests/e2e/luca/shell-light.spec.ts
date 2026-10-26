@@ -39,6 +39,9 @@ const CONVERSATION_CARD =
   '[data-testid="conversation-workspace-grid"] [data-luca-card]';
 const SETTINGS_CARD =
   "[data-luca-settings-card-host] > [data-luca-conversation-surface]";
+/** The one card beneath the rail and what it opens (WP-12): the card that
+ *  casts the shadow, in every place. */
+const ONE_CARD = "[data-luca-one-card]";
 const ROUTE_CARD =
   "[data-luca-floor-host] > [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor]))";
 
@@ -250,9 +253,12 @@ async function studyProfile(
     viewport: size,
   });
   const page = await context.newPage();
-  await page.goto(`${STUDY_URL}?experience=shell&mode=light&frame=solid`, {
-    timeout: 30_000,
-  });
+  await page.goto(
+    `${STUDY_URL}?experience=shell&mode=light&frame=solid&cards=one`,
+    {
+      timeout: 30_000,
+    },
+  );
   await page.waitForSelector(".shell-card", { timeout: 30_000 });
   await page.waitForTimeout(2_000);
   const file = path.join(dir, `study-light-${size.width}x${size.height}.png`);
@@ -332,10 +338,13 @@ const PAPER_SHADOW =
 /** The floor where nothing stands: the places column's foot, the lip's
  *  middle, and the 4 between the cards at the top (above their shadows). */
 function floorPoints(card: Box) {
+  // The window's left floor, the lip over the card, and the places'
+  // column just short of the one card's left edge (one card, WP-12: there
+  // is no floor between the rail and the conversation any more).
   return [
     [10, 1200],
     [Math.round((card.x + card.w / 2) * 2), 6],
-    [Math.round((card.x - 2) * 2), 74],
+    [Math.round((44 - 2) * 2), 74],
   ] as [number, number][];
 }
 
@@ -479,6 +488,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
 
   // ── the shadows ───────────────────────────────────────────────────
   const layer = await shadowLayer(page);
+  const oneCard = await box(page, ONE_CARD);
   const ours = await profile(page, conversation, card, rail);
   const studyDiff = study
     ? {
@@ -632,7 +642,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       grey(searchChosenPixels[1]) - grey(searchChosenPixels[0]) >= 12,
   };
 
-  // ── the rail closing: its shadow fades with its card ──────────────
+  // ── the rail closing: the one card's shadow holds still (WP-12) ──
   const fade = await page.evaluate(
     () =>
       new Promise<number[][]>((resolve) => {
@@ -683,31 +693,27 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   files.push(railClosed);
   const closedLayer = await shadowLayer(page);
   const closedCard = await box(page, CONVERSATION_CARD);
-  const live = fade.filter(([, , width]) => width >= 0);
+  // The rail lies on the one card and casts nothing: the shadow under the
+  // places' edge is the one card's, its full width and strength in every
+  // frame, the only one, while the rail narrows to nothing.
+  const closedOne = await box(page, ONE_CARD);
+  const full = fade.filter(([, , width]) => width >= 0);
   checks.rail_shadow_fade = {
     samples: fade.length,
     first: fade[0],
     mid: fade[Math.floor(fade.length / 2)],
     last: fade.at(-1),
-    opacity_follows_width: live.every(
-      ([, , width, opacity]) => Math.abs(opacity - width / 220) < 0.02,
-    ),
-    max_lag_behind_card: Math.max(
-      0,
-      ...live.map(([, cardWidth, width]) => Math.abs(width - cardWidth)),
-    ),
-    monotonic: live.every(
-      ([, , , opacity], index) => index === 0 || opacity <= live[index - 1][3],
-    ),
+    rail_casts_nothing: fade.every(([, , width]) => width === -1),
+    one_shadow_every_frame: fade.every(([, , , , count]) => count === 1),
     closed_shadows: closedLayer?.shadows.length,
-    closed_card_casts: casts(closedLayer, closedCard),
+    closed_card_casts: casts(closedLayer, closedOne),
+    conversation_card: closedCard,
     ok:
-      live.length > 3 &&
-      live.every(
-        ([, , width, opacity]) => Math.abs(opacity - width / 220) < 0.02,
-      ) &&
+      fade.length > 3 &&
+      full.length === 0 &&
+      fade.every(([, , , , count]) => count === 1) &&
       closedLayer?.shadows.length === 1 &&
-      casts(closedLayer, closedCard),
+      casts(closedLayer, closedOne),
   };
   await page.getByTestId("shell-lip-toggle").click();
   await page.waitForTimeout(700);
@@ -744,6 +750,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   const library = await shot(page, dir, "library");
   files.push(library);
   const placeCard = await box(page, ROUTE_CARD);
+  const libraryOne = await box(page, ONE_CARD);
   const placeEdge = await edges(page, ROUTE_CARD);
   const libraryLayer = await shadowLayer(page);
   const libraryFloor = placeCard
@@ -766,6 +773,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     '[data-luca-settings-list] [data-sidebar="sidebar"]',
   );
   const panelsCard = await box(page, SETTINGS_CARD);
+  const settingsOne = await box(page, ONE_CARD);
   const settingsLayer = await shadowLayer(page);
   const settingsFloor = panelsCard
     ? await pixels(page, settings, floorPoints(panelsCard))
@@ -979,14 +987,17 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       ? { display: layer.display, count: layer.shadows.length }
       : null,
     paper_values: layer?.shadows[0]?.boxShadow,
+    // One card (WP-12): the rail and the conversation lie on it, and it
+    // casts the one shadow; in Library and in Settings too.
+    one_card_casts: casts(layer, oneCard),
     rail_casts: casts(layer, rail),
     conversation_casts: casts(layer, card),
     right_card_casts: casts(rightLayer, rightCard),
     right_card_pixel_below: rightBelow,
-    place_card_casts: casts(libraryLayer, placeCard),
+    place_card_casts: casts(libraryLayer, libraryOne),
     library_floor: libraryFloor,
     settings_list_casts: casts(settingsLayer, listCard),
-    settings_panels_casts: casts(settingsLayer, panelsCard),
+    settings_one_card_casts: casts(settingsLayer, settingsOne),
     settings_floor: settingsFloor,
     profile_ours: ours,
     profile_study: study?.profile ?? "not run",
@@ -994,13 +1005,16 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     ok:
       layer?.display === "block" &&
       layer.shadows.every((shadow) => shadow.boxShadow === PAPER_SHADOW) &&
-      casts(layer, rail) &&
-      casts(layer, card) &&
+      layer.shadows.length === 1 &&
+      casts(layer, oneCard) &&
+      !casts(layer, rail) &&
+      !casts(layer, card) &&
       casts(rightLayer, rightCard) &&
       rightBelow.every((pixel) => grey(pixel) < grey(recess) - 4) &&
-      casts(libraryLayer, placeCard) &&
-      casts(settingsLayer, listCard) &&
-      casts(settingsLayer, panelsCard) &&
+      casts(libraryLayer, libraryOne) &&
+      !casts(settingsLayer, listCard) &&
+      casts(settingsLayer, settingsOne) &&
+      settingsLayer?.shadows.length === 1 &&
       [...libraryFloor, ...settingsFloor].every((pixel) =>
         near(pixel, recess),
       ) &&
@@ -1045,6 +1059,7 @@ test("Paper by day, 800 × 500", async ({ page, browser }, info) => {
   expect(rail && card).toBeTruthy();
   if (!rail || !card) return;
   const layer = await shadowLayer(page);
+  const oneCard = await box(page, ONE_CARD);
   const ours = await profile(page, file, card, rail);
   const floor = await pixels(page, file, [
     [10, 900],
@@ -1074,8 +1089,8 @@ test("Paper by day, 800 × 500", async ({ page, browser }, info) => {
     ok:
       floor.every((pixel) => near(pixel, recess)) &&
       inside.every((pixel) => near(pixel, surface)) &&
-      casts(layer, rail) &&
-      casts(layer, card) &&
+      layer?.shadows.length === 1 &&
+      casts(layer, oneCard) &&
       (typeof diff === "string" ||
         Math.max(diff.below, diff.beside, diff.gap) <= 4),
   };
@@ -1111,6 +1126,7 @@ test("other light palettes", async ({ page }, info) => {
     const rail = await box(themed, RAIL_CARD);
     const card = await box(themed, CONVERSATION_CARD);
     const layer = await shadowLayer(themed);
+    const oneCard = await box(themed, ONE_CARD);
     const floor = card ? await pixels(themed, file, floorPoints(card)) : [];
     const inside =
       rail && card
@@ -1141,8 +1157,8 @@ test("other light palettes", async ({ page }, info) => {
         labelContrast >= 4.5 &&
         floor.every((pixel) => near(pixel, recess)) &&
         inside.every((pixel) => near(pixel, surface)) &&
-        casts(layer, rail) &&
-        casts(layer, card) &&
+        layer?.shadows.length === 1 &&
+        casts(layer, oneCard) &&
         below[0] < grey(recess) - 6,
     };
     await context.close();

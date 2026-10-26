@@ -163,7 +163,8 @@ function inRailPlace(b: Box | null, H: number) {
   );
 }
 
-/** The conversation card's place: left at `left`, top 36, 6 right and bottom. */
+/** The conversation card's place: left at `left` (264 with the list open:
+ *  its hairline on the one card, WP-12), top 36, 6 right and bottom. */
 function inCardPlace(b: Box | null, W: number, H: number, left: number) {
   return (
     !!b &&
@@ -302,7 +303,7 @@ test("Settings in the frame", async ({ page }, info) => {
       // centre at 22, its left at 10 (WP-08g).
       toggle?.x === 10 &&
       toggle.y === 10 &&
-      back?.x === 274 &&
+      back?.x === 270 &&
       back.y === 10 &&
       (await page.getByTestId("shell-lip-name").innerText()) === "Settings",
   };
@@ -408,7 +409,7 @@ test("Settings in the frame", async ({ page }, info) => {
         : null;
     }),
     ok:
-      inCardPlace(panels, W, H, 268) &&
+      inCardPlace(panels, W, H, 264) &&
       (await radius(page, PANELS_CARD)) === "10px",
   };
 
@@ -424,7 +425,7 @@ test("Settings in the frame", async ({ page }, info) => {
     agents_box: agentsCard,
     ok:
       (checks.panels_in_card as { ok: boolean }).ok &&
-      inCardPlace(agentsCard, W, H, 268),
+      inCardPlace(agentsCard, W, H, 264),
   };
 
   // ── section switches replace the history entry ────────────────────
@@ -537,7 +538,7 @@ test("Settings in the frame", async ({ page }, info) => {
     ok:
       stillClosed === 0 &&
       inRailPlace(openedByKey, H) &&
-      inCardPlace(panelsOpened, W, H, 268) &&
+      inCardPlace(panelsOpened, W, H, 264) &&
       closedByKey === 0 &&
       !/\/settings/.test(leftByComma),
   };
@@ -598,7 +599,7 @@ test("Settings in the frame", async ({ page }, info) => {
       .getAttribute("aria-current"),
     ok:
       inRailPlace(skeletonList, H) &&
-      inCardPlace(skeletonPanels, W, H, 268) &&
+      inCardPlace(skeletonPanels, W, H, 264) &&
       (await radius(page, SKELETON_LIST_CARD)) === "10px" &&
       (await radius(page, SKELETON_PANELS_CARD)) === "10px",
   };
@@ -633,7 +634,7 @@ test("Settings in the frame", async ({ page }, info) => {
     list_scrolls: listScrolls,
     ok:
       inRailPlace(smallList, 500) &&
-      inCardPlace(smallPanels, 800, 500, 268) &&
+      inCardPlace(smallPanels, 800, 500, 264) &&
       listScrolls === true,
   };
 

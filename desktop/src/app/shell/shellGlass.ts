@@ -298,8 +298,22 @@ export function useReducedTransparency() {
   return reduced;
 }
 
-/** The rail's card under the frame (WP-01). */
+/** The rail under the frame (WP-01). */
 const RAIL_CARD_SELECTOR = '[data-frame] [data-sidebar="sidebar"]';
+
+/** The one card (WP-12, shell-frame.css): beneath the rail and what it
+ *  opens, in every place. */
+export const ONE_CARD_SELECTOR = "[data-luca-one-card]";
+
+/** What lies on the one card, no card of its own: the rail (unless it peeks,
+ *  a card of its own over the one), and what it opens, with everything in
+ *  them (the conversation, the workspace's panes, Settings' panels). The
+ *  right cards stand beside it. */
+const ON_ONE_CARD_SELECTOR = [
+  '[data-luca-frame-row] [data-frame]:not([data-peek="true"]) [data-sidebar="sidebar"]',
+  "[data-luca-frame-row] [data-luca-conversation-surface]",
+  "[data-luca-frame-row] [data-luca-conversation-surface] *",
+].join(", ");
 
 /** The runtime sessions card, between the rail's and the conversation's
  *  while it is open (WP-08c, shell-runtime.css), and its body, which holds
@@ -309,28 +323,32 @@ const RUNTIME_CARD_SELECTOR =
 const RUNTIME_CARD_BODY_SELECTOR = "[data-luca-runtime-card-body]";
 
 /**
- * Every card the shell has: glass-floor.css's own list (a card, and a route's
- * surface that is itself the card, not the clear plane that holds a
- * workspace's cards), the rail's card under the frame (WP-01's
- * shell-frame.css), and the runtime sessions card (WP-08c). shell-glass.css
- * lights the first three; the runtime card carries its own light
+ * Every card the shell has: the one card (WP-12), glass-floor.css's own list
+ * (a card, and a route's surface that is itself the card, not the clear
+ * plane that holds a workspace's cards), the rail under the frame (WP-01's
+ * shell-frame.css), and the runtime sessions card (WP-08c). Where the one
+ * card is drawn, what lies on it is no card of its own (frameCards).
+ * shell-glass.css lights them; the runtime card carries its own light
  * (shell-runtime.css).
  */
 export const CARD_SELECTOR = [
+  ONE_CARD_SELECTOR,
   "[data-luca-card]",
   "[data-luca-conversation-surface]:not(:has([data-luca-workspace-floor]))",
   RAIL_CARD_SELECTOR,
   RUNTIME_CARD_SELECTOR,
 ].join(", ");
 
-/** The cards that rest on the frame: every card not inside another one, on
- *  screen and shown. */
+/** The cards that rest on the frame: every card not inside another one,
+ *  and not lying on the one card, on screen and shown. */
 export function frameCards(doc: Document = document) {
   const all = [...doc.querySelectorAll<HTMLElement>(CARD_SELECTOR)];
+  const oneCard = all.some((card) => card.matches(ONE_CARD_SELECTOR));
   return all.filter((card) => {
     if (all.some((other) => other !== card && other.contains(card))) {
       return false;
     }
+    if (oneCard && card.matches(ON_ONE_CARD_SELECTOR)) return false;
     const rect = card.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return false;
     return getComputedStyle(card).visibility === "visible";
@@ -338,11 +356,13 @@ export function frameCards(doc: Document = document) {
 }
 
 /**
- * The conversation's card: the leftmost card on the frame outside the rail
- * and the runtime sessions card. (Neither of those is the one the glass is
- * told about: `sync` in ShellStudy.tsx sends the conversation card.)
+ * The card the glass is told about: the one card where it is drawn (the
+ * study's `sync` sends the card the conversation lies on); otherwise the
+ * leftmost card on the frame outside the rail and the runtime sessions card.
  */
 export function conversationCard(doc: Document = document) {
+  const one = frameCards(doc).find((card) => card.matches(ONE_CARD_SELECTOR));
+  if (one) return one;
   let best: HTMLElement | null = null;
   let bestX = Number.POSITIVE_INFINITY;
   for (const card of frameCards(doc)) {

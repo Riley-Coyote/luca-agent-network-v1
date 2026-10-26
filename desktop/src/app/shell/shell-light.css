@@ -55,14 +55,16 @@
 }
 
 /* ── no outlines ─────────────────────────────────────────────────────
- * Every card on the paper floor (the glass's list: a card, a route's surface
- * that is itself the card, and the rail's card, which the Settings list
- * shares): no edge, no white lit top, no ring (shellStudy.css:1424-1431).
+ * Every card on the paper floor (the one card, WP-12, and the glass's list:
+ * a card, a route's surface that is itself the card, and the rail, which
+ * the Settings list shares): no edge, no white lit top, no ring
+ * (shellStudy.css:1424-1431).
  * The `:root:root` outranks the cards' own edge (conversation-shell.css and
  * shell-frame.css). */
 :root:root[data-luca-frame="solid"]:not(.dark):not([data-luca-frame-glass])
   :is(
-    [data-luca-card],
+    [data-luca-one-card],
+    [data-luca-card]:not([data-luca-workspace-floor] *),
     [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])):not(
       [data-luca-conversation-surface] *
     ),

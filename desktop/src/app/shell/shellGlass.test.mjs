@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   applyFrameVibrancy,
   CARD_SELECTOR,
+  ONE_CARD_SELECTOR,
   cardShadow,
   createGlassReporter,
   drawnFrame,
@@ -372,11 +373,12 @@ test("traffic lights sit at 16 on the lip's line, 22", () => {
 
 // ── the cards on the glass ──────────────────────────────────────────────
 
-test("the card set is glass-floor.css's, the frame's rail card and the runtime sessions card", () => {
+test("the card set is the one card, glass-floor.css's, the frame's rail and the runtime sessions card", () => {
   assert.equal(
     CARD_SELECTOR,
-    '[data-luca-card], [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])), [data-frame] [data-sidebar="sidebar"], [data-luca-frame-row] > [data-luca-runtime-card]',
+    '[data-luca-one-card], [data-luca-card], [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])), [data-frame] [data-sidebar="sidebar"], [data-luca-frame-row] > [data-luca-runtime-card]',
   );
+  assert.equal(ONE_CARD_SELECTOR, "[data-luca-one-card]");
 });
 
 test("a card's shadow lies where it is, cast in full", () => {

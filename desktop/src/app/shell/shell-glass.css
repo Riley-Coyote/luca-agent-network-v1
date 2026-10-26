@@ -137,24 +137,27 @@
   background: hsl(var(--mn-floor) / var(--luca-frame-veil));
 }
 
-/* The cards on the glass: every card the shell has. glass-floor.css's own
- * list (a card, and a route's surface that is itself the card, not the clear
- * plane that holds a workspace's cards), and the rail's card under the frame
- * (WP-01's shell-frame.css, `[data-frame] [data-sidebar="sidebar"]`). A place
- * that fills the conversation's card instead of painting its own inside it
- * (WP-01) is not a card of its own. The `:root:root` outranks the solid
- * frame's card edges (conversation-shell.css:373, and WP-01's rail card).
+/* The cards on the glass: every card the shell has. The one card (WP-12,
+ * shell-frame.css) and the cards beside it (the right cards, glass-floor.css's
+ * `[data-luca-card]`), and the rail while it peeks, a card of its own over
+ * the one. The rail, the conversation and the workspace's panes lie on the
+ * one card and are no cards of their own; a route's surface that is itself
+ * a card stays one only outside the frame's row. A place that fills the
+ * conversation's card instead of painting its own inside it (WP-01) is not a
+ * card of its own. The `:root:root` outranks the solid frame's card edges
+ * (conversation-shell.css:373, and shell-frame.css).
  *
  * At night their top edges catch the light from above, and they leave a soft
  * shadow on the glass. No outline: the light and the shadow draw the edge
  * (shellStudy.css:826-837). */
 :root:root[data-luca-frame-glass].dark
   :is(
-    [data-luca-card],
+    [data-luca-one-card],
+    [data-luca-card]:not([data-luca-workspace-floor] *),
     [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])):not(
       [data-luca-conversation-surface] *
-    ),
-    [data-frame] [data-sidebar="sidebar"]
+    ):not([data-luca-frame-row] *),
+    [data-frame][data-peek="true"] [data-sidebar="sidebar"]
   ) {
   box-shadow:
     0 -0.5px 0 rgb(255 255 255 / 0.12),
@@ -167,7 +170,8 @@
  * so no card shades its neighbour. */
 :root:root[data-luca-frame-glass]:not(.dark)
   :is(
-    [data-luca-card],
+    [data-luca-one-card],
+    [data-luca-card]:not([data-luca-workspace-floor] *),
     [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])):not(
       [data-luca-conversation-surface] *
     ),

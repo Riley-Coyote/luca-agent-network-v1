@@ -146,6 +146,19 @@ const LazySettingsScreen = React.lazy(async () => {
   return { default: module.SettingsScreen };
 });
 
+/** The one card (SHELL_SPEC.md, "The card"; SHELL_BUILD.md, WP-12): drawn
+ *  once beneath the rail and what it opens, and never moved, so closing the
+ *  rail folds it into the card. Its paint is shell-frame.css's. */
+function ShellOneCard() {
+  return (
+    <div
+      aria-hidden="true"
+      data-luca-one-card=""
+      data-testid="shell-one-card"
+    />
+  );
+}
+
 export function AppShell() {
   useWebviewZoomShortcuts();
   useMessageTextSizeRoot();
@@ -1039,6 +1052,7 @@ export function AppShell() {
                               shellFrame ? "" : undefined
                             }
                           >
+                            {shellFrame ? <ShellOneCard /> : null}
                             {/* The frame stays in Settings: its places, with
                                 Settings marked (SHELL_SPEC.md, "Settings"). */}
                             {shellFrame ? (
@@ -1188,6 +1202,7 @@ export function AppShell() {
                             className="flex min-h-0 flex-1 overflow-hidden"
                             data-luca-frame-row={shellFrame ? "" : undefined}
                           >
+                            {shellFrame ? <ShellOneCard /> : null}
                             <AppSidebar
                               activeCommunity={communitiesHook.activeCommunity}
                               channels={sidebarChannels}
