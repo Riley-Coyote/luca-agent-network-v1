@@ -35,7 +35,7 @@ const CONNECT_ERROR = "relay unreachable: could not connect to relay";
 const SLOT = '[data-testid="shell-lip-actions"]';
 const BAR = ".buzz-huddle-drawer.grid";
 const CARD = '[data-testid="conversation-workspace-grid"] [data-luca-card]';
-const EMPTY_WORDS = "Choose a conversation from the sidebar.";
+const EMPTY_LIP = "No conversation";
 
 type Mock = Parameters<typeof installMockBridge>[1];
 type Box = { x: number; y: number; w: number; h: number };
@@ -362,8 +362,20 @@ test("the lip: Join's fade, Details open, an empty pane, a group's initials", as
     const hit = r
       ? document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
       : null;
+    const words = document.querySelector(".luca-lip-empty");
+    const probe = document.createElement("div");
+    probe.style.color = "var(--luca-frame-muted, hsl(var(--mn-ink-muted)))";
+    document.body.appendChild(probe);
+    const muted = getComputedStyle(probe).color;
+    probe.remove();
     return {
       h1s: headings.map((h) => h.textContent),
+      lip_colour: words ? getComputedStyle(words).color : null,
+      frame_muted: muted,
+      lip_weight: words ? getComputedStyle(words).fontWeight : null,
+      pane_words: document
+        .querySelector('[data-testid="workspace-pane-slot-2"]')
+        ?.textContent?.trim(),
       menu_hit: Boolean(tile && hit && tile.contains(hit)),
     };
   }, LAYOUT_MENU);
@@ -395,7 +407,10 @@ test("the lip: Join's fade, Details open, an empty pane, a group's initials", as
     after_single: after,
     ok:
       empty.h1s.length === 1 &&
-      empty.h1s[0] === EMPTY_WORDS &&
+      empty.h1s[0] === EMPTY_LIP &&
+      empty.lip_colour === empty.frame_muted &&
+      empty.lip_weight === "450" &&
+      empty.pane_words === "Choose a conversation from the sidebar." &&
       empty.menu_hit &&
       menuOpened &&
       after === "general",
@@ -845,7 +860,7 @@ test("Settings: the theme tiles' focus, a moved accent, the sliding mark", async
     ok:
       focus.focus_visible &&
       focus.outline.startsWith("1px solid") &&
-      focus.offset === "5px" &&
+      focus.offset === "7px" &&
       accent.theme === "vitesse-black" &&
       accent.accent === "neutral" &&
       (accent.move ?? "").includes("#3b82f6"),
@@ -969,7 +984,7 @@ async function holdCompanion(page: Page) {
   );
 }
 
-test("the companion's badge clears the day pill; its halo goes square in full screen", async ({
+test("the companion's badge keeps its place and the stuck day pill steps aside; its halo goes square in full screen", async ({
   page,
 }) => {
   test.setTimeout(150_000);
@@ -996,26 +1011,64 @@ test("the companion's badge clears the day pill; its halo goes square in full sc
   ).toBeVisible({ timeout: 15_000 });
   await page.mouse.move(1200, 700);
   await settle(page);
+  // The badge at its place; the stuck pill under it steps aside; no
+  // message's words beneath the badge.
   const measure = () =>
     page.evaluate(() => {
-      const badge = document
-        .querySelector('[data-testid="app-control-badge"]')
-        ?.getBoundingClientRect();
-      const pills = [
-        ...document.querySelectorAll(
-          '[data-testid="message-timeline-day-divider"] > p',
-        ),
-      ]
-        .map((p) => p.getBoundingClientRect())
-        .filter((r) => r.height > 0 && r.top < 200);
-      const pill = pills.sort((a, b) => a.top - b.top)[0];
-      const overlaps =
-        badge && pill
-          ? badge.left < pill.right &&
-            badge.right > pill.left &&
-            badge.top < pill.bottom &&
-            badge.bottom > pill.top
-          : null;
+      const badgeEl = document.querySelector(
+        '[data-testid="app-control-badge"]',
+      );
+      const badge = badgeEl?.getBoundingClientRect();
+      const section = document.querySelector(
+        '[data-testid="message-timeline-day-divider"]',
+      ) as HTMLElement | null;
+      const pill = section?.firstElementChild as HTMLElement | null;
+      const covered: string[] = [];
+      if (badge) {
+        const card = document.querySelector(
+          '[data-testid="conversation-workspace-grid"]',
+        );
+        const walker = document.createTreeWalker(
+          card ?? document.body,
+          NodeFilter.SHOW_TEXT,
+        );
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node.textContent?.trim();
+          const parent = node.parentElement;
+          if (!text || !parent) continue;
+          if (parent.closest('[data-testid="message-timeline-day-divider"]'))
+            continue;
+          // Only words that show: no hidden or fully transparent ancestor
+          // (a message's hover toolbar waits at opacity 0).
+          let shown = true;
+          for (let el: Element | null = parent; el; el = el.parentElement) {
+            const style = getComputedStyle(el);
+            if (
+              style.visibility === "hidden" ||
+              style.display === "none" ||
+              Number.parseFloat(style.opacity) === 0
+            ) {
+              shown = false;
+              break;
+            }
+          }
+          if (!shown) continue;
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          for (const r of range.getClientRects()) {
+            if (
+              r.width > 0 &&
+              r.left < badge.right &&
+              r.right > badge.left &&
+              r.top < badge.bottom &&
+              r.bottom > badge.top
+            ) {
+              covered.push(text.slice(0, 40));
+              break;
+            }
+          }
+        }
+      }
       return {
         badge: badge
           ? {
@@ -1025,33 +1078,40 @@ test("the companion's badge clears the day pill; its halo goes square in full sc
               right: badge.right,
             }
           : null,
-        pill: pill ? { top: pill.top, bottom: pill.bottom } : null,
-        gap: badge && pill ? +(badge.top - pill.bottom).toFixed(2) : null,
-        overlaps,
+        pill: pill
+          ? {
+              top: pill.getBoundingClientRect().top,
+              aside: section?.hasAttribute("data-companion-aside") ?? false,
+              opacity: getComputedStyle(pill).opacity,
+            }
+          : null,
+        words_under_badge: covered,
       };
     });
-  const conversation = await measure();
-  await shot(page, "13-companion-badge", { x: 268, y: 0, w: 1172, h: 160 });
-  // A page without a day pill: the badge stays 6 under the lip.
-  await page.evaluate(() => {
-    window.location.hash = "#/agents";
+  await page.waitForTimeout(800);
+  const at1440 = await measure();
+  await shot(page, "13-companion-badge-1440", {
+    x: 268,
+    y: 0,
+    w: 1172,
+    h: 220,
   });
-  await page.waitForTimeout(1500);
-  const agents = await page.evaluate(
-    () =>
-      document
-        .querySelector('[data-testid="app-control-badge"]')
-        ?.getBoundingClientRect().top ?? null,
-  );
+  await page.setViewportSize({ width: 800, height: 500 });
+  await page.waitForTimeout(1200);
+  await settle(page);
+  const at800 = await measure();
+  await shot(page, "13-companion-badge-800x500");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(800);
+  const placed = (m: Awaited<ReturnType<typeof measure>>) =>
+    m.badge?.top === 42 &&
+    m.pill?.aside === true &&
+    m.pill.opacity === "0" &&
+    m.words_under_badge.length === 0;
   checks.companion_badge = {
-    conversation,
-    agents_page_top: agents,
-    ok:
-      conversation.overlaps === false &&
-      conversation.gap !== null &&
-      conversation.gap >= 5 &&
-      conversation.gap <= 7 &&
-      agents === 42,
+    "1440x900": at1440,
+    "800x500": at800,
+    ok: placed(at1440) && placed(at800),
   };
 
   // Full screen under Black: the halo's corner is the window's, square.
@@ -1085,6 +1145,36 @@ test("the companion's badge clears the day pill; its halo goes square in full sc
     y: 0,
     w: 120,
     h: 120,
+  });
+  // The badge goes: the pill comes back.
+  await page.evaluate(() => {
+    (window as unknown as { __FULLSCREEN__: boolean }).__FULLSCREEN__ = false;
+  });
+  await page.getByRole("button", { name: "Stop app navigation" }).click();
+  await expect(page.getByTestId("app-control-badge")).toHaveCount(0, {
+    timeout: 10_000,
+  });
+  await page.waitForTimeout(400);
+  const back = await page.evaluate(() => {
+    const section = document.querySelector(
+      '[data-testid="message-timeline-day-divider"]',
+    );
+    const pill = section?.firstElementChild;
+    return {
+      aside: section?.hasAttribute("data-companion-aside") ?? null,
+      opacity: pill ? getComputedStyle(pill).opacity : null,
+    };
+  });
+  (checks.companion_badge as Record<string, unknown>).after_badge_goes = back;
+  (checks.companion_badge as { ok: boolean }).ok =
+    (checks.companion_badge as { ok: boolean }).ok &&
+    back.aside === false &&
+    back.opacity === "1";
+  await shot(page, "13-companion-gone-pill-back", {
+    x: 268,
+    y: 0,
+    w: 1172,
+    h: 160,
   });
   checks.companion_halo = {
     windowed,
@@ -1551,6 +1641,205 @@ test("a project room's own header gives way to the lip and the rail's rooms", as
     .toBe(true);
 });
 
+// ── review fixes: Details open on glass and by day; Quick Chat's motion ─
+/** The page is the app's own window on a Liquid Glass frame
+ *  (PolyphonicGlass.swift stood in for). */
+async function fakeGlass(page: Page) {
+  await page.addInitScript(() => {
+    const glass = window as typeof window & {
+      __POLYPHONIC_NATIVE_GLASS__?: number;
+      isTauri?: boolean;
+      webkit?: unknown;
+    };
+    glass.isTauri = true;
+    glass.webkit = {
+      messageHandlers: { polyphonicGlass: { postMessage: () => {} } },
+    };
+    glass.__POLYPHONIC_NATIVE_GLASS__ = 1;
+    localStorage.setItem("polyphonic-frame", "glass");
+  });
+}
+
+const detailsOpen = (page: Page) =>
+  page.evaluate(() => {
+    const button = document.querySelector(
+      '[data-testid="shell-lip-details"]',
+    ) as HTMLElement;
+    const mark = document.querySelector(
+      '[data-testid="shell-places-marks"] > .luca-mark',
+    ) as HTMLElement | null;
+    const layer = mark?.parentElement ?? null;
+    const style = getComputedStyle(button);
+    const svg = button.querySelector("svg");
+    const probe = document.createElement("div");
+    probe.style.color = "var(--luca-frame-ink, hsl(var(--mn-ink)))";
+    document.body.appendChild(probe);
+    const ink = getComputedStyle(probe).color;
+    probe.remove();
+    const markStyle = mark ? getComputedStyle(mark) : null;
+    return {
+      glass: document.documentElement.getAttribute("data-luca-frame-glass"),
+      expanded: button.getAttribute("aria-expanded"),
+      background: style.backgroundColor,
+      grain: style.backgroundImage !== "none",
+      shadow: style.boxShadow,
+      icon: svg ? getComputedStyle(svg).color : style.color,
+      frame_ink: ink,
+      place_material: layer?.getAttribute("data-mark-material") ?? null,
+      place_background: markStyle?.backgroundColor ?? null,
+      place_grain: markStyle ? markStyle.backgroundImage !== "none" : null,
+      place_shadow: markStyle
+        ? markStyle.boxShadow.replace(/rgba\([^)]*\)/g, "c")
+        : null,
+      shadow_shape: style.boxShadow.replace(/rgba\([^)]*\)/g, "c"),
+    };
+  });
+
+test("review fixes: Details open on glass and by day, Quick Chat rides the band", async ({
+  browser,
+}) => {
+  test.setTimeout(200_000);
+  const seen: string[] = [];
+  const checks: Record<string, unknown> = {};
+  /** The lip's right end: the open Details beside the layout menu. */
+  const lipClipOf = async (page: Page) => {
+    const details = await box(page, '[data-testid="shell-lip-details"]');
+    return details
+      ? { x: details.x - 110, y: 0, w: 150, h: 44 }
+      : { x: 1240, y: 0, w: 200, h: 44 };
+  };
+
+  // 2 · On glass, at night and by day: the places' glass mark.
+  const glass: Record<string, unknown> = {};
+  for (const light of [false, true]) {
+    const context = await browser.newContext({
+      deviceScaleFactor: 2,
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    watchConsole(page, seen);
+    await openApp(page, { light, before: fakeGlass });
+    await openRoute(page, GENERAL_ID, "general");
+    await page.getByTestId("shell-lip-details").click();
+    await page.mouse.move(700, 500);
+    await page.waitForTimeout(600);
+    await settle(page);
+    const measured = await detailsOpen(page);
+    await shot(
+      page,
+      `f2-glass-${light ? "day" : "night"}-details-open`,
+      await lipClipOf(page),
+    );
+    glass[light ? "day" : "night"] = {
+      ...measured,
+      ok:
+        measured.glass !== null &&
+        measured.place_material === "card" &&
+        measured.background === measured.place_background &&
+        measured.grain === measured.place_grain &&
+        measured.shadow_shape === measured.place_shadow &&
+        measured.icon === measured.frame_ink,
+    };
+    await context.close();
+  }
+  checks.fix_2 = {
+    ...glass,
+    ok:
+      (glass.night as { ok: boolean }).ok && (glass.day as { ok: boolean }).ok,
+  };
+
+  // 5 · By day on Black: the open Details icon in the full ink.
+  {
+    const context = await browser.newContext({
+      deviceScaleFactor: 2,
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    watchConsole(page, seen);
+    await openApp(page, { light: true });
+    await openRoute(page, GENERAL_ID, "general");
+    await page.getByTestId("shell-lip-details").click();
+    await page.mouse.move(700, 500);
+    await settle(page);
+    const day = await detailsOpen(page);
+    await shot(page, "f5-black-day-details-open", await lipClipOf(page));
+    checks.fix_5 = {
+      icon: day.icon,
+      frame_ink: day.frame_ink,
+      background: day.background,
+      ok: day.glass === null && day.icon === day.frame_ink,
+    };
+    await context.close();
+  }
+
+  // 6 · Quick Chat open as a huddle starts: it rides the band's motion.
+  for (const reduce of [false, true]) {
+    const context = await browser.newContext({
+      deviceScaleFactor: 2,
+      viewport: { width: 1440, height: 900 },
+      reducedMotion: reduce ? "reduce" : "no-preference",
+      permissions: ["microphone"],
+    });
+    const page = await context.newPage();
+    watchConsole(page, seen);
+    await openApp(page, { huddle: true });
+    await openRoute(page, GENERAL_ID, "general");
+    await page.locator("[data-quickchat] button.qc-launcher").click();
+    await expect(page.locator(".qc-panel")).toBeVisible({ timeout: 5_000 });
+    await page.waitForTimeout(400);
+    const transition = await page.evaluate(() => {
+      const panel = document.querySelector(".qc-panel") as HTMLElement;
+      const style = getComputedStyle(panel);
+      return {
+        property: style.transitionProperty,
+        duration: style.transitionDuration,
+      };
+    });
+    await page.evaluate(() => {
+      const record = window as unknown as { __QC__: number[] };
+      record.__QC__ = [];
+      const t0 = performance.now();
+      const step = () => {
+        const panel = document.querySelector(".qc-panel");
+        if (panel) {
+          record.__QC__.push(
+            Math.round(
+              window.innerHeight - panel.getBoundingClientRect().bottom,
+            ),
+          );
+        }
+        if (performance.now() - t0 < 6000) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    await startHuddle(page);
+    await page.waitForTimeout(1200);
+    const bottoms = await page.evaluate(
+      () => (window as unknown as { __QC__: number[] }).__QC__,
+    );
+    const distinct = [...new Set(bottoms)];
+    const between = distinct.filter((b) => b > 20.5 && b < 57.5);
+    await shot(page, `f6-quick-chat-${reduce ? "reduced" : "motion"}`);
+    checks[reduce ? "fix_6_reduce_motion" : "fix_6"] = {
+      transition,
+      bottoms_seen: distinct,
+      frames_between_20_and_58: between.length,
+      ok: reduce
+        ? transition.duration.split(",").every((d) => d.trim() === "0s") &&
+          distinct.includes(58)
+        : transition.property.includes("bottom") &&
+          between.length >= 2 &&
+          distinct.includes(58),
+    };
+    await context.close();
+  }
+  checks.console = seen;
+  record("fixes", checks);
+  for (const key of ["fix_2", "fix_5", "fix_6", "fix_6_reduce_motion"]) {
+    expect.soft((checks[key] as { ok: boolean }).ok, key).toBe(true);
+  }
+});
+
 // ── flag off: the base build's pixels ───────────────────────────────────
 test("flag off draws the base build exactly", async ({ browser }) => {
   test.setTimeout(240_000);
@@ -1597,7 +1886,9 @@ test("flag off draws the base build exactly", async ({ browser }) => {
         await page.evaluate((id) => {
           window.location.hash = `#/channels/${id}`;
         }, GENERAL_ID);
-        await page.waitForTimeout(1500);
+        // The rail's selection pill pours into the project's row: let it
+        // come to rest.
+        await page.waitForTimeout(4000);
       },
     },
   ];

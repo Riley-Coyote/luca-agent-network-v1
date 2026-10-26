@@ -380,8 +380,8 @@
 
 /* The quick chat's launcher keeps 14 inside the conversation card's corner:
  * while a huddle is live it rises with the band (20 + 38), on the same
- * motion. The open panel keeps its 20 (SHELL_SPEC.md, "Search, dialogs,
- * toasts, the quick chat panel"). */
+ * motion. The open panel rises with it too, so it never covers the bar's
+ * Leave (WP-09a, shell-finish.css). */
 /* Beside the shell's own colour transitions for buttons
  * (`:root[data-luca-shell] :is(button, …)`), which it would otherwise lose. */
 :root[data-luca-frame] [data-quickchat] button.qc-launcher {

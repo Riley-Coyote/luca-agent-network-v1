@@ -22,13 +22,16 @@ import {
 const MIN_USABLE_PANE_WIDTH_PX = 440;
 const PANE_LOCAL_CONTROL_SELECTOR = "[data-workspace-pane-local-control]";
 
-/** What an empty pane says, in the pane and, focused, as the lip's name. */
+/** What an empty pane says at its centre. */
 export const EMPTY_PANE_WORDS = "Choose a conversation from the sidebar.";
+/** What the lip calls an empty focused pane: a state, not an instruction,
+ *  in the frame's second tone (shell-finish.css). */
+export const EMPTY_PANE_LIP_NAME = "No conversation";
 
 /**
  * The focused pane holds no conversation, under the shell's frame: the lip
- * names it in its own empty-state words, so the page's only heading is
- * never empty (WP-09a), and holds no conversation's actions; the
+ * names it "No conversation", so the page's only heading is never empty
+ * (WP-09a), and holds no conversation's actions; the
  * workspace's own control stays, so the layout can still be changed or
  * undone from here. Its tile stands at the lip's right end, 8 from this
  * pane's right edge, as a conversation's actions would (ShellLip,
@@ -53,7 +56,9 @@ function EmptyPaneLipActions({
     <>
       {lipName
         ? createPortal(
-            <span data-testid="shell-lip-empty-pane">{EMPTY_PANE_WORDS}</span>,
+            <span className="luca-lip-empty" data-testid="shell-lip-empty-pane">
+              {EMPTY_PANE_LIP_NAME}
+            </span>,
             lipName,
           )
         : null}

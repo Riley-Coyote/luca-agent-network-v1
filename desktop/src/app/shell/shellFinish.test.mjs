@@ -73,7 +73,7 @@ describe("the finishing list's styles (WP-09a)", () => {
         if (!trimmed) continue;
         // The group disc is drawn only by the frame's lip.
         if (trimmed === ".luca-lip-group") continue;
-        assert.match(trimmed, /^:root\[data-luca-frame\]/, trimmed);
+        assert.match(trimmed, /^:root\[data-luca-frame(-glass)?\]/, trimmed);
       }
     }
   });

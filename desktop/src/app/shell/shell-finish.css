@@ -35,6 +35,42 @@
   box-shadow: none;
 }
 
+/* By day on Black its icon is the full ink, as hover and the current
+ * place wear it (over shell-light.css's second tone). */
+:root[data-luca-frame]:not(.dark)
+  .luca-lip
+  .luca-lip-actions
+  .luca-lip-button[aria-expanded="true"] {
+  color: var(--luca-frame-ink, hsl(var(--mn-ink)));
+}
+
+/* On a glass frame, the places' glass mark (shell-marks.css): a piece of
+ * the card, its surface, grain, lit top and shadow at night; paper with
+ * its shadow by day. Its icon in the frame's full ink. */
+:root[data-luca-frame-glass]
+  .luca-lip
+  .luca-lip-actions
+  .luca-lip-button[aria-expanded="true"] {
+  background-color: hsl(var(--mn-surface));
+  background-image: var(--mn-card-finish, none);
+  background-size: 256px 256px;
+  box-shadow:
+    0 -0.5px 0 rgb(255 255 255 / 0.12),
+    0 0 0 0.5px rgb(255 255 255 / 0.06),
+    0 1px 2px rgb(0 0 0 / 0.3),
+    0 6px 16px rgb(0 0 0 / 0.22);
+  color: var(--luca-frame-ink, hsl(var(--mn-ink)));
+}
+
+:root[data-luca-frame-glass]:not(.dark)
+  .luca-lip
+  .luca-lip-actions
+  .luca-lip-button[aria-expanded="true"] {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.1),
+    0 4px 12px -2px hsl(var(--mn-ink) / 0.12);
+}
+
 @media (prefers-contrast: more) {
   :root[data-luca-frame]:root
     .luca-lip-actions
@@ -48,6 +84,14 @@
  * that holds the new post's button gives up its own 16 above it. */
 :root[data-luca-frame] [data-forum-composer-band] {
   padding-top: 0;
+}
+
+/* ── an empty pane, named in the lip ─────────────────────────────────
+ * Not an instruction in the title's voice: "No conversation", in the
+ * frame's second tone (the pane's centre keeps its sentence). */
+:root[data-luca-frame] .luca-lip-name .luca-lip-empty {
+  color: var(--luca-frame-muted, hsl(var(--mn-ink-muted)));
+  font-weight: 450;
 }
 
 /* ── a group conversation, by its members' initials ──────────────────
@@ -107,7 +151,7 @@
 
 /* ── Settings' theme tiles, under keyboard focus ─────────────────────
  * The frame's ring, 1 in the ink at 55%, around the preview and clear of
- * the chosen theme's own ring (2, 2 out). */
+ * the chosen theme's own ring (2, 2 out) by 3. */
 :root[data-luca-frame]
   [data-testid="settings-theme"]
   :is(
@@ -116,7 +160,7 @@
   ):focus-visible
   > :first-child {
   outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
-  outline-offset: 5px;
+  outline-offset: 7px;
 }
 
 /* ── Settings' section list: the sliding mark ────────────────────────
@@ -159,12 +203,18 @@
 }
 
 /* ── the companion ────────────────────────────────────────────────────
- * While a conversation's day pill sticks under the card's top (23 below
- * the lip, 1.625rem tall), the badge stands 6 below it, off its axis.
- * In full screen the window's corner is square, and so is the halo's. */
-:root[data-luca-frame]:has([data-testid="message-timeline-day-divider"])
-  .polyphonic-control-badge {
-  top: calc(var(--luca-frame-lip, 36px) + 23px + 1.625rem + 6px);
+ * Its badge keeps its place, 6 under the lip (shell-edges.css). While it
+ * shows, a day pill stuck at the card's top under it steps aside, and
+ * comes back when the badge goes (CompanionAppControl marks it). In full
+ * screen the window's corner is square, and so is the halo's. */
+:root[data-luca-frame] [data-testid="message-timeline-day-divider"] > p {
+  transition: opacity 160ms;
+}
+
+:root[data-luca-frame]
+  [data-testid="message-timeline-day-divider"][data-companion-aside]
+  > p {
+  opacity: 0;
 }
 
 :root[data-luca-frame] .polyphonic-control-halo[data-fullscreen] {
@@ -209,7 +259,16 @@
   max-height: calc(100dvh - 62px);
 }
 
+/* It travels there on the band's own motion, not in one frame. */
+:root[data-luca-frame] [data-quickchat] .qc-panel {
+  transition:
+    bottom var(--luca-frame-slide),
+    max-height var(--luca-frame-slide);
+}
+
 @media (prefers-reduced-motion: reduce) {
+  :root[data-luca-frame] [data-quickchat] .qc-panel,
+  :root[data-luca-frame] [data-testid="message-timeline-day-divider"] > p,
   :root[data-luca-frame] .luca-huddle-band .buzz-huddle-drawer,
   :root[data-luca-frame] .luca-huddle-band .buzz-huddle-drawer > :first-child {
     transition: none;
