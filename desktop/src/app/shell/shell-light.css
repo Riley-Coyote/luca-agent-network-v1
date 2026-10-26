@@ -208,7 +208,10 @@
  * (shellStudy.css:1298-1302), so it still reads where it sticks over the
  * scrolled messages. */
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
-  [data-testid="message-timeline-day-divider"]
+  :is(
+    [data-testid="message-timeline-day-divider"],
+    [data-testid="message-timeline-stuck-day"]
+  )
   > p {
   box-shadow:
     0 1px 2px hsl(var(--mn-ink) / 0.1),

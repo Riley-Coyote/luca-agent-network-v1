@@ -8,7 +8,9 @@ export function DayDivider({ label }: { label: string }) {
       // scroller therefore publishes `--buzz-day-pill-sticky-top`; the
       // fallback is the measured header height, correct for a scroller that
       // pads itself by nothing.
-      className="pointer-events-none sticky top-[var(--buzz-day-pill-sticky-top,var(--buzz-channel-content-top-padding,5.75rem))] z-20 flex justify-center"
+      // Under the shell, a pill gone up past the card's top hides: the
+      // timeline's stuck pill stands in for it there (MessageTimeline, WP-29).
+      className="pointer-events-none sticky top-[var(--buzz-day-pill-sticky-top,var(--buzz-channel-content-top-padding,5.75rem))] z-20 flex justify-center [&[data-day-passed]>p]:invisible"
       data-testid="message-timeline-day-divider"
       data-day-label={label}
     >
