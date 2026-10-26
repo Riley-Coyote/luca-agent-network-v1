@@ -382,10 +382,18 @@ export class MarkEngine {
     // the mark leap on its first move (WP-10 review). So the first frame
     // steps nothing, and the clock starts there, as it does for a pick that
     // finds the page idle.
+    //
+    // A frame's own time is when the frame began, which a long task (the
+    // card's first mount) can leave far behind: the clock starts at the
+    // moment this first frame actually runs, so the stall is never stepped
+    // through on the next one (WP-09b, Decided 10).
     const elapsed = (now - this.last) / 1000;
-    const moving = this.advance(this.fresh ? 0 : elapsed);
+    const fresh = this.fresh;
+    const moving = this.advance(fresh ? 0 : elapsed);
     this.fresh = false;
-    this.last = Math.max(now, this.last);
+    this.last = fresh
+      ? Math.max(now, this.last, performance.now())
+      : Math.max(now, this.last);
     this.frame = moving ? requestAnimationFrame(this.tick) : null;
   };
 }

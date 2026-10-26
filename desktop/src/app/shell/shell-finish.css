@@ -266,6 +266,92 @@
     max-height var(--luca-frame-slide);
 }
 
+/* ------------------------------------------------------------------
+ * THE LAST OF THE LIST (SHELL_BUILD.md, WP-09b), with everything landed.
+ * ------------------------------------------------------------------ */
+
+/* ── a project room's lip names its project ──────────────────────────
+ * "Tidepool / general", as the study names a session under its home
+ * (shellStudy.css .shell-title-home and -rule): the project in the
+ * frame's second tone at 450, the rule in its faint tone at 400, 6 either
+ * side; the room keeps the name's own ink and weight. */
+:root[data-luca-frame] .luca-lip-name .luca-lip-home {
+  color: var(--luca-frame-muted, hsl(var(--mn-ink-muted)));
+  font-weight: 450;
+}
+
+:root[data-luca-frame] .luca-lip-name .luca-lip-rule {
+  color: var(--luca-frame-faint, hsl(var(--mn-ink-faint)));
+  font-weight: 400;
+  margin: 0 6px;
+}
+
+/* ── the places' tiles fade as every lip button does ─────────────────
+ * 120 ms, over the shell's blanket 150 ms for every button (theme.css,
+ * 0,2,1). */
+:root[data-luca-frame]
+  .luca-places
+  :is(.luca-place, .luca-place-search button) {
+  transition:
+    color 120ms,
+    background-color 120ms,
+    border-color 120ms;
+}
+
+/* ── the Quick Chat button never covers content ──────────────────────
+ * One rule for every place: while the launcher shows (20 from the window's
+ * right and bottom, 46 round, rising to 58 over a live huddle), the card's
+ * content keeps its column clear, 8 short of the launcher, measured from
+ * the card's own right edge (the lip publishes its inset). Only what would
+ * reach that column gives way, by its right side alone, so a page or a
+ * composer centred with room to spare (1440 × 900) does not move. With a
+ * right card open the conversation's card ends far from the launcher and
+ * the clearance is nothing. */
+:root[data-luca-frame]:has(.qc-launcher) {
+  --luca-quickchat-clear: max(
+    0px,
+    calc(20px + 46px + 8px - var(--luca-frame-card-right, 6px))
+  );
+}
+
+/* A place's page (Agents' spaces, Activity, Library, every card on the
+ * shared page): its axis's right side, past the page's own 28. */
+:root[data-luca-frame] .luca-place-page {
+  container-type: inline-size;
+}
+
+:root[data-luca-frame]:has(.qc-launcher) .luca-place-page-axis {
+  padding-right: max(
+    0px,
+    calc(var(--luca-quickchat-clear) - 28px - max(0px, (100cqw - 640px) / 2))
+  );
+}
+
+/* A conversation's composer: Send's side, past the overlay's own 20. */
+:root[data-luca-frame] [data-testid="channel-composer-overlay"] {
+  container-type: inline-size;
+}
+
+:root[data-luca-frame]:has(.qc-launcher)
+  [data-testid="channel-composer-overlay"]
+  footer.luca-measure {
+  padding-right: max(
+    0px,
+    calc(
+      var(--luca-quickchat-clear) -
+      max(20px, (100cqw - var(--mn-reading-measure, 552px)) / 2)
+    )
+  );
+}
+
+/* ── Paper's unread dot ──────────────────────────────────────────────
+ * The one signal colour, a step deeper by day under the frame, so the dot
+ * that means "new" reaches 3:1 on paper (it measured 2.9:1). The night
+ * value and the token outside the frame are unchanged. */
+:root[data-luca-frame]:not(.dark) {
+  --mn-signal: 214 45% 53%;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-frame] [data-quickchat] .qc-panel,
   :root[data-luca-frame] [data-testid="message-timeline-day-divider"] > p,

@@ -2,16 +2,21 @@ import * as React from "react";
 import { LoaderCircle, Plus } from "lucide-react";
 import { toast } from "sonner";
 
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import {
+  PermissionAsk,
+  QuestionAsk,
+  useAskFocusHandoff,
+} from "@/app/shell/placeRails/ManagedAsks";
 import { useAgentMemoryQuery } from "@/features/agent-memory/hooks";
 import { ResidentPlaceSection } from "@/features/agents/place/ResidentPlaceSection";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
-import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import type { ResidentSummaryViewModel } from "@/features/agents/ui/agentLibraryViewModel";
 import { useArtifactCanvas } from "@/features/artifacts/ArtifactCanvasProvider";
 import { useArtifactLibrary } from "@/features/artifacts/hooks";
-import { ManagedInputCard } from "@/features/capabilities/ui/ManagedInputCard";
 import { useManagedInputs } from "@/features/capabilities/useManagedInputs";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { useSideConversations } from "@/features/exchange/useSideConversations";
 import { ResidentHandoffPanel } from "@/features/profile/ui/ResidentContinuityPanel";
 import { ResidentNotebookDetailView } from "@/features/profile/ui/notebook/ResidentNotebookDetailView";
 import {
@@ -290,76 +295,81 @@ function useResidentNotebookStream(residentPubkey: string | null) {
   };
 }
 
-/** What they're asking you (Decided 3; the study's `.shell-mind-ask`): one
- *  line each, its question and Answer. Answer opens today's card in place
- *  under the line, so it is still answered here. */
+/** What they're asking you (Decided 3), each ask in the one row Needs you
+ *  uses (WP-09b, Decided 1), answered in place the same way. The space is
+ *  theirs, so the line under an ask says only where it was asked. */
 function MindAsks({ residentPubkey }: { residentPubkey: string }) {
   const key = normalizePubkey(residentPubkey);
-  const inputs = useManagedInputs().filter(
-    (each) => normalizePubkey(each.request.residentPubkey) === key,
+  const allInputs = useManagedInputs();
+  const allPermissions = useManagedPermissions();
+  const inputs = React.useMemo(
+    () =>
+      allInputs.filter(
+        (each) => normalizePubkey(each.request.residentPubkey) === key,
+      ),
+    [allInputs, key],
   );
-  const permissions = useManagedPermissions().filter(
-    (each) => normalizePubkey(each.request.residentPubkey) === key,
+  const permissions = React.useMemo(
+    () =>
+      allPermissions.filter(
+        (each) => normalizePubkey(each.request.residentPubkey) === key,
+      ),
+    [allPermissions, key],
   );
-  if (inputs.length === 0 && permissions.length === 0) return null;
+  const { roomOf } = useSideConversations();
+  const { goChannel } = useAppNavigation();
+  const keys = React.useMemo(
+    () => [
+      ...permissions.map((each) => `permission:${each.pendingId}`),
+      ...inputs.map((each) => `question:${each.pendingId}`),
+    ],
+    [inputs, permissions],
+  );
+  const { listRef, onFocus } = useAskFocusHandoff(keys);
+  if (keys.length === 0) return null;
+  const common = (kind: string, pendingId: string, conversationId: string) => ({
+    "data-ask-key": `${kind}:${pendingId}`,
+    "data-ask-kind": kind,
+    "data-testid": `mind-ask-${kind}:${pendingId}`,
+    note: "now",
+    onOpen: () => void goChannel(conversationId),
+    openTestId: "mind-ask-open",
+  });
+  const where = (conversationId: string) =>
+    roomOf(conversationId) || "Asks you";
   return (
     <section
       aria-label="What they're asking you"
       className="luca-mind-asks"
       data-testid="mind-asks"
     >
-      {inputs.map((pending) => (
-        <MindAsk
-          card={<ManagedInputCard compact pending={pending} />}
-          key={pending.pendingId}
-          question={pending.request.message}
-        />
-      ))}
-      {permissions.map((pending) => (
-        <MindAsk
-          card={<ManagedPermissionCard compact pending={pending} />}
-          key={pending.pendingId}
-          question={
-            pending.request.protocol === "luca.managed.permission.v2"
-              ? pending.request.operation
-              : pending.request.title
-          }
-        />
-      ))}
+      <ul className="luca-ask-list" onFocus={onFocus} ref={listRef}>
+        {permissions.map((pending) => (
+          <PermissionAsk
+            common={common(
+              "permission",
+              pending.pendingId,
+              pending.request.conversationId,
+            )}
+            key={pending.pendingId}
+            pending={pending}
+            summary={where(pending.request.conversationId)}
+          />
+        ))}
+        {inputs.map((pending) => (
+          <QuestionAsk
+            common={common(
+              "question",
+              pending.pendingId,
+              pending.request.conversationId,
+            )}
+            key={pending.pendingId}
+            pending={pending}
+            summary={where(pending.request.conversationId)}
+          />
+        ))}
+      </ul>
     </section>
-  );
-}
-
-function MindAsk({
-  card,
-  question,
-}: {
-  card: React.ReactNode;
-  question: string;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const cardId = React.useId();
-  return (
-    <div className="luca-mind-ask" data-open={open ? "true" : undefined}>
-      <div className="luca-mind-ask-line">
-        <span className="luca-mind-kind">Asks you</span>
-        <p>{question}</p>
-        <button
-          aria-controls={cardId}
-          aria-expanded={open}
-          className="luca-mind-answer"
-          onClick={() => setOpen((value) => !value)}
-          type="button"
-        >
-          {open ? "Hide" : "Answer"}
-        </button>
-      </div>
-      {open ? (
-        <div className="luca-mind-ask-card" id={cardId}>
-          {card}
-        </div>
-      ) : null}
-    </div>
   );
 }
 

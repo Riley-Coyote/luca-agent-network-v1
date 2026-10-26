@@ -169,3 +169,25 @@ export function useRuntimeWorkingPubkeys(): ReadonlySet<string> {
   const tasks = useAllRuntimeTasks();
   return React.useMemo(() => runtimeWorkingPubkeys(tasks), [tasks]);
 }
+
+/** The latest runtime task `pubkey` is running right now, or null: what a
+ *  mind's now line and its row in Now say while Claude Code or Codex works
+ *  for it (WP-09b, Decided 2). `enabled: false` reads nothing. */
+export function useRunningRuntimeTask(
+  pubkey: string | null | undefined,
+  enabled = true,
+): RuntimeTaskProjection | null {
+  const tasks = useAllRuntimeTasks();
+  return React.useMemo(() => {
+    const key = enabled && pubkey ? pubkey.toLowerCase() : null;
+    if (!key) return null;
+    const running = tasks.filter(
+      (task) =>
+        task.residentPubkey.toLowerCase() === key &&
+        runtimeWorkingPubkeys([task]).size > 0,
+    );
+    return (
+      running.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null
+    );
+  }, [enabled, pubkey, tasks]);
+}
