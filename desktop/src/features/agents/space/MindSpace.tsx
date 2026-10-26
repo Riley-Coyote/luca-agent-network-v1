@@ -5,7 +5,9 @@ import "@/app/shell/shell-mind-space.css";
 import { agentStateWord } from "@/app/shell/placeRails/placePicks";
 import { ResidentDocumentsSection } from "@/features/agents/documents/ResidentDocumentsSection";
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
+import { useRunningRuntimeTask } from "@/features/capabilities/useAllRuntimeTasks";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { runtimeLabel } from "@/features/exchange/sideConversations";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import {
@@ -223,10 +225,20 @@ function MindHead({
   onStart: () => void;
   resident: ResidentSummaryViewModel;
 }) {
-  const working = useAgentWorking(resident.pubkey);
+  const agentWorking = useAgentWorking(resident.pubkey);
   const channelsQuery = useChannelsQuery();
+  // A task they run with Claude Code or Codex is work too (WP-09b, Decided
+  // 2): the line says so, as Now's row does.
+  const task = useRunningRuntimeTask(resident.pubkey);
+  const working = React.useMemo(
+    () => ({
+      channels: agentWorking.channels,
+      working: agentWorking.working || task !== null,
+    }),
+    [agentWorking, task],
+  );
   const now = React.useMemo(() => {
-    if (working.working && working.channels.length > 0) {
+    if (agentWorking.working && working.channels.length > 0) {
       if (working.channels.length > 1)
         return `Working in ${working.channels.length} conversations`;
       const channelId = working.channels[0]?.channelId;
@@ -235,6 +247,8 @@ function MindHead({
         ? `Working in ${channel.name}`
         : "Working in one conversation";
     }
+    if (task)
+      return `Working with ${runtimeLabel(task.runtimeFamily)} · ${task.summary}`;
     const word = agentStateWord({
       availability: resident.availability,
       lastError: managedAgent?.lastError,
@@ -247,6 +261,8 @@ function MindHead({
     managedAgent?.lastError,
     managedAgent?.waking,
     resident.availability,
+    agentWorking.working,
+    task,
     working,
   ]);
 

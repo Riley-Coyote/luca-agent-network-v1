@@ -227,6 +227,10 @@ const Sidebar = React.forwardRef<
   ) => {
     const { isMobile, isResizing, state, openMobile, setOpenMobile } =
       useSidebar();
+    // Under the frame, the sheet hands focus back to what opened it when it
+    // closes (Escape included): the sheet has no trigger of its own, so
+    // Radix would leave it on the page's body (WP-09b, Decided 8).
+    const sheetOpenerRef = React.useRef<HTMLElement | null>(null);
 
     /**
      * Hover-peek. When the rail is fully collapsed there is nothing on screen
@@ -293,6 +297,32 @@ const Sidebar = React.forwardRef<
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
+            onCloseAutoFocus={
+              frame
+                ? (event) => {
+                    const opener = sheetOpenerRef.current;
+                    sheetOpenerRef.current = null;
+                    const target =
+                      opener?.isConnected && opener !== document.body
+                        ? opener
+                        : document.querySelector<HTMLElement>(
+                            '[data-sidebar="trigger"]',
+                          );
+                    if (!target) return;
+                    event.preventDefault();
+                    target.focus();
+                  }
+                : undefined
+            }
+            onOpenAutoFocus={
+              frame
+                ? () => {
+                    const active = document.activeElement;
+                    sheetOpenerRef.current =
+                      active instanceof HTMLElement ? active : null;
+                  }
+                : undefined
+            }
             className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
             style={
               {

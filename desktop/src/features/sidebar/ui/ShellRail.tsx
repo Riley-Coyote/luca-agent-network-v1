@@ -45,7 +45,9 @@ import {
   ContextMenuIconSlot,
   deferMenuAction,
 } from "@/features/sidebar/ui/sidebarMenuHelpers";
+import { shellShortcuts } from "@/app/shell/shellFrame";
 import { getChannelDetails } from "@/shared/api/tauri";
+import { isMacPlatform } from "@/shared/lib/platform";
 import { ContextMenuItem } from "@/shared/ui/context-menu";
 
 /**
@@ -664,11 +666,13 @@ export function ShellRail({
             <span>Chats</span>
             <button
               aria-label="New conversation"
-              aria-keyshortcuts="Meta+N"
+              aria-keyshortcuts={isMacPlatform() ? "Meta+N" : "Control+N"}
               className="luca-rail-add"
               data-testid="rail-new-conversation"
               onClick={onNewConversation}
-              title="New conversation  ⌘N"
+              // The key the platform's handler takes (hasPrimaryShortcutModifier),
+              // named as the other shell tooltips name theirs.
+              title={`New conversation  ${shellShortcuts().key}N`}
               type="button"
             >
               <Plus aria-hidden />

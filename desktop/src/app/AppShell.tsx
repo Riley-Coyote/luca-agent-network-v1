@@ -1028,6 +1028,12 @@ export function AppShell() {
                             canGoForward={canGoForward}
                             channel={settingsOpen ? null : activeChannel}
                             currentPubkey={identityQuery.data?.pubkey}
+                            home={
+                              activeChannel && !settingsOpen
+                                ? projectByChannelId.get(activeChannel.id)
+                                    ?.label
+                                : undefined
+                            }
                             onGoBack={goBack}
                             onGoForward={goForward}
                             pageName={

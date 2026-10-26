@@ -265,6 +265,7 @@ export function ShellLip({
   canGoForward,
   channel,
   currentPubkey,
+  home,
   onGoBack,
   onGoForward,
   pageName,
@@ -275,6 +276,10 @@ export function ShellLip({
   /** The open conversation, when one is open. */
   channel: Channel | null;
   currentPubkey?: string;
+  /** The open conversation's project, when it has one: the lip names it
+   *  before the room, "Tidepool / general", as the study names a session
+   *  under its home (WP-09b, Decided 3). */
+  home?: string;
   onGoBack: () => void;
   onGoForward: () => void;
   /** The page's own name when no conversation is open: on a place with its
@@ -302,7 +307,12 @@ export function ShellLip({
     workspace.layout.preset !== "single" &&
     !workspaceSlot(workspace.layout, workspace.layout.focusedSlotId).activeTab;
   const named = focusedPaneEmpty ? null : channel;
-  const railOpen = sidebar ? sidebar.open : true;
+  // Under 768 the rail is a sheet: the toggle says the sheet's state.
+  const railOpen = sidebar
+    ? sidebar.isMobile
+      ? sidebar.openMobile
+      : sidebar.open
+    : true;
   const railBesideCards = railOpen && !sidebar?.isMobile;
   const railBesideCardsRef = React.useRef(railBesideCards);
   railBesideCardsRef.current = railBesideCards;
@@ -375,7 +385,20 @@ export function ShellLip({
         >
           <span className="luca-lip-name__text">
             {named ? (
-              <ConversationName channel={named} currentPubkey={currentPubkey} />
+              <>
+                {home ? (
+                  <>
+                    <span className="luca-lip-home">{home}</span>
+                    <span aria-hidden className="luca-lip-rule">
+                      /
+                    </span>
+                  </>
+                ) : null}
+                <ConversationName
+                  channel={named}
+                  currentPubkey={currentPubkey}
+                />
+              </>
             ) : focusedPaneEmpty ? null : (
               pageName
             )}

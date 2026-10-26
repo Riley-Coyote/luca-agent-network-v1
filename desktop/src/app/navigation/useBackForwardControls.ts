@@ -5,6 +5,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { isMacPlatform } from "@/shared/lib/platform";
 import { trimMapToSize } from "@/shared/lib/trimMapToSize";
 
@@ -38,10 +39,23 @@ export function useBackForwardControls() {
     locationState.__TSR_key ?? locationState.key ?? String(locationIndex);
   const keysByIndexRef = React.useRef(new Map<number, string>());
   const [maxIndex, setMaxIndex] = React.useState(locationIndex);
+  // Under the shell a place writes its pick into the address by replacing
+  // the entry you are on (WP-10, Decided 7). A new key at the same index as
+  // last seen is that replace, which keeps the entries ahead: Forward still
+  // goes there (WP-09b). A new key one step on is a push, which drops them.
+  const shellFrame = useShellFrameEnabled();
+  const lastIndexRef = React.useRef(locationIndex);
 
   React.useEffect(() => {
     const keysByIndex = keysByIndexRef.current;
     const currentKey = keysByIndex.get(locationIndex);
+    const replaced = shellFrame && lastIndexRef.current === locationIndex;
+    lastIndexRef.current = locationIndex;
+
+    if (replaced) {
+      keysByIndex.set(locationIndex, locationKey);
+      return;
+    }
 
     if (currentKey && currentKey !== locationKey) {
       for (const storedIndex of [...keysByIndex.keys()]) {
@@ -60,7 +74,7 @@ export function useBackForwardControls() {
 
       return Math.max(current, locationIndex);
     });
-  }, [locationIndex, locationKey]);
+  }, [locationIndex, locationKey, shellFrame]);
 
   const canGoForward = locationIndex < maxIndex;
 

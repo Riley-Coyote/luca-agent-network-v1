@@ -271,69 +271,11 @@
   margin: -8px 0 22px;
 }
 
-/* What they're asking you: the study's one line each, its kind, the
- * question, and Answer in the faint fill. Answer opens today's card in
- * place under the line. */
+/* What they're asking you: Needs you's own rows (shell-activity.css,
+ * PlaceAskRow), one ask row in both places (WP-09b); the notebook's 22
+ * stands between it and the next part. */
 .luca-mind-asks {
-  display: grid;
-  gap: 10px;
-}
-
-.luca-mind-ask {
-  border: 1px solid hsl(var(--mn-ink) / 0.12);
-  border-radius: 10px;
-  padding: 12px 14px;
-}
-
-.luca-mind-ask-line {
-  align-items: baseline;
-  display: grid;
-  gap: 14px;
-  grid-template-columns: 76px minmax(0, 1fr) auto;
-}
-
-.luca-mind-ask-line p {
-  color: hsl(var(--mn-ink));
-  font-size: 0.875rem;
   min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.luca-mind-answer {
-  background: hsl(var(--mn-ink) / 0.08);
-  border-radius: 8px;
-  color: hsl(var(--mn-ink));
-  font-size: 0.78125rem;
-  padding: 4px 10px;
-  transition: background-color 120ms;
-}
-
-.luca-mind-answer:hover {
-  background: hsl(var(--mn-ink) / 0.12);
-}
-
-.luca-mind-answer:focus-visible {
-  outline: 1px solid hsl(var(--mn-ink) / 0.55);
-  outline-offset: 2px;
-}
-
-.luca-mind-ask-card {
-  border-top: 1px solid hsl(var(--mn-ink) / 0.06);
-  margin: 12px 0 0 90px;
-  min-width: 0;
-  padding-top: 12px;
-}
-
-/* Today's card, answered in place, on the ask's one outline: its own
- * border, fill and padding give way to the row's. */
-.luca-mind-ask-card > section {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-
-.luca-mind-ask-card > section > :is(form, div):first-child {
-  padding: 0;
 }
 
 .luca-mind-filters {
@@ -399,8 +341,7 @@
   text-transform: uppercase;
 }
 
-.luca-mind-day li[data-kind="you"] .luca-mind-kind,
-.luca-mind-ask .luca-mind-kind {
+.luca-mind-day li[data-kind="you"] .luca-mind-kind {
   color: hsl(var(--mn-ink-muted));
 }
 

@@ -8,6 +8,7 @@ import {
 import * as React from "react";
 
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
+import { useRunningRuntimeTask } from "@/features/capabilities/useAllRuntimeTasks";
 import {
   ActivityPageHeader,
   type ActivitySection,
@@ -191,7 +192,17 @@ function ResidentActivityCard({
   inSideConversation?: boolean;
   resident: ActivityResident;
 }) {
-  const working = useAgentWorking(resident.pubkey);
+  const agentWorking = useAgentWorking(resident.pubkey);
+  // Under the shell, a task they run with Claude Code or Codex is work too
+  // (WP-09b, Decided 2), as their own space says.
+  const task = useRunningRuntimeTask(resident.pubkey, flat);
+  const working = React.useMemo(
+    () => ({
+      channels: agentWorking.channels,
+      working: agentWorking.working || task !== null,
+    }),
+    [agentWorking, task],
+  );
   const transcript = useAgentTranscript(
     resident.managed?.status === "running" ||
       resident.managed?.status === "deployed",
@@ -203,11 +214,13 @@ function ResidentActivityCard({
   const activity = working.working
     ? {
         detail:
-          working.channels.length === 1
-            ? "Working in one conversation"
-            : `Working in ${working.channels.length} conversations`,
+          task && !agentWorking.working
+            ? `Working with ${runtimeAppLabel(task.runtimeFamily)} · ${task.summary}`
+            : working.channels.length === 1
+              ? "Working in one conversation"
+              : `Working in ${working.channels.length} conversations`,
         label: "Working now",
-        timestamp: lastItem?.timestamp ?? null,
+        timestamp: lastItem?.timestamp ?? task?.updatedAt ?? null,
         tone: "working" as const,
       }
     : published;
@@ -221,7 +234,9 @@ function ResidentActivityCard({
       ? "recent"
       : "idle";
 
-  if (flat && inSideConversation && activityGroup !== "active") return null;
+  // Listed once: a live side conversation names them already, unless they
+  // are also at work in a conversation of their own.
+  if (flat && inSideConversation && !agentWorking.working) return null;
 
   if (flat) {
     return (
