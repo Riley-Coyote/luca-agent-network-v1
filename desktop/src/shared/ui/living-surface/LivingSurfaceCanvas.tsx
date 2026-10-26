@@ -22,8 +22,24 @@ export type LivingSurfaceHandle = {
   glass: (rect: DOMRect | null, radius: number, fill: SurfaceColor) => void;
 };
 
-/** The colour the surface sits on: the first painted ancestor's background. */
+/** The one card the frame draws beneath the rail and the conversation
+ *  (AppShell.tsx, `ShellOneCard`; shell-frame.css). */
+const ONE_CARD = "[data-luca-one-card]";
+
+/**
+ * The colour the surface sits on. Under the frame, the one card's own
+ * surface (`--mn-surface`), never the floor and never the fallback
+ * (SHELL_BUILD.md WP-16, Decided 1): the first screen lies on the card, as the
+ * rail beside it does. Otherwise the first painted ancestor's background.
+ */
 function surfaceBehind(element: HTMLElement): SurfaceColor {
+  if (document.documentElement.hasAttribute("data-luca-frame")) {
+    const card = document.querySelector<HTMLElement>(ONE_CARD);
+    const color = card
+      ? parseColor(getComputedStyle(card).backgroundColor)
+      : null;
+    if (color) return color;
+  }
   let node: HTMLElement | null = element.parentElement;
   while (node) {
     const color = parseColor(getComputedStyle(node).backgroundColor);
@@ -274,6 +290,35 @@ export const LivingSurfaceCanvas = React.forwardRef<
     const onResize = () => {
       if (motion.matches) settle();
     };
+    // The ground follows the page: a theme or frame that changes after the
+    // surface opens (Liquid Glass arrives a moment after the first paint)
+    // repaints what it lies on. Read a frame later, once the new styles hold.
+    // Only under the frame (or as it comes and goes): without it the surface
+    // keeps the ground it opened on, as it always has.
+    let grounding = 0;
+    let framed = document.documentElement.hasAttribute("data-luca-frame");
+    const onGround = () => {
+      const nowFramed =
+        document.documentElement.hasAttribute("data-luca-frame");
+      if (!nowFramed && !framed) return;
+      framed = nowFramed;
+      cancelAnimationFrame(grounding);
+      grounding = requestAnimationFrame(() => {
+        surface.configure(surfaceBehind(host));
+        if (motion.matches) settle();
+      });
+    };
+    const groundWatch = new MutationObserver(onGround);
+    groundWatch.observe(document.documentElement, {
+      attributeFilter: [
+        "class",
+        "data-luca-frame",
+        "data-luca-frame-glass",
+        "data-theme",
+        "style",
+      ],
+      attributes: true,
+    });
 
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
@@ -284,6 +329,8 @@ export const LivingSurfaceCanvas = React.forwardRef<
     start();
     return () => {
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(grounding);
+      groundWatch.disconnect();
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
       motion.removeEventListener("change", onMotion);

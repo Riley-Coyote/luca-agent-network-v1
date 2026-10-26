@@ -8,6 +8,8 @@ import {
 } from "@/shared/api/tauriRuntimeTasks";
 import { listRuntimeConnectionStatus } from "@/shared/api/tauriMcp";
 import { getResidentCapabilitySettings } from "@/shared/api/residentCapabilities";
+import { PlaceQuietButton } from "@/app/shell/placeRails/PlaceAskRow";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { Button } from "@/shared/ui/button";
 import {
   isExistingRuntimeTask,
@@ -55,6 +57,9 @@ export function RuntimeTaskConfirmationCard({
   onConfirm: (details: RuntimeTaskConfirmationDetails) => Promise<unknown>;
   onConfirmed: () => void;
 }) {
+  // Under the frame its confirm is the ask's quiet answer: Talk stays the only
+  // solid action on a screen (SHELL_BUILD.md WP-16, Decided 2).
+  const shellFrame = useShellFrameEnabled();
   const existingSession = isExistingRuntimeTask(draft.operation);
   const operationLabel =
     draft.operation === "send_message" ? "Send" : "Continue";
@@ -122,6 +127,39 @@ export function RuntimeTaskConfirmationCard({
   const targetReady = existingSession
     ? exactTargetReady
     : availableTargets.some((runtime) => runtime.runtimeId === target);
+
+  const confirm = () => {
+    setIsStarting(true);
+    setError(null);
+    void onConfirm({
+      runtimeFamily: target,
+      workingFolder,
+      permissionMode: existingSession ? "normal" : permissionMode,
+      ...(existingSession
+        ? {
+            operation: draft.operation,
+            sourceId: draft.sourceId,
+            sessionId: draft.sessionId,
+          }
+        : {}),
+    })
+      .then(onConfirmed)
+      .catch((cause: unknown) => {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "The runtime task could not start.",
+        );
+      })
+      .finally(() => setIsStarting(false));
+  };
+  const confirmLabel = isStarting
+    ? existingSession
+      ? "Sending…"
+      : "Starting…"
+    : existingSession
+      ? operationLabel
+      : "Run";
 
   return (
     <section
@@ -318,51 +356,37 @@ export function RuntimeTaskConfirmationCard({
       ) : null}
 
       <div className="mt-4 flex justify-end gap-2">
-        <Button
-          disabled={isStarting}
-          onClick={onCancel}
-          type="button"
-          variant="ghost"
-        >
-          Cancel
-        </Button>
-        <Button
-          disabled={isStarting || !targetReady || !workingFolder}
-          onClick={() => {
-            setIsStarting(true);
-            setError(null);
-            void onConfirm({
-              runtimeFamily: target,
-              workingFolder,
-              permissionMode: existingSession ? "normal" : permissionMode,
-              ...(existingSession
-                ? {
-                    operation: draft.operation,
-                    sourceId: draft.sourceId,
-                    sessionId: draft.sessionId,
-                  }
-                : {}),
-            })
-              .then(onConfirmed)
-              .catch((cause: unknown) => {
-                setError(
-                  cause instanceof Error
-                    ? cause.message
-                    : "The runtime task could not start.",
-                );
-              })
-              .finally(() => setIsStarting(false));
-          }}
-          type="button"
-        >
-          {isStarting
-            ? existingSession
-              ? "Sending…"
-              : "Starting…"
-            : existingSession
-              ? operationLabel
-              : "Run"}
-        </Button>
+        {shellFrame ? (
+          <PlaceQuietButton disabled={isStarting} onClick={onCancel}>
+            Cancel
+          </PlaceQuietButton>
+        ) : (
+          <Button
+            disabled={isStarting}
+            onClick={onCancel}
+            type="button"
+            variant="ghost"
+          >
+            Cancel
+          </Button>
+        )}
+        {shellFrame ? (
+          <PlaceQuietButton
+            data-testid="runtime-task-confirm"
+            disabled={isStarting || !targetReady || !workingFolder}
+            onClick={confirm}
+          >
+            {confirmLabel}
+          </PlaceQuietButton>
+        ) : (
+          <Button
+            disabled={isStarting || !targetReady || !workingFolder}
+            onClick={confirm}
+            type="button"
+          >
+            {confirmLabel}
+          </Button>
+        )}
       </div>
     </section>
   );

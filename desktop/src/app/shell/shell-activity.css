@@ -14,55 +14,82 @@
   min-width: 0;
 }
 
-/* The answers stand above the row's own click (shell-place-rails.css). */
-/* Centred on the title's line, not on its baseline, so the hairline
- * buttons never push the title down off the list's rhythm. */
+/* The answers: under the ask's text at every width, never beside it, so the
+ * ask is never squeezed (WP-16, Decided 2); on the text's left axis, above
+ * the row's own click (shell-place-rails.css). */
+.luca-ask-row {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 10px;
+}
+
+.luca-ask-row[data-noted] {
+  grid-template-columns: minmax(0, 1fr) 84px;
+}
+
+.luca-ask-row > .luca-place-row-what {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.luca-ask-row > .luca-place-row-note {
+  grid-column: 2;
+  grid-row: 1;
+}
+
 .luca-ask-answers {
   align-items: center;
-  align-self: start;
-  margin-top: -3px;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 6px;
+  grid-column: 1 / -1;
+  justify-content: flex-start;
 }
 
 .luca-ask-choices {
+  border: 0;
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 6px;
-  margin-right: 6px;
+  margin: 0 6px 0 0;
+  min-width: 0;
+  padding: 0;
 }
 
+/* The study's answer (shellStudy.css, `.shell-mind-answer`): a plain tint of
+ * the ink at 8%, no outline. Hover deepens the tint; a chosen option holds
+ * the deeper tint and the full ink. */
 .luca-quiet-button {
-  border: 1px solid hsl(var(--mn-ink) / 0.14);
-  border-radius: 6px;
-  color: hsl(var(--mn-ink-muted));
-  font-size: 0.75rem;
+  background: hsl(var(--mn-ink) / 0.08);
+  border-radius: 8px;
+  color: hsl(var(--mn-ink));
+  font-size: 0.78125rem;
   height: 1.625rem;
   padding: 0 10px;
   transition:
     background-color 120ms,
-    border-color 120ms,
     color 120ms;
   white-space: nowrap;
 }
 
 .luca-quiet-button:hover:not(:disabled) {
-  border-color: hsl(var(--mn-ink) / 0.28);
-  color: hsl(var(--mn-ink));
+  background: hsl(var(--mn-ink) / 0.12);
 }
 
 .luca-quiet-button[aria-pressed="true"] {
-  background: hsl(var(--mn-ink) / 0.08);
-  border-color: hsl(var(--mn-ink) / 0.32);
-  color: hsl(var(--mn-ink));
+  background: hsl(var(--mn-ink) / 0.18);
+  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.32);
 }
 
 .luca-quiet-button:disabled {
+  cursor: default;
   opacity: 0.45;
 }
 
 .luca-quiet-button:focus-visible,
-.luca-ask-link:focus-visible,
+.luca-ask-link:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
 /* One faint line under who asks: a proposal's defaults, a disclosure. */
 .luca-ask-extra {
   align-items: baseline;
@@ -71,7 +98,8 @@
   font-size: 0.75rem;
   gap: 10px;
   grid-column: 1 / -1;
-  margin-top: -10px;
+  grid-row: 2;
+  margin-top: -4px;
   min-width: 0;
   position: relative;
   width: fit-content;
@@ -118,6 +146,11 @@
   display: grid;
   font-size: 0.8125rem;
   gap: 6px;
+}
+
+.luca-ask-preview {
+  display: grid;
+  gap: 4px;
 }
 
 .luca-ask-details pre {
@@ -253,12 +286,7 @@
 }
 
 /* The ask is the content: never cut short. It wraps to as many lines as it
- * needs; when the list is narrow, the answers take their own line under the
- * text, and the time keeps its column (WP-14 recheck). */
-.luca-ask-list {
-  container-type: inline-size;
-}
-
+ * needs (WP-14 recheck); its answers wait under it (above). */
 .luca-ask-row .luca-place-row-title {
   overflow: visible;
   overflow-wrap: anywhere;
@@ -266,32 +294,49 @@
   white-space: normal;
 }
 
-@container (max-width: 34rem) {
-  .luca-ask-row {
-    grid-template-columns: minmax(0, 1fr) 84px;
-    row-gap: 10px;
-  }
+/* ── the conversation's own asks (WP-16, Decided 2) ───────────────────
+ * The same rows as Needs you's, in the room's pending stack: in the
+ * fold's own plate (conversationAgentActivityShelf.css), or, for a
+ * proposal, on a plate of its own over the conversation, the fold's
+ * raised surface without its outline. */
+.luca-ask-stack {
+  background: hsl(var(--mn-raised));
+  border-radius: 16px;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.24);
+  margin-bottom: 8px;
+  /* The fold's own reach (conversationAgentActivityShelf.css): a long form
+   * opened under the row scrolls inside the plate, never off the window. */
+  max-height: min(40vh, 28rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 18px;
+}
 
-  .luca-ask-row > .luca-place-row-what {
-    grid-column: 1;
-    grid-row: 1;
-  }
+/* The ask's words on the same inset in both: 18 from the plate's edge. The
+ * rows have no fill of their own, so the fold's list is solid beneath them:
+ * nothing of the conversation shows through the words. */
+.luca-work-tray__permissions .luca-ask-list {
+  background: hsl(var(--mn-raised));
+  padding: 0 8px;
+}
 
-  .luca-ask-row > .luca-place-row-note {
-    grid-column: 2;
-    grid-row: 1;
-  }
+/* The long forms an ask opens (a question's fields, a proposal's details)
+ * lie under its row on a tint, never in an outlined card. */
+.luca-ask-form {
+  background: hsl(var(--mn-ink) / 0.04);
+  border-radius: 12px;
+  min-width: 0;
+}
 
-  .luca-ask-row > .luca-ask-extra {
-    grid-row: 2;
-    margin-top: -4px;
-  }
+.luca-ask-panel [data-testid="runtime-task-confirmation"] {
+  background: hsl(var(--mn-ink) / 0.04);
+  border-color: transparent;
+}
 
-  .luca-ask-row > .luca-ask-answers {
-    align-self: auto;
-    grid-column: 1 / -1;
-    grid-row: 3;
-    justify-content: flex-start;
-    margin-top: 0;
-  }
+/* ── a room you haven't joined (WP-16, d4) ─────────────────────────────
+ * Its join banner keeps the Quick Chat button's column clear, as the
+ * composer does (shell-finish.css, WP-09b): its own 20 on the right, or the
+ * launcher's clearance from the card's right edge, whichever is more. */
+:root[data-luca-frame]:has(.qc-launcher) [data-testid="join-banner"] {
+  padding-right: max(1.25rem, var(--luca-quickchat-clear, 0px));
 }

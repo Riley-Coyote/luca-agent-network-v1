@@ -7,18 +7,20 @@ import { cn } from "@/shared/lib/cn";
 /**
  * A question waiting on you, as one flat row of a place's list (SHELL_BUILD.md
  * WP-14, review fix 6): WP-10's row (PlacePage.tsx, `.luca-place-row`), with
- * its answers always in view.
+ * its answers always in view. One drawing everywhere an ask is put to you
+ * (WP-16, Decided 2): Activity's Needs you, a mind's Notebook, and a
+ * conversation's own pending stack.
  *
- * - The title is the ask in its own words; under it, who asks and where. The
- *   title opens the conversation, and so does the rest of the row.
- * - The answers are quiet hairline buttons in the row's middle column, above
- *   the row's own click.
- * - One faint line may follow (a proposal's defaults, a disclosure), and the
- *   long form, when one is opened, lies under the row, never in it.
- * - The time sits in the 84 column; "now" when the ask carries none.
- *
- * Built for every place that asks: Activity's Needs you, and a mind's space,
- * which asks the same questions.
+ * - The title is the ask in its own words; under it, who asks and where. In a
+ *   list the title opens the conversation, and so does the rest of the row; in
+ *   the conversation itself (no `onOpen`) it is only words.
+ * - One faint line may follow (a proposal's defaults, a disclosure).
+ * - The answers sit under the ask's text at every width, never beside it, so
+ *   the ask is never squeezed: the study's answers, a plain tint of the ink,
+ *   above the row's own click.
+ * - The long form, when one is opened, lies under the row, never in it.
+ * - The time, when the list keeps one, sits in the 84 column; "now" when the
+ *   ask carries none.
  */
 export function PlaceAskRow({
   answers,
@@ -37,9 +39,11 @@ export function PlaceAskRow({
   className?: string;
   /** One faint line under who asks: details, defaults, a way to change them. */
   extra?: React.ReactNode;
-  note: React.ReactNode;
-  onOpen: () => void;
-  openLabel: string;
+  /** The time, in its column; none in the conversation the ask is in. */
+  note?: React.ReactNode;
+  /** Opens the conversation; none in the conversation the ask is in. */
+  onOpen?: () => void;
+  openLabel?: string;
   openTestId?: string;
   /** The long form, opened in place under the row. */
   panel?: React.ReactNode;
@@ -48,31 +52,44 @@ export function PlaceAskRow({
 } & Omit<React.HTMLAttributes<HTMLLIElement>, "title">) {
   return (
     <li className={cn("luca-ask", className)} {...rest}>
-      <div className="luca-place-row luca-ask-row">
-        <button
-          aria-label={openLabel}
-          className="luca-place-row-what luca-place-row-open"
-          data-testid={openTestId}
-          onClick={onOpen}
-          title={typeof title === "string" ? title : undefined}
-          type="button"
-        >
-          <span className="luca-place-row-title">{title}</span>
-          <span className="luca-place-row-summary">{summary}</span>
-        </button>
+      <div
+        className="luca-place-row luca-ask-row"
+        data-noted={note === undefined ? undefined : ""}
+      >
+        {onOpen ? (
+          <button
+            aria-label={openLabel}
+            className="luca-place-row-what luca-place-row-open"
+            data-testid={openTestId}
+            onClick={onOpen}
+            title={typeof title === "string" ? title : undefined}
+            type="button"
+          >
+            <span className="luca-place-row-title">{title}</span>
+            <span className="luca-place-row-summary">{summary}</span>
+          </button>
+        ) : (
+          <div className="luca-place-row-what">
+            <span className="luca-place-row-title">{title}</span>
+            <span className="luca-place-row-summary">{summary}</span>
+          </div>
+        )}
+        {note === undefined ? null : (
+          <span className="luca-place-row-note">{note}</span>
+        )}
+        {extra ? <div className="luca-ask-extra">{extra}</div> : null}
         <span className="luca-place-row-middle luca-ask-answers">
           {answers}
         </span>
-        <span className="luca-place-row-note">{note}</span>
-        {extra ? <div className="luca-ask-extra">{extra}</div> : null}
       </div>
       {panel ? <div className="luca-ask-panel">{panel}</div> : null}
     </li>
   );
 }
 
-/** An answer: a hairline button, no fill and no accent (the paused
- *  exchange's, which is the model). `pressed` marks a chosen option. */
+/** An answer: the study's answer (shellStudy.css, `.shell-mind-answer`), a
+ *  plain tint of the ink, no outline and no accent. `pressed` marks a chosen
+ *  option. */
 export function PlaceQuietButton({
   children,
   pressed,

@@ -911,6 +911,18 @@ export const ChannelPane = React.memo(function ChannelPane({
     }
     return keys;
   }, [managedActivity]);
+  /** Who asks, in the ask's words everywhere it is put ("Atlas asks";
+   *  SHELL_BUILD.md WP-16, Decided 2). */
+  const askedBy = React.useCallback(
+    (pubkey: string) => {
+      const key = normalizePubkey(pubkey);
+      const name = agentSessionAgents.find(
+        (agent) => normalizePubkey(agent.pubkey) === key,
+      )?.name;
+      return name ? `${name} asks` : "Asks you";
+    },
+    [agentSessionAgents],
+  );
   const chatMarkAppearance = useChatMarkAppearance(currentPubkey);
   const firstMessage = useFirstMessageView({
     activeChannelId,
@@ -1387,12 +1399,18 @@ export const ChannelPane = React.memo(function ChannelPane({
                               <ManagedPermissionCard
                                 key={pending.pendingId}
                                 pending={pending}
+                                summary={askedBy(
+                                  pending.request.residentPubkey,
+                                )}
                               />
                             ))}
                             {activeInputRequests.map((pending) => (
                               <ManagedInputCard
                                 key={pending.pendingId}
                                 pending={pending}
+                                summary={askedBy(
+                                  pending.request.residentPubkey,
+                                )}
                               />
                             ))}
                           </div>
