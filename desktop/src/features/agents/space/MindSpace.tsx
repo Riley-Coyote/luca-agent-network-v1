@@ -310,6 +310,11 @@ function MindHead({
         <h1 className="luca-place-page-name">{resident.displayName}</h1>
         <p
           className="luca-mind-now"
+          data-live={
+            // Both are live, so both breathe (WP-21, 2), as Side
+            // conversations' live dot does.
+            state === "working" || state === "talking" ? "true" : undefined
+          }
           data-mind-state={state}
           data-testid="mind-now"
           data-working={state === "working" ? "true" : undefined}

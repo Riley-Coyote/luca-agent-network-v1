@@ -6,6 +6,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
+import { railGlassAtRest } from "./flagOffSettle";
 
 /**
  * WP-07a, the frame's glass plumbing (docs/luca/rail-system/SHELL_BUILD.md):
@@ -751,6 +752,9 @@ for (const view of [
         viewport: { width: 1440, height: 900 },
         deviceScaleFactor: 2,
       });
+      // Both builds' clocks start at the same instant (WP-21, 3), so a time
+      // printed on the page can't differ by a minute between the two shots.
+      await context.clock.install({ time: new Date("2026-10-26T18:30:00") });
       const page = await context.newPage();
       await installMockBridge(page);
       await setShellFrame(page, false);
@@ -760,6 +764,7 @@ for (const view of [
       await expect(view.ready(page).first()).toBeVisible({ timeout: 20_000 });
       await page.waitForTimeout(1500);
       await waitForAnimations(page);
+      await railGlassAtRest(page);
       const path = `${SHOTS}/flag-off-${view.name}-${label}.png`;
       // The agents' live marks are WebGL and move every frame: masked.
       await page.screenshot({

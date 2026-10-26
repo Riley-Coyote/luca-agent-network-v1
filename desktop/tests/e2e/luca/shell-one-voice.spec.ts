@@ -837,6 +837,9 @@ test("flag off: the same as the base build", async ({ browser }) => {
         deviceScaleFactor: 2,
         reducedMotion: "reduce",
       });
+      // Both builds' clocks start at the same instant (WP-21, 3), so a time
+      // printed on the page can't differ by a minute between the two shots.
+      await context.clock.install({ time: new Date("2026-10-26T18:30:00") });
       const page = await context.newPage();
       await boot(page, {
         frame: false,

@@ -7,6 +7,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
+import { railGlassAtRest } from "../flagOffSettle";
 
 /**
  * A connected app's sessions under the frame (SHELL_SPEC.md, "The rail": the
@@ -527,15 +528,20 @@ test("flag off: the column draws exactly the base build", async ({
         baseURL: test.info().project.use.baseURL,
         deviceScaleFactor: 2,
       });
+      // Both builds' clocks start at the same instant (WP-21, 3), so a time
+      // printed on the page can't differ by a minute between the two shots.
+      await context.clock.install({ time: new Date("2026-10-26T18:30:00") });
       const page = await context.newPage();
       await openApp(page, { frame: false, origin, route: "", size });
       await openRuntime(page);
       await expect(page.getByTestId("runtime-sessions-panel")).toBeVisible();
       await page.mouse.move(size.width - 2, size.height - 2);
+      await railGlassAtRest(page);
       await shot(page, `flag-off-open-${size.width}-${label}`);
       await page.getByRole("button", { name: /^Close .* sessions$/ }).click();
       await expect(page.getByTestId("runtime-sessions-panel")).toHaveCount(0);
       await page.mouse.move(size.width - 2, size.height - 2);
+      await railGlassAtRest(page);
       await shot(page, `flag-off-closed-${size.width}-${label}`);
       await context.close();
     }

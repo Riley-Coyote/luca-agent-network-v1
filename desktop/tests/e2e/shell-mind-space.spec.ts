@@ -1225,6 +1225,9 @@ test("flag off: today's agent page and Brain match the base", async ({
         reducedMotion: "reduce",
         viewport: { width: 1440, height: 900 },
       });
+      // Both builds' clocks start at the same instant (WP-21, 3), so a time
+      // printed on the page can't differ by a minute between the two shots.
+      await context.clock.install({ time: new Date("2026-10-26T18:30:00") });
       const page = await context.newPage();
       await boot(page, { hash, origin, shell: false });
       await page.waitForTimeout(2500);
