@@ -76,6 +76,9 @@ branch as your branch started; read-only, never stop it).
 - Wait for animations (`desktop/tests/helpers/animations.ts`) before every screenshot.
 - Screenshots: `deviceScaleFactor: 2`, saved in your scratch folder, named for what they show. Every hash must be
   unique.
+- A flag-off comparison must compare something: never mask a canvas that fills the window (Playwright paints a mask
+  solid magenta, so every shot matches). Mask only small animated canvases (under 200 × 200), and check each shot
+  isn't one colour before trusting its hash (2026-10-26, from WP-13's review).
 - Measure, don't reason: bounding boxes, colours, contrast. A check you could not run is reported as not run.
 - Gates before your last commit, all from `desktop/`: `./node_modules/.bin/tsc --noEmit -p tsconfig.json`;
   `./node_modules/.bin/biome check <your changed files>`; `node scripts/check-px-text.mjs`; the unit tests for what
