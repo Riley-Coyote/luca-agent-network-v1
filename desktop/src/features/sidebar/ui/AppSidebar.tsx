@@ -102,6 +102,7 @@ import {
 } from "@/features/sidebar/ui/sidebarLoadingSkeleton";
 import { useDeferredModalOpen } from "@/shared/ui/deferredModalOpen";
 import { resolveSelfDisplayName } from "@/features/profile/lib/identity";
+import { isRelayUnreachableError } from "@/shared/lib/relayError";
 import { SidebarBackgroundTaskCard } from "@/features/sidebar/ui/SidebarBackgroundTaskCard";
 import { SidebarUpdateCard } from "@/features/settings/SidebarUpdateCard";
 import { useUpdaterContext } from "@/features/settings/hooks/UpdaterProvider";
@@ -260,7 +261,35 @@ export function AppSidebar({
   const dismissSidebarUpdateCard = frame
     ? shellStatus.dismissUpdate
     : () => setIsSidebarUpdateCardDismissed(true);
-  const connectionCards = connectionCardsOf(relayConnectionCard, errorMessage);
+  // Under the frame the status cards sit at the foot of the rail in every
+  // place, whatever its rows are doing (WP-21, 1). A conversation list that
+  // never loaded goes back to loading on each retry, and the retry clears its
+  // error; until the list loads cleanly the rail remembers that it failed,
+  // and the answer it failed with when the relay answered badly (the relay
+  // that can't be reached has its own card, read from the connection), so
+  // the card doesn't come and go with each try.
+  const [listFailed, setListFailed] = React.useState(Boolean(errorMessage));
+  const answeredBadly =
+    errorMessage && !isRelayUnreachableError(errorMessage)
+      ? errorMessage
+      : undefined;
+  const [heldAnswer, setHeldAnswer] = React.useState(answeredBadly);
+  if (errorMessage) {
+    if (!listFailed) setListFailed(true);
+    if (answeredBadly !== heldAnswer) setHeldAnswer(answeredBadly);
+  } else if (!isLoading && listFailed) {
+    setListFailed(false);
+    setHeldAnswer(undefined);
+  }
+  const railErrorMessage = frame ? (errorMessage ?? heldAnswer) : errorMessage;
+  // Nor do the rows fall back to the loading rows on a retry once the list
+  // has failed: Chats' rows read the same list, and each time they came back
+  // they asked for it again, so it never stopped retrying.
+  const showLoadingRows = isLoading && !(frame && listFailed);
+  const connectionCards = connectionCardsOf(
+    relayConnectionCard,
+    railErrorMessage,
+  );
   // The footer's cards used to leave while the rail was closed, so the
   // reconnecting overlay could stand in. Under the frame the overlay is
   // retired and the closed rail's card hides (and inerts) its whole content,
@@ -956,11 +985,11 @@ export function AppSidebar({
                   <NativeRailGlass />
                 </>
               )}
-              {isLoading ? (
+              {showLoadingRows ? (
                 <SidebarLoadingContent shape={sidebarLoadingShape} />
               ) : null}
 
-              {!isLoading ? (
+              {!showLoadingRows ? (
                 <>
                   {/* Luca navigation: loose conversations remain immediately
                       available under Rooms while projects open their contextual
@@ -1276,12 +1305,12 @@ export function AppSidebar({
                 so they belong in the same place, wearing the same card, rather
                 than one in the footer and one as loose red text halfway up the
                 channel list. */}
-            {errorMessage &&
+            {railErrorMessage &&
             connectionCards.statusCard &&
             footerCardsMounted ? (
               <SidebarConnectionStatusCard
                 className="mb-2"
-                errorMessage={errorMessage}
+                errorMessage={railErrorMessage}
               />
             ) : null}
             {connectionCards.relayCard && footerCardsMounted ? (

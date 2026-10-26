@@ -6,6 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
+import { railGlassAtRest } from "./flagOffSettle";
 
 /**
  * WP-18, one state and one mark for each mind
@@ -644,6 +645,9 @@ test("flag off: the same as the base build", async ({ browser }) => {
         deviceScaleFactor: 2,
         viewport: { width: 1440, height: 900 },
       });
+      // Both builds' clocks start at the same instant (WP-21, 3), so a time
+      // printed on the page can't differ by a minute between the two shots.
+      await context.clock.install({ time: new Date("2026-10-26T18:30:00") });
       const page = await context.newPage();
       await boot(page, { hash, origin, shell: false });
       await expect(page.getByTestId(ready).first()).toBeVisible({
@@ -651,6 +655,7 @@ test("flag off: the same as the base build", async ({ browser }) => {
       });
       await speak(page);
       await page.waitForTimeout(2000);
+      await railGlassAtRest(page);
       // Only small animated marks are masked: the residents' eyes.
       await page.evaluate(() => {
         for (const node of document.querySelectorAll<HTMLElement>(

@@ -66,7 +66,8 @@
   margin-top: 3px;
 }
 
-.luca-mind-now[data-working]::before {
+/* Live, working or talking: the breathing dot (WP-21, 2). */
+.luca-mind-now[data-live]::before {
   animation: luca-mind-breathe 2.4s ease-in-out infinite;
   background: hsl(var(--mn-ink));
   border-radius: 50%;
@@ -597,7 +598,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .luca-mind-now[data-working]::before {
+  .luca-mind-now[data-live]::before {
     animation: none;
+    opacity: 1;
   }
 }

@@ -6,6 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
+import { railGlassAtRest } from "./flagOffSettle";
 
 /**
  * WP-14, what agents say to each other, and what needs you
@@ -1018,6 +1019,9 @@ test("flag off: the same as the base build", async ({ browser }) => {
         deviceScaleFactor: 2,
         viewport: { width: 1440, height: 900 },
       });
+      // Both builds' clocks start at the same instant (WP-21, 3), so a time
+      // printed on the page can't differ by a minute between the two shots.
+      await context.clock.install({ time: new Date("2026-10-26T18:30:00") });
       const page = await context.newPage();
       await boot(page, {
         hash,
@@ -1030,6 +1034,7 @@ test("flag off: the same as the base build", async ({ browser }) => {
         timeout: 20_000,
       });
       await page.waitForTimeout(1500);
+      await railGlassAtRest(page);
       // The residents' eyes over the composer glance on a timer: the base
       // differs from itself there, so both builds' shots mask them.
       await page.evaluate(() => {
