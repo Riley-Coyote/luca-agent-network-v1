@@ -17,12 +17,11 @@ import { ProvenanceView } from "@/features/provenance/ui/ProvenanceView";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
-import { NeedsYouCard } from "@/app/shell/placeRails/NeedsYouCard";
+import { AllActivityCard } from "@/app/shell/placeRails/AllActivityCard";
 import {
   ACTIVITY_STREAMS,
   type ActivityStream,
 } from "@/app/shell/placeRails/placePicks";
-import { SideConversationsCard } from "@/app/shell/placeRails/SideConversationsCard";
 import {
   useKeepPickInAddress,
   usePlacePick,
@@ -43,14 +42,14 @@ export function PulseScreen() {
   const identityQuery = useIdentityQuery();
   const { applyPatch, values } = useHistorySearchState(PULSE_PANEL_SEARCH_KEYS);
   // Under the shell the rail picks the stream, in the address (WP-10), and
-  // Activity opens on Needs you (WP-14).
+  // Activity opens on All activity, the record (WP-34).
   const shellFrame = useShellFrameEnabled();
   const { pick } = usePlacePick("activity");
   const stream: ActivityStream | "record" = values.record
     ? "record"
     : (ACTIVITY_STREAMS as readonly string[]).includes(pick ?? "")
       ? (pick as ActivityStream)
-      : "needs-you";
+      : "all";
   const section: ActivitySection = shellFrame
     ? stream === "record"
       ? "record"
@@ -95,10 +94,8 @@ export function PulseScreen() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {shellFrame ? <KeepActivityPick applyPatch={applyPatch} /> : null}
-            {shellFrame && stream === "needs-you" ? (
-              <NeedsYouCard />
-            ) : shellFrame && stream === "side" ? (
-              <SideConversationsCard />
+            {shellFrame && stream === "all" ? (
+              <AllActivityCard />
             ) : section === "now" ? (
               <LucaActivityView onSectionChange={setSection} />
             ) : (

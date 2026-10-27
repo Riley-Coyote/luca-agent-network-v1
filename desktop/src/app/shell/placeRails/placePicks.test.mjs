@@ -18,18 +18,26 @@ test("agents_pickRoundTripsThroughTheAddress", () => {
   for (const id of [
     `mind:${"a".repeat(64)}`,
     "persona:builtin:wren",
-    "connected:hermes:default",
     "group:team-1",
   ]) {
     assert.equal(pickIdOf("agents", paramsOfPick("agents", id)), id, id);
   }
+  // Connected left Agents for the Chats rail, as Apps (WP-34): an old
+  // address naming an app picks nothing here.
+  assert.equal(pickIdOf("agents", { connected: "hermes:default" }), null);
   // A pubkey is the same row in either case.
   assert.equal(pickIdOf("agents", { profile: LUCA }), `mind:${"a".repeat(64)}`);
 });
 
 test("activity_andLibrary_pickRoundTrips", () => {
-  for (const id of ["needs-you", "now", "side", `record:${"b".repeat(64)}`]) {
+  for (const id of ["all", `record:${"b".repeat(64)}`]) {
     assert.equal(pickIdOf("activity", paramsOfPick("activity", id)), id, id);
+  }
+  // The retired streams (WP-34) name nothing; their words become All
+  // activity's.
+  for (const id of ["needs-you", "now", "side"]) {
+    assert.equal(pickIdOf("activity", { stream: id }), null, id);
+    assert.deepEqual(paramsOfPick("activity", id), { stream: "all" }, id);
   }
   for (const id of [
     "made:all",
@@ -60,7 +68,7 @@ test("anAddressWithoutAPick_namesNone", () => {
 test("firstVisit_opensOnTheFirstRow", () => {
   assert.equal(firstPickId("agents", LUCA), `mind:${"a".repeat(64)}`);
   assert.equal(firstPickId("agents", null), "luca");
-  assert.equal(firstPickId("activity", null), "needs-you");
+  assert.equal(firstPickId("activity", null), "all");
   assert.equal(firstPickId("library", null), "made:all");
 });
 

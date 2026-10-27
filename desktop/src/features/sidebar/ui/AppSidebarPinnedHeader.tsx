@@ -38,7 +38,10 @@ type SidebarSelectedView =
   | "artifacts"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  /** The shell's own Chats pages (WP-34); never drawn by this menu. */
+  | "needs-you"
+  | "app";
 
 type AppSidebarPinnedHeaderProps = {
   channelLabels: Record<string, string>;

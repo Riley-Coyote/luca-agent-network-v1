@@ -28,8 +28,6 @@ import { useProfileQuery } from "@/features/profile/hooks";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomWorkspace } from "@/features/projects/ui/ProjectRoomWorkspace";
 import { useAgentColumnOpen } from "@/features/sidebar/lib/agentColumn";
-import { useProjectRoomsPlacement } from "@/features/sidebar/lib/projectRoomsPlacement";
-import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { getEventById } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -139,11 +137,6 @@ function ChannelConversationSurface({
   const identityQuery = useIdentityQuery();
   const communities = useCommunities();
   const profileQuery = useProfileQuery();
-  // In the shell a project's rooms nest in the rail by default, so the room
-  // column is shown only when Settings asks for it ("Project rooms").
-  const shellFrame = useShellFrameEnabled();
-  const roomsPlacement = useProjectRoomsPlacement();
-  const roomColumnOffered = !shellFrame || roomsPlacement === "column";
   const channels = channelsQuery.data ?? [];
   const activeChannel =
     channels.find((channel) => channel.id === channelId) ?? null;
@@ -183,8 +176,7 @@ function ChannelConversationSurface({
   // out for the room it actually has. Only a room with a navigator to lose
   // watches the column: a plain room never re-renders for a toggle, and never
   // reserves a navigator's width it does not show.
-  const navigatorOffered =
-    Boolean(projectViewModel) && projectNavigatorVisible && roomColumnOffered;
+  const navigatorOffered = Boolean(projectViewModel) && projectNavigatorVisible;
   const agentColumnOpen = useAgentColumnOpen(navigatorOffered);
   const navigatorShown = navigatorOffered && !agentColumnOpen;
   const [targetMessageEvents, setTargetMessageEvents] = React.useState<
@@ -294,11 +286,11 @@ function ChannelConversationSurface({
           : null
       }
       projectNavigatorVisible={navigatorShown}
-      // A project room's own header (its name and its rooms' picker) gives
-      // way to the lip and the rail's rooms under the frame; it stays when
-      // Settings puts the rooms in a column (WP-09a).
+      // A project room's own header (its name and its rooms' picker): a
+      // project's rooms are in its own column, in every layout (WP-34,
+      // Decided 3; WP-09a).
       projectRoomNavigation={
-        projectViewModel && roomColumnOffered
+        projectViewModel
           ? {
               onSelectRoom: (nextChannelId) => {
                 if (onSelectProjectRoom) {
@@ -331,12 +323,7 @@ function ChannelConversationSurface({
   // A pop-out is one conversation and nothing else. The project workspace is a
   // navigator between the rooms of a project — a second place to go — and this
   // window has no second place to go.
-  if (
-    !projectViewModel ||
-    isPopoutWindow() ||
-    !projectNavigatorVisible ||
-    !roomColumnOffered
-  ) {
+  if (!projectViewModel || isPopoutWindow() || !projectNavigatorVisible) {
     return conversation;
   }
 

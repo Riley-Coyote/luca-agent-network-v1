@@ -1,10 +1,13 @@
 import type * as React from "react";
+import { useRouterState } from "@tanstack/react-router";
 
 import "@/app/shell/shell-place-rails.css";
 
 import type { AppView } from "@/app/AppShell.helpers";
 import type { RailPlace } from "@/app/shell/placeRails/placePicks";
 import { shellFramePageName } from "@/app/shell/shellFrame";
+import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
+import { runtimeRailFamilyFromRuntimeId } from "@/features/runtime-sessions/runtimeRailPreferences";
 import {
   PLACE_RAIL_HOOKS,
   pickedRow,
@@ -76,5 +79,20 @@ const RAIL_PLACE_OF_VIEW: Partial<Record<AppView, RailPlace>> = {
 export function shellFrameLipName(view: AppView): React.ReactNode {
   const place = RAIL_PLACE_OF_VIEW[view];
   const name = shellFramePageName(view);
+  if (view === "app") return <AppLipName fallback={name} />;
   return place ? <PlaceLipName fallback={name} place={place} /> : name;
+}
+
+/** A connected app's page (WP-34): the app's own name, as its row in the
+ *  Chats rail says it. */
+function AppLipName({ fallback }: { fallback: string }) {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const { runtimes } = useRuntimeRailConnections();
+  const family = decodeURIComponent(pathname.slice("/apps/".length));
+  const runtime = runtimes.find(
+    (each) => runtimeRailFamilyFromRuntimeId(each.runtimeId) === family,
+  );
+  return <>{runtime?.label ?? fallback}</>;
 }

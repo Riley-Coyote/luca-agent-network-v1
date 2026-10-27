@@ -12,6 +12,10 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
  * shell's rail under the `shell-frame` flag, against SPEC.md's "Done means".
  * Updated for WP-11 (the Chats rail): Fleets retired, so a group is a room of
  * its own under Rooms; homes start open; the rail opens on its CHATS heading.
+ * Updated for WP-34 (BETA14_RELEASE.md): Projects, Agents and Apps, a face on
+ * every row, only work nested (Luca and a project nest nothing), the
+ * sentence-case heads, the heading's + opening Luca, Connected moved to Chats
+ * as Apps, and the Project rooms setting retired.
  * Screenshots land in WP02_SHOTS when set (the build's scratch folder).
  */
 
@@ -251,25 +255,31 @@ test.describe("the shell's rail", () => {
   test("order, one home per chat, rows and selection", async ({ page }) => {
     const rows = await railRows(page);
     console.log("RAIL ROWS", JSON.stringify(rows));
-    // CHATS, Luca, then PROJECTS, AGENTS and ROOMS (Fleets retired; no
-    // person in this scene, so no PEOPLE).
+    // Chats, Luca, then Projects (its loose rooms after the projects),
+    // Agents and Apps (WP-34, Decided 1).
     const heads = rows.filter((row) => row.startsWith("# "));
-    expect(heads).toEqual(["# Chats", "# Projects", "# Agents", "# Rooms"]);
+    expect(heads).toEqual(["# Chats", "# Projects", "# Agents", "# Apps"]);
     expect(rows[1]).toMatch(/^Luca\b(?! \+)/);
 
-    // No glyphs: a home row is its name, a chevron and the + only.
+    // One face on every row (WP-34, Decided 6), and nothing else drawn but
+    // the chevron and the +.
     const glyphs = await page.evaluate(() =>
       [...document.querySelectorAll("[data-shell-rail] .luca-rail-row")].map(
-        (row) =>
-          [...row.querySelectorAll("svg, img, canvas")].filter(
+        (row) => ({
+          faces: row.querySelectorAll(".luca-rail-face").length,
+          other: [...row.querySelectorAll("svg, img, canvas")].filter(
             (el) =>
               !el.closest(".luca-rail-chevron") &&
-              !el.closest(".luca-rail-add"),
+              !el.closest(".luca-rail-add") &&
+              !el.closest(".luca-rail-face"),
           ).length,
+        }),
       ),
     );
-    expect(glyphs.every((count) => count === 0)).toBe(true);
-    console.log("GLYPHS", glyphs.length, "rows, 0 glyphs");
+    expect(glyphs.every((row) => row.faces === 1 && row.other === 0)).toBe(
+      true,
+    );
+    console.log("GLYPHS", glyphs.length, "rows, one face each");
 
     // Nothing open: no home active, nothing current. The rail is Chats' on
     // New conversation too, with nothing in it open (NAVIGATION.md).
@@ -323,8 +333,9 @@ test.describe("the shell's rail", () => {
     expect(measures.label?.h).toBe(26);
     expect(measures.name?.size).toBe("14px");
     expect(measures.session?.size).toBe("13px");
-    expect(measures.label?.size).toBe("11px");
-    expect(measures.label?.caps).toBe("uppercase");
+    // Sentence case at 11.5 (WP-34, Decided 8).
+    expect(measures.label?.size).toBe("11.5px");
+    expect(measures.label?.caps).toBe("none");
 
     // Luca open.
     await hit(page, "luca").click(ON_NAME);
@@ -370,7 +381,8 @@ test.describe("the shell's rail", () => {
     );
     await shoot(page, "06-collapsed-parent-open");
 
-    // A project room open: Tidepool opens its last room, in the rail.
+    // A project room open: Tidepool opens its last room, its rooms in the
+    // project's own column, none nested in the rail (WP-34, Decided 3).
     await hit(page, "project:tidepool").click(ON_NAME);
     await expect(home(page, "project:tidepool")).toHaveAttribute(
       "data-active",
@@ -378,8 +390,8 @@ test.describe("the shell's rail", () => {
     );
     await expect(
       page.locator('[data-shell-rail] [data-current="true"]'),
-    ).toHaveCount(1);
-    await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
+    ).toHaveCount(0);
+    await expect(page.getByTestId("project-room-navigator")).toBeVisible();
     await shoot(page, "04-project-room-open");
 
     // A room open: the room is its own home, by its own name.
@@ -396,25 +408,25 @@ test.describe("the shell's rail", () => {
   });
 
   test("expansion is remembered per home", async ({ page }) => {
-    // Homes start open; the chevron closes one, and it stays closed.
-    await expect(session(page, ROOM.landing)).toBeVisible();
+    // Homes start open; the chevron closes one, and it stays closed. Only
+    // work nests (WP-34): a project has no chevron and no rows under it.
+    await expect(session(page, ROOM.landing)).toHaveCount(0);
+    await expect(hit(page, "project:tidepool")).not.toHaveAttribute(
+      "aria-expanded",
+      /.*/,
+    );
     await expect(session(page, ROOM.monday)).toBeVisible();
-    await home(page, "project:tidepool").locator("[data-chevron]").click();
-    await expect(session(page, ROOM.landing)).toBeHidden();
+    await home(page, agentId(WREN)).locator("[data-chevron]").click();
+    await expect(session(page, ROOM.monday)).toBeHidden();
     await page.reload();
     await expect(home(page, "luca")).toBeVisible({ timeout: 20000 });
     await seedScene(page);
     await expect(home(page, agentId(WREN))).toBeVisible();
-    await expect(hit(page, "project:tidepool")).toHaveAttribute(
+    await expect(hit(page, agentId(WREN))).toHaveAttribute(
       "aria-expanded",
       "false",
     );
-    await expect(session(page, ROOM.landing)).toBeHidden();
-    await expect(session(page, ROOM.monday)).toBeVisible();
-    await expect(hit(page, agentId(WREN))).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    await expect(session(page, ROOM.monday)).toBeHidden();
   });
 
   test("hover and keyboard show the +, which starts a session", async ({
@@ -422,7 +434,9 @@ test.describe("the shell's rail", () => {
   }) => {
     const atlas = home(page, agentId(ATLAS));
     await atlas.hover();
-    const plus = atlas.getByRole("button", { name: "New session with Atlas" });
+    const plus = atlas.getByRole("button", {
+      name: "New conversation with Atlas",
+    });
     await expect(plus).toBeVisible();
     await waitForAnimations(page);
     const hoverPath = `${SHOTS}/07-hover-plus.png`;
@@ -463,8 +477,8 @@ test.describe("the shell's rail", () => {
       ),
     ).toHaveText("Release notes");
 
-    // A room has no + of its own (WP-11): ROOMS' + starts a room, and a
-    // group's session starts from Groups in Agents.
+    // A room has no + of its own (WP-11): the room browser's Create starts
+    // a room, and a group's session starts from Groups in Agents.
     const group = home(page, roomId(ROOM.review));
     await group.hover();
     await expect(group.locator(".luca-rail-row-add")).toHaveCount(0);
@@ -479,32 +493,35 @@ test.describe("the shell's rail", () => {
     );
     await page.keyboard.press("Escape");
 
-    // The CHATS heading's + opens New conversation (Fleets retired).
-    await page.getByTestId("rail-new-conversation").click();
-    await expect(page).toHaveURL(/#\/messages\/new/);
+    // The Chats heading's + opens Luca's one chat (WP-34, Decided 5).
+    await page.getByTestId("rail-message-luca").click();
+    await expect(home(page, "luca")).toHaveAttribute("data-active", "true");
   });
 
   test("keyboard moves between rows, opens and closes homes", async ({
     page,
   }) => {
-    // Homes start open: Luca's session, then the first project.
+    // Luca nests nothing (WP-34): Down from Luca is the first project.
     await hit(page, "luca").focus();
     await page.keyboard.press("ArrowDown");
-    await expect(session(page, ROOM.weekly)).toBeFocused();
-    await page.keyboard.press("ArrowDown");
     await expect(hit(page, "project:studio-site")).toBeFocused();
-    await page.keyboard.press("ArrowLeft");
-    await expect(session(page, ROOM.hero)).toBeHidden();
-    await page.keyboard.press("ArrowRight");
-    await expect(session(page, ROOM.hero)).toBeVisible();
-    await page.keyboard.press("ArrowRight");
-    await expect(session(page, ROOM.hero)).toBeFocused();
-    await page.keyboard.press("ArrowLeft");
-    await expect(hit(page, "project:studio-site")).toBeFocused();
-    await page.keyboard.press("ArrowUp");
-    await expect(session(page, ROOM.weekly)).toBeFocused();
     await page.keyboard.press("ArrowUp");
     await expect(hit(page, "luca")).toBeFocused();
+    // An agent's sessions open and close, and the keys step in and out.
+    await hit(page, agentId(WREN)).focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(session(page, ROOM.monday)).toBeHidden();
+    await page.keyboard.press("ArrowRight");
+    await expect(session(page, ROOM.monday)).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    const firstSession = page
+      .locator(
+        `[data-home-group="${agentId(WREN)}"] [data-rail-focus="session"]`,
+      )
+      .first();
+    await expect(firstSession).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(hit(page, agentId(WREN))).toBeFocused();
   });
 
   test("home rows have the study's 8-point corners, at rest, hover and focus", async ({
@@ -543,9 +560,10 @@ test.describe("the shell's rail", () => {
     await atlas.screenshot({ path: hoverPath });
     shots.push(hoverPath);
 
-    // Keyboard focus: the ring follows the same corners.
+    // Keyboard focus: the ring follows the same corners. (Luca nests
+    // nothing since WP-34: Down from Luca is the first project.)
     await page.mouse.move(1400, 880);
-    await session(page, ROOM.weekly).focus();
+    await hit(page, "luca").focus();
     await page.keyboard.press("ArrowDown");
     const focused = hit(page, "project:studio-site");
     await expect(focused).toBeFocused();
@@ -568,9 +586,10 @@ test.describe("the shell's rail", () => {
       home: getComputedStyle(
         document.querySelector('[data-home="project:tidepool"]') as Element,
       ).borderRadius,
+      // An agent's sessions (only work nests, WP-34).
       session: getComputedStyle(
         document.querySelector(
-          '[data-home-group="project:tidepool"] .luca-rail-session',
+          "[data-home-group^='agent:'] .luca-rail-session",
         ) as Element,
       ).borderRadius,
       plus: getComputedStyle(
@@ -586,13 +605,13 @@ test.describe("the shell's rail", () => {
   test("a project's details and sources keep a home on its row", async ({
     page,
   }) => {
-    // Rooms in the rail (the default): the room column is not there.
+    // A project's rooms are in its own column, always (WP-34, Decided 3).
     await hit(page, "project:tidepool").click(ON_NAME);
     await expect(home(page, "project:tidepool")).toHaveAttribute(
       "data-active",
       "true",
     );
-    await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
+    await expect(page.getByTestId("project-room-navigator")).toBeVisible();
 
     // The project row's menu: Project details and Sources.
     await home(page, "project:tidepool").click({
@@ -705,45 +724,42 @@ test.describe("the shell's rail", () => {
     await expect(result).toBeVisible({ timeout: 10000 });
   });
 
-  test("Runtimes lives in Agents as Connected, and Project rooms is a setting", async ({
+  test("the apps are Chats' Apps, and Project rooms retired", async ({
     page,
   }) => {
-    // Not on the Chats rail. In Agents it is the rail's Connected section
-    // (NAVIGATION.md, "Agents"), and a connected app opens as its card there:
-    // the runtime sessions column retires (SHELL_SPEC.md, "The rail").
+    // Connected left Agents for the Chats rail, as Apps (WP-34, Decided 1
+    // and 9); an app's row opens its card in the Chats card. The runtime
+    // sessions column stays retired (SHELL_SPEC.md, "The rail").
     await expect(page.getByTestId("sidebar-runtime-section")).toHaveCount(0);
+    const apps = page.getByTestId("rail-section-app");
+    await expect(apps).toBeVisible();
+    await apps.locator(".luca-rail-row-hit").first().click();
+    await expect(page).toHaveURL(/#\/apps\//);
+    await expect(page.getByTestId("connected-app-card")).toBeVisible();
+    await expect(page.locator("#runtime-sessions-panel")).toHaveCount(0);
+    await waitForAnimations(page);
+    const appPath = `${SHOTS}/09-app-in-chats.png`;
+    await page.screenshot({ path: appPath });
+    shots.push(appPath);
     await page.goto("/#/agents");
     await expect(page.getByTestId("agents-view")).toBeVisible({
       timeout: 20000,
     });
-    const runtimes = page.getByTestId("place-section-agents-connected");
-    await expect(runtimes).toBeVisible();
-    await waitForAnimations(page);
-    const agentsPath = `${SHOTS}/09-runtimes-on-agents-page.png`;
-    await page.screenshot({ path: agentsPath });
-    shots.push(agentsPath);
-    await runtimes.locator(".luca-rail-row-hit").first().click();
-    await expect(page).toHaveURL(/#\/agents\?.*connected=/);
-    await expect(page.getByTestId("connected-app-card")).toBeVisible();
-    await expect(page.locator("#runtime-sessions-panel")).toHaveCount(0);
+    await expect(
+      page.getByTestId("place-section-agents-connected"),
+    ).toHaveCount(0);
 
+    // The Project rooms setting retired: the column is the only placement.
     await page.goto("/#/settings");
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    const row = page.getByTestId("project-rooms-rail");
-    await expect(row).toBeVisible({ timeout: 20000 });
-    await expect(row).toHaveAttribute("aria-pressed", "true");
-    await page.getByTestId("project-rooms-column").click();
-    await expect(page.getByTestId("project-rooms-column")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await row.scrollIntoViewIfNeeded();
-    await waitForAnimations(page);
-    const settingsPath = `${SHOTS}/10-project-rooms-setting.png`;
-    await page.screenshot({ path: settingsPath });
-    shots.push(settingsPath);
+    await expect(page.getByTestId("runtime-rail-pins-settings")).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(page.getByTestId("project-rooms-setting")).toHaveCount(0);
+    await expect(page.getByTestId("project-rooms-rail")).toHaveCount(0);
+    await expect(page.getByTestId("project-rooms-column")).toHaveCount(0);
 
-    // In a column: projects behave as they do today.
+    // Projects show their rooms in their column, as before.
     await page.goto(`/#/channels/${ALICE_DM}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({
       timeout: 20000,
@@ -809,7 +825,8 @@ test.describe("the rail, finished (WP-02b)", () => {
         },
         { timeout: 20000 },
       )
-      .toBe(chats.length);
+      // A person's 1:1 leaves the rail (WP-34, Decided 1): found in Search.
+      .toBeGreaterThanOrEqual(chats.length - 1);
     const rail = await page.evaluate(() =>
       [
         ...document.querySelectorAll<HTMLElement>(
@@ -842,7 +859,10 @@ test.describe("the rail, finished (WP-02b)", () => {
       ...each.sessions.map((entry) => entry.channel),
     ]);
     expect(new Set(placed).size).toBe(placed.length);
-    expect([...placed].sort()).toEqual(chats.map((chat) => chat.id).sort());
+    // Every chat but a person's 1:1 (a dm with one person) is in the rail.
+    const missing = chats.filter((chat) => !placed.includes(chat.id));
+    for (const chat of missing) expect(chat.type, chat.name).toBe("dm");
+    expect(missing.length).toBeLessThanOrEqual(1);
     // A stream or forum is findable by its own name.
     const byChannel = new Map(
       rail.flatMap((each) => [
@@ -879,9 +899,8 @@ test.describe("the rail, finished (WP-02b)", () => {
   });
 
   test("column mode: project rows nest nothing", async ({ page }) => {
-    await page.addInitScript(() => {
-      window.localStorage.setItem("luca.project-rooms-placement.v1", "column");
-    });
+    // The column is the only placement since WP-34 (Decided 3): no setting
+    // asks for it.
     await boot(page, { shell: true });
     await expect(home(page, "project:tidepool")).toBeVisible();
     const projects = await page.evaluate(() =>
@@ -1159,7 +1178,7 @@ test.describe("the rail, finished (WP-02b)", () => {
     await home(page, agentId(WREN)).hover();
     await expect(
       home(page, agentId(WREN)).getByRole("button", {
-        name: "New session with Wren",
+        name: "New conversation with Wren",
       }),
     ).toBeVisible();
     const hidden = await slot(agentId(WREN)).evaluate(
@@ -1193,53 +1212,28 @@ test.describe("the rail, finished (WP-02b)", () => {
     shots.push(attentionPath);
   });
 
-  test("settings: Project rooms ends the Conversation group; Runtimes' words", async ({
-    page,
-  }) => {
+  test("settings: Project rooms retired; the Apps' words", async ({ page }) => {
+    // The column is the only placement since WP-34 (Decided 3): the
+    // setting retires, and the Conversation group ends on Message text.
     await boot(page, { shell: true });
     await page.goto("/#/settings");
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    const row = page.getByTestId("project-rooms-setting");
-    await expect(row).toBeVisible({ timeout: 20000 });
-    const place = await row.evaluate((el) => {
-      const group = el.parentElement;
+    const text = page.getByTestId("message-text-default");
+    await expect(text).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId("project-rooms-setting")).toHaveCount(0);
+    const place = await text.evaluate((el) => {
+      const row = el.closest("[class]")?.parentElement?.closest("div");
+      const group = row?.parentElement;
       const heading = group?.parentElement?.querySelector("h3")?.textContent;
-      const siblings = group ? [...group.children] : [];
-      const prev = el.previousElementSibling;
-      return {
-        heading,
-        last: siblings[siblings.length - 1] === el,
-        rows: siblings.length,
-        sameGroupAsMessageText: Boolean(
-          group?.querySelector('[data-testid="message-text-default"]'),
-        ),
-        borderTop: getComputedStyle(el).borderTopWidth,
-        borderColor: getComputedStyle(el).borderTopColor,
-        prevBorderColor: prev ? getComputedStyle(prev).borderTopColor : null,
-        gapAbove:
-          el.getBoundingClientRect().top -
-          (prev?.getBoundingClientRect().bottom ?? 0),
-      };
+      return { heading };
     });
-    console.log("SETTINGS ROW", JSON.stringify(place));
-    expect(place.heading).toBe("Conversation");
-    expect(place.last).toBe(true);
-    expect(place.sameGroupAsMessageText).toBe(true);
-    expect(place.borderTop).toBe("1px");
-    expect(place.borderColor).toBe(place.prevBorderColor);
-    expect(place.gapAbove).toBe(0);
-    measured.settings_row = place;
-    await row.scrollIntoViewIfNeeded();
-    await waitForAnimations(page);
-    const settingsPath = `${SHOTS}/26-settings-row.png`;
-    await row.locator("xpath=../..").screenshot({ path: settingsPath });
-    shots.push(settingsPath);
+    measured.settings_row = { ...place, project_rooms: "retired" };
 
     const pins = page.getByTestId("runtime-rail-pins-settings");
     await pins.scrollIntoViewIfNeeded();
-    await expect(pins.locator("h3")).toHaveText("Runtimes");
+    await expect(pins.locator("h3")).toHaveText("Apps");
     await expect(pins).toContainText(
-      "Choose which installed harnesses appear on the Agents page.",
+      "Choose which installed apps appear in Chats, under Apps.",
     );
     measured.runtime_pins_words = {
       heading: await pins.locator("h3").textContent(),
@@ -1251,14 +1245,11 @@ test.describe("the rail, finished (WP-02b)", () => {
     shots.push(pinsPath);
   });
 
-  test("agents page: Connected on the rail's axes", async ({ page }) => {
-    // The roster column became the Agents rail (WP-10): its rows are
-    // Chats' rows, so a connected app's row keeps the same text edge and
-    // trailing column as Luca's and every agent's.
+  test("Apps: a connected app on the rail's axes", async ({ page }) => {
+    // Connected moved to the Chats rail as Apps (WP-34): an app's row keeps
+    // the same face column, text edge and trailing column as every agent's.
     await boot(page, { shell: true });
-    await page.goto("/#/agents");
-    const section = page.getByTestId("place-section-agents-connected");
-    await expect(section).toBeVisible({ timeout: 20000 });
+    const section = page.getByTestId("rail-section-app");
     await expect(section.locator(".luca-rail-row").first()).toBeVisible({
       timeout: 20000,
     });
@@ -1270,25 +1261,23 @@ test.describe("the rail, finished (WP-02b)", () => {
       const rows = (selector: string) =>
         [...document.querySelectorAll(selector)].map((row) => ({
           row: box(row),
+          face: box(row.querySelector(".luca-rail-face")),
           name: box(row.querySelector(".luca-rail-row-name")),
-          note: box(row.querySelector(".luca-rail-note")),
         }));
       return {
-        minds: rows(
-          '[data-testid="place-section-agents-luca"] .luca-rail-row, [data-testid="place-section-agents-agents"] .luca-rail-row',
-        ),
-        runtimes: rows(
-          '[data-testid="place-section-agents-connected"] .luca-rail-row',
-        ),
+        minds: rows('[data-testid="rail-section-agent"] .luca-rail-row'),
+        runtimes: rows('[data-testid="rail-section-app"] .luca-rail-row'),
       };
     });
-    console.log("AGENTS AXES", JSON.stringify(axes));
+    console.log("APPS AXES", JSON.stringify(axes));
     const textEdge = axes.minds[0]?.name?.x ?? 0;
+    const faceEdge = axes.minds[0]?.face?.x ?? 0;
     const rowEdge = axes.minds[0]?.row?.right ?? 0;
     expect(axes.minds.length).toBeGreaterThan(0);
     expect(axes.runtimes.length).toBeGreaterThan(0);
     for (const runtime of axes.runtimes) {
       expect(Math.abs((runtime.name?.x ?? 0) - textEdge)).toBeLessThan(0.5);
+      expect(Math.abs((runtime.face?.x ?? 0) - faceEdge)).toBeLessThan(0.5);
       expect(Math.abs((runtime.row?.right ?? 0) - rowEdge)).toBeLessThan(0.5);
     }
     measured.runtimes_geometry = {
@@ -1297,8 +1286,8 @@ test.describe("the rail, finished (WP-02b)", () => {
       runtimes: axes.runtimes,
     };
     await waitForAnimations(page);
-    const path = `${SHOTS}/28-agents-runtimes.png`;
-    await page.getByTestId("place-rail-agents").screenshot({ path });
+    const path = `${SHOTS}/28-chats-apps.png`;
+    await section.screenshot({ path });
     shots.push(path);
   });
 
@@ -1326,24 +1315,15 @@ test.describe("the rail, finished (WP-02b)", () => {
       "data-active",
       "true",
     );
-    // A collapsed home keeps the mark; opened, its room is the lit one.
-    if (
-      (await hit(page, "project:tidepool").getAttribute("aria-expanded")) ===
-      "false"
-    )
-      await home(page, "project:tidepool").locator("[data-chevron]").click();
-    await expect(session(page, ROOM.landing)).toHaveAttribute(
-      "data-current",
-      "true",
-    );
+    // A project nests nothing (WP-34): its rooms are in its own column.
+    await expect(page.getByTestId("project-room-navigator")).toBeVisible();
+    await expect(session(page, ROOM.landing)).toHaveCount(0);
     measured.cmd_k_room = {
       opened: await page.getByTestId("shell-lip-name").textContent(),
       projectActive: await home(page, "project:tidepool").getAttribute(
         "data-active",
       ),
-      roomCurrent: await session(page, ROOM.landing).getAttribute(
-        "data-current",
-      ),
+      roomColumn: true,
     };
     await shoot(page, "30-cmd-k-room-open", page.locator("body"));
   });
@@ -1609,20 +1589,19 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     await shoot(page, "43-group-and-named-room");
   });
 
-  test("Connected rows on the Agents rail answer hover as its other rows do", async ({
+  test("Apps rows on the Chats rail answer hover as its other rows do", async ({
     page,
   }) => {
-    // Rows are Chats' rows (WP-10, Decided 9): a connected app's row rests
-    // and answers hover exactly as an agent's row on the same rail.
+    // Rows are Chats' rows (WP-10, Decided 9): a connected app's row, under
+    // Apps since WP-34, rests and answers hover exactly as an agent's.
     await boot(page, { shell: true });
-    await page.goto("/#/agents");
     const row = page
-      .getByTestId("place-section-agents-connected")
-      .locator(".luca-rail-row")
+      .getByTestId("rail-section-app")
+      .locator(".luca-rail-row:not([data-active])")
       .first();
     await expect(row).toBeVisible({ timeout: 20000 });
     const agent = page
-      .getByTestId("place-section-agents-agents")
+      .getByTestId("rail-section-agent")
       .locator(".luca-rail-row:not([data-active])")
       .first();
     await expect(agent).toBeVisible({ timeout: 20000 });
@@ -1643,7 +1622,7 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     const rest = await style(row);
     const agentRest = await style(agent);
     const box = await row.boundingBox();
-    const section = page.getByTestId("place-section-agents-connected");
+    const section = page.getByTestId("rail-section-app");
     const restPath = `${SHOTS}/44-runtimes-rest.png`;
     await section.screenshot({ path: restPath });
     shots.push(restPath);

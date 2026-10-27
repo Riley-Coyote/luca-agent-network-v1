@@ -33,7 +33,10 @@ test("needsYou_countsEveryKind_andSaysNothingAtZero", () => {
 });
 
 test("activity_streamWords_onlyItsOwn", () => {
-  assert.equal(pickIdOf("activity", { stream: "needs-you" }), "needs-you");
-  assert.equal(pickIdOf("activity", { stream: "side" }), "side");
+  // Needs you left Activity for the top of Chats (WP-34): Activity's one
+  // stream is All activity.
+  assert.equal(pickIdOf("activity", { stream: "all" }), "all");
+  assert.equal(pickIdOf("activity", { stream: "needs-you" }), null);
+  assert.equal(pickIdOf("activity", { stream: "side" }), null);
   assert.equal(pickIdOf("activity", { stream: "elsewhere" }), null);
 });

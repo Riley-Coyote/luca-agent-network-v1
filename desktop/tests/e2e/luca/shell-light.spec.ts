@@ -458,6 +458,11 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   const recess = await tokenRgb(page, "hsl(var(--mn-recess))");
   const floor = await tokenRgb(page, "hsl(var(--mn-floor))");
   const surface = await tokenRgb(page, "hsl(var(--mn-surface))");
+  // The rail's tone on the card by day (WP-34, Decided 7): the paper's
+  // recess at 15% over the surface.
+  const railTone = surface.map((value, index) =>
+    Math.round(value * 0.85 + recess[index] * 0.15),
+  ) as Rgb;
   const rail = await box(page, RAIL_CARD);
   const card = await box(page, CONVERSATION_CARD);
   expect(rail && card).toBeTruthy();
@@ -479,9 +484,11 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     root_background: rootBackground,
     floor_pixels: floorPixels,
     card_pixels: cardPixels,
+    rail_tone: railTone,
     ok:
       floorPixels.every((pixel) => near(pixel, recess)) &&
-      cardPixels.every((pixel) => near(pixel, surface)),
+      near(cardPixels[0], railTone) &&
+      near(cardPixels[1], surface),
   };
 
   // ── no outlines ───────────────────────────────────────────────────
@@ -1004,7 +1011,10 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       dayPillPixels.length === 4 &&
       // no white lit top: the row just inside is no brighter than the pill
       grey(dayPillPixels[2]) <= grey(dayPillPixels[3]) + 1 &&
-      [...inside, ...rightInside, ...placeInside].every((pixel) =>
+      // The rail's four points carry its tone; everything else is the
+      // surface.
+      inside.slice(0, 4).every((pixel) => near(pixel, railTone)) &&
+      [...inside.slice(4), ...rightInside, ...placeInside].every((pixel) =>
         near(pixel, surface),
       ),
   };
@@ -1081,6 +1091,10 @@ test("Paper by day, 800 × 500", async ({ page, browser }, info) => {
   const file = await shot(page, dir, "conversation-800x500");
   const recess = await tokenRgb(page, "hsl(var(--mn-recess))");
   const surface = await tokenRgb(page, "hsl(var(--mn-surface))");
+  // The rail's tone by day (WP-34, Decided 7), as at 1440.
+  const railTone = surface.map((value, index) =>
+    Math.round(value * 0.85 + recess[index] * 0.15),
+  ) as Rgb;
   const rail = await box(page, RAIL_CARD);
   const card = await box(page, CONVERSATION_CARD);
   expect(rail && card).toBeTruthy();
@@ -1115,7 +1129,8 @@ test("Paper by day, 800 × 500", async ({ page, browser }, info) => {
     max_grey_diff_vs_study: diff,
     ok:
       floor.every((pixel) => near(pixel, recess)) &&
-      inside.every((pixel) => near(pixel, surface)) &&
+      inside.slice(0, 4).every((pixel) => near(pixel, railTone)) &&
+      inside.slice(4).every((pixel) => near(pixel, surface)) &&
       layer?.shadows.length === 1 &&
       casts(layer, oneCard) &&
       (typeof diff === "string" ||
@@ -1150,6 +1165,10 @@ test("other light palettes", async ({ page }, info) => {
     const file = await shot(themed, dir, `palette-${theme}`);
     const recess = await tokenRgb(themed, "hsl(var(--mn-recess))");
     const surface = await tokenRgb(themed, "hsl(var(--mn-surface))");
+    // The rail's tone by day (WP-34, Decided 7): the recess at 15%.
+    const railTone = surface.map((value, index) =>
+      Math.round(value * 0.85 + recess[index] * 0.15),
+    ) as Rgb;
     const rail = await box(themed, RAIL_CARD);
     const card = await box(themed, CONVERSATION_CARD);
     const layer = await shadowLayer(themed);
@@ -1183,7 +1202,8 @@ test("other light palettes", async ({ page }, info) => {
         label === labelFaint &&
         labelContrast >= 4.5 &&
         floor.every((pixel) => near(pixel, recess)) &&
-        inside.every((pixel) => near(pixel, surface)) &&
+        inside.slice(0, 4).every((pixel) => near(pixel, railTone)) &&
+        inside.slice(4).every((pixel) => near(pixel, surface)) &&
         layer?.shadows.length === 1 &&
         casts(layer, oneCard) &&
         below[0] < grey(recess) - 6,

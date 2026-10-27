@@ -13,7 +13,7 @@ export type RailPlace = "agents" | "activity" | "library";
 
 /** The address's words that say a place's pick. */
 export const PICK_KEYS: Record<RailPlace, readonly string[]> = {
-  agents: ["profile", "profilePersona", "connected", "group"],
+  agents: ["profile", "profilePersona", "group"],
   activity: ["stream", "record"],
   library: ["made", "skills", "deleted"],
 };
@@ -28,9 +28,10 @@ function word(search: Search, key: string): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-/** Activity's streams, by the row's id and the address's `stream` word
- *  (WP-14, Decided 2): Needs you, Now, Side conversations. */
-export const ACTIVITY_STREAMS = ["needs-you", "now", "side"] as const;
+/** Activity's streams, by the row's id and the address's `stream` word:
+ *  All activity, the record of what every mind and app did (WP-34,
+ *  Decided 10; Needs you, Now and Side conversations before). */
+export const ACTIVITY_STREAMS = ["all"] as const;
 
 export type ActivityStream = (typeof ACTIVITY_STREAMS)[number];
 
@@ -54,8 +55,6 @@ export function pickIdOf(place: RailPlace, search: Search): string | null {
     if (profile) return `mind:${profile.toLowerCase()}`;
     const persona = word(search, "profilePersona");
     if (persona) return `persona:${persona}`;
-    const connected = word(search, "connected");
-    if (connected) return `connected:${connected}`;
     const group = word(search, "group");
     if (group) return `group:${group}`;
     return null;
@@ -84,16 +83,13 @@ export function paramsOfPick(place: RailPlace, id: string): PickParams {
   if (place === "agents") {
     if (head === "mind") return { profile: tail };
     if (head === "persona") return { profilePersona: tail };
-    if (head === "connected") return { connected: tail };
     if (head === "group") return { group: tail };
     return {};
   }
   if (place === "activity") {
     if (head === "record") return { record: tail };
     return {
-      stream: (ACTIVITY_STREAMS as readonly string[]).includes(id)
-        ? id
-        : "needs-you",
+      stream: (ACTIVITY_STREAMS as readonly string[]).includes(id) ? id : "all",
     };
   }
   // Words, never numbers: the router reads `1` in an address as a number.
@@ -117,12 +113,12 @@ export function searchForPick(
 }
 
 /** The row a place opens on, the first time (Decided 7): Agents, Luca;
- *  Activity, Needs you (WP-14, Decided 2); Library, All. Luca's row, before
+ *  Activity, All activity (WP-34, Decided 10); Library, All. Luca's row, before
  *  Luca is known, is the bare `luca`. */
 export function firstPickId(place: RailPlace, lucaPubkey: string | null) {
   if (place === "agents")
     return lucaPubkey ? `mind:${lucaPubkey.toLowerCase()}` : "luca";
-  if (place === "activity") return "needs-you";
+  if (place === "activity") return "all";
   return "made:all";
 }
 

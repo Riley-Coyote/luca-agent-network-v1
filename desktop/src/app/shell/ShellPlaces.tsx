@@ -28,10 +28,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
  * traffic lights' axis (22). Search (⌘K); then Chats, Agents, Activity and
  * Library; Settings (⌘,) and the avatar at the foot. Every one is the app's
  * existing action: this column only gives them their home. New conversation
- * (⌘N) is the `+` on the Chats rail, Brain belongs to Agents until a mind's
- * own space takes it, and the Inbox becomes Activity's Needs you. The current
- * place is marked by the places' mark (ShellMarks.tsx), which slides between
- * them.
+ * is ⌘N (the Chats rail's `+` opens Luca's one chat, WP-34), Brain belongs
+ * to Agents until a mind's own space takes it, and the Inbox becomes Needs
+ * you, at the top of Chats (WP-34). The current place is marked by the
+ * places' mark (ShellMarks.tsx), which slides between them.
  */
 
 type PlacesView =
@@ -45,6 +45,8 @@ type PlacesView =
   | "workflows"
   | "pulse"
   | "projects"
+  | "needs-you"
+  | "app"
   | "settings";
 
 type PlaceId = "conversations" | "agents" | "activity" | "library" | "settings";
@@ -60,6 +62,8 @@ export function placeOfView(view: PlacesView): PlaceId | null {
     case "messages":
     case "projects":
     case "workflows":
+    case "needs-you":
+    case "app":
       return "conversations";
     case "artifacts":
       return "library";
@@ -288,8 +292,10 @@ export function ShellPlaces({
   const status = useShellStatus();
   const { frameDrawn } = useTheme();
   const updateDot = status.updateAvailable && railSignalsSpeak;
-  // What waits on you, counted on Activity, where the Inbox's count drew
-  // (WP-14, Decided 4). At zero nothing shows.
+  // What waits on you, counted on Chats, whose rail it tops (WP-34,
+  // Decided 2; on Activity before). At zero nothing shows; while it shows,
+  // it says the place wants you, so the unread dot it would cover stands
+  // down.
   const needsYou = useNeedsYou();
   return (
     <nav
@@ -311,8 +317,10 @@ export function ShellPlaces({
       </div>
       <div className="luca-places-group">
         <PlaceTile
+          badge={needsYou.count}
+          badgeLabel={needsYouNote(needsYou.count)}
           current={here === "conversations"}
-          dot={unreadDot}
+          dot={unreadDot && needsYou.count === 0}
           label="Chats"
           onClick={onSelectConversations}
           testId="shell-place-conversations"
@@ -329,8 +337,6 @@ export function ShellPlaces({
           <Bot />
         </PlaceTile>
         <PlaceTile
-          badge={needsYou.count}
-          badgeLabel={needsYouNote(needsYou.count)}
           current={here === "activity"}
           label="Activity"
           onClick={onSelectPulse}

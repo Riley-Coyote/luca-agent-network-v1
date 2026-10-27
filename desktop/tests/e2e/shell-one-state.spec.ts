@@ -326,7 +326,7 @@ for (const [mode, width, height] of [
   ["dark", 1440, 900],
   ["light", 800, 500],
 ] as const) {
-  test(`d1: a side conversation marks Luca's home (${mode} ${width})`, async ({
+  test(`d1: a side conversation marks the home doing the work (${mode} ${width})`, async ({
     browser,
   }) => {
     const context = await browser.newContext({
@@ -353,6 +353,7 @@ for (const [mode, width, height] of [
       .toContain(ROOT.open);
     await settle(page, 1500);
     out.railExchange = await railMarks(page);
+    const exchangeAddress = await page.evaluate(() => window.location.hash);
     if (mode === "dark")
       out.shotRailExchange = await shot(
         page,
@@ -395,15 +396,16 @@ for (const [mode, width, height] of [
     await settle(page);
     out.roomAgain = await railMarks(page);
 
-    // From Side conversations: the task, then the exchange.
+    // From All activity (Side conversations retired with WP-34): the task;
+    // then the exchange by its address, from outside the rail.
     await page.evaluate(() => {
-      window.location.hash = "#/pulse?stream=side";
+      window.location.hash = "#/pulse?stream=all";
     });
-    await expect(page.getByTestId("side-conversations-card")).toBeVisible({
+    await expect(page.getByTestId("all-activity-card")).toBeVisible({
       timeout: 20_000,
     });
     await page
-      .getByTestId("side-row-task-glass")
+      .getByTestId("all-activity-task:task-glass")
       .locator(".luca-place-row-open")
       .click();
     await expect(page.getByTestId("chat-list")).toBeVisible({
@@ -412,12 +414,14 @@ for (const [mode, width, height] of [
     await settle(page, 1500);
     out.sideTask = await railMarks(page);
     await page.evaluate(() => {
-      window.location.hash = "#/pulse?stream=side";
+      window.location.hash = "#/pulse?stream=all";
     });
-    await page
-      .getByTestId(`side-row-${X_OPEN}`)
-      .locator(".luca-place-row-open")
-      .click();
+    await expect(page.getByTestId("all-activity-card")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.evaluate((address) => {
+      window.location.hash = address;
+    }, exchangeAddress);
     await expect(page.getByTestId("chat-list")).toBeVisible({
       timeout: 20_000,
     });
@@ -426,7 +430,7 @@ for (const [mode, width, height] of [
 
     // From Needs you: the paused exchange with Wren.
     await page.evaluate(() => {
-      window.location.hash = "#/pulse?stream=needs-you";
+      window.location.hash = "#/needs-you";
     });
     const needs = page.locator(
       '[data-needs-kind="exchange"] [data-testid="needs-you-open"]',
@@ -440,19 +444,37 @@ for (const [mode, width, height] of [
     out.needsExchange = await railMarks(page);
     measure(`d1-${mode}-${width}`, out);
 
-    const lit = (marks: Awaited<ReturnType<typeof railMarks>>, id: string) =>
+    // The home doing the work is marked (WP-34, Decided 3): the agent an
+    // exchange asks, the app a task runs in; never Luca, never the room.
+    const lit = (
+      marks: Awaited<ReturnType<typeof railMarks>>,
+      id: string,
+      home: string,
+    ) =>
       marks.active.length === 1 &&
-      marks.active[0] === "luca" &&
+      marks.active[0] === home &&
       marks.current.length === 1 &&
       marks.current[0]?.id === id &&
       marks.current[0]?.ariaCurrent === "page";
-    expect(lit(out.railExchange as never, `exchange:${X_OPEN}`)).toBe(true);
-    expect(lit(out.railTask as never, "task:task-glass")).toBe(true);
-    expect(lit(out.sideTask as never, "task:task-glass")).toBe(true);
-    expect(lit(out.sideExchange as never, `exchange:${X_OPEN}`)).toBe(true);
-    expect(lit(out.needsExchange as never, `exchange:${X_PAUSED}`)).toBe(true);
+    const atlasHome = `agent:${ATLAS}`;
+    expect(
+      lit(out.railExchange as never, `exchange:${X_OPEN}`, atlasHome),
+    ).toBe(true);
+    expect(lit(out.railTask as never, "task:task-glass", "app:claude")).toBe(
+      true,
+    );
+    expect(lit(out.sideTask as never, "task:task-glass", "app:claude")).toBe(
+      true,
+    );
+    expect(
+      lit(out.sideExchange as never, `exchange:${X_OPEN}`, atlasHome),
+    ).toBe(true);
+    expect(
+      lit(out.needsExchange as never, `exchange:${X_PAUSED}`, `agent:${WREN}`),
+    ).toBe(true);
     const again = out.roomAgain as Awaited<ReturnType<typeof railMarks>>;
-    expect(again.active).not.toContain("luca");
+    expect(again.active).not.toContain(atlasHome);
+    expect(again.active).not.toContain("app:claude");
     expect(again.current.some((row) => row.id?.startsWith("task:"))).toBe(
       false,
     );
@@ -546,28 +568,25 @@ for (const mode of ["dark", "light"] as const) {
     out.shotCard = await shot(page, `d3-atlas-card-${mode}`);
     out.card = { atlas: atlasCard, luca: await card(LUCA) };
 
-    // Now.
-    await page.evaluate(() => {
-      window.location.hash = "#/pulse?stream=now";
+    // Now retired with WP-34: live work shows once, in the Chats rail,
+    // under whoever does it.
+    await page.getByTestId("shell-place-conversations").click();
+    await expect(page.getByTestId("chat-list")).toBeVisible({
+      timeout: 20_000,
     });
-    await expect(page.getByTestId("owner-activity-list")).toBeVisible({
+    await expect(page.getByTestId(`rail-side-exchange:${X_OPEN}`)).toBeVisible({
       timeout: 20_000,
     });
     await page.waitForTimeout(1500);
     out.now = await page
-      .locator('[data-testid="owner-activity-list"] .luca-place-row')
+      .locator('[data-shell-rail] [data-side-row="live"]')
       .evaluateAll((rows) =>
-        rows
-          .filter((row) => getComputedStyle(row).display !== "none")
-          .map((row) => ({
-            title: row.querySelector(".luca-place-row-title")?.textContent,
-            summary: row.querySelector(".luca-place-row-summary")?.textContent,
-            detail:
-              row.querySelector(".luca-place-row-detail")?.textContent ?? null,
-            note: row.querySelector(".luca-place-row-note")?.textContent,
-            state: (row as HTMLElement).dataset.activityState,
-            mind: (row as HTMLElement).dataset.mindState ?? null,
-          })),
+        rows.map((row) => ({
+          title: row.querySelector(".luca-rail-session-title")?.textContent,
+          home: row.closest<HTMLElement>("[data-home-group]")?.dataset
+            .homeGroup,
+          state: row.querySelector(".luca-rail-working")?.textContent ?? null,
+        })),
       );
     out.shotNow = await shot(page, `d4-now-${mode}`);
     measure(`d2-d4-${mode}`, out);
@@ -578,21 +597,19 @@ for (const mode of ["dark", "light"] as const) {
       string,
       { state: string; buttons: { text: string; background: string }[] }
     >;
-    const now = out.now as { title: string; state: string; detail: string }[];
+    const now = out.now as { title: string; state: string; home: string }[];
     // d2: Atlas talking with Luca reads talking in all four; Luca, whose
     // task runs, reads working in all four.
     expect(rail.atlas).toBe("talking");
     expect(heads.atlas.state).toBe("talking");
     expect(heads.atlas.text).toContain("Talking");
     expect(cards.atlas.state).toBe("Talking");
-    const atlasNow = now.find((row) => row.title === "Luca asked Atlas");
+    const atlasNow = now.find((row) => row.home === `agent:${ATLAS}`);
     expect(atlasNow?.state).toBe("talking");
     expect(rail.luca).toBe("working");
     expect(heads.luca.state).toBe("working");
     expect(cards.luca.state).toBe("Working");
-    expect(
-      now.find((row) => row.title === "Luca asked Claude Code")?.state,
-    ).toBe("working");
+    expect(now.find((row) => row.home === "app:claude")?.state).toBe("working");
     // d3: Open their space and Talk, neither solid.
     expect(cards.atlas.buttons.map((button) => button.text)).toEqual([
       "Open their space",
@@ -600,36 +617,41 @@ for (const mode of ["dark", "light"] as const) {
     ]);
     for (const button of cards.atlas.buttons)
       expect(solid(button.background, mode)).toBe(false);
-    // d4: named as Side conversations names them; each mind once.
-    const titles = now.map((row) => row.title);
-    expect(titles).toContain("Luca asked Atlas");
-    expect(titles).toContain("Luca asked Claude Code");
-    expect(titles).not.toContain("Luca");
-    expect(titles).not.toContain("Atlas");
+    // d4: each piece of live work once, under whoever does it; none under
+    // Luca, who is one chat.
+    expect(now.map((row) => `${row.home} ${row.title}`).sort()).toEqual([
+      `agent:${ATLAS} Luca · general`,
+      "app:claude Rail glass plates",
+    ]);
     await context.close();
   });
 }
 
-// ── 800 × 500: the state words still read, Now still once ───────────────
+// ── 800 × 500: the state words still read, live work still once ─────────
 test("d2/d4 at 800 x 500 (dark)", async ({ browser }) => {
   const context = await browser.newContext({
     deviceScaleFactor: 2,
     viewport: { width: 800, height: 500 },
   });
   const page = await context.newPage();
-  await boot(page, { hash: "/pulse?stream=now" });
+  await boot(page, { hash: `/channels/${GENERAL}` });
   await speak(page);
-  await expect(page.getByTestId("owner-activity-list")).toBeVisible({
+  await expect(page.getByTestId(`rail-side-exchange:${X_OPEN}`)).toBeVisible({
     timeout: 20_000,
   });
   await page.waitForTimeout(1500);
   const rows = await page
-    .locator('[data-testid="owner-activity-list"] .luca-place-row-title')
-    .allTextContents();
+    .locator('[data-shell-rail] [data-side-row="live"]')
+    .evaluateAll((nodes) =>
+      nodes.map(
+        (node) =>
+          `${node.closest<HTMLElement>("[data-home-group]")?.dataset.homeGroup} ${node.querySelector(".luca-rail-session-title")?.textContent}`,
+      ),
+    );
   const hash = await shot(page, "d4-now-dark-800");
   measure("d4-now-800", { rows, hash });
-  expect(rows).toContain("Luca asked Atlas");
-  expect(rows.filter((row) => row === "Atlas")).toHaveLength(0);
+  expect(rows).toContain(`agent:${ATLAS} Luca · general`);
+  expect(new Set(rows).size).toBe(rows.length);
   await context.close();
 });
 

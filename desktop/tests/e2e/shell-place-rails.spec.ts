@@ -352,11 +352,16 @@ test("places, rails and cards", async ({ page }) => {
   );
   measure("shot_agents_luca", await shot(page, "agents-luca"));
 
-  // ── Agents: a connected app ──
+  // ── a connected app: no longer in Agents; its row is in Chats, under
+  // Apps, and its card opens in the Chats card (WP-34, Decided 9) ──
+  await expect(page.getByTestId("place-section-agents-connected")).toHaveCount(
+    0,
+  );
+  await page.getByTestId("shell-place-conversations").click();
   await page
-    .getByTestId("place-row-connected:claude-code")
-    .locator("button")
-    .click();
+    .getByTestId("rail-home-app:claude")
+    .locator('[data-rail-focus="home"]')
+    .click({ timeout: 20_000 });
   await expect(page.getByTestId("connected-app-card")).toBeVisible();
   await expect(page.getByTestId("runtime-session-list")).toBeVisible({
     timeout: 20_000,
@@ -374,8 +379,11 @@ test("places, rails and cards", async ({ page }) => {
     "runtime_column_count",
     await page.locator("#runtime-sessions-panel").count(),
   );
-  measure("connected_mark", await markOnPick(page));
-  measure("shot_agents_connected", await shot(page, "agents-connected"));
+  measure("shot_chats_app", await shot(page, "chats-app"));
+  await page.getByTestId("open-agents-view").click();
+  await expect(page.getByTestId("place-rail-agents")).toBeVisible({
+    timeout: 20_000,
+  });
 
   // ── Agents: a group ──
   await page
@@ -393,22 +401,25 @@ test("places, rails and cards", async ({ page }) => {
   await expect(page.getByTestId("place-rail-activity")).toBeVisible({
     timeout: 20_000,
   });
-  // Activity's first pick is Needs you (WP-14, Decided 2).
-  await expect(page.getByTestId("place-row-needs-you")).toHaveAttribute(
+  // Activity's first pick is All activity (WP-34, Decided 10; Needs you
+  // moved to Chats).
+  await expect(page.getByTestId("place-row-all")).toHaveAttribute(
     "data-active",
     "true",
   );
   await expect
     .poll(() => hashOf(page), { timeout: 10_000 })
-    .toContain("stream=needs-you");
+    .toContain("stream=all");
   measure("activity_hash_first", await hashOf(page));
-  await pick(page, "now");
   measure("activity_rail", await railRows(page, "activity"));
+  await expect(page.getByTestId("place-row-needs-you")).toHaveCount(0);
+  await expect(page.getByTestId("place-row-now")).toHaveCount(0);
+  await expect(page.getByTestId("place-row-side")).toHaveCount(0);
   measure(
     "activity_tabs",
     await page.getByTestId("activity-section-record").count(),
   );
-  measure("shot_activity_now", await shot(page, "activity-now"));
+  measure("shot_activity_all", await shot(page, "activity-all"));
   await page.getByTestId(`place-row-record:${ATLAS}`).locator("button").click();
   await expect(
     page.getByText("Atlas signed this", { exact: false }).first(),
@@ -494,22 +505,22 @@ test("back and forward step through each place's picks", async ({ page }) => {
       lip: await page.getByTestId("shell-lip-name").innerText(),
     });
 
-  // Agents: Luca → Claude Code → Design team, then back, back, forward.
-  await pick(page, "connected:claude-code");
+  // Agents: Luca → Atlas → Design team, then back, back, forward.
+  await pick(page, `mind:${ATLAS}`);
   await pick(page, "group:team-design");
   await back();
   await record("agents back 1");
-  expect(await activeRow(page)).toBe("place-row-connected:claude-code");
+  expect(await activeRow(page)).toBe(`place-row-mind:${ATLAS}`);
   await back();
   await record("agents back 2");
   expect(await activeRow(page)).toBe(`place-row-mind:${LUCA}`);
   await forward();
   await record("agents forward");
-  expect(await activeRow(page)).toBe("place-row-connected:claude-code");
+  expect(await activeRow(page)).toBe(`place-row-mind:${ATLAS}`);
 
-  // Activity: Needs you → Atlas → Luca, back, forward.
+  // Activity: All activity → Atlas → Luca, back, forward.
   await page.getByTestId("open-activity-view").click();
-  await expect(page.getByTestId("place-row-needs-you")).toHaveAttribute(
+  await expect(page.getByTestId("place-row-all")).toHaveAttribute(
     "data-active",
     "true",
     { timeout: 20_000 },
@@ -521,7 +532,7 @@ test("back and forward step through each place's picks", async ({ page }) => {
   expect(await activeRow(page)).toBe(`place-row-record:${ATLAS}`);
   await back();
   await record("activity back 2");
-  expect(await activeRow(page)).toBe("place-row-needs-you");
+  expect(await activeRow(page)).toBe("place-row-all");
   await forward();
   await record("activity forward");
   expect(await activeRow(page)).toBe(`place-row-record:${ATLAS}`);
@@ -545,18 +556,22 @@ test("back and forward step through each place's picks", async ({ page }) => {
   await record("library forward");
   expect(await activeRow(page)).toBe("place-row-deleted");
 
-  // Each place remembers its last pick: Agents again opens on Claude Code.
+  // Each place remembers its last pick: Agents again opens on Atlas.
   await page.getByTestId("open-agents-view").click();
-  await expect(
-    page.getByTestId("place-row-connected:claude-code"),
-  ).toHaveAttribute("data-active", "true", { timeout: 20_000 });
-  await expect.poll(() => hashOf(page)).toContain("connected=claude-code");
+  await expect(page.getByTestId(`place-row-mind:${ATLAS}`)).toHaveAttribute(
+    "data-active",
+    "true",
+    { timeout: 20_000 },
+  );
+  await expect.poll(() => hashOf(page)).toContain(`profile=${ATLAS}`);
   await record("agents remembered");
   // And reopening (a reload) keeps the address's pick.
   await page.reload();
-  await expect(
-    page.getByTestId("place-row-connected:claude-code"),
-  ).toHaveAttribute("data-active", "true", { timeout: 20_000 });
+  await expect(page.getByTestId(`place-row-mind:${ATLAS}`)).toHaveAttribute(
+    "data-active",
+    "true",
+    { timeout: 20_000 },
+  );
   await record("agents reloaded");
   measure("back_forward", steps);
 });
@@ -650,25 +665,25 @@ test("narrow window, Chats and Settings", async ({ page }) => {
   await expect(page.getByTestId("place-rail-agents")).toBeVisible();
   for (const [tile, name] of [
     ["open-agents-view", "agents-luca-800"],
-    ["open-activity-view", "activity-needs-you-800"],
+    ["open-activity-view", "activity-all-800"],
     ["open-artifacts-view", "library-all-800"],
   ] as const) {
     await page.getByTestId(tile).click();
     await page.waitForTimeout(1200);
     measure(`shot_${name}`, await shot(page, name));
   }
-  await page.getByTestId("open-agents-view").click();
+  // A connected app's card, from its row under Apps in Chats (WP-34).
+  await page.getByTestId("shell-place-conversations").click();
+  if (!(await page.getByTestId("chat-list").isVisible()))
+    await page.getByTestId("shell-lip-toggle").click();
   await page
-    .getByTestId("place-row-connected:claude-code")
-    .locator("button")
-    .click();
+    .getByTestId("rail-home-app:claude")
+    .locator('[data-rail-focus="home"]')
+    .click({ timeout: 20_000 });
   await expect(page.getByTestId("connected-app-card")).toBeVisible({
     timeout: 20_000,
   });
-  measure(
-    "shot_agents-connected-800",
-    await shot(page, "agents-connected-800"),
-  );
+  measure("shot_chats-app-800", await shot(page, "chats-app-800"));
   measure(
     "narrow_card",
     await page.getByTestId("connected-app-card").evaluate((card) => {
@@ -823,10 +838,20 @@ test("review fixes", async ({ page }) => {
   });
   await fixShot(page, "agents-luca");
 
-  // 14. The mark's first move to a connected app (the card's first mount),
-  // beside a later pick's, which finds the page idle.
-  const firstVisit = await traceMark(page, "connected:claude-code");
-  // 3 and 5. The connected card on the shared page; its sessions flat.
+  // 14. The mark's first move to a card's first mount (a group's: the
+  // connected app left Agents for the Chats rail with WP-34), beside a
+  // later pick's, which finds the page idle.
+  const firstVisit = await traceMark(page, "group:team-design");
+  // 3 and 5. The connected card on the shared page; its sessions flat. It
+  // opens from its row under Apps in Chats (WP-34, Decided 9).
+  await page.getByTestId("shell-place-conversations").click();
+  await page
+    .getByTestId("rail-home-app:claude")
+    .locator('[data-rail-focus="home"]')
+    .click({ timeout: 20_000 });
+  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+    timeout: 20_000,
+  });
   await expect(page.getByTestId("runtime-session-list")).toBeVisible({
     timeout: 20_000,
   });
@@ -897,10 +922,13 @@ test("review fixes", async ({ page }) => {
   );
   await fixShot(page, "agents-connected-search-focus");
   await page.keyboard.press("Escape");
+  await page.getByTestId("open-agents-view").click();
+  await expect(page.getByTestId("place-rail-agents")).toBeVisible({
+    timeout: 20_000,
+  });
   const laterPick = await traceMark(page, `mind:${LUCA}`);
-  const laterPick2 = await traceMark(page, "connected:codex");
+  const laterPick2 = await traceMark(page, "group:team-design");
   fixMeasure("fix_14_mark_first_move", { firstVisit, laterPick, laterPick2 });
-  await expect(page.getByTestId("connected-app-card")).toBeVisible();
 
   // 3, 10, 11. The group: the shared page, the list grid, no icons.
   await page
@@ -931,17 +959,17 @@ test("review fixes", async ({ page }) => {
   );
   await fixShot(page, "agents-group");
 
-  // Activity: 1, 3, 6.
+  // Activity: 1, 3, 6, on All activity (Now retired with WP-34).
   await page.getByTestId("open-activity-view").click();
-  await pick(page, "now");
-  await expect(page.getByTestId("owner-activity-list")).toBeVisible({
+  await pick(page, "all");
+  await expect(page.getByTestId("all-activity-card")).toBeVisible({
     timeout: 20_000,
   });
   fix1.activity = await dot();
   heads.now = await headPlace(page);
   fixMeasure(
     "fix_6_now",
-    await page.getByTestId("owner-activity-scroll").evaluate((scroll) => ({
+    await page.getByTestId("all-activity-card").evaluate((scroll) => ({
       dashed: [...scroll.querySelectorAll<HTMLElement>("*")].filter(
         (each) => getComputedStyle(each).borderTopStyle === "dashed",
       ).length,
@@ -964,7 +992,7 @@ test("review fixes", async ({ page }) => {
       )?.textContent,
     })),
   );
-  await fixShot(page, "activity-now");
+  await fixShot(page, "activity-all");
 
   // 4 and 8. One mind's signed record: no card inside the card; its line.
   await page.getByTestId(`place-row-record:${ATLAS}`).locator("button").click();
@@ -1062,14 +1090,17 @@ test("review fixes", async ({ page }) => {
 
   // 3 at 800 x 500: the head in the same place.
   await page.setViewportSize({ width: 800, height: 500 });
-  await page.getByTestId("open-agents-view").click();
+  await page.getByTestId("shell-place-conversations").click();
   await page.waitForTimeout(800);
-  if (!(await page.getByTestId("place-rail-agents").isVisible()))
+  if (!(await page.getByTestId("chat-list").isVisible()))
     await page.getByTestId("shell-lip-toggle").click();
-  await pick(page, "connected:codex");
+  await page
+    .getByTestId("rail-home-app:codex")
+    .locator('[data-rail-focus="home"]')
+    .click({ timeout: 20_000 });
   await page.waitForTimeout(500);
   heads.connected800 = await headPlace(page);
-  await fixShot(page, "agents-connected-800");
+  await fixShot(page, "chats-app-800");
   await page.getByTestId("open-activity-view").click();
   await page.waitForTimeout(1200);
   heads.now800 = await headPlace(page);

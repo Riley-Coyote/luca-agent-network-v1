@@ -8,6 +8,7 @@ import {
   PlaceSectionLabel,
 } from "@/app/shell/placeRails/PlacePage";
 import { searchForPick } from "@/app/shell/placeRails/placePicks";
+import { runtimeRailFamilyFromRuntimeId } from "@/features/runtime-sessions/runtimeRailPreferences";
 import {
   useManagedAgentsQuery,
   usePersonasQuery,
@@ -218,14 +219,20 @@ export function SettingsAgentsMinds() {
                   key={id}
                 >
                   <button
-                    aria-label={`${runtime.label}, ${readiness}. Open in Agents`}
+                    aria-label={`${runtime.label}, ${readiness}. Open in Chats`}
                     className="luca-place-row-what luca-place-row-open"
-                    onClick={() =>
-                      void navigate({
-                        to: "/agents",
-                        search: searchForPick("agents", {}, `connected:${id}`),
-                      } as never)
-                    }
+                    onClick={() => {
+                      // A connected app's card is in Chats, under Apps, since
+                      // WP-34 (it was Connected's, in Agents).
+                      const family = runtimeRailFamilyFromRuntimeId(
+                        runtime.runtimeId,
+                      );
+                      if (family)
+                        void navigate({
+                          to: "/apps/$appId",
+                          params: { appId: family },
+                        } as never);
+                    }}
                     type="button"
                   >
                     <span className="luca-place-row-title">

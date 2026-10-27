@@ -57,14 +57,15 @@ type ProvenancePage = {
 };
 
 async function fetchProvenancePage(
-  pubkey: string,
+  /** Whose trail: one mind's, or several read as one (All activity). */
+  authors: readonly string[],
   cursor: ProvenanceCursor | undefined,
   signal: AbortSignal,
 ): Promise<ProvenancePage> {
   throwIfAborted(signal);
   if (cursor?.kind === "boundary") {
     const boundaryEvents = await relayClient.fetchEvents({
-      authors: [normalizePubkey(pubkey)],
+      authors: authors.map(normalizePubkey),
       kinds: PROVENANCE_KINDS,
       since: cursor.createdAt,
       until: cursor.createdAt,
@@ -83,11 +84,11 @@ async function fetchProvenancePage(
         signal,
       );
     }
-    return fetchProvenancePage(pubkey, cursorBefore(cursor.createdAt), signal);
+    return fetchProvenancePage(authors, cursorBefore(cursor.createdAt), signal);
   }
 
   const pageEvents = await relayClient.fetchEvents({
-    authors: [normalizePubkey(pubkey)],
+    authors: authors.map(normalizePubkey),
     kinds: PROVENANCE_KINDS,
     limit: PROVENANCE_PAGE_SIZE,
     ...(cursor?.kind === "before" ? { until: cursor.until } : {}),
@@ -168,11 +169,60 @@ export function useAgentProvenanceQuery(pubkey: string | null | undefined) {
     queryKey,
     queryFn: ({ pageParam, signal }) => {
       if (!pubkey) throw new Error("An agent public key is required");
-      return fetchProvenancePage(pubkey, pageParam, signal);
+      return fetchProvenancePage([pubkey], pageParam, signal);
     },
     initialPageParam: undefined as ProvenanceCursor | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: !!pubkey && !!communityId && !!relayUrl && !!readerPubkey,
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Every mind's signed trail as one, newest first (BETA14_RELEASE.md WP-34,
+ * Decided 10: All activity): one `REQ` naming every author, paged by the
+ * same cursor as one mind's.
+ */
+export function useAllProvenanceQuery(pubkeys: readonly string[]) {
+  const { activeCommunity } = useCommunities();
+  const identityQuery = useIdentityQuery();
+  const queryClient = useQueryClient();
+  const communityId = activeCommunity?.id ?? "";
+  const relayUrl = activeCommunity?.relayUrl ?? "";
+  const readerPubkey = identityQuery.data?.pubkey ?? "";
+  const authors = useMemo(
+    () => [...new Set(pubkeys.map(normalizePubkey))].sort(),
+    [pubkeys],
+  );
+  const authorsKey = authors.join(",");
+  const queryKey = useMemo(
+    () =>
+      [
+        "provenance-all",
+        communityId,
+        relayUrl,
+        normalizePubkey(readerPubkey),
+        authorsKey,
+      ] as const,
+    [authorsKey, communityId, relayUrl, readerPubkey],
+  );
+
+  useEffect(
+    () => () => {
+      void queryClient.cancelQueries({ queryKey, exact: true });
+    },
+    [queryClient, queryKey],
+  );
+
+  return useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam, signal }) =>
+      fetchProvenancePage(authors, pageParam, signal),
+    initialPageParam: undefined as ProvenanceCursor | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled:
+      authors.length > 0 && !!communityId && !!relayUrl && !!readerPubkey,
     staleTime: 30_000,
     gcTime: 5 * 60_000,
   });

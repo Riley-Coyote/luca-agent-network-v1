@@ -434,7 +434,12 @@ test("1: one ask row, in Needs you and in a mind's Notebook", async ({
   });
   const inSpace = await askLooks(page, '[data-testid="mind-asks"] li.luca-ask');
   const spaceShot = await shot(page, "01-asks-in-luca-space");
-  await page.getByTestId("open-activity-view").click();
+  // Needs you tops the Chats rail since WP-34 (Decided 2).
+  await page.getByTestId("shell-place-conversations").click();
+  await page
+    .getByTestId("rail-needs-you")
+    .locator("[data-rail-focus=home]")
+    .click({ timeout: 20_000 });
   await expect(page.getByTestId("needs-you-card")).toBeVisible({
     timeout: 20_000,
   });
@@ -484,7 +489,7 @@ test("1: one ask row, in Needs you and in a mind's Notebook", async ({
 });
 
 // ── 2. a working mind says so everywhere ────────────────────────────────
-test("2: a mind running a task reads working, in their space and in Now", async ({
+test("2: a mind running a task reads working, in their space and in the rail", async ({
   page,
 }) => {
   await boot(page, { hash: "/agents", mock: TASKS });
@@ -501,27 +506,21 @@ test("2: a mind running a task reads working, in their space and in Now", async 
     width: 900,
     height: 140,
   });
-  await page.goto("/#/pulse?stream=now");
-  await expect(page.getByTestId("owner-activity-list")).toBeVisible({
+  // Now retired with WP-34 (Decided 10): the live task shows once, under
+  // its app in the Chats rail.
+  await page.getByTestId("shell-place-conversations").click();
+  await expect(page.getByTestId("chat-list")).toBeVisible({
     timeout: 20_000,
   });
   await page.waitForTimeout(1500);
   const rows = await page
-    .locator('[data-testid="owner-activity-list"] [data-activity-group]')
+    .locator('[data-shell-rail] [data-side-row="live"]')
     .evaluateAll((nodes) =>
-      nodes
-        .map((node) => ({
-          id: (node as HTMLElement).dataset.testid,
-          group: (node as HTMLElement).dataset.activityGroup,
-          state: (node as HTMLElement).dataset.activityState,
-          title: node.querySelector(".luca-place-row-title")?.textContent,
-          summary: node.querySelector(".luca-place-row-summary")?.textContent,
-        }))
-        // Luca's row, or the live side conversation that names Luca as the
-        // one asking (WP-18, Decided 4: "Luca asked Claude Code").
-        .filter(
-          (row) => row.title === "Luca" || row.title?.startsWith("Luca asked"),
-        ),
+      nodes.map((node) => ({
+        home: node.closest<HTMLElement>("[data-home-group]")?.dataset.homeGroup,
+        state: node.querySelector(".luca-rail-working")?.textContent ?? null,
+        title: node.querySelector(".luca-rail-session-title")?.textContent,
+      })),
     );
   const nowShot = await shot(page, "02-now-luca-working");
   const checks = {
@@ -534,9 +533,9 @@ test("2: a mind running a task reads working, in their space and in Now", async 
       rows.length === 1 &&
       rows.every(
         (row) =>
-          row.group === "active" &&
+          row.home === "app:claude" &&
           row.state === "working" &&
-          !row.summary?.includes("Ready for a conversation"),
+          row.title === "Rail glass plates",
       ),
   };
   record("working_everywhere", checks);
@@ -789,8 +788,9 @@ test("4a: the Quick Chat button never covers a place's content", async ({
     result[`mind_${label}`] = await underLauncher(page);
     if (size.width === 800)
       shots.push(await shot(page, `04-quick-chat-clear-mind-${label}`));
-    await page.goto("/#/pulse?stream=side");
-    await expect(page.getByTestId("place-row-side")).toBeVisible({
+    // All activity (Side conversations retired with WP-34).
+    await page.goto("/#/pulse?stream=all");
+    await expect(page.getByTestId("place-row-all")).toBeVisible({
       timeout: 20_000,
     });
     await page.waitForTimeout(1200);
@@ -1111,25 +1111,26 @@ test("9: a project room opened from Search", async ({ page }) => {
     { timeout: 10_000 },
   );
   await page.waitForTimeout(900);
+  // A project nests nothing since WP-34 (Decided 3): its row is marked and
+  // in view, and its rooms are in its own column, the room picked there.
   const state = await page.evaluate((id) => {
-    const session = document.querySelector<HTMLElement>(
-      `[data-testid="rail-session-${id}"]`,
-    );
     const home = document.querySelector<HTMLElement>(
-      '[data-testid="rail-home-project:tidepool"], [data-project-id="tidepool"]',
+      '[data-testid="rail-home-project:tidepool"]',
     );
     const rail = document
       .querySelector('[data-sidebar="content"]')
       ?.getBoundingClientRect();
-    const box = session?.getBoundingClientRect();
+    const box = home?.getBoundingClientRect();
     return {
-      home_expanded:
-        home
-          ?.querySelector(".luca-rail-row-hit")
-          ?.getAttribute("aria-expanded") ?? null,
-      session_current: session?.getAttribute("aria-current") ?? null,
-      session_in_view:
+      home_active: home?.getAttribute("data-active") ?? null,
+      home_in_view:
         box && rail ? box.top >= rail.top && box.bottom <= rail.bottom : null,
+      session_in_rail: Boolean(
+        document.querySelector(`[data-testid="rail-session-${id}"]`),
+      ),
+      room_column: Boolean(
+        document.querySelector('[data-testid="project-room-navigator"]'),
+      ),
     };
   }, random);
   const shotFile = await shot(page, "09-search-room-open", {
@@ -1139,17 +1140,19 @@ test("9: a project room opened from Search", async ({ page }) => {
     height: 520,
   });
   const ok =
-    state.home_expanded === "true" &&
-    state.session_current === "page" &&
-    state.session_in_view === true;
+    state.home_active === "true" &&
+    state.home_in_view === true &&
+    state.session_in_rail === false &&
+    state.room_column === true;
   record("search_room_open", { random, ...state, shot: shotFile, ok });
   expect.soft(ok, "search_room_open").toBe(true);
 });
 
 // ── 10. the rail's mark on a first visit to a connected app ────────────
 /** Every frame's position of the rail's mark while a row is picked. */
-async function traceMark(page: Page, rowId: string) {
-  await page.evaluate(() => {
+async function traceMark(page: Page, rowSelector: string, watched: string) {
+  await page.evaluate((selector) => {
+    (window as unknown as { __watched: string }).__watched = selector;
     const w = window as unknown as {
       __trace: { t: number; y: number; h: number; rows: number }[];
     };
@@ -1162,7 +1165,7 @@ async function traceMark(page: Page, rowId: string) {
         ),
       ].find((each) => Number.parseFloat(getComputedStyle(each).opacity) > 0.5);
       const row = document.querySelector<HTMLElement>(
-        '[data-testid^="place-row-connected:"]',
+        (window as unknown as { __watched: string }).__watched,
       );
       w.__trace.push({
         t: Math.round(performance.now() - start),
@@ -1175,12 +1178,8 @@ async function traceMark(page: Page, rowId: string) {
       if (performance.now() - start < 900) requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
-  });
-  await page
-    .getByTestId(`place-row-${rowId}`)
-    .locator("button")
-    .first()
-    .click();
+  }, watched);
+  await page.locator(`${rowSelector} [data-rail-focus="home"]`).first().click();
   await page.waitForTimeout(1000);
   const trace = await page.evaluate(
     () =>
@@ -1207,24 +1206,24 @@ async function traceMark(page: Page, rowId: string) {
   };
 }
 
+// A connected app is a row of the Chats rail since WP-34 (Decided 1 and
+// 9): the first visit to it, from Luca and back.
 test("10: the rail's mark on a first visit to a connected app", async ({
   page,
 }) => {
-  await boot(page, { hash: "/agents" });
-  await openLuca(page);
-  const connected = page.locator('[data-testid^="place-row-connected:"]');
-  await expect(connected.first()).toBeVisible({ timeout: 20_000 });
-  const ids = await connected.evaluateAll((rows) =>
-    rows.map((row) =>
-      (row.getAttribute("data-testid") ?? "").replace("place-row-", ""),
-    ),
+  await boot(page, { hash: `/channels/${GENERAL}` });
+  const apps = page.locator('[data-testid^="rail-home-app:"]');
+  await expect(apps.first()).toBeVisible({ timeout: 20_000 });
+  const ids = await apps.evaluateAll((rows) =>
+    rows.map((row) => row.getAttribute("data-testid") ?? ""),
   );
+  const watched = `[data-testid="${ids[0]}"]`;
   await page.waitForTimeout(800);
-  const first = await traceMark(page, ids[0]);
+  const first = await traceMark(page, watched, watched);
   await page.waitForTimeout(600);
-  const back = await traceMark(page, `mind:${LUCA}`);
+  const back = await traceMark(page, '[data-testid="rail-home-luca"]', watched);
   await page.waitForTimeout(600);
-  const later = await traceMark(page, ids[0]);
+  const later = await traceMark(page, watched, watched);
   record("first_mark", { rows: ids, first, back_to_luca: back, later });
 });
 
@@ -1312,25 +1311,28 @@ test("11: Paper's unread dot reaches 3:1 on paper", async ({ page }) => {
   expect.soft(ok, "paper_dot").toBe(true);
 });
 
-// ── 12. the rail's + names the key the platform takes ──────────────────
+// ── 12. the rail's + says what it does; New conversation keeps its key ──
+// Since WP-34 (Decided 5) the Chats rail's + opens Luca's one chat, which
+// has no key: it names no shortcut. New conversation keeps the key the
+// platform takes, and the key still opens it.
 test("12: the Chats rail's + names its key on every platform", async ({
   browser,
 }) => {
   const runs: Record<string, unknown> = {};
-  for (const [name, platform, title, aria, key] of [
-    ["mac", "MacIntel", "New conversation  ⌘N", "Meta+N", "Meta+n"],
-    ["windows", "Win32", "New conversation  Ctrl+N", "Control+N", "Control+n"],
+  for (const [name, platform, key] of [
+    ["mac", "MacIntel", "Meta+n"],
+    ["windows", "Win32", "Control+n"],
   ] as const) {
     const context = await browser.newContext({ deviceScaleFactor: 2 });
     const page = await context.newPage();
     await boot(page, { hash: `/channels/${GENERAL}`, platform });
-    const plus = page.getByTestId("rail-new-conversation");
+    const plus = page.getByTestId("rail-message-luca");
     await expect(plus).toBeVisible({ timeout: 20_000 });
     const named = {
       title: await plus.getAttribute("title"),
       aria: await plus.getAttribute("aria-keyshortcuts"),
     };
-    // The key it names does what it says.
+    // The key New conversation takes does what it says.
     await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
     const before = await page.evaluate(() => window.location.hash);
     await page.keyboard.press(key);
@@ -1341,7 +1343,10 @@ test("12: the Chats rail's + names its key on every platform", async ({
       pressed: key,
       before,
       after,
-      ok: named.title === title && named.aria === aria && after !== before,
+      ok:
+        named.title === "Message Luca" &&
+        named.aria === null &&
+        after.includes("/messages/new"),
     };
     await context.close();
   }

@@ -544,8 +544,9 @@ for (const light of [false, true]) {
       ["made_all", "/artifacts?made=all"],
       ["skills_all", "/artifacts?skills=all"],
       ["deleted", "/artifacts?deleted=recently"],
-      ["now", "/pulse?stream=now"],
-      ["needs", "/pulse?stream=needs-you"],
+      // All activity, Activity's first pick since WP-34 (Now retired).
+      ["now", "/pulse?stream=all"],
+      ["needs", "/needs-you"],
       ["group", "/agents?group=team-design"],
     ] as const) {
       await go(page, hash);

@@ -37,7 +37,9 @@ export type AppSidebarProps = {
     | "artifacts"
     | "workflows"
     | "pulse"
-    | "projects";
+    | "projects"
+    | "needs-you"
+    | "app";
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadChannelIds: ReadonlySet<string>;
   communities: Community[];

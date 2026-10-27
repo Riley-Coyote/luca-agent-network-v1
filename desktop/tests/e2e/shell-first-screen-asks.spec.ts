@@ -523,7 +523,7 @@ for (const [width, height, mode] of [
     await proposal.getByTestId("needs-you-proposal-change").click();
 
     await page.evaluate(() => {
-      window.location.hash = "#/pulse?stream=needs-you";
+      window.location.hash = "#/needs-you";
     });
     await expect(page.getByTestId("needs-you-card")).toBeVisible({
       timeout: 20_000,

@@ -15,10 +15,12 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 
 /**
  * WP-11, the Chats rail (docs/luca/rail-system/SHELL_BUILD.md; SPEC.md as
- * amended 2026-10-25): its heading and +, Luca, Projects, Agents, People and
- * Rooms, one home per chat by what it is, every home's latest three with
- * their times, "N more", Rooms' Browse rooms… and Archived, where the app
- * opens, and a room's Manage. Screenshots land in WP11_SHOTS when set.
+ * amended 2026-10-25), as WP-34 settled it (BETA14_RELEASE.md): its heading
+ * and +, Luca, Projects (the loose rooms after the projects, Browse rooms…
+ * and Archived closing it), Agents and Apps; one home per chat by what it
+ * is, an agent's latest three with their times, "N more", where the app
+ * opens, and a room's Manage. Only work nests: Luca and a project nest
+ * nothing, and a person's 1:1 is found in Search. Screenshots land in WP11_SHOTS when set.
  * SHELL_BASE_URL is the base build for the flag-off comparison (default
  * http://127.0.0.1:4300); unreachable, it is reported as not run.
  */
@@ -51,7 +53,68 @@ const ROOM = {
   scratch: "0e6b0000-0000-4000-8000-000000000009",
   weekly: "0e6b0000-0000-4000-8000-00000000000a",
   old: "0e6b0000-0000-4000-8000-00000000000b",
+  chart: "0e6b0000-0000-4000-8000-00000000000c",
+  notes: "0e6b0000-0000-4000-8000-00000000000d",
 };
+
+/** Two more sessions of Wren's, so Wren shows three and "1 more" (only work
+ *  nests since WP-34: an agent is where "N more" lives now). */
+async function moreWrenSessions(page: Page) {
+  await page.evaluate(
+    async ({ wren, owner, chart, notes }) => {
+      const invoke = window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__;
+      const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+      if (!invoke || !emit) throw new Error("Expected the mock bridge.");
+      const now = Math.floor(Date.now() / 1000);
+      for (const [id, name, ago] of [
+        [chart, "Tide chart", 26 * 60 * 60],
+        [notes, "Old notes", 21 * 24 * 60 * 60],
+      ] as const) {
+        const real = crypto.randomUUID.bind(crypto);
+        let spent = false;
+        Object.defineProperty(crypto, "randomUUID", {
+          configurable: true,
+          writable: true,
+          value: () => {
+            if (spent) return real();
+            spent = true;
+            return id;
+          },
+        });
+        try {
+          await invoke("create_channel", {
+            channelType: "stream",
+            description: "",
+            name,
+            visibility: "private",
+          });
+        } finally {
+          Object.defineProperty(crypto, "randomUUID", {
+            configurable: true,
+            writable: true,
+            value: real,
+          });
+        }
+        await invoke("add_channel_members", {
+          channelId: id,
+          pubkeys: [wren],
+          role: "bot",
+        });
+        emit({
+          channelId: id,
+          content: `${name}: notes.`,
+          createdAt: now - ago,
+          pubkey: owner,
+        });
+      }
+      await window.__BUZZ_E2E_QUERY_CLIENT__?.invalidateQueries();
+    },
+    { wren: WREN, owner: OWNER, chart: ROOM.chart, notes: ROOM.notes },
+  );
+  await expect(page.getByTestId(`rail-more-agent:${WREN}`)).toBeVisible({
+    timeout: 20_000,
+  });
+}
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
 
@@ -373,12 +436,12 @@ test.describe("the Chats rail", () => {
     const rail = await readRail(page);
     checks.rail = rail;
     const headings = (rail ?? []).filter((each) => "heading" in each);
+    // WP-34, Decided 1: People and Rooms go as sections; Apps comes in.
     expect(headings).toEqual([
-      { heading: "Chats", plus: "New conversation" },
+      { heading: "Chats", plus: "Message Luca" },
       { heading: "Projects", plus: "New project" },
       { heading: "Agents", plus: null },
-      { heading: "People", plus: null },
-      { heading: "Rooms", plus: "New room" },
+      { heading: "Apps", plus: "Connect an app" },
     ]);
     checks.heading_plus = headings[0];
     checks.sections_order = headings.map((each) => each.heading);
@@ -407,14 +470,18 @@ test.describe("the Chats rail", () => {
     };
     expect(dupes).toEqual([]);
 
-    // People: Bob (a person); Alice is an agent by her profile.
+    // A person's 1:1 (Bob's) leaves the rail by Riley's decision (WP-34,
+    // Decided 1), found in Search; Alice is an agent by her profile.
     const people = homes.filter((each) => each.kind === "person");
     const agents = homes.filter((each) => each.kind === "agent");
     checks.people = {
       people: people.map((each) => [each.home, each.channel]),
       agents: agents.map((each) => each.home),
     };
-    expect(people.map((each) => each.channel)).toEqual([BOB_DM]);
+    expect(people).toEqual([]);
+    await expect(
+      page.locator(`[data-shell-rail] [data-channel-id="${BOB_DM}"]`),
+    ).toHaveCount(0);
     // This Mac's agents by name, then any other agent, named by the agent's
     // profile name, not the conversation's title "alice-tyler" (WP-19,
     // Decided 7).
@@ -434,11 +501,24 @@ test.describe("the Chats rail", () => {
       "bob-tyler + charlie",
       "Scratch",
     ]);
-    // Rooms ends on its two ways in.
-    expect((rail ?? []).slice(-2)).toEqual([
+    // The loose rooms follow the projects; Projects ends on the two ways
+    // in, and Agents follows.
+    const browse = (rail ?? []).findIndex(
+      (each) => each.tail === "Browse rooms…",
+    );
+    expect((rail ?? []).slice(browse, browse + 3)).toEqual([
       { tail: "Browse rooms…" },
       { tail: "Archived" },
+      { heading: "Agents", plus: null },
     ]);
+    const projectsAt = (rail ?? []).findIndex(
+      (each) => each.heading === "Projects",
+    );
+    expect(
+      (rail ?? [])
+        .slice(projectsAt, browse)
+        .filter((each) => each.kind === "room").length,
+    ).toBe(rooms.length);
     // The archived room is nowhere in the rail.
     await expect(session(page, ROOM.old)).toHaveCount(0);
     await expect(home(page, `room:${ROOM.old}`)).toHaveCount(0);
@@ -453,99 +533,108 @@ test.describe("the Chats rail", () => {
     await shoot(page, "chats-rail-end");
   });
 
-  test("every home shows its latest three with their times, then N more", async ({
+  test("an agent shows its latest three with their times, then N more", async ({
     page,
   }) => {
+    await moreWrenSessions(page);
     await goChannel(page, ROOM.review);
-    const tidepool = home(page, "project:tidepool").locator("..");
+    const wrenGroup = home(page, `agent:${WREN}`).locator("..");
     const rail = await readRail(page);
-    const tide = (rail ?? []).find((each) => each.home === "Tidepool") as {
+    const wren = (rail ?? []).find((each) => each.home === "Wren") as {
       sessions: { title: string; ago: string | null }[];
       expanded: string | null;
     };
     // Homes start open.
-    expect(tide.expanded).toBe("true");
-    expect(tide.sessions.map((each) => each.title)).toEqual([
-      "Landing page copy",
-      "Chapter nine",
-      "Hero image",
+    expect(wren.expanded).toBe("true");
+    expect(wren.sessions.map((each) => each.title)).toEqual([
+      "Monday plan",
+      "Tide chart",
+      "The tide tables",
       "1 more",
     ]);
-    const more = page.getByTestId("rail-more-project:tidepool");
+    const more = page.getByTestId(`rail-more-agent:${WREN}`);
     await expect(more).toHaveText("1 more");
-    checks.latest_three = tide.sessions.map((each) => each.title);
-    // Times, newest first: minutes to weeks.
+    checks.latest_three = wren.sessions.map((each) => each.title);
+    // Times, newest first: hours to weeks.
     const times = (rail ?? []).flatMap((each) =>
       ((each.sessions as { title: string; ago: string | null }[]) ?? []).map(
         (s) => [s.title, s.ago],
       ),
     );
     checks.times = times;
-    expect(tide.sessions.slice(0, 3).map((each) => each.ago)).toEqual([
-      "2h",
+    expect(wren.sessions.slice(0, 3).map((each) => each.ago)).toEqual([
+      "3h",
       "1d",
-      "3d",
+      "2d",
     ]);
-    const wren = (rail ?? []).find((each) => each.home === "Wren") as {
-      sessions: { title: string; ago: string | null }[];
-    };
-    expect(wren.sessions.map((each) => each.ago)).toEqual(["3h", "2d"]);
+    // Only work nests (WP-34, Decided 3): Luca is one chat and a project's
+    // rooms are in its own column.
     const luca = (rail ?? []).find((each) => each.home === "Luca") as {
-      sessions: { title: string; ago: string | null }[];
+      sessions: unknown[];
+      expanded: string | null;
     };
-    expect(luca.sessions).toEqual([
-      { title: "Weekly review", channel: ROOM.weekly, ago: "5m" },
-    ]);
-    await shoot(page, "home-more", tidepool);
+    expect(luca.sessions).toEqual([]);
+    expect(luca.expanded).toBeNull();
+    const tide = (rail ?? []).find((each) => each.home === "Tidepool") as {
+      sessions: unknown[];
+    };
+    expect(tide.sessions).toEqual([]);
+    await expect(session(page, ROOM.weekly)).toHaveCount(0);
+    await expect(session(page, ROOM.landing)).toHaveCount(0);
+    await shoot(page, "home-more", wrenGroup);
 
     // "1 more" shows the rest, by keyboard too: the focus moves onto the
     // first of them.
     await more.focus();
     await page.keyboard.press("Enter");
     await expect(more).toHaveCount(0);
-    await expect(session(page, ROOM.press)).toBeFocused();
-    await expect(session(page, ROOM.press)).toContainText("2w");
+    await expect(session(page, ROOM.notes)).toBeFocused();
+    await expect(session(page, ROOM.notes)).toContainText("3w");
     checks.more_row = {
       label: "1 more",
-      after: await tidepool
+      after: await wrenGroup
         .locator("fieldset [data-rail-focus=session]")
         .allInnerTexts(),
-      focus_moved_to: ROOM.press,
+      focus_moved_to: ROOM.notes,
     };
-    await shoot(page, "home-more-open", tidepool);
+    await shoot(page, "home-more-open", wrenGroup);
   });
 
   test("the open conversation is always visible", async ({ page }) => {
-    // The oldest of Tidepool's four: shown after the latest three.
-    await goChannel(page, ROOM.press);
-    await expect(session(page, ROOM.press)).toHaveAttribute(
+    // The oldest of Wren's four: shown after the latest three.
+    await moreWrenSessions(page);
+    await goChannel(page, ROOM.notes);
+    await expect(session(page, ROOM.notes)).toHaveAttribute(
       "data-current",
       "true",
     );
-    const titles = await home(page, "project:tidepool")
+    const titles = await home(page, `agent:${WREN}`)
       .locator("..")
       .locator("fieldset [data-rail-focus=session]")
       .allInnerTexts();
-    checks.open_always_visible = { opened: "Press kit", rows: titles };
+    checks.open_always_visible = { opened: "Old notes", rows: titles };
     expect(titles.map((each) => each.split("\n")[0])).toEqual([
-      "Landing page copy",
-      "Chapter nine",
-      "Hero image",
-      "Press kit",
+      "Monday plan",
+      "Tide chart",
+      "The tide tables",
+      "Old notes",
     ]);
-    await expect(
-      home(page, "project:tidepool").locator(".."),
-    ).not.toContainText("more");
+    await expect(home(page, `agent:${WREN}`).locator("..")).not.toContainText(
+      "more",
+    );
     await shoot(page, "open-always-visible");
   });
 
-  test("hover and keyboard show the +; the heading's + is New conversation", async ({
+  test("hover and keyboard show the +; the heading's + is Luca", async ({
     page,
   }) => {
     await goChannel(page, ROOM.review);
     const wren = home(page, `agent:${WREN}`);
     await wren.hover();
-    const plus = wren.getByRole("button", { name: "New session with Wren" });
+    // WP-34, Decided 5: a conversation of your own with the agent.
+    const plus = wren.getByRole("button", {
+      name: "New conversation with Wren",
+    });
     await expect(plus).toHaveCSS("opacity", "1");
     // The slot holds the + alone: no time or dot beside it.
     checks.hover_slot = await wren.evaluate((row) => ({
@@ -558,25 +647,28 @@ test.describe("the Chats rail", () => {
         : "none",
     }));
     await shoot(page, "hover-plus", wren.locator(".."), { keepPointer: true });
-    // People have their one conversation: no +.
-    const bob = home(page, `person:${BOB}`);
-    await bob.hover();
-    await expect(bob.locator(".luca-rail-row-add")).toHaveCount(0);
-    // Focus: Tab from the Luca row reaches its +.
+    // A room is itself, and Luca is one chat: neither has a +.
+    const room = home(page, `room:${ROOM.review}`);
+    await room.hover();
+    await expect(room.locator(".luca-rail-row-add")).toHaveCount(0);
+    await expect(home(page, "luca").locator(".luca-rail-row-add")).toHaveCount(
+      0,
+    );
+    // Focus: Tab from Wren's row reaches its +.
     await page.mouse.move(1400, 880);
-    await hit(page, "luca").focus();
+    await hit(page, `agent:${WREN}`).focus();
     await page.keyboard.press("Tab");
-    const lucaPlus = home(page, "luca").getByRole("button", {
-      name: "New session with Luca",
-    });
-    await expect(lucaPlus).toBeFocused();
-    await shoot(page, "focus-plus", home(page, "luca").locator(".."), {
+    await expect(plus).toBeFocused();
+    await shoot(page, "focus-plus", wren.locator(".."), {
       keepPointer: true,
     });
 
-    // The heading's +: New conversation, and ⌘N stays.
-    await page.getByTestId("rail-new-conversation").click();
-    await expect(page).toHaveURL(/#\/messages\/new/);
+    // The heading's +: Luca's one chat (WP-34, Decided 5); ⌘N stays New
+    // conversation.
+    await page.getByTestId("rail-message-luca").click();
+    await expect(home(page, "luca")).toHaveAttribute("data-active", "true", {
+      timeout: 20_000,
+    });
     await goChannel(page, ROOM.review);
     await expect(home(page, `room:${ROOM.review}`)).toHaveAttribute(
       "data-active",
@@ -584,15 +676,18 @@ test.describe("the Chats rail", () => {
     );
     await page.keyboard.press("Meta+n");
     await expect(page).toHaveURL(/#\/messages\/new/);
-    // Rooms' +: the create-room dialog.
-    await page.getByTestId("create-room").click();
+    // Rooms' + went with Rooms: a room outside any project starts from the
+    // room browser's own "Start a room".
+    await expect(page.getByTestId("create-room")).toHaveCount(0);
+    await page.getByTestId("rail-browse-rooms").click();
     await expect(
-      page.getByRole("dialog").getByText("Create a new room"),
-    ).toBeVisible();
+      page.getByRole("dialog").getByTestId("channel-browser-create-row"),
+    ).toBeVisible({ timeout: 20_000 });
     checks.heading_plus = {
       ...(checks.heading_plus as object),
-      opens: "#/messages/new",
-      rooms_plus: "Create a new room",
+      opens: "Luca",
+      meta_n: "#/messages/new",
+      new_room: "Browse rooms… → Start a room",
     };
   });
 
@@ -650,12 +745,14 @@ test.describe("the Chats rail", () => {
       opens: "channel-management-auxiliary-pane",
       panel_text: (await management.innerText()).slice(0, 240),
     };
-    // A direct conversation's details: no Manage.
+    // A direct conversation's details: no Manage. (A person's 1:1 has no
+    // row in the rail since WP-34: it opens by its address or Search.)
     await goChannel(page, BOB_DM);
-    await expect(home(page, `person:${BOB}`)).toHaveAttribute(
-      "data-active",
-      "true",
-    );
+    await expect(page).toHaveURL(new RegExp(BOB_DM), { timeout: 20_000 });
+    await page.waitForTimeout(800);
+    await expect(
+      page.locator('[data-shell-rail] [data-home][data-active="true"]'),
+    ).toHaveCount(0);
     await page.keyboard.press("Escape");
     const details = page.getByTestId("shell-lip-details");
     if (!(await panel.isVisible().catch(() => false))) await details.click();
@@ -664,13 +761,14 @@ test.describe("the Chats rail", () => {
     (checks.manage as Record<string, unknown>).dm_has_manage = false;
   });
 
-  test("the keyboard moves through every row, People, Rooms and N more", async ({
+  test("the keyboard moves through every row, rooms, apps and N more", async ({
     page,
   }) => {
+    await moreWrenSessions(page);
     await goChannel(page, ROOM.review);
     await hit(page, "luca").focus();
     const order: string[] = [];
-    for (let i = 0; i < 40; i += 1) {
+    for (let i = 0; i < 60; i += 1) {
       const label = await page.evaluate(() => {
         const el = document.activeElement as HTMLElement | null;
         return el
@@ -683,37 +781,40 @@ test.describe("the Chats rail", () => {
     }
     checks.keyboard = { down: order };
     expect(order[0]).toBe("Luca");
-    expect(order).toContain("Show 1 more in Tidepool");
-    expect(order).toContain("bob-tyler");
+    expect(order).toContain("Show 1 more in Wren");
     expect(order).toContain("Design review");
-    expect(order.at(-2)).toBe("Browse rooms…");
-    expect(order.at(-1)).toBe("Archived");
+    const browse = order.indexOf("Browse rooms…");
+    expect(order[browse + 1]).toBe("Archived");
+    expect(order).toContain("Claude Code");
+    expect(order.indexOf("Claude Code")).toBeGreaterThan(browse);
     // Left from a session returns to its home; Left on an open home closes
     // it; Right opens it again.
-    await session(page, ROOM.chapter).focus();
+    await session(page, ROOM.tides).focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(hit(page, "project:tidepool")).toBeFocused();
+    await expect(hit(page, `agent:${WREN}`)).toBeFocused();
     await page.keyboard.press("ArrowLeft");
-    await expect(hit(page, "project:tidepool")).toHaveAttribute(
+    await expect(hit(page, `agent:${WREN}`)).toHaveAttribute(
       "aria-expanded",
       "false",
     );
     await page.keyboard.press("ArrowRight");
-    await expect(hit(page, "project:tidepool")).toHaveAttribute(
+    await expect(hit(page, `agent:${WREN}`)).toHaveAttribute(
       "aria-expanded",
       "true",
     );
-    // Enter on a person's row opens their conversation.
-    await hit(page, `person:${BOB}`).focus();
+    // Enter on a room's row opens it.
+    await hit(page, `room:${ROOM.scratch}`).focus();
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(new RegExp(BOB_DM));
+    await expect(page).toHaveURL(new RegExp(ROOM.scratch));
     // A closed home stays closed after a reload of the rail.
-    await hit(page, "project:tidepool").focus();
+    await hit(page, `agent:${WREN}`).focus();
     await page.keyboard.press("ArrowLeft");
     await page.reload();
-    await expect(home(page, "project:tidepool")).toBeVisible({
-      timeout: 20_000,
-    });
+    await expect(hit(page, `agent:${WREN}`)).toHaveAttribute(
+      "aria-expanded",
+      "false",
+      { timeout: 20_000 },
+    );
     (checks.keyboard as Record<string, unknown>).left_right_enter = true;
   });
 
@@ -877,44 +978,47 @@ test.describe("the review's fixes", () => {
       .toBe(true);
     const byRoute = await inView(page, reviewRow);
     await fixShot(page, "fix1-by-route-800");
-    // Back up to Luca's session by route: the rail scrolls up to its row.
+    // Back up to Luca by route: the rail scrolls up to its row (Luca nests
+    // nothing since WP-34).
     await goChannel(page, ROOM.weekly);
 
     await expect
       .poll(() =>
-        inView(page, `[data-testid="rail-session-${ROOM.weekly}"]`).then(
+        inView(page, '[data-testid="rail-home-luca"]').then(
           (v) => v?.rowTop ?? -1,
         ),
       )
       .toBeGreaterThanOrEqual(0);
-    // A folded home: its row comes into view instead.
-    await hit(page, "project:tidepool").focus();
+    // A folded home: its row comes into view instead (an agent's: only
+    // work nests).
+    await hit(page, `agent:${WREN}`).focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(session(page, ROOM.press)).toHaveCount(0);
+    await expect(session(page, ROOM.tides)).toHaveCount(0);
     const scroller = page.locator(
       '[data-testid="app-sidebar-scroll-anchor"] [data-sidebar="content"]',
     );
     await scroller.evaluate((el) => {
-      el.scrollTop = el.scrollHeight;
+      el.scrollTop = 0;
     });
-    await goChannel(page, ROOM.press);
+    await goChannel(page, ROOM.tides);
+    const wrenRow = `[data-testid="rail-home-agent:${WREN}"]`;
     await expect
       .poll(() =>
-        inView(page, '[data-testid="rail-home-project:tidepool"]').then((v) =>
+        inView(page, wrenRow).then((v) =>
           v ? v.rowTop >= 0 && v.clearOfFade : false,
         ),
       )
       .toBe(true);
-    const folded = await inView(
-      page,
-      '[data-testid="rail-home-project:tidepool"]',
-    );
-    // A click in the rail never scrolls it.
-    await scroller.evaluate((el) => {
-      el.scrollTop = 120;
-    });
-    const before = await scroller.evaluate((el) => el.scrollTop);
+    const folded = await inView(page, wrenRow);
+    await home(page, `agent:${WREN}`).locator("[data-chevron]").click();
+    // The reveal's glide (320) settles before the rail is scrolled by hand.
+    await page.waitForTimeout(600);
+    // A click in the rail never scrolls it. The row is put in the middle
+    // of the view first, so the click itself has nothing to scroll to.
     const wren = page.getByTestId(`rail-session-${ROOM.monday}`);
+    await wren.evaluate((row) => row.scrollIntoView({ block: "center" }));
+    await page.waitForTimeout(300);
+    const before = await scroller.evaluate((el) => el.scrollTop);
     await wren.click();
     await expect(page.getByTestId("shell-lip-name")).toHaveText("Monday plan");
     await page.waitForTimeout(600);
@@ -924,9 +1028,11 @@ test.describe("the review's fixes", () => {
     await scroller.evaluate((el) => {
       el.scrollTop = 0;
     });
-    await goChannel(page, ROOM.scratch);
-    await expect(home(page, `room:${ROOM.scratch}`)).toHaveAttribute(
-      "data-active",
+    // A row below the view: Wren's session (the loose rooms sit near the
+    // top since WP-34, already in view).
+    await goChannel(page, ROOM.tides);
+    await expect(session(page, ROOM.tides)).toHaveAttribute(
+      "data-current",
       "true",
     );
     const reduced = await page.evaluate(
@@ -955,7 +1061,7 @@ test.describe("the review's fixes", () => {
     expect(before).toBe(after);
     expect(new Set(reduced).size).toBe(1);
     expect(reduced[0]).toBeGreaterThan(0);
-    await fixShot(page, "fix1-reduced-scratch-800");
+    await fixShot(page, "fix1-reduced-tides-800");
   });
 
   test("fix 2: a chat you just made comes first", async ({ page }) => {
@@ -1029,8 +1135,9 @@ test.describe("the review's fixes", () => {
   }) => {
     await boot(page, { shell: true });
     await seedScene(page);
-    await goChannel(page, ROOM.chapter);
-    await expect(session(page, ROOM.chapter)).toHaveAttribute(
+    await moreWrenSessions(page);
+    await goChannel(page, ROOM.monday);
+    await expect(session(page, ROOM.monday)).toHaveAttribute(
       "data-current",
       "true",
     );
@@ -1057,12 +1164,15 @@ test.describe("the review's fixes", () => {
       const thread = current?.closest(".luca-rail-sessions");
       return {
         rail_display: rail ? getComputedStyle(rail).display : null,
+        // Since WP-34 Luca and the projects nest nothing: the gap after a
+        // closed home is Projects' after Luca; after the last row of a
+        // section, Agents' after Archived.
         gap_after_open_home:
-          top('[data-testid="rail-section-project"] .luca-rail-section-head') -
-          bottom('[data-home-group="luca"] fieldset'),
-        gap_after_closed_home:
           top('[data-testid="rail-section-agent"] .luca-rail-section-head') -
-          bottom('[data-home-group="project:field-guide"]'),
+          bottom('[data-testid="rail-archived-rooms"]'),
+        gap_after_closed_home:
+          top('[data-testid="rail-section-project"] .luca-rail-section-head') -
+          bottom('[data-home-group="luca"]'),
         session_padding_left: current
           ? getComputedStyle(current).paddingLeft
           : null,
@@ -1075,19 +1185,32 @@ test.describe("the review's fixes", () => {
         thread_x: thread
           ? Math.round(thread.getBoundingClientRect().left - left)
           : null,
-        lit_segment_left: current
-          ? getComputedStyle(current, "::before").left
+        // The open row brightens its words and nothing else (WP-34,
+        // Decided 4): its stretch of the thread is the thread's own ink.
+        lit_segment_color: current
+          ? getComputedStyle(current, "::before").borderLeftColor
           : null,
-        lit_segment_x: current
-          ? Math.round(
-              current.getBoundingClientRect().left -
-                left +
-                Number.parseFloat(getComputedStyle(current, "::before").left),
-            )
+        thread_color: document.querySelector(
+          "[data-shell-rail] .luca-rail-session:not([data-current]):not(.luca-rail-session-more)",
+        )
+          ? getComputedStyle(
+              document.querySelector(
+                "[data-shell-rail] .luca-rail-session:not([data-current]):not(.luca-rail-session-more)",
+              ) as Element,
+              "::before",
+            ).borderLeftColor
           : null,
+        title_from_thread:
+          title && thread
+            ? Math.round(
+                (title.getBoundingClientRect().left -
+                  thread.getBoundingClientRect().left) *
+                  100,
+              ) / 100
+            : null,
         trailing: {
           heading_plus_glyph: right(
-            document.querySelector('[data-testid="rail-new-conversation"] svg'),
+            document.querySelector('[data-testid="rail-message-luca"] svg'),
           ),
           session_time: right(
             document.querySelector("[data-shell-rail] .luca-rail-session-ago"),
@@ -1118,37 +1241,40 @@ test.describe("the review's fixes", () => {
       sessions_padding_left: m.sessions_padding_left,
       title_x: m.title_x,
       thread_x: m.thread_x,
-      lit_segment_left: m.lit_segment_left,
-      lit_segment_x: m.lit_segment_x,
+      lit_segment_color: m.lit_segment_color,
+      thread_color: m.thread_color,
+      title_from_thread: m.title_from_thread,
     };
     fixChecks.fix_11 = m.trailing;
     expect(m.rail_display).toBe("block");
     expect(m.gap_after_open_home).toBe(14);
     expect(m.session_padding_left).toBe("8px");
-    expect(m.sessions_padding_left).toBe("5px");
-    expect(m.title_x).toBe(30);
-    expect(m.lit_segment_x).toBe(m.thread_x);
+    // WP-34, Decided 4: the thread under the face's centre, the words 19
+    // from it.
+    expect(m.sessions_padding_left).toBe("11px");
+    expect(m.title_from_thread).toBe(19);
+    expect(m.lit_segment_color).toBe(m.thread_color);
     expect(m.trailing.session_time).toBe(204);
     expect(m.trailing.heading_plus_glyph).toBe(204);
     await fixShot(page, "fix3-rail");
     // The focus ring with air: a session and "N more".
     await page.keyboard.press("Shift");
-    await session(page, ROOM.chapter).focus();
+    await session(page, ROOM.tides).focus();
     const card = await page
       .locator('[data-frame] [data-sidebar="sidebar"]')
       .boundingBox();
-    const box = await session(page, ROOM.chapter).boundingBox();
+    const box = await session(page, ROOM.tides).boundingBox();
     if (card && box)
       await fixShot(
         page,
         "fix9-focus-session",
-        page.locator('[data-home-group="project:tidepool"]'),
+        page.locator(`[data-home-group="agent:${WREN}"]`),
       );
-    await page.getByTestId("rail-more-project:tidepool").focus();
+    await page.getByTestId(`rail-more-agent:${WREN}`).focus();
     await fixShot(
       page,
       "fix9-focus-more",
-      page.locator('[data-home-group="project:tidepool"]'),
+      page.locator(`[data-home-group="agent:${WREN}"]`),
     );
     // The +'s glyph on the trailing edge too, shown by focus.
     await hit(page, "project:tidepool").focus();
@@ -1177,7 +1303,7 @@ test.describe("the review's fixes", () => {
       "data-active",
       "true",
     );
-    // Unread on a person's row and on a room's row.
+    // Unread on a person's 1:1 (no row since WP-34) and on a room's row.
     await page.evaluate(
       ({ bob, bobDm, scratch, owner }) => {
         void owner;
@@ -1194,7 +1320,8 @@ test.describe("the review's fixes", () => {
       },
       { bob: BOB, bobDm: BOB_DM, scratch: ROOM.scratch, owner: OWNER },
     );
-    const bob = home(page, `person:${BOB}`);
+    // A row with no + (a room) keeps its dot under the pointer and focus.
+    const bob = home(page, `room:${ROOM.scratch}`);
     await expect(bob.locator(".luca-rail-dot")).toBeVisible({
       timeout: 10_000,
     });
@@ -1202,12 +1329,12 @@ test.describe("the review's fixes", () => {
     const hovered = await bob
       .locator(".luca-rail-signal")
       .evaluate((el) => getComputedStyle(el).visibility);
-    await hit(page, `person:${BOB}`).focus();
+    await hit(page, `room:${ROOM.scratch}`).focus();
     await page.keyboard.press("Shift");
     const focused = await bob
       .locator(".luca-rail-signal")
       .evaluate((el) => getComputedStyle(el).visibility);
-    await fixShot(page, "fix4-person-hover-dot", bob);
+    await fixShot(page, "fix4-room-hover-dot", bob);
     // fix 11: a home's signal ends on the trailing column too.
     await page.mouse.move(1400, 880);
     const dotRight = await page.evaluate((id) => {
@@ -1219,7 +1346,7 @@ test.describe("the review's fixes", () => {
         ? Math.round((dot.getBoundingClientRect().right - card.left) * 100) /
             100
         : null;
-    }, `person:${BOB}`);
+    }, `room:${ROOM.scratch}`);
     fixChecks.fix_11_home_signal_dot = dotRight;
     expect(dotRight).toBe(204);
     // No + on any room.
@@ -1259,8 +1386,8 @@ test.describe("the review's fixes", () => {
     await expect(wrenRow.locator(".luca-rail-working")).toBeVisible();
     await fixShot(page, "fix10-working-folded", wrenRow.locator(".."));
     fixChecks.fix_4 = {
-      person_dot_on_hover: hovered,
-      person_dot_on_focus: focused,
+      room_dot_on_hover: hovered,
+      room_dot_on_focus: focused,
     };
     fixChecks.fix_7 = { room_rows_with_plus: roomPluses };
     fixChecks.fix_10 = {
@@ -1358,30 +1485,31 @@ test.describe("the review's fixes", () => {
   }) => {
     await boot(page, { shell: true });
     await seedScene(page);
+    await moreWrenSessions(page);
     await goChannel(page, ROOM.review);
-    const group = page.locator('[data-home-group="project:tidepool"]');
+    const group = page.locator(`[data-home-group="agent:${WREN}"]`);
     const rows = () =>
       group.locator("fieldset [data-rail-focus=session]").allInnerTexts();
-    const more = page.getByTestId("rail-more-project:tidepool");
+    const more = page.getByTestId(`rail-more-agent:${WREN}`);
     await more.focus();
     await page.keyboard.press("Enter");
-    await expect(session(page, ROOM.press)).toBeFocused();
+    await expect(session(page, ROOM.notes)).toBeFocused();
     const open = await rows();
     await page.mouse.move(1400, 880);
     await fixShot(page, "fix8-open", group);
-    const fewer = page.getByTestId("rail-fewer-project:tidepool");
+    const fewer = page.getByTestId(`rail-fewer-agent:${WREN}`);
     await fewer.focus();
     await page.keyboard.press("Enter");
     await expect(more).toBeFocused();
     const folded = await rows();
     fixChecks.fix_8 = { open, folded, focus_after_fewer: "1 more" };
     expect(open.at(-1)).toBe("Show fewer");
-    expect(open.map((t) => t.split("\n")[0])).toContain("Press kit");
+    expect(open.map((t) => t.split("\n")[0])).toContain("Old notes");
     expect(folded.at(-1)).toBe("1 more");
     await fixShot(page, "fix8-folded", group);
   });
 
-  test("fixes 13, 14, 15: Rooms with none, lowercase states, a named nav", async ({
+  test("fixes 13, 14, 15: no loose rooms, lowercase states, a named nav", async ({
     page,
   }) => {
     await boot(page, { shell: true, atlasError: "The harness exited." });
@@ -1415,8 +1543,10 @@ test.describe("the review's fixes", () => {
     const heads = await page
       .locator("[data-shell-rail] .luca-rail-section-head > span")
       .allTextContents();
-    const rooms = page.getByTestId("rail-section-room");
-    await expect(rooms.getByTestId("create-room")).toBeVisible();
+    // With no loose rooms, Projects still ends on its two ways in (WP-34,
+    // Decided 1), its + there.
+    const rooms = page.getByTestId("rail-section-project");
+    await expect(rooms.getByTestId("create-channel")).toBeVisible();
     await expect(rooms.getByTestId("rail-browse-rooms")).toBeVisible();
     await expect(rooms.getByTestId("rail-archived-rooms")).toBeVisible();
     await rooms.scrollIntoViewIfNeeded();
@@ -1442,7 +1572,7 @@ test.describe("the review's fixes", () => {
       "Chats",
       "Projects",
       "Agents",
-      "Rooms",
+      "Apps",
     ]);
     expect(status).toBe("needs attention");
     expect(label).toContain("needs attention");

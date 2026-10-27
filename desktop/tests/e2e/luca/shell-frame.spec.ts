@@ -455,8 +455,9 @@ test("the frame, Black, dark", async ({ page }, info) => {
   files.push(await shot(page, dir, "avatar-menu"));
   await page.keyboard.press("Escape");
   await expect(page.getByRole("tooltip")).toHaveCount(0);
-  // New conversation left the places for the Chats rail's heading (its +).
-  await page.getByTestId("rail-new-conversation").click();
+  // New conversation left the places: it is ⌘N (the Chats rail's + opens
+  // Luca's one chat since WP-34, Decided 5).
+  await page.keyboard.press("Meta+n");
   await expect(page).toHaveURL(/\/messages\/new/);
   capabilities.new_conversation = true;
   capabilities.new_conversation_name =

@@ -26,7 +26,15 @@ import type { ChatListItem } from "./chatListModel";
  * (`shownHomeEntries`), each opening the room where it happened.
  */
 
-export type RailHomeKind = "luca" | "project" | "agent" | "person" | "room";
+/** An `app` is a connected app's home (WP-34), made by the rail from the
+ *  apps on this Mac, never by `buildRailHomes`. */
+export type RailHomeKind =
+  | "luca"
+  | "project"
+  | "agent"
+  | "person"
+  | "room"
+  | "app";
 
 export type RailHome = {
   /** Stable across renders and reloads: expansion is remembered by it. */

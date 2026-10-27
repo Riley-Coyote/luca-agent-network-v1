@@ -21,7 +21,6 @@ const AgentsView = React.lazy(async () => {
 const AGENT_LIBRARY_SEARCH_KEYS = [
   "add",
   "at",
-  "connected",
   "group",
   "profile",
   "profilePersona",
@@ -161,7 +160,6 @@ export function AgentsScreen() {
               ? values.add
               : null
           }
-          connectedKey={shellFrame ? values.connected : null}
           groupId={shellFrame ? values.group : null}
           focusAt={shellFrame ? (parseMindSettingsAt(values.at) ?? null) : null}
           mindSection={mindSection}

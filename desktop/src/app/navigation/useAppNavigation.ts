@@ -97,6 +97,23 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  /** What needs you, in the Chats card (WP-34, Decided 2). */
+  const goNeedsYou = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation({ to: "/needs-you" }, behavior),
+    [commitNavigation],
+  );
+
+  /** A connected app's page, in the Chats card (WP-34, Decided 9). */
+  const goApp = React.useCallback(
+    (family: string, behavior?: NavigationBehavior) =>
+      commitNavigation(
+        { to: "/apps/$appId", params: { appId: family } },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goInbox = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -394,12 +411,14 @@ export function useAppNavigation() {
     closeWorkflowDetail,
     goAgent,
     goAgents,
+    goApp,
     goArtifacts,
     goBrain,
     goChannel,
     goForumPost,
     goHome,
     goInbox,
+    goNeedsYou,
     goNewMessage,
     goProject,
     goProjects,

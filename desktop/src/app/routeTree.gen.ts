@@ -10,6 +10,7 @@ import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as remindersRouteImport } from "./routes/reminders";
 import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
+import { Route as needsYouRouteImport } from "./routes/needs-you";
 import { Route as inboxRouteImport } from "./routes/inbox";
 import { Route as brainRouteImport } from "./routes/brain";
 import { Route as artifactsRouteImport } from "./routes/artifacts";
@@ -19,6 +20,7 @@ import { Route as workflowsDotworkflowIdRouteImport } from "./routes/workflows.$
 import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$projectId";
 import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
+import { Route as appsDotappIdRouteImport } from "./routes/apps.$appId";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
 
 const workflowsRoute = workflowsRouteImport.update({
@@ -44,6 +46,11 @@ const pulseRoute = pulseRouteImport.update({
 const projectsRoute = projectsRouteImport.update({
   id: "/projects",
   path: "/projects",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const needsYouRoute = needsYouRouteImport.update({
+  id: "/needs-you",
+  path: "/needs-you",
   getParentRoute: () => rootRouteImport,
 } as any);
 const inboxRoute = inboxRouteImport.update({
@@ -91,6 +98,11 @@ const channelsDotchannelIdRoute = channelsDotchannelIdRouteImport.update({
   path: "/channels/$channelId",
   getParentRoute: () => rootRouteImport,
 } as any);
+const appsDotappIdRoute = appsDotappIdRouteImport.update({
+  id: "/apps/$appId",
+  path: "/apps/$appId",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const channelsDotchannelIdDotpostsDotpostIdRoute =
   channelsDotchannelIdDotpostsDotpostIdRouteImport.update({
     id: "/channels/$channelId/posts/$postId",
@@ -104,11 +116,13 @@ export interface FileRoutesByFullPath {
   "/artifacts": typeof artifactsRoute;
   "/brain": typeof brainRoute;
   "/inbox": typeof inboxRoute;
+  "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/apps/$appId": typeof appsDotappIdRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -121,11 +135,13 @@ export interface FileRoutesByTo {
   "/artifacts": typeof artifactsRoute;
   "/brain": typeof brainRoute;
   "/inbox": typeof inboxRoute;
+  "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/apps/$appId": typeof appsDotappIdRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -139,11 +155,13 @@ export interface FileRoutesById {
   "/artifacts": typeof artifactsRoute;
   "/brain": typeof brainRoute;
   "/inbox": typeof inboxRoute;
+  "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
+  "/apps/$appId": typeof appsDotappIdRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -158,11 +176,13 @@ export interface FileRouteTypes {
     | "/artifacts"
     | "/brain"
     | "/inbox"
+    | "/needs-you"
     | "/projects"
     | "/pulse"
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/apps/$appId"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -175,11 +195,13 @@ export interface FileRouteTypes {
     | "/artifacts"
     | "/brain"
     | "/inbox"
+    | "/needs-you"
     | "/projects"
     | "/pulse"
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/apps/$appId"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -192,11 +214,13 @@ export interface FileRouteTypes {
     | "/artifacts"
     | "/brain"
     | "/inbox"
+    | "/needs-you"
     | "/projects"
     | "/pulse"
     | "/reminders"
     | "/settings"
     | "/workflows"
+    | "/apps/$appId"
     | "/channels/$channelId"
     | "/messages/new"
     | "/projects/$projectId"
@@ -210,11 +234,13 @@ export interface RootRouteChildren {
   artifactsRoute: typeof artifactsRoute;
   brainRoute: typeof brainRoute;
   inboxRoute: typeof inboxRoute;
+  needsYouRoute: typeof needsYouRoute;
   projectsRoute: typeof projectsRoute;
   pulseRoute: typeof pulseRoute;
   remindersRoute: typeof remindersRoute;
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
+  appsDotappIdRoute: typeof appsDotappIdRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
@@ -257,6 +283,13 @@ declare module "@tanstack/react-router" {
       path: "/projects";
       fullPath: "/projects";
       preLoaderRoute: typeof projectsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/needs-you": {
+      id: "/needs-you";
+      path: "/needs-you";
+      fullPath: "/needs-you";
+      preLoaderRoute: typeof needsYouRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/inbox": {
@@ -322,6 +355,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof channelsDotchannelIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/apps/$appId": {
+      id: "/apps/$appId";
+      path: "/apps/$appId";
+      fullPath: "/apps/$appId";
+      preLoaderRoute: typeof appsDotappIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/channels/$channelId/posts/$postId": {
       id: "/channels/$channelId/posts/$postId";
       path: "/channels/$channelId/posts/$postId";
@@ -338,11 +378,13 @@ const rootRouteChildren: RootRouteChildren = {
   artifactsRoute: artifactsRoute,
   brainRoute: brainRoute,
   inboxRoute: inboxRoute,
+  needsYouRoute: needsYouRoute,
   projectsRoute: projectsRoute,
   pulseRoute: pulseRoute,
   remindersRoute: remindersRoute,
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,
+  appsDotappIdRoute: appsDotappIdRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,

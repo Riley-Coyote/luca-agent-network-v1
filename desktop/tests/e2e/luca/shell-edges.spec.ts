@@ -979,9 +979,10 @@ async function tooltips(page: Page) {
     }).toPass({ timeout: 15_000 });
     places.push((await tip.innerText()).replace(/\s+/g, " ").trim());
   }
+  // The Chats rail's +: Luca's one chat, which has no key of its own
+  // (WP-34, Decided 5); ⌘N stays New conversation.
   const newConversation = (
-    (await page.getByTestId("rail-new-conversation").getAttribute("title")) ??
-    ""
+    (await page.getByTestId("rail-message-luca").getAttribute("title")) ?? ""
   )
     .replace(/\s+/g, " ")
     .trim();
@@ -1100,7 +1101,7 @@ test("without native lights the toggle heads the places' column and the tooltips
         back: "Go back (⌘[)",
         forward: "Go forward (⌘])",
         search: "Search ⌘K",
-        newConversation: "New conversation ⌘N",
+        newConversation: "Message Luca",
         settings: "Settings ⌘,",
         avatar: "⌘,",
       },
@@ -1119,7 +1120,7 @@ test("without native lights the toggle heads the places' column and the tooltips
         back: "Go back (Alt+←)",
         forward: "Go forward (Alt+→)",
         search: "Search Ctrl+K",
-        newConversation: "New conversation Ctrl+N",
+        newConversation: "Message Luca",
         settings: "Settings Ctrl+,",
         avatar: "Ctrl+,",
       },
@@ -1229,7 +1230,7 @@ test("with the Mac's lights the toggle sits past them, and in full screen where 
     tips.lip[1] === "Go back (⌘[)" &&
     tips.lip[2] === "Go forward (⌘])" &&
     tips.places[0] === "Search ⌘K" &&
-    tips.newConversation === "New conversation ⌘N" &&
+    tips.newConversation === "Message Luca" &&
     tips.places[1] === "Settings ⌘,";
   checks.tooltips_native_mac_window = {
     platform,
