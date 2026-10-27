@@ -95,13 +95,14 @@
   outline-color: color-mix(in srgb, var(--luca-frame-ink) 55%, transparent);
 }
 
-/* Every layer that paints the floor clears: the list railGlass.css already
- * clears for `data-luca-native-glass` (railGlass.css:171-186), less the rail's
- * own `[data-sidebar="sidebar"]` (the rail is a card in the shell, and cards
- * are never glass), plus the shell's own floor (`[data-luca-frame-floor]`),
- * the Settings panels card's host, loaded and loading, whose right and bottom
- * edge is the frame's floor (`[data-luca-settings-card-host]`,
- * shell-settings.css), and the root itself (shellStudy.css:60). */
+/* Every layer that paints the floor clears: the root and body, the theme's
+ * shell layer, the huddle surfaces, the glass insets and the floor hosts (the
+ * rail's own `[data-sidebar="sidebar"]` stays: the rail is a card in the
+ * shell, and cards are never glass), plus the shell's own floor
+ * (`[data-luca-frame-floor]`), the Settings panels card's host, loaded and
+ * loading, whose right and bottom edge is the frame's floor
+ * (`[data-luca-settings-card-host]`, shell-settings.css), and the root itself
+ * (shellStudy.css:60). */
 :root[data-luca-frame-glass],
 :root[data-luca-frame-glass] body,
 :root[data-luca-frame-glass]

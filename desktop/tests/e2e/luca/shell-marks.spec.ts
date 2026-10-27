@@ -1124,7 +1124,9 @@ test.describe("the solid marks, under the frame", () => {
   });
 });
 
-test("positive control, flag off: today's pill and pour still attach", async ({
+// WP-32: Apple's glass belongs to the shell. Flag off (the classic layout),
+// today's web pill still draws and the native pour never attaches.
+test("flag off: today's pill draws, the native pour stays out", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -1139,7 +1141,7 @@ test("positive control, flag off: today's pill and pour still attach", async ({
   }));
   checks.flag_off_control = {
     ...state,
-    ok: state.pour_calls > 0 && state.pills >= 1 && state.marks === 0,
+    ok: state.pour_calls === 0 && state.pills >= 1 && state.marks === 0,
   };
   verdict("flag_off_control");
 });

@@ -44,7 +44,6 @@ import {
 } from "@/features/messages/lib/messageTextSizePreference";
 import type { StreamingTextEffect } from "@/shared/ui/markdownStreamingText";
 import { RuntimeRailPinsSettings } from "@/features/runtime-sessions/RuntimeRailPinsSettings";
-import { NativeGlassSettings } from "@/features/sidebar/ui/NativeGlassSettings";
 import {
   type ProjectRoomsPlacement,
   setProjectRoomsPlacement,
@@ -656,13 +655,6 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
       )}
 
       {shellFrame ? null : <ClassicLayoutGroup />}
-
-      {shellFrame ? null : (
-        <>
-          {/* Native glass test builds only: what the card and the rail's selection are made of. */}
-          <NativeGlassSettings />
-        </>
-      )}
 
       {/* Theme grid — without the frame constrained to ~3 rows and
           scrolling internally; under the frame every theme shows, with its

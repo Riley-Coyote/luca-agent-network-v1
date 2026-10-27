@@ -693,7 +693,42 @@ test("native glass announced, flag on: the rail's reporter stands aside", async 
 
 // ── the flag off ────────────────────────────────────────────────────────
 
-test("flag off: no Frame row, the rail glass settings and reporter as before", async ({
+/** The classic layout's floor and rail, as the page paints them: every
+ *  layer's background, the web pill, and whether the glass marked the root. */
+const measureClassic = (page: Page) =>
+  page.evaluate(() => {
+    const paint = (selector: string) =>
+      [...document.querySelectorAll<HTMLElement>(selector)].map(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+    return {
+      html: paint("html"),
+      body: paint("body"),
+      shellLayer: paint(".luca-theme-shell-layer"),
+      floorHosts: paint("[data-luca-floor-host]"),
+      rail: paint('[data-sidebar="sidebar"]'),
+      card: paint("[data-luca-card]").slice(0, 1),
+      pills: document.querySelectorAll(".luca-rail-glass").length,
+      nativeRoot: document.documentElement.getAttribute(
+        "data-luca-native-glass",
+      ),
+      frameGlass: document.documentElement.getAttribute(
+        "data-luca-frame-glass",
+      ),
+    };
+  });
+
+const opaque = (colour: string) => {
+  const [, , , alpha = 1] = (colour.match(/[\d.]+/g) ?? []).map(Number);
+  return colour !== "transparent" && alpha === 1;
+};
+
+// WP-32: Apple's glass belongs to the shell. With the shell off (the classic
+// layout), an app whose glass announces itself draws exactly what a beta.13
+// app did: nothing reaches the glass, the floor and the rail stay opaque at
+// the same colours, and Appearance has no glass controls. Whatever the stored
+// Frame choice is.
+test("flag off: Appearance offers no glass controls, even with the glass announced", async ({
   page,
 }) => {
   await fakeNativeGlass(page);
@@ -702,22 +737,103 @@ test("flag off: no Frame row, the rail glass settings and reporter as before", a
   await setShellFrame(page, false);
   await openAppearance(page);
   await expect(frameRow(page)).toHaveCount(0);
-  await expect(page.getByTestId("settings-native-glass")).toBeVisible();
-  expect(await rootAttribute(page, "data-luca-frame")).toBeNull();
-  const log = await commandLog(page);
-  expect(
-    log.some((entry) => entry.command === "set_traffic_lights_inset"),
-  ).toBe(false);
-  await page.goto(`/#/channels/${GENERAL_CHANNEL_ID}`);
-  await page.locator("[data-luca-card]").first().waitFor();
-  await expect
-    .poll(() => rootAttribute(page, "data-luca-native-glass"))
-    .toBe("surface");
-  const messages = await glassMessages(page);
-  expect(
-    messages.some((message) => message.type === "frame" && "sheet" in message),
-  ).toBe(false);
+  await expect(page.getByTestId("settings-native-glass")).toHaveCount(0);
+  await expect(page.getByText("Apple glass", { exact: true })).toHaveCount(0);
+  expect(await glassMessages(page)).toEqual([]);
 });
+
+for (const frame of ["solid", "glass"] as const) {
+  test(`flag off, frame ${frame}: the glass stays out of the classic layout`, async ({
+    browser,
+    baseURL,
+  }) => {
+    const runs: {
+      label: string;
+      shot: string;
+      measured: Awaited<ReturnType<typeof measureClassic>>;
+      messages: GlassMessage[];
+      colours: number;
+    }[] = [];
+    for (const label of ["announced", "beta13-style"] as const) {
+      const context = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        deviceScaleFactor: 2,
+      });
+      await context.clock.install({ time: new Date("2026-10-26T18:30:00") });
+      const page = await context.newPage();
+      await page.addInitScript((value) => {
+        window.localStorage.setItem("polyphonic-frame", value);
+      }, frame);
+      if (label === "announced") await fakeNativeGlass(page);
+      await fakeTauri(page);
+      await installMockBridge(page);
+      await setShellFrame(page, false);
+      await page.goto(`${baseURL ?? ""}/#/channels/${GENERAL_CHANNEL_ID}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(
+        page.getByText("Hey team — checking in.").first(),
+      ).toBeVisible({ timeout: 20_000 });
+      await page.waitForTimeout(1500);
+      await waitForAnimations(page);
+      await railGlassAtRest(page);
+      const measured = await measureClassic(page);
+      const shot = `${SHOTS}/wp32-classic-${frame}-${label}.png`;
+      const png = await page.screenshot({
+        path: shot,
+        animations: "disabled",
+        caret: "hide",
+        mask: [
+          page.locator(
+            ".composer-agent-ledge, .luca-chat-agent-mark__mote, mote-3d",
+          ),
+        ],
+      });
+      // A shot of one colour would match anything: count a sample's colours.
+      const colours = await page.evaluate(async (b64) => {
+        const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+        const bmp = await createImageBitmap(blob);
+        const canvas = new OffscreenCanvas(bmp.width, bmp.height);
+        const g = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+        g.drawImage(bmp, 0, 0);
+        const data = g.getImageData(0, 0, bmp.width, bmp.height).data;
+        const seen = new Set<number>();
+        for (let i = 0; i < data.length && seen.size < 64; i += 4 * 97)
+          seen.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+        return seen.size;
+      }, png.toString("base64"));
+      const messages = label === "announced" ? await glassMessages(page) : [];
+      runs.push({ label, shot, measured, messages, colours });
+      await context.close();
+    }
+    const [announced, plain] = runs;
+    test.info().annotations.push({
+      type: "classic",
+      description: JSON.stringify({
+        frame,
+        announced: announced.measured,
+        plain: plain.measured,
+        hashes: runs.map((run) => hash(run.shot)),
+        colours: runs.map((run) => run.colours),
+      }),
+    });
+    // Nothing is sent to the glass, and nothing marks the root for it.
+    expect(announced.messages).toEqual([]);
+    expect(announced.measured.nativeRoot).toBeNull();
+    expect(announced.measured.frameGlass).toBeNull();
+    // The floor and the rail are opaque, the web pill is drawn, as in beta.13.
+    expect(
+      [...announced.measured.html, ...announced.measured.body].some(opaque),
+    ).toBe(true);
+    expect(announced.measured.rail.length).toBeGreaterThan(0);
+    expect(announced.measured.rail.every(opaque)).toBe(true);
+    expect(announced.measured.pills).toBeGreaterThan(0);
+    // The same colours, and the same pixels, as a page with no glass at all.
+    expect(announced.measured).toEqual(plain.measured);
+    expect(announced.colours).toBeGreaterThan(8);
+    expect(hash(announced.shot)).toBe(hash(plain.shot));
+  });
+}
 
 const hash = (path: string) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
