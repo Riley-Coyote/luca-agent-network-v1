@@ -107,6 +107,9 @@ test("buildTimelineItems: system messages flatten to a 'system' item", () => {
       id: "sys",
       kind: KIND_SYSTEM_MESSAGE,
       createdAt: dayAt(2026, 6, 14, 13),
+      // A note the timeline has words for (one without is not a message:
+      // systemNotes.ts).
+      body: JSON.stringify({ type: "topic_changed", actor: "author" }),
     }),
   ];
   const { items } = buildTimelineItems(entries, null);

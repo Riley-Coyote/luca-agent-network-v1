@@ -7,6 +7,8 @@
  * React.
  */
 
+import { placeDayLabel } from "@/app/shell/placeRails/placeDays";
+
 export type MindKind = "you" | "own" | "journal" | "memory";
 export type MindFilter = "all" | MindKind;
 
@@ -125,20 +127,15 @@ function dayKey(at: number): string {
   return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 }
 
-/** Today, Yesterday, then dates (with the year once it is another year). */
+/** A day's name, as every page that groups by day says it (placeDays.ts). */
 export function dayLabel(at: number, now: number = Date.now()): string {
-  const day = new Date(at);
-  const today = new Date(now);
-  if (day.toDateString() === today.toDateString()) return "Today";
-  const yesterday = new Date(now);
-  yesterday.setDate(today.getDate() - 1);
-  if (day.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return new Intl.DateTimeFormat(
-    undefined,
-    day.getFullYear() === today.getFullYear()
-      ? { day: "numeric", month: "short" }
-      : { day: "numeric", month: "short", year: "numeric" },
-  ).format(day);
+  return placeDayLabel(at, now);
+}
+
+/** What an empty Notebook says it holds (BETA14_RELEASE.md WP-37,
+ *  Decided 2). */
+export function emptyDaysLine(name: string): string {
+  return `${name}'s days will gather here: what they do for you, their own work, their journal.`;
 }
 
 /** An entry's time of day. */

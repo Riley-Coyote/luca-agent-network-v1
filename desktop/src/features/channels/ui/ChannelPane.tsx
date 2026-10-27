@@ -60,6 +60,7 @@ import {
   latestFirstMeetingOffer,
 } from "@/features/luca/firstMeetingChoices";
 import { pendingReplyRows } from "@/features/messages/lib/pendingReplyRows";
+import { isWordlessSystemNote } from "@/features/messages/lib/systemNotes";
 import { usePendingReplyClock } from "@/features/messages/lib/usePendingReplyClock";
 import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
 import {
@@ -658,12 +659,17 @@ export const ChannelPane = React.memo(function ChannelPane({
     onOpenMembers,
     onWelcomeAddAgent: onAddAgent ? handleWelcomeAddAgent : undefined,
   });
+  // A system note the timeline has no words for is not a message: it is
+  // never counted, so a new conversation (the relay's dm_created note and
+  // nothing else) opens on its first-message view (systemNotes.ts).
   const visibleMessages = React.useMemo(() => {
-    if (!isWelcomeExperience(activeChannel)) {
-      return messages;
-    }
-
-    return messages.filter((message) => !isWelcomeSetupSystemMessage(message));
+    const welcome = isWelcomeExperience(activeChannel);
+    const kept = messages.filter(
+      (message) =>
+        !isWordlessSystemNote(message) &&
+        !(welcome && isWelcomeSetupSystemMessage(message)),
+    );
+    return kept.length === messages.length ? messages : kept;
   }, [activeChannel, messages]);
   // Luca's opening offer stays until the owner has said anything at all. It
   // renders inside Luca's greeting row; the pane supplies the send.

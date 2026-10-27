@@ -1,3 +1,4 @@
+import { placeDayLabel } from "@/app/shell/placeRails/placeDays";
 import type { ExchangePhase, ExchangeRecord } from "@/shared/api/types";
 import type {
   RuntimeTaskProjection,
@@ -219,32 +220,19 @@ export function turnsLabel(turns: number | null): string {
   return turns === 1 ? "1 turn" : `${turns} turns`;
 }
 
-/** The feed by day (Decided 5): Today, Yesterday, then the day's date. */
+/** The feed by day (Decided 5), each day named as every page names one
+ *  (placeDays.ts). */
 export function sideDays<T extends { at: number }>(
   items: readonly T[],
   now: Date = new Date(),
   locale?: string,
 ): { key: string; label: string; items: T[] }[] {
   const days: { key: string; label: string; items: T[] }[] = [];
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
   for (const item of items) {
     const day = new Date(item.at);
     day.setHours(0, 0, 0, 0);
     const key = day.toISOString();
-    const label =
-      day.getTime() === today.getTime()
-        ? "Today"
-        : day.getTime() === yesterday.getTime()
-          ? "Yesterday"
-          : new Intl.DateTimeFormat(
-              locale,
-              day.getFullYear() === today.getFullYear()
-                ? { weekday: "long", month: "short", day: "numeric" }
-                : { month: "short", day: "numeric", year: "numeric" },
-            ).format(day);
+    const label = placeDayLabel(day, now, locale);
     const last = days[days.length - 1];
     if (last?.key === key) last.items.push(item);
     else days.push({ key, label, items: [item] });

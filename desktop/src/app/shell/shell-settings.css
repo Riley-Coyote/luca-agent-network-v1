@@ -98,6 +98,17 @@
   padding: 0 6px 0 10px;
 }
 
+/* Its words as the other rails' heads say theirs: sentence case, at their
+ * size and weight, not mono capitals (BETA14_RELEASE.md WP-37, Decided 5;
+ * WP-34, Decided 8; shell-rail.css, `.luca-rail-section-head`). */
+:root[data-luca-shell] .luca-settings-group-head.type-eyebrow {
+  font-family: inherit;
+  font-size: 0.71875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 /* A section, as a home on the rail: 30 tall, the words at 14 in the
  * second tone, the ink on hover and where you are. */
 .luca-settings-row {

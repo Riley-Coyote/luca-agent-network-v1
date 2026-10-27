@@ -17,6 +17,7 @@ import { useAgentProvenanceQuery } from "@/features/provenance/useAgentProvenanc
 import { ProvenanceTimestampBoundaryLimitError } from "@/features/provenance/lib/provenancePagination";
 import type { SearchHit } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { placeDayLabel } from "@/app/shell/placeRails/placeDays";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { PubKey } from "@/shared/ui/PubKey";
@@ -24,9 +25,13 @@ import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 
-function dayLabel(dayKey: string): string {
+function dayKeyDate(dayKey: string): Date {
   const [year, month, day] = dayKey.split("-").map(Number);
-  const date = new Date(year, (month ?? 1) - 1, day ?? 1);
+  return new Date(year, (month ?? 1) - 1, day ?? 1);
+}
+
+function dayLabel(dayKey: string): string {
+  const date = dayKeyDate(dayKey);
   const today = provenanceDayKey(Date.now() / 1_000);
   const yesterday = provenanceDayKey(Date.now() / 1_000 - 86_400);
 
@@ -344,7 +349,7 @@ export function ProvenanceView({
                   className="pt-5 pb-1 type-eyebrow text-ink-faint"
                   data-testid="provenance-day"
                 >
-                  {dayLabel(group.dayKey)}
+                  {placeDayLabel(dayKeyDate(group.dayKey))}
                 </h3>
               ) : (
                 <h3 className="flex items-center gap-3 pt-5 pb-1">

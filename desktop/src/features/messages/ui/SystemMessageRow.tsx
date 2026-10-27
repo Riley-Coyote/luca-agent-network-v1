@@ -8,6 +8,11 @@ import type {
   TimelineReaction,
 } from "@/features/messages/types";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
+import {
+  parseSystemNotePayload,
+  type SystemNotePayload,
+  systemNoteHasWords,
+} from "@/features/messages/lib/systemNotes";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
 import { recordQuickReactionEmoji } from "@/features/messages/ui/useQuickReactionEmojis";
 import {
@@ -36,30 +41,7 @@ import { MessageTimestamp } from "./MessageTimestamp";
 const SYSTEM_ACTION_BUTTON_CLASS = "h-6 w-6 rounded-full p-0";
 const SYSTEM_ACTION_ICON_CLASS = "!h-4 !w-4";
 
-type SystemMessagePayload = {
-  type: string;
-  actor?: string;
-  target?: string;
-  targets?: string[];
-  topic?: string;
-  purpose?: string;
-  // Moderation tombstone fields (kind:40099 "message_deleted"). All optional and
-  // moderator-authored — present when a moderator removed the message, absent for
-  // a plain member self-delete. Reporter identity/evidence never appears here.
-  public_reason?: string;
-  reason_code?: string;
-  action_id?: string;
-  // Exchange note fields (kind:40099 "exchange-note"). Owner-authored: one
-  // sentence the room is shown when an exchange did something the people in it
-  // should know about. The sentence is written by the backend and rendered
-  // as-is; `resident` and `exchange_id` are provenance, not copy.
-  // `conversation_id` names the room the exchange was placed in (a pair DM),
-  // when it was placed somewhere other than this one.
-  exchange_id?: string | null;
-  resident?: string;
-  text?: string;
-  conversation_id?: string | null;
-};
+type SystemMessagePayload = SystemNotePayload;
 
 type SystemMessageDescription = {
   action: React.ReactNode;
@@ -93,11 +75,7 @@ const MAX_VISIBLE_ADDITIONAL_MEMBER_NAMES = 3;
 function parseSystemMessagePayload(
   message: TimelineMessage,
 ): SystemMessagePayload | null {
-  try {
-    return JSON.parse(message.body) as SystemMessagePayload;
-  } catch {
-    return null;
-  }
+  return parseSystemNotePayload(message.body);
 }
 
 function buildGroupedMembershipPayload(
@@ -402,6 +380,8 @@ function describeSystemEvent(
   personaLookup?: Map<string, string>,
   agentPubkeys?: ReadonlySet<string>,
 ): SystemMessageDescription | null {
+  // The one rule (systemNotes.ts): a note without words draws nothing.
+  if (!systemNoteHasWords(payload)) return null;
   const isTargetAgent = isKnownAgentPubkey(
     payload.target,
     profiles,

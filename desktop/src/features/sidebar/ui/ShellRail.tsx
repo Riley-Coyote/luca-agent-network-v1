@@ -38,6 +38,7 @@ import {
   type RailSideRow,
   shownHomeEntries,
 } from "@/features/sidebar/lib/railHomes";
+import { useNewAppConversation } from "@/features/sidebar/lib/appConversation";
 import { useRailWork } from "@/features/sidebar/lib/useRailWork";
 import {
   clearOpenSide,
@@ -571,15 +572,9 @@ export function ShellRail({
   // A project's details (its name, its grouping) and its sources: in the
   // room column's footer, and on the project row's menu here, so the
   // keyboard and the pointer reach them from the rail too.
-  const {
-    goApp,
-    goAppTask,
-    goBrain,
-    goChannel,
-    goNeedsYou,
-    goNewMessage,
-    goSettings,
-  } = useAppNavigation();
+  const { goApp, goAppTask, goBrain, goChannel, goNeedsYou, goSettings } =
+    useAppNavigation();
+  const newAppConversation = useNewAppConversation();
   const openSide = (side: RailSideRow) => {
     const [kind, ...rest] = side.id.split(":");
     // A task opens as the work, live or finished, under its app (WP-35).
@@ -700,8 +695,9 @@ export function ShellRail({
     // The new session shows under its home the moment it exists.
     setOpen(home.id, true);
     if (home.kind === "app") {
-      // The app's own way in: New conversation, found to the app.
-      void goNewMessage({ runtime: home.id.slice("app:".length) });
+      // The app's own way in: New conversation, found to the app (the app
+      // page head's action is this same handler).
+      void newAppConversation(home.id.slice("app:".length));
       onLeave?.();
       return;
     }

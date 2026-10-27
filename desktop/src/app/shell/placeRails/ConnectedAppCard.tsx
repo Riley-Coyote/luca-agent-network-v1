@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import "@/app/shell/shell-activity.css";
+import "@/app/shell/shell-mind-space.css";
 import {
   PlaceList,
   PlaceListRow,
@@ -14,6 +15,7 @@ import { useCommunities } from "@/features/communities/useCommunities";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import type { TaskSide } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
+import { useNewAppConversation } from "@/features/sidebar/lib/appConversation";
 import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
 import { RuntimeSessionsPanelContent } from "@/features/runtime-sessions/RuntimeSessionsPanel";
 import {
@@ -45,7 +47,9 @@ export function AppPage({ family }: { family: string }) {
 /**
  * A connected app's card (NAVIGATION.md, "Agents"; SHELL_BUILD.md WP-10,
  * Decided 4; in the Chats card since WP-34): its sessions, ready to start
- * from, under the head "Connected · on this Mac" and its name. The list is
+ * from, under its head: its name, the state line under it ("Connected · on
+ * this Mac" only while it is), and New conversation at the end, the rail's
+ * `+` for this app (WP-37, Decided 3). The list is
  * the one the runtime sessions column drew (its search, its empty states,
  * "Start with this context"), which retires under the shell: two steps, not
  * three.
@@ -57,6 +61,11 @@ export function ConnectedAppCard({ runtimeKey }: { runtimeKey: string }) {
   const { activeCommunity } = useCommunities();
   const ownerPubkey = useIdentityQuery().data?.pubkey;
   const { goBrain, goNewMessage } = useAppNavigation();
+  // The head's one action is the rail's own `+` on this app's home.
+  const newAppConversation = useNewAppConversation();
+  const family = runtime
+    ? runtimeRailFamilyFromRuntimeId(runtime.runtimeId)
+    : null;
   const scope = React.useMemo(
     () =>
       activeCommunity && ownerPubkey
@@ -73,8 +82,26 @@ export function ConnectedAppCard({ runtimeKey }: { runtimeKey: string }) {
   return (
     <PlacePage testId="connected-app-card">
       <PlacePageHead
-        eyebrow="Connected · on this Mac"
+        action={
+          runtime && family ? (
+            <button
+              className="luca-mind-talk"
+              data-testid="connected-app-new-conversation"
+              onClick={() => void newAppConversation(family)}
+              type="button"
+            >
+              New conversation
+            </button>
+          ) : undefined
+        }
         face={runtime ? <HarnessFace runtimeId={runtime.runtimeId} /> : null}
+        state={
+          runtime
+            ? "Connected · on this Mac"
+            : isLoading
+              ? undefined
+              : "Not connected on this Mac"
+        }
         title={runtime?.label ?? (isLoading ? "" : runtimeKey)}
       />
       {runtime ? (

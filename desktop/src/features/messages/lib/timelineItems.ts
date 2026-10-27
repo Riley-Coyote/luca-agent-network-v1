@@ -21,6 +21,7 @@ import {
   exchangeIdFromTags,
   isExchangeOwnerReturn,
 } from "@/features/exchange/exchangeTags";
+import { isWordlessSystemNote } from "@/features/messages/lib/systemNotes";
 import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
 import {
   annotateVisitSpans,
@@ -220,6 +221,9 @@ export function buildTimelineItems(
   // Relay echoes can briefly overlap an optimistic row during reconciliation.
   // Virtua requires unique data keys or it can leave duplicate DOM rows.
   const deduplicatedEntries = entries.filter((entry) => {
+    // A note the timeline has no words for makes no day and no row
+    // (systemNotes.ts).
+    if (isWordlessSystemNote(entry.message)) return false;
     const key = entryRenderKey(entry);
     if (renderedEntryKeys.has(key)) return false;
     renderedEntryKeys.add(key);
