@@ -6,7 +6,7 @@ Draft for Riley's approval. Not published.
 
 Polyphonic has a new home. Everything sits on one calm card in a thin frame: a
 rail on the left and what you picked beside it. Down the left edge are your
-places: Search, then Chats, Agents, Activity and Library, then Settings. The
+places: Search, then Chats, Agents, Activity, Library and Brain, then Settings. The
 rail folds away when you want the room, and Back and Forward take you through
 where you've been.
 

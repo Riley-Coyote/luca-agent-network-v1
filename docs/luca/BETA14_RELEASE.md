@@ -155,7 +155,7 @@ Not in scope: WP-30's files.
 ## Then
 
 1. Merge WP-30 to WP-35 by hand.
-2. WP-37, what the walkthrough of the test app found; merge it by hand.
+2. WP-37, what the walkthrough of the test app found, and WP-38, Brain's own place; merge each by hand.
 3. Run every gate, the whole shell suite, and the desktop's Rust tests.
 4. Build the release candidate (WP-36), checked from its files and never launched here:
    - with the beta overlay;
@@ -537,3 +537,78 @@ yet", and the Library's "When a resident creates something durable". That's a wo
 **Checks JSON keys:** `first_message_with_note`, `first_message_steps_aside`, `note_rule_unit`, `empty_notebook`,
 `no_flash`, `app_head`, `app_head_disconnected`, `new_conversation_same_as_plus`, `day_labels`, `settings_rail_heads`,
 `classic_identical`, `rust_tests`, `app_links`, `unit_tests`, `playwright`, `gates`.
+
+## WP-38 · Brain, its own place again (2026-10-27, Riley's call)
+
+**Why.** Riley, on the test app: "theres no brain tab in the test app im looking at". Then: "yeah i think it should go
+back in the icon rail like we originally had it. i dont recall ever deciding to move it into each agent's settings. its
+the universal brain tab for your whole account in the app, so it deserves its own place. within each agent settings
+there can be a place that shows what the agent can read, but i think the brain still needs its own place".
+- The move was made in WP-13's brief (SHELL_BUILD.md, WP-13, Decided 6 and 7), and Riley never decided it. Today
+  `BrainScreen` under the shell redirects `/brain` to Luca's space, Settings, What Luca can read. Each mind's
+  `What {name} can read` row embeds Brain's whole body (`<BrainView embedded residentPubkey=… />`). Nothing on the way
+  says "Brain", while "Open Brain" buttons and the release notes still do.
+- WP-01's column had Brain as the last place before Settings, with lucide's `Brain` icon, `preloadBrainSurface` and
+  the test id `open-brain-setup` (`git show 5e783e172:desktop/src/app/shell/ShellPlaces.tsx`).
+
+**Decided** (under `shell-frame` only; with it off, nothing changes):
+1. **Brain is a place again, for the whole account.**
+   - The places column becomes: Search; Chats, Agents, Activity, Library, Brain; then Settings and the avatar.
+   - It keeps the icon it had there (lucide `Brain`), at the column's size and stroke. Its tooltip is "Brain".
+   - `/brain` opens it. `BrainToLucaSpace` retires.
+2. **Brain's page,** in the one card, made of WP-33's pieces:
+   - **The head:** Brain's icon on the face tile, then "Brain", then a state line saying what the account's minds can
+     read, in a breath. These are the words `useWhatTheyCanRead` makes, e.g. "232 repositories · Codex history", or
+     "Nothing connected yet".
+   - **Under the head:** Brain's body as it is today: the four source cards, connecting and adding folders, the scan,
+     the consent dialogs and the activity. It shows the whole account's view, not one mind's grants.
+   - **Its rail** holds the body's two views, Connections and Activity, as rows in sentence case, like every other
+     place's rail. The body's own tab strip goes under the shell.
+   - The lip names the page "Brain".
+3. **Each mind's Settings keeps "What {name} can read"** as that mind's own access, not Brain's whole body.
+   - The row's line stays as it is.
+   - Opened, it shows what this mind may read, source by source, with the controls for this mind's access that exist
+     today. Under those comes "Open Brain", to the place.
+   - Connecting sources, adding folders, the scan and the consent dialogs live in Brain alone.
+   - For Luca, the row says Luca reads everything Brain connects, as the code makes true today.
+4. **Every way into Brain opens the Brain place:**
+   - `goBrain`;
+   - the runtime sessions' "Open Brain";
+   - the project row's "Sources";
+   - the surface navigation;
+   - an agent's brain-review request, which opens Brain with that review in front, as the classic Brain page does.
+5. **A capability map:** every control in Brain's body and in today's What they can read, mapped to its home after
+   (the Brain place or the mind's row), or marked LOST. Nothing may be lost.
+6. The existing checks that assert the redirect (WP-13's `brain_redirect`, `what-they-can-read`) change to this
+   decision, citing WP-38.
+
+**Built beside WP-37.** WP-37 is in `claude/wp37-walkthrough` at the same time. Leave its files alone:
+- the timeline's system notes and `FirstMessageView.tsx`;
+- `MindNotebook.tsx`;
+- `ConnectedAppCard.tsx`'s head;
+- the day-label functions;
+- Settings' section list;
+- `desktop/src-tauri/build.rs`.
+
+Where both must touch one file (`playwright.config.ts`'s list, `ShellPlaces.tsx`), keep your change to your own lines.
+The two are merged by hand.
+
+**Files in scope:**
+- `desktop/src/app/shell/ShellPlaces.tsx`;
+- a Brain rail and card in `desktop/src/app/shell/placeRails/`;
+- `features/luca/brain/` (`BrainScreen.tsx` and `BrainView.tsx`, under the shell);
+- `features/agents/space/MindSettings.tsx`'s read row;
+- the ways in: `useAppNavigation.ts`, `useBrainReviewNavigation.ts`, `usePolyphonicSurfaceNavigation.ts`;
+- the specs: `tests/e2e/shell-brain.spec.ts`, registered in the smoke project, and the redirect checks above.
+
+**Proof:**
+- The column, in order, with Brain's tooltip.
+- Brain's page at 1440 × 900 and 800 × 500, by night and by day: the head with real counts, the body, and the rail's
+  two views.
+- Every way in landing on Brain, observed. The brain-review request opens with its review in front.
+- A mind's read row: its own access, and "Open Brain" arriving at the place.
+- The capability map.
+- Flag off, by hash against the base at `:4300`: the classic Brain page, a conversation and Settings.
+
+**Checks JSON keys:** `places_column`, `brain_page_head`, `brain_body`, `brain_rail`, `ways_in`, `brain_review`,
+`agent_reads_row`, `capability_map`, `lip_name`, `classic_identical`, `unit_tests`, `playwright`, `gates`.
