@@ -40,14 +40,17 @@
         // preview override (`shared/features/store.ts`, the newest
         // `buzz-feature-overrides-v<N>`). The main window only: a pop-out
         // keeps its own bar and glass.
-        // Vite writes the build's flag in here: "1" in a test app built with
-        // the frame, the placeholder itself otherwise.
+        // Vite writes the build's flag in here: "1" in the beta and a test
+        // app built with the frame, the placeholder itself otherwise. There
+        // the classic layout (`shared/features/classicLayout.ts`) turns it off.
         var frameBuild = "%VITE_LUCA_SHELL_FRAME%";
         var shellFrameOn = () => {
           if (/[?&]window=popout(?:&|$)/.test(window.location.search)) {
             return false;
           }
-          if (frameBuild === "1") return true;
+          if (frameBuild === "1") {
+            return window.localStorage.getItem("polyphonic-classic-layout") !== "1";
+          }
           let newest = -1;
           let overrides = null;
           for (let i = 0; i < window.localStorage.length; i += 1) {

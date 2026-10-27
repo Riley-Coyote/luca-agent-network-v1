@@ -57,7 +57,14 @@ import {
   type Frame,
   useReducedTransparency,
 } from "@/app/shell/shellGlass";
-import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import {
+  setClassicLayout,
+  useClassicLayout,
+} from "@/shared/features/classicLayout";
+import {
+  useShellFrameEnabled,
+  useShellFrameOnByDefault,
+} from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
 import { Switch } from "@/shared/ui/switch";
 import {
@@ -614,6 +621,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
             />
           </SettingsOptionRow>
           <FrameSetting />
+          <ClassicLayoutSetting />
         </SettingsOptionGroup>
       ) : null}
 
@@ -646,6 +654,8 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
           ))}
         </div>
       )}
+
+      {shellFrame ? null : <ClassicLayoutGroup />}
 
       {shellFrame ? null : (
         <>
@@ -953,6 +963,55 @@ function FrameSetting() {
         })}
       </p>
     </SettingsOptionRow>
+  );
+}
+
+/**
+ * The classic layout, for beta.14 only (docs/luca/BETA14_RELEASE.md, WP-31):
+ * one quiet row, offered only where the build draws the shell by default.
+ * On, the shell goes at once and stays gone across launches; off, it comes
+ * back. Under the shell it is the third row of Mode and Frame's group.
+ */
+function ClassicLayoutSetting() {
+  const offered = useShellFrameOnByDefault();
+  const classic = useClassicLayout();
+  if (!offered) return null;
+  return (
+    <SettingsOptionRow data-testid="appearance-classic-layout">
+      <div className="min-w-0">
+        <label
+          className="text-sm font-medium"
+          htmlFor="appearance-classic-layout-switch"
+        >
+          Classic layout
+        </label>
+        <p
+          className="text-sm font-normal text-muted-foreground"
+          id="appearance-classic-layout-sentence"
+        >
+          The layout from before beta.14. It goes away in the next release.
+        </p>
+      </div>
+      <Switch
+        aria-describedby="appearance-classic-layout-sentence"
+        checked={classic}
+        data-testid="appearance-classic-layout-toggle"
+        id="appearance-classic-layout-switch"
+        onCheckedChange={setClassicLayout}
+      />
+    </SettingsOptionRow>
+  );
+}
+
+/** In the classic layout the row is a group of its own, under the mode
+ *  buttons, so the way back to the shell is always on Appearance. */
+function ClassicLayoutGroup() {
+  const offered = useShellFrameOnByDefault();
+  if (!offered) return null;
+  return (
+    <SettingsOptionGroup className="mb-4">
+      <ClassicLayoutSetting />
+    </SettingsOptionGroup>
   );
 }
 

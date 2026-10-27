@@ -3,6 +3,9 @@
   "productName": "Polyphonic",
   "identifier": "chat.polyphonic.desktop",
   "version": "0.5.0-beta.14",
+  "build": {
+    "beforeBuildCommand": "VITE_LUCA_SHELL_FRAME=1 pnpm build"
+  },
   "bundle": {
     "targets": [
       "app",

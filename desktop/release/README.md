@@ -19,6 +19,25 @@ What it changes:
 | `bundle.macOS.signingIdentity` | Developer ID | so Tauri signs every nested binary and the bundle |
 | `bundle.macOS.minimumSystemVersion` | `14.0` | |
 | `plugins.updater.endpoints` | `Riley-Coyote/polyphonic-app` release manifest | existing trusted Polyphonic update channel |
+| `build.beforeBuildCommand` | `VITE_LUCA_SHELL_FRAME=1 pnpm build` | the beta draws the new shell by default (beta.14 on) |
+
+### The shell is on in the beta (beta.14)
+
+The overlay builds the page with `VITE_LUCA_SHELL_FRAME=1`, the way the
+rail-glass test app's build does, so the beta opens in the new shell. Nothing
+else sets it: `pnpm build` alone (the Dev app), `vite` (dev) and
+`vite build --mode e2e` (every test suite) keep the shell off by default, behind
+its preview switch, so the suites keep comparing both layouts.
+
+Where the shell is on by default, Settings → Appearance offers **Classic
+layout** for this one release: on, the layout from before beta.14 comes back at
+once and stays across launches (`polyphonic-classic-layout` in the page's
+storage); off, the shell returns. Remove the row and the key in the release
+after beta.14.
+
+Check it from the files, without launching: the built `dist/index.html` (and
+the app's bundled copy) carries `var frameBuild = "1"`. A build without the
+flag carries the placeholder `%VITE_LUCA_SHELL_FRAME%` instead.
 
 The overlay alone does not enable the native updater. Export
 `BUZZ_UPDATER_PUBLIC_KEY` and `BUZZ_UPDATER_ENDPOINT` from this overlay before

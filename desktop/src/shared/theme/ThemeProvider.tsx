@@ -27,6 +27,7 @@ import {
 } from "@/app/shell/shellGlass";
 import { usePolyphonicFloatingCard } from "@/features/onboarding/polyphonicOnboardingScene";
 import { invokeTauri } from "@/shared/api/tauri";
+import { readClassicLayout } from "@/shared/features/classicLayout";
 import { resolveShellFrameEnabled } from "@/shared/features/shellFrame";
 import { getOverrides } from "@/shared/features/store";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
@@ -952,6 +953,7 @@ export function ThemeProvider({
       resolveShellFrameEnabled(
         getOverrides(),
         import.meta.env.VITE_LUCA_SHELL_FRAME,
+        readClassicLayout(),
       ),
     );
     applyCachedVars();
