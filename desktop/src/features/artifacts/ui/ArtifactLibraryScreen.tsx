@@ -23,6 +23,12 @@ import {
   placeNoteTime,
 } from "@/app/shell/placeRails/PlacePage";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
+import {
+  HarnessFace,
+  LIBRARY_DELETED_FACE,
+  LIBRARY_KIND_FACES,
+  LIBRARY_SKILLS_FACE,
+} from "@/app/shell/placeRails/placeFaces";
 import { useKeepPickInAddress } from "@/app/shell/placeRails/usePlaceRails";
 import { SkillLibraryPanel } from "@/features/capabilities/ui/SkillLibraryPanel";
 import { skillRuntimeLabel } from "@/features/capabilities/lib/skillHandoff";
@@ -134,6 +140,12 @@ export function ArtifactLibraryScreen() {
       source: "library",
     });
 
+  const HeadFace =
+    pick === "deleted"
+      ? LIBRARY_DELETED_FACE
+      : libraryView === "skills"
+        ? LIBRARY_SKILLS_FACE
+        : LIBRARY_KIND_FACES[pickedKind?.id ?? "all"];
   const head = shellFrame ? (
     <PlacePageHead
       eyebrow={
@@ -142,6 +154,13 @@ export function ArtifactLibraryScreen() {
           : libraryView === "skills"
             ? "Skills"
             : "Made"
+      }
+      face={
+        skillsRuntime && skillsRuntime !== "all" ? (
+          <HarnessFace runtimeId={skillsRuntime} />
+        ) : (
+          <HeadFace />
+        )
       }
       title={
         pick === "deleted"

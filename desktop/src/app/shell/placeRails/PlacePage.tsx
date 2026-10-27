@@ -23,15 +23,25 @@ export function PlacePage({
   );
 }
 
-/** A list on the page's axis, under its eyebrow (`.shell-page-group`). */
+/**
+ * A section of the page (BETA14_RELEASE.md WP-33, Decided 2): its label in
+ * sentence case and its count, 8 above one plate that holds its rows
+ * (Decided 3). A thread (Decided 5) is a list in time order: no hairlines,
+ * a line under the faces from one to the next.
+ */
 export function PlaceList({
   children,
+  count,
   label,
   testId,
+  thread,
 }: {
   children: React.ReactNode;
+  /** How many rows the section holds, beside its label. */
+  count?: number;
   label?: string;
   testId?: string;
+  thread?: boolean;
 }) {
   return (
     <section
@@ -39,16 +49,61 @@ export function PlaceList({
       className="luca-place-group"
       data-testid={testId}
     >
-      {label ? <h2 className="type-eyebrow">{label}</h2> : null}
-      <ul>{children}</ul>
+      {label ? <PlaceSectionLabel count={count} label={label} /> : null}
+      <ul
+        className="luca-place-plate"
+        data-thread={thread ? "true" : undefined}
+      >
+        {children}
+      </ul>
     </section>
   );
 }
 
+/** A section's label and its count (Decided 2): 12.5 at 600 in the muted
+ *  ink, the count at 12, faint, in tabular figures. */
+export function PlaceSectionLabel({
+  count,
+  label,
+}: {
+  count?: number;
+  label: string;
+}) {
+  return (
+    <h2 className="luca-place-section-label">
+      <span>{label}</span>
+      {count === undefined ? null : (
+        <span className="luca-place-section-count">{count}</span>
+      )}
+    </h2>
+  );
+}
+
+/** A row's face (Decided 4): the rail row's own drawing at 20. */
+export function PlaceRowFace({
+  children,
+  label,
+}: {
+  children: React.ReactNode;
+  /** Said when the face carries meaning the row's words don't (a kind). */
+  label?: string;
+}) {
+  const className = "luca-place-face luca-place-row-face";
+  return label ? (
+    <span aria-label={label} className={className} role="img">
+      {children}
+    </span>
+  ) : (
+    <span aria-hidden="true" className={className}>
+      {children}
+    </span>
+  );
+}
+
 /**
- * A row of a place's list (`.shell-page-group li`): what it is, at full ink,
- * with a quiet line under it; a quiet word or action beside it; and the
- * quiet note at the end, in its 84 column. An action shows on hover and on
+ * A row of a place's list (`.shell-page-group li`; WP-33, Decided 4): its
+ * face, what it is, with a quiet line under it; a quiet word or action
+ * beside it; and the quiet note at the end, in its 84 column. An action shows on hover and on
  * focus, and is always in the Tab order.
  */
 export function PlaceListRow({
@@ -56,6 +111,7 @@ export function PlaceListRow({
   as: Tag = "li",
   className,
   detail,
+  face,
   note,
   onOpen,
   openLabel,
@@ -69,6 +125,8 @@ export function PlaceListRow({
   as?: "li" | "div";
   className?: string;
   detail?: React.ReactNode;
+  /** Who or what the row is, at 20 before its words (on a plate). */
+  face?: React.ReactNode;
   note?: React.ReactNode;
   onOpen?: () => void;
   openLabel?: string;
@@ -90,6 +148,7 @@ export function PlaceListRow({
       data-testid={testId}
       {...rest}
     >
+      {face ? <PlaceRowFace>{face}</PlaceRowFace> : null}
       {onOpen ? (
         <button
           aria-label={openLabel}

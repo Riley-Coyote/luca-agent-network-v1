@@ -1,4 +1,11 @@
-import { CopyPlus, Ellipsis, Share2, Trash2, Upload } from "lucide-react";
+import {
+  CopyPlus,
+  Ellipsis,
+  Share2,
+  Trash2,
+  Upload,
+  Users,
+} from "lucide-react";
 
 import {
   PlaceList,
@@ -9,6 +16,7 @@ import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { resolveTeamPersonas } from "@/features/agents/lib/teamPersonas";
 import { personaSummary } from "@/features/agents/ui/agentLibraryViewModel";
 import type { AgentPersona, AgentTeam } from "@/shared/api/types";
+import { AgentMark } from "@/shared/ui/AgentMark";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -54,7 +62,7 @@ export function GroupCard({
   const missing = resolution.missingPersonaCount;
   return (
     <PlacePage testId="group-card">
-      <PlacePageHead eyebrow="Group" title={team.name} />
+      <PlacePageHead eyebrow="Group" face={<Users />} title={team.name} />
       {team.description ? (
         <p className="luca-place-page-line">{team.description}</p>
       ) : null}
@@ -123,12 +131,17 @@ export function GroupCard({
         </DropdownMenu>
       </div>
       {resolution.resolvedPersonas.length > 0 ? (
-        <PlaceList label="Members" testId="group-members">
+        <PlaceList
+          count={resolution.resolvedPersonas.length}
+          label="Members"
+          testId="group-members"
+        >
           {resolution.resolvedPersonas.map((persona) => {
             const summary = personaSummary(persona);
             return (
               <PlaceListRow
                 detail={summary.runtimeLabel ?? "Not configured"}
+                face={<AgentMark />}
                 key={persona.id}
                 testId={`group-member-${persona.id}`}
                 title={summary.displayName}

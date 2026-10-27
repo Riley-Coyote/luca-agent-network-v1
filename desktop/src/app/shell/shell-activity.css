@@ -287,3 +287,92 @@
 :root[data-luca-frame]:has(.qc-launcher) [data-testid="join-banner"] {
   padding-right: max(1.25rem, var(--luca-quickchat-clear, 0px));
 }
+
+/* ── asks on a page's plate (BETA14_RELEASE.md WP-33, Decided 6) ───────
+ * The ask keeps its anatomy (its own words, who and where, the answers
+ * always in view, the long form under them) and sits on a plate
+ * (shell-place-rails.css, `.luca-place-plate`), led by the asker's face at
+ * 20, its words at 15/21. The answers and the extra line keep the words'
+ * axis, 42 in from the row's edge; the long form keeps it too. In the
+ * conversation (no plate, no face) nothing here applies. */
+.luca-place-plate > .luca-ask > .luca-ask-row {
+  --luca-text-start: 10px;
+  align-items: start;
+  column-gap: 12px;
+  margin: 0;
+  padding: 13px 10px;
+}
+
+.luca-place-plate > .luca-ask > .luca-ask-row[data-faced] {
+  --luca-text-start: 42px;
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+
+.luca-place-plate > .luca-ask > .luca-ask-row[data-faced][data-noted] {
+  grid-template-columns: 20px minmax(0, 1fr) 84px;
+}
+
+.luca-place-plate
+  > .luca-ask
+  > .luca-ask-row[data-faced]
+  > .luca-place-row-face {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.luca-place-plate
+  > .luca-ask
+  > .luca-ask-row[data-faced]
+  > .luca-place-row-what {
+  grid-column: 2;
+}
+
+.luca-place-plate
+  > .luca-ask
+  > .luca-ask-row[data-faced]
+  > .luca-place-row-note {
+  grid-column: 3;
+}
+
+.luca-place-plate
+  > .luca-ask
+  > .luca-ask-row[data-faced]
+  > :is(.luca-ask-extra, .luca-ask-answers) {
+  grid-column: 2 / -1;
+}
+
+.luca-place-plate
+  > .luca-ask
+  > .luca-ask-row:has(> .luca-place-row-open):hover {
+  background: var(--luca-plate-hover);
+}
+
+.luca-place-plate .luca-ask-row .luca-place-row-title {
+  color: hsl(var(--mn-ink));
+  font-size: 0.9375rem;
+  line-height: 1.3125rem;
+}
+
+.luca-place-plate .luca-ask-row .luca-place-row-summary {
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+
+.luca-place-plate .luca-ask-row .luca-place-row-note {
+  font-size: 0.75rem;
+  line-height: 1.3125rem;
+}
+
+.luca-place-plate > .luca-ask > .luca-ask-panel {
+  padding: 0 10px 14px var(--luca-ask-panel-start, 42px);
+}
+
+/* Now's section labels (LucaActivityView): the page system's label,
+ * sentence case at 12.5 and 600 in the muted ink. Shown by its group. */
+.luca-now-label {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.78125rem;
+  font-weight: 600;
+  line-height: 1.25;
+  margin-left: 2px;
+}

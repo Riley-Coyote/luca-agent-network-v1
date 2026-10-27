@@ -2,6 +2,7 @@ import type * as React from "react";
 
 import "@/app/shell/shell-activity.css";
 import "@/app/shell/shell-place-rails.css";
+import { PlaceRowFace } from "@/app/shell/placeRails/PlacePage";
 import { cn } from "@/shared/lib/cn";
 
 /**
@@ -21,11 +22,15 @@ import { cn } from "@/shared/lib/cn";
  * - The long form, when one is opened, lies under the row, never in it.
  * - The time, when the list keeps one, sits in the 84 column; "now" when the
  *   ask carries none.
+ * - On a page it sits on a plate, led by the asker's face, its words at
+ *   15/21 (BETA14_RELEASE.md WP-33, Decided 6); in the conversation it has
+ *   no face and keeps its own size.
  */
 export function PlaceAskRow({
   answers,
   className,
   extra,
+  face,
   note,
   onOpen,
   openLabel,
@@ -39,6 +44,8 @@ export function PlaceAskRow({
   className?: string;
   /** One faint line under who asks: details, defaults, a way to change them. */
   extra?: React.ReactNode;
+  /** Who asks, at 20 before the words (on a page's plate). */
+  face?: React.ReactNode;
   /** The time, in its column; none in the conversation the ask is in. */
   note?: React.ReactNode;
   /** Opens the conversation; none in the conversation the ask is in. */
@@ -54,8 +61,10 @@ export function PlaceAskRow({
     <li className={cn("luca-ask", className)} {...rest}>
       <div
         className="luca-place-row luca-ask-row"
+        data-faced={face ? "" : undefined}
         data-noted={note === undefined ? undefined : ""}
       >
+        {face ? <PlaceRowFace>{face}</PlaceRowFace> : null}
         {onOpen ? (
           <button
             aria-label={openLabel}

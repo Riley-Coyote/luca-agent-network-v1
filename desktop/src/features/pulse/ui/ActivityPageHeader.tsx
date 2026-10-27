@@ -1,8 +1,9 @@
-import { Bot } from "lucide-react";
+import { Activity, Bot } from "lucide-react";
 
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
+import { AgentMark } from "@/shared/ui/AgentMark";
 
 /**
  * The Activity page's one header, shared by both of its sections.
@@ -78,6 +79,7 @@ export function ActivityPageHeader({
       <div>
         <PlacePageHead
           eyebrow={section === "now" ? "Activity" : "Signed record"}
+          face={section === "now" ? <Activity /> : <AgentMark />}
           title={section === "now" ? "Now" : (recordName ?? "Signed record")}
         />
         <p className="luca-place-page-line">{description}</p>

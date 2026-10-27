@@ -418,7 +418,9 @@ test("needs you: every kind, answered in place, counted", async ({ page }) => {
     expect(each.forms).toBe(0);
     expect(each.answers.length).toBeGreaterThan(0);
     expect(each.item.shadow).toBe("none");
-    expect(each.titleSize).toBe("14px");
+    // On the page an ask's own words are 15/21 (BETA14_RELEASE.md WP-33,
+    // Decided 6), led by the asker's face.
+    expect(each.titleSize).toBe("15px");
   }
   expect(new Set(kinds.map((each) => each.noteRight)).size).toBe(1);
   expect(kinds.find((each) => each.kind === "permission")?.note).toBe("now");
@@ -663,7 +665,8 @@ test("side conversations: one feed, by day", async ({ page }) => {
     .getByTestId("side-conversations-card")
     .evaluate((card) =>
       [...card.querySelectorAll('[data-testid="side-day"]')].map((day) => ({
-        day: day.querySelector("h2")?.textContent,
+        // The label's words, not its count (WP-33, Decided 2).
+        day: day.querySelector("h2 > span")?.textContent,
         rows: [...day.querySelectorAll<HTMLElement>("[data-side-kind]")].map(
           (row) => ({
             kind: row.dataset.sideKind,

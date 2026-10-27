@@ -31,19 +31,23 @@ function SettingsPanelSkeleton() {
 
 /**
  * The panel under the frame, on the shared place page the loaded section is
- * on (SettingsView, WP-17): the axis 640 wide, the head's 12 eyebrow line
- * and 22 title, 26 under it, then the group's rows, so nothing moves when
- * the section arrives.
+ * on (SettingsView, WP-17): the axis 640 wide, the head's face tile beside
+ * its 12 eyebrow line and 22 title (BETA14_RELEASE.md WP-33, Decided 1), 26
+ * under it, then the group's rows, so nothing moves when the section
+ * arrives.
  */
 function SettingsFramePanelSkeleton() {
   return (
     <div className="luca-place-page-axis" data-testid="settings-loading-panel">
-      <div className="luca-place-page-head">
-        <div className="flex h-4 items-center">
-          <Skeleton className="h-3 w-20" />
-        </div>
-        <div className="flex h-7 items-center">
-          <Skeleton className="h-5 w-48" />
+      <div className="luca-place-page-head" data-faced="">
+        <Skeleton className="h-10 w-10 shrink-0 rounded-[11px]" />
+        <div className="luca-place-page-who">
+          <div className="flex h-[19px] items-center">
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <div className="flex h-[26.4px] items-center">
+            <Skeleton className="h-5 w-48" />
+          </div>
         </div>
       </div>
       <div className="space-y-6">

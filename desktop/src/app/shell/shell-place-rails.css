@@ -25,19 +25,51 @@
   font-weight: 600;
 }
 
-/* The card's head for a place's pick (PlacePageHead.tsx): a quiet line
- * saying the section, over the picked row's name (shellStudy.css,
- * `.shell-page-head`). It sits on the card's own reading axis, so it takes
- * that axis's width rather than the study's 640. */
+/* The card's head for a place's pick (PlacePageHead.tsx; BETA14_RELEASE.md
+ * WP-33, Decided 1; the lab's `.shell-page-head`): its face on a tile, a
+ * quiet line saying the section, the name, one line of how it is now, and
+ * the page's one action at the end. It sits on the card's own reading axis,
+ * so it takes that axis's width rather than the study's 640. */
 .luca-place-page-head {
-  display: grid;
-  gap: 6px;
+  align-items: center;
+  display: flex;
+  gap: 14px;
   margin-bottom: 26px;
+}
+
+.luca-place-page-who {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  min-width: 0;
+}
+
+.luca-place-page-head[data-faced] .luca-place-page-who {
+  gap: 0;
+}
+
+/* The tile: 40, radius 11, the ink at 4%, the plate's lit top edge by
+ * night and none by day (the edge's own token is clear by day). */
+.luca-place-page-face {
+  align-items: center;
+  background: hsl(var(--mn-ink) / 0.04);
+  border-radius: 11px;
+  box-shadow: inset 0 0.5px 0 var(--luca-plate-edge);
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  flex: none;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
 }
 
 .luca-place-page-eyebrow {
   color: hsl(var(--mn-ink-faint));
   font-size: 0.75rem;
+}
+
+.luca-place-page-head[data-faced] .luca-place-page-eyebrow {
+  margin-bottom: 1px;
 }
 
 .luca-place-page-name {
@@ -46,6 +78,33 @@
   font-weight: 600;
   letter-spacing: -0.012em;
   line-height: 1.2;
+}
+
+.luca-place-page-state {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-place-page-action {
+  flex: none;
+}
+
+/* A face, wherever one leads (a head's tile, a plate's row, a fact): the
+ * rail row's own drawing, centred in its box, in its row's ink. */
+.luca-place-face {
+  align-items: center;
+  color: inherit;
+  display: flex;
+  flex: none;
+  justify-content: center;
+}
+
+.luca-place-face > svg {
+  stroke-width: 1.6;
 }
 
 /* ── the page a place's rail opens (PlacePage.tsx) ────────────────────
@@ -75,13 +134,38 @@
   margin: -14px 0 26px;
 }
 
+/* A section (PlaceList; WP-33, Decided 2): its label in sentence case and
+ * its count, 8 above one plate; 28 between sections. */
 .luca-place-group {
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .luca-place-group > h2 {
   color: hsl(var(--mn-ink-faint));
   margin-bottom: 6px;
+}
+
+.luca-place-section-label {
+  align-items: baseline;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: 0.78125rem;
+  font-weight: 600;
+  gap: 7px;
+  line-height: 1.25;
+  margin: 0 0 8px 2px;
+}
+
+.luca-place-group > h2.luca-place-section-label {
+  color: hsl(var(--mn-ink-muted));
+  margin-bottom: 8px;
+}
+
+.luca-place-section-count {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
 }
 
 /* A row: `.shell-page-group li`, the study's grid. A row that opens
@@ -224,6 +308,132 @@
   width: 0.875rem;
 }
 
+/* ── the plate (BETA14_RELEASE.md WP-33, Decided 3–5) ────────────────
+ * Rows sit on a surface: the ink lifted a step from the card and, by night,
+ * lit along its top edge, so two rows read as the contents of something.
+ * The tones are the lab's dials (shellStudy.css, "the page system"), as
+ * variables on the shell's root; by day a plate is shade alone. */
+:root[data-luca-frame] {
+  --luca-plate-edge: hsl(var(--mn-ink) / 0.04);
+  --luca-plate-fill: hsl(var(--mn-ink) / 0.013);
+  --luca-plate-hover: hsl(var(--mn-ink) / 0.02);
+  --luca-plate-rule: hsl(var(--mn-ink) / 0.045);
+  --luca-plate-thread: hsl(var(--mn-ink) / 0.14);
+}
+
+:root[data-luca-frame]:not(.dark) {
+  --luca-plate-edge: transparent;
+  --luca-plate-fill: hsl(var(--mn-ink) / 0.014);
+  --luca-plate-hover: hsl(var(--mn-ink) / 0.02);
+  --luca-plate-rule: hsl(var(--mn-ink) / 0.06);
+}
+
+.luca-place-plate {
+  background: var(--luca-plate-fill);
+  border-radius: 12px;
+  box-shadow: inset 0 0.5px 0 var(--luca-plate-edge);
+  display: grid;
+  margin: 0;
+  padding: 4px;
+  position: relative;
+}
+
+/* A row on a plate (WP-33, Decided 4): the face at 20, the words, the
+ * note in the end column, a gap of 12; padding 11/10, radius 8. Where the
+ * words start is its 10 of padding, a 20 face and 12 of gap: 42; a row with
+ * no face starts its words at 10. */
+.luca-place-plate > .luca-place-row {
+  --luca-text-start: 10px;
+  align-items: start;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto 84px;
+  margin: 0;
+  padding: 11px 10px;
+}
+
+.luca-place-plate > .luca-place-row:has(> .luca-place-row-face) {
+  --luca-text-start: 42px;
+  grid-template-columns: 20px minmax(0, 1fr) auto 84px;
+}
+
+.luca-place-plate > .luca-place-row:has(> .luca-place-row-open):hover {
+  background: var(--luca-plate-hover);
+}
+
+.luca-place-row-face {
+  color: hsl(var(--mn-ink-muted));
+  height: 20px;
+  width: 20px;
+}
+
+.luca-place-plate .luca-place-row-title {
+  color: hsl(var(--mn-ink) / 0.9);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.luca-place-plate .luca-place-row-summary,
+.luca-place-plate .luca-place-row-detail {
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+
+.luca-place-plate .luca-place-row-middle {
+  line-height: 1.25rem;
+}
+
+.luca-place-plate .luca-place-row-note {
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+/* The face takes no click: the row's own button lies over the whole row. */
+.luca-place-row-face {
+  pointer-events: none;
+  position: relative;
+}
+
+/* The hairline between two rows: half a point at the rule's ink, from the
+ * words to 10 short of the plate's end, gone while either row is under the
+ * pointer. */
+.luca-place-plate:not([data-thread]) > .luca-place-row
+  + .luca-place-row::before,
+.luca-place-plate:not([data-thread])
+  > .luca-ask
+  + .luca-ask
+  > .luca-place-row::before {
+  background: var(--luca-plate-rule);
+  content: "";
+  height: 0.5px;
+  left: var(--luca-text-start);
+  pointer-events: none;
+  position: absolute;
+  right: 10px;
+  top: 0;
+}
+
+.luca-place-plate > .luca-place-row:hover::before,
+.luca-place-plate > .luca-place-row:hover + .luca-place-row::before,
+.luca-place-plate > .luca-ask:hover > .luca-place-row::before,
+.luca-place-plate > .luca-ask:hover + .luca-ask > .luca-place-row::before {
+  opacity: 0;
+}
+
+/* A thread (WP-33, Decided 5): what happened in order hangs from a 1 px
+ * line at the ink's 14%, under the faces' centres, from 4 below one face to
+ * 4 above the next; no hairlines. The face's centre is the row's 10 of
+ * padding and half its 20: 20 in, so the line's 1 starts at 19.5. */
+.luca-place-plate[data-thread] > .luca-place-row:not(:last-child)::after {
+  background: var(--luca-plate-thread);
+  bottom: -7px;
+  content: "";
+  left: 19.5px;
+  pointer-events: none;
+  position: absolute;
+  top: 35px;
+  width: 1px;
+}
+
 /* A search field on the page: no outline and no fill at rest; focus draws
  * the Library search's ring (artifact-library.css). Its padding sits outside
  * the axis, so the icon stays on the page's left edge. */
@@ -291,4 +501,31 @@
 .artifact-library-screen__focal-card[data-place-pick] {
   display: flex;
   flex-direction: column;
+}
+
+/* The faces' drawings at their sizes: a head's tile draws at 22 (a line
+ * drawing at 19, the agent mark at 21); a row's face at 20 (16, 17). */
+.luca-place-row-face > svg {
+  height: 16px;
+  width: 16px;
+}
+
+.luca-place-row-face > .luca-agent-mark {
+  height: 17px;
+  width: 17px;
+}
+
+.luca-place-page-face > .luca-place-face {
+  height: 22px;
+  width: 22px;
+}
+
+.luca-place-page-face > .luca-place-face > svg {
+  height: 19px;
+  width: 19px;
+}
+
+.luca-place-page-face > .luca-place-face > .luca-agent-mark {
+  height: 21px;
+  width: 21px;
 }

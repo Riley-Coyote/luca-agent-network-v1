@@ -709,7 +709,7 @@ function SettingRow({
 }
 
 /** What they can read, in a breath: Brain's sources as its cards count them. */
-function useWhatTheyCanRead(enabled: boolean): string {
+export function useWhatTheyCanRead(enabled: boolean): string {
   const connected = useConnectedBrainInventoryQuery({ enabled });
   const owner = useOwnerBrainStateQuery({ enabled });
   const sources = (connected.data?.sources ?? []).filter(
@@ -735,7 +735,7 @@ function useWhatTheyCanRead(enabled: boolean): string {
 }
 
 /** Their machine access, as today's picker names it. */
-function usePermissionsValue(residentPubkey: string | null): string {
+export function usePermissionsValue(residentPubkey: string | null): string {
   const settings = useQuery({
     enabled: Boolean(residentPubkey),
     queryFn: getResidentCapabilitySettings,
