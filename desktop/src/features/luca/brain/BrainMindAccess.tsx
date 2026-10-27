@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AlertCircle, ArrowUpRight, RotateCcw } from "lucide-react";
+import { AlertCircle, ArrowRight, RotateCcw } from "lucide-react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useLucaResidentsQuery } from "@/features/luca/residents/hooks";
@@ -145,7 +145,9 @@ export function BrainMindAccess({
           size="quiet"
           variant="quiet"
         >
-          Open Brain <ArrowUpRight />
+          {/* An in-app move, drawn as the runtime sessions' Open Brain
+              draws it: ArrowRight at 16, after the words. */}
+          Open Brain <ArrowRight className="!size-4" />
         </Button>
       </div>
 
