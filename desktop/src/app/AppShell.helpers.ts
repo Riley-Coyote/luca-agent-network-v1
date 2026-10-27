@@ -12,7 +12,10 @@ export type AppView =
   | "artifacts"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  /** Chats' own pages (WP-34): what needs you, and a connected app. */
+  | "needs-you"
+  | "app";
 
 const WINDOW_DRAG_HANDLE_HEIGHT = 44;
 /** Under the shell's frame the band is the lip's 36, so a press on the cards'
@@ -200,6 +203,14 @@ export function deriveShellRoute(
       selectedChannelId: null,
       selectedView: "projects",
     };
+  }
+
+  if (pathname === "/needs-you") {
+    return { selectedChannelId: null, selectedView: "needs-you" };
+  }
+
+  if (pathname.startsWith("/apps/")) {
+    return { selectedChannelId: null, selectedView: "app" };
   }
 
   if (pathname === "/pulse") {

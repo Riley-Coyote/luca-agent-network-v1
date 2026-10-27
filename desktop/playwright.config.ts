@@ -65,6 +65,7 @@ export default defineConfig({
         "**/shell-room-flows.spec.ts",
         "**/shell-top-edge.spec.ts",
         "**/shell-pages.spec.ts",
+        "**/shell-rail-wp34.spec.ts",
         "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",

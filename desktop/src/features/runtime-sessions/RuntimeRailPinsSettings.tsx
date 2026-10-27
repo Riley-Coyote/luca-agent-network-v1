@@ -35,7 +35,7 @@ function connectionStatus(
 }
 
 export function RuntimeRailPinsSettings() {
-  // Under the shell, Runtimes left the rail for the Agents page.
+  // Under the shell the apps are the Chats rail's Apps (WP-34).
   const shellFrame = useShellFrameEnabled();
   const statusQuery = useRuntimeConnectionsQuery();
   const catalogQuery = useAcpRuntimesQuery();
@@ -61,11 +61,11 @@ export function RuntimeRailPinsSettings() {
   return (
     <div className="mt-8" data-testid="runtime-rail-pins-settings">
       <h3 className="mb-2 px-1 text-sm font-medium">
-        {shellFrame ? "Runtimes" : "Sidebar runtimes"}
+        {shellFrame ? "Apps" : "Sidebar runtimes"}
       </h3>
       <p className="mb-3 px-1 text-sm leading-6 text-muted-foreground">
         {shellFrame
-          ? "Choose which installed harnesses appear on the Agents page."
+          ? "Choose which installed apps appear in Chats, under Apps."
           : "Choose which installed harnesses stay within reach. Native Hermes and OpenClaw residents remain in the Agent Library."}
       </p>
       <SettingsOptionGroup>
@@ -98,7 +98,7 @@ export function RuntimeRailPinsSettings() {
               <Switch
                 aria-label={
                   shellFrame
-                    ? `Show ${label} on the Agents page`
+                    ? `Show ${label} in Chats`
                     : `Show ${label} in the runtime rail`
                 }
                 checked={pinned.has(family)}

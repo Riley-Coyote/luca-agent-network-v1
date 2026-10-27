@@ -759,9 +759,9 @@ export function AppSidebar({
     activeCommunity?.id ?? "",
   );
   const { openBrowseChannels, openCreateChannel } = useAppShell();
-  // The Chats rail's Rooms (WP-11): its + starts a room outside any project;
-  // its last rows open the room browser on All, and on Archived.
-  const createRoomFromRail = useStableCallback(() => openCreateChannel());
+  // The Chats rail's Projects ends on the room browser, on All and on
+  // Archived (WP-34; Rooms' last rows before). A room outside any project
+  // starts from the browser's own Create.
   const browseRoomsFromRail = useStableCallback(() =>
     openBrowseChannels(undefined, { tab: "all" }),
   );
@@ -914,7 +914,7 @@ export function AppSidebar({
                       place={railPlace}
                     />
                   ) : USE_CHAT_LIST && frame ? (
-                    // The shell's rail: Runtimes lives on the Agents page.
+                    // The shell's rail: the connected apps are its Apps.
                     <ShellRail
                       agentStorageKey={agentStorageKey}
                       agents={railAgents}
@@ -923,7 +923,7 @@ export function AppSidebar({
                       onBrowseArchived={browseArchivedFromRail}
                       onBrowseRooms={browseRoomsFromRail}
                       onCreateProject={createProjectFromRail}
-                      onCreateRoom={createRoomFromRail}
+                      onLeave={closeSheetAfterPick}
                       onNewConversation={handleNewMessageNavigation}
                       onMarkChannelRead={onMarkChannelRead}
                       onMarkChannelUnread={onMarkChannelUnread}

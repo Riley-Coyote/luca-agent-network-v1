@@ -11,11 +11,12 @@ import { railGlassAtRest } from "./flagOffSettle";
 /**
  * WP-14, what agents say to each other, and what needs you
  * (docs/luca/rail-system/SHELL_BUILD.md; NAVIGATION.md, "Activity" and
- * "Chats"): under `shell-frame` Activity opens on Needs you, every item
- * answerable in place, its count on the Activity icon and at the row's end;
- * Side conversations is one feed by day of every exchange and runtime task;
- * Luca's side conversations sit under Luca in the Chats rail; a connected
- * app's card says what Luca did with it. Every row comes from a seeded record
+ * "Chats"), as WP-34 moved them (BETA14_RELEASE.md): Needs you tops the
+ * Chats rail and opens in the Chats card, every item answerable in place,
+ * its count on the Chats icon and at the row's end; Activity is the record
+ * (All activity, a thread by day); the work hangs in the Chats rail under
+ * whoever does it (an exchange under the agent asked, a task under its app);
+ * a connected app's card, now in Chats, says what Luca did with it. Every row comes from a seeded record
  * (exchanges in three rooms, three runtime tasks, a proposal, a permission
  * request, a question). Screenshots land in WP14_SHOTS when set, the
  * measurements in WP14_SHOTS/measures. The base build is at WP14_BASE_URL.
@@ -342,18 +343,19 @@ async function speak(page: Page) {
 }
 
 test("needs you: every kind, answered in place, counted", async ({ page }) => {
-  await boot(page, { hash: "/pulse" });
-  // Activity's first pick is Needs you (Decided 2).
+  // Needs you opens from the top of the Chats rail, in the Chats card
+  // (WP-34, Decided 2).
+  await boot(page, { hash: "/needs-you" });
   await expect(page.getByTestId("needs-you-card")).toBeVisible({
     timeout: 20_000,
   });
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
-    .toContain("stream=needs-you");
+    .toContain("/needs-you");
   await speak(page);
   const items = page.locator("[data-needs-kind]");
   await expect(items).toHaveCount(4, { timeout: 20_000 });
-  await expect(page.getByTestId("place-row-needs-you")).toHaveAttribute(
+  await expect(page.getByTestId("rail-needs-you")).toHaveAttribute(
     "data-active",
     "true",
   );
@@ -491,27 +493,32 @@ test("needs you: every kind, answered in place, counted", async ({ page }) => {
     "question",
   ]);
 
+  // The count moved from Activity to Chats (WP-34, Decided 2).
   const count = async () => ({
-    tile: (await page.getByTestId("open-activity-view-count").count())
-      ? await page.getByTestId("open-activity-view-count").textContent()
+    tile: (await page.getByTestId("shell-place-conversations-count").count())
+      ? await page.getByTestId("shell-place-conversations-count").textContent()
       : null,
     tileLabel: await page
-      .getByTestId("open-activity-view")
+      .getByTestId("shell-place-conversations")
       .getAttribute("aria-label"),
+    activityTile: await page.getByTestId("open-activity-view-count").count(),
     // Read without waiting: at zero the note is not drawn at all.
     row: await page
-      .getByTestId("place-row-needs-you")
+      .getByTestId("rail-needs-you")
       .evaluate(
-        (row) => row.querySelector(".luca-rail-note")?.textContent ?? null,
+        (row) => row.querySelector(".luca-rail-needs")?.textContent ?? null,
       ),
   });
   const before = await count();
   expect(before.tile).toBe("4");
   expect(before.row).toBe("4");
+  expect(before.activityTile).toBe(0);
   const badge = await page.evaluate(() => {
-    const tile = document.querySelector('[data-testid="open-activity-view"]');
+    const tile = document.querySelector(
+      '[data-testid="shell-place-conversations"]',
+    );
     const count = document.querySelector(
-      '[data-testid="open-activity-view-count"]',
+      '[data-testid="shell-place-conversations-count"]',
     );
     const dot = document.querySelector(
       '[data-testid="shell-place-conversations"]',
@@ -639,265 +646,199 @@ test("needs you: every kind, answered in place, counted", async ({ page }) => {
   measure("answer_in_place", { answered, after });
   expect(after.tile).toBeNull();
   expect(after.row).toBeNull();
-  expect(after.tileLabel).toBe("Activity");
+  expect(after.tileLabel).toBe("Chats");
   measure("shot_needs_you_answered", await shot(page, "needs-you-answered"));
 });
 
-test("side conversations: one feed, by day", async ({ page }) => {
-  await boot(page, { hash: "/pulse?stream=side" });
-  await expect(page.getByTestId("side-conversations-card")).toBeVisible({
+// Side conversations retired with WP-34 (Decided 10): Activity is the
+// record, a thread by day, and what passed between two minds is in the work
+// itself, hung in the Chats rail under whoever does it.
+test("all activity: one thread, by day; exchanges hang in the rail", async ({
+  page,
+}) => {
+  await boot(page, { hash: "/pulse" });
+  await expect(page.getByTestId("all-activity-card")).toBeVisible({
     timeout: 20_000,
   });
-  await speak(page);
-  const rows = page.locator("[data-side-kind]");
-  await expect(rows).toHaveCount(6, { timeout: 20_000 });
-  // The exchanges' times are their latest turns, heard live (a talking one
-  // says now, so the paused one is the one to wait for).
   await expect
-    .poll(() =>
-      page
-        .getByTestId(`side-row-${X_PAUSED}`)
-        .locator(".luca-place-row-note")
-        .textContent(),
-    )
-    .not.toBe("");
-  const feed = await page
-    .getByTestId("side-conversations-card")
-    .evaluate((card) =>
-      [...card.querySelectorAll('[data-testid="side-day"]')].map((day) => ({
+    .poll(() => page.evaluate(() => window.location.hash))
+    .toContain("stream=all");
+  await speak(page);
+  const rows = page.locator("[data-activity-kind='task']");
+  await expect(rows).toHaveCount(3, { timeout: 20_000 });
+  const feed = await page.getByTestId("all-activity-card").evaluate((card) =>
+    [...card.querySelectorAll('[data-testid="all-activity-day"]')].map(
+      (day) => ({
         // The label's words, not its count (WP-33, Decided 2).
         day: day.querySelector("h2 > span")?.textContent,
-        rows: [...day.querySelectorAll<HTMLElement>("[data-side-kind]")].map(
-          (row) => ({
-            kind: row.dataset.sideKind,
-            state: row.dataset.sideState,
-            title: row.querySelector(".luca-place-row-title")?.textContent,
-            summary: row.querySelector(".luca-place-row-summary")?.textContent,
-            detail: row.querySelector(".luca-place-row-detail")?.textContent,
-            note: row.querySelector(".luca-place-row-note")?.textContent,
-          }),
-        ),
-      })),
-    );
-  measure("side_feed", feed);
-  // By day, newest first: each day once, the first one today.
+        thread: day.querySelector("ul")?.getAttribute("data-thread"),
+        rows: [
+          ...day.querySelectorAll<HTMLElement>("[data-activity-kind]"),
+        ].map((row) => ({
+          kind: row.dataset.activityKind,
+          title: row.querySelector(".luca-place-row-title")?.textContent,
+          summary: row.querySelector(".luca-place-row-summary")?.textContent,
+          note: row.querySelector(".luca-place-row-note")?.textContent,
+        })),
+      }),
+    ),
+  );
+  measure("all_activity_feed", feed);
+  // By day, newest first: each day once, the first one today, each a thread.
   const dayLabels = feed.map((day) => day.day);
   expect(dayLabels[0]).toBe("Today");
   expect(new Set(dayLabels).size).toBe(dayLabels.length);
-  const titles = feed.flatMap((day) => day.rows.map((row) => row.title));
-  expect(titles).toEqual([
-    "Luca asked Claude Code",
-    "Luca asked Atlas",
-    "Luca asked Wren",
-    "Luca asked Claude Code",
-    "Atlas asked Luca",
-    "Atlas asked Codex",
-  ]);
-  const open = feed
+  for (const day of feed) expect(day.thread).toBe("true");
+  const tasks = feed
     .flatMap((day) => day.rows)
-    .find((row) => row.title === "Luca asked Atlas");
-  if (!open) throw new Error("Expected the open exchange's row.");
-  expect(open.state).toBe("talking");
-  expect(open.detail).toContain("1 turn");
-  expect(open.summary).toBe("general");
-  // A talking exchange says now (fix 15).
-  expect(open.note).toBe("now");
-  // The state column lines up: one left edge for the words, one right edge
-  // for the turns, drawn even when empty (fix 9); the words on the row's
-  // baseline (fix 14).
-  const columns = await page.evaluate(() => {
-    const edge = (selector: string, side: "left" | "right") => [
-      ...new Set(
-        [...document.querySelectorAll(selector)].map((el) =>
-          Math.round(el.getBoundingClientRect()[side]),
-        ),
-      ),
-    ];
-    const state = document.querySelector(".luca-side-state");
-    return {
-      stateLeft: edge(
-        '[data-testid="side-conversations-card"] .luca-side-state',
-        "left",
-      ),
-      turnsRight: edge(
-        '[data-testid="side-conversations-card"] .luca-side-turns',
-        "right",
-      ),
-      turnsCount: document.querySelectorAll(
-        '[data-testid="side-conversations-card"] .luca-side-turns',
-      ).length,
-      rows: document.querySelectorAll(
-        '[data-testid="side-conversations-card"] [data-side-kind]',
-      ).length,
-      align: state ? getComputedStyle(state).alignItems : null,
-    };
-  });
-  measure("side_columns", columns);
-  measure(
-    "side_first_row_gap",
-    await page.evaluate(() => {
-      const eyebrow = document.querySelector(
-        '[data-testid="side-conversations-card"] .luca-place-group > h2',
-      );
-      const title = document.querySelector(
-        '[data-testid="side-conversations-card"] .luca-place-row-title',
-      );
-      return eyebrow && title
-        ? Math.round(
-            title.getBoundingClientRect().top -
-              eyebrow.getBoundingClientRect().bottom,
-          )
-        : null;
-    }),
-  );
-  measure(
-    "side_first_row_gap",
-    await page.evaluate(() => {
-      const eyebrow = document.querySelector(
-        '[data-testid="side-conversations-card"] .luca-place-group > h2',
-      );
-      const title = document.querySelector(
-        '[data-testid="side-conversations-card"] .luca-place-row-title',
-      );
-      return eyebrow && title
-        ? Math.round(
-            title.getBoundingClientRect().top -
-              eyebrow.getBoundingClientRect().bottom,
-          )
-        : null;
-    }),
-  );
-  expect(columns.stateLeft).toHaveLength(1);
-  expect(columns.turnsRight).toHaveLength(1);
-  expect(columns.turnsCount).toBe(columns.rows);
-  expect(columns.align).toBe("baseline");
-  measure("shot_side_conversations", await shot(page, "side-conversations"));
+    .filter((row) => row.kind === "task");
+  expect(tasks.map((row) => row.title)).toEqual([
+    "Claude Code · Rail glass plates",
+    "Claude Code · Fix the failing build",
+    "Codex · Release script check",
+  ]);
+  expect(tasks[0].summary).toBe("working · for Luca · design");
+  expect(tasks[2].summary).toBe("done · for Atlas · engineering");
+  for (const row of tasks) expect(row.note).not.toBe("");
+  measure("shot_all_activity", await shot(page, "all-activity"));
 
-  // An exchange opens its room at its first message.
-  await page.getByTestId(`side-row-${X_OPEN}`).getByRole("button").click();
+  // The exchange Luca opened with Atlas hangs under Atlas in the Chats rail,
+  // and opens its room at its first message.
+  await page.getByTestId("shell-place-conversations").click();
+  const row = page.getByTestId(`rail-side-exchange:${X_OPEN}`);
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page
+      .locator(`[data-home-group="agent:${ATLAS}"]`)
+      .getByTestId(`rail-side-exchange:${X_OPEN}`),
+  ).toBeVisible();
+  await row.click();
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 15_000 })
-    .toContain(`thread=${ROOT.open}`);
+    .toContain(ROOT.open);
   // It stays there: nothing rewrites it afterwards.
   await page.waitForTimeout(1500);
   const opened = await page.evaluate(() => window.location.hash);
   measure("side_open", opened);
-  expect(opened).toContain(`thread=${ROOT.open}`);
+  expect(opened).toContain(ROOT.open);
 });
 
-test("Luca's side conversations under Luca in the Chats rail", async ({
-  page,
-}) => {
+// WP-34, Decided 3: only work nests. Luca's side conversations moved under
+// whoever does the work: an exchange under the agent it asks, a task under
+// the app that runs it.
+test("the work under whoever does it, in the Chats rail", async ({ page }) => {
   await boot(page, { hash: `/channels/${GENERAL}` });
   const rail = page.getByTestId("chat-list");
   await expect(rail).toBeVisible({ timeout: 20_000 });
   await speak(page);
-  const sideRows = page.locator('[data-home-group="luca"] [data-side-row]');
-  await expect
-    .poll(() => sideRows.count(), { timeout: 20_000 })
-    .toBeGreaterThanOrEqual(2);
-  // The latest few, and every one still talking or working.
-  await expect
-    .poll(() =>
-      page
-        .getByTestId(`rail-side-exchange:${X_OPEN}`)
-        .locator(".luca-rail-session-title")
-        .textContent()
-        .catch(() => null),
-    )
-    .toBe("Atlas · general");
+  await expect(page.getByTestId(`rail-side-exchange:${X_OPEN}`)).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("rail-side-task:task-glass")).toBeVisible({
+    timeout: 20_000,
+  });
   await page.waitForTimeout(800);
-  const read = () =>
-    page.locator('[data-home-group="luca"]').evaluate((home) =>
-      [...home.querySelectorAll<HTMLElement>(".luca-rail-session")].map(
-        (row) => ({
-          side: row.dataset.sideRow ?? null,
-          label:
-            row.querySelector(".luca-rail-session-title")?.textContent ??
-            row.textContent,
-          trailing:
-            row.querySelector(
-              ".luca-rail-working, .luca-rail-status, .luca-rail-session-ago",
-            )?.textContent ?? null,
-          working: Boolean(row.querySelector(".luca-rail-working")),
-        }),
-      ),
+  const read = (group: string) =>
+    page.locator(`[data-home-group="${group}"]`).evaluate((home) =>
+      [...home.querySelectorAll<HTMLElement>("[data-side-row]")].map((row) => ({
+        side: row.dataset.sideRow ?? null,
+        label: row.querySelector(".luca-rail-session-title")?.textContent,
+        trailing:
+          row.querySelector(
+            ".luca-rail-working, .luca-rail-status, .luca-rail-session-ago",
+          )?.textContent ?? null,
+      })),
     );
-  const folded = await read();
-  // The feed's words (fix 16): talking… for a live exchange, working… for a
+  const work = {
+    luca: await page
+      .locator('[data-home-group="luca"] [data-side-row]')
+      .count(),
+    atlas: await read(`agent:${ATLAS}`),
+    wren: await read(`agent:${WREN}`),
+    claude: await read("app:claude"),
+    codex: await read("app:codex"),
+  };
+  measure("work_rows", work);
+  // Luca is one chat: nothing hangs under it.
+  expect(work.luca).toBe(0);
+  // The words (fix 16): talking… for a live exchange, working… for a
   // running task, paused for a paused one.
-  const words = Object.fromEntries(
-    folded.filter((row) => row.side).map((row) => [row.label, row.trailing]),
-  );
-  measure("luca_words", words);
-  expect(words["Atlas · general"]).toBe("talking");
-  expect(words["Claude Code · Rail glass plates"]).toBe("working");
-  expect(words["Wren · design"]).toBe("paused");
-  for (const live of ["Atlas · general", "Claude Code · Rail glass plates"])
-    expect(folded.map((row) => row.label)).toContain(live);
-  for (const row of folded.filter((each) => each.side === "live"))
-    expect(row.working).toBe(true);
-  const box = await page.getByTestId("chat-list").boundingBox();
+  expect(work.atlas).toContainEqual({
+    side: "live",
+    label: "Luca · general",
+    trailing: "talking",
+  });
+  expect(work.wren).toContainEqual({
+    side: "quiet",
+    label: "Luca · design",
+    trailing: "paused",
+  });
+  expect(work.claude.map((row) => row.label)).toEqual([
+    "Rail glass plates",
+    "Fix the failing build",
+  ]);
+  expect(work.claude[0].trailing).toBe("working");
+  expect(work.claude[1].trailing).toMatch(/^\d+[mhdw]$/);
+  expect(work.codex.map((row) => row.label)).toEqual(["Release script check"]);
+  // Atlas asked Luca in engineering: Luca nests nothing, so it hangs nowhere.
+  await expect(page.getByTestId(`rail-side-exchange:${X_DONE}`)).toHaveCount(0);
+  const box = await rail.boundingBox();
+  await page
+    .getByTestId("rail-side-task:task-build")
+    .evaluate((row) => row.scrollIntoView({ block: "end" }));
   measure(
-    "shot_luca_side_rows",
-    await shot(page, "luca-side-rows", {
+    "shot_work_rows",
+    await shot(page, "work-rows", {
       x: 0,
       y: 0,
       width: Math.ceil((box?.x ?? 60) + (box?.width ?? 260) + 8),
-      height: 440,
+      height: 900,
     }),
   );
-  // "N more" opens the rest; then all five of Luca's are there.
-  const more = page.getByTestId("rail-more-luca");
-  if (await more.count()) await more.click();
-  const all = await read();
-  measure("luca_rows", { all, folded });
-  expect(
-    all
-      .filter((row) => row.side)
-      .map((row) => row.label)
-      .sort(),
-  ).toEqual([
-    "Atlas · engineering",
-    "Atlas · general",
-    "Claude Code · Fix the failing build",
-    "Claude Code · Rail glass plates",
-    "Wren · design",
-  ]);
-  // Folded, Luca's home says what is live out of sight (fix 12).
-  await page.getByTestId("rail-home-luca").locator("[data-chevron]").click();
+  // Folded, an app's home says what is live out of sight (fix 12).
+  await page
+    .getByTestId("rail-home-app:claude")
+    .locator("[data-chevron]")
+    .click();
   const foldedHome = await page
-    .getByTestId("rail-home-luca")
+    .getByTestId("rail-home-app:claude")
     .evaluate((row) => ({
       signal: row.querySelector(".luca-rail-signal")?.textContent ?? null,
       label: row
         .querySelector("[data-rail-focus=home]")
         ?.getAttribute("aria-label"),
     }));
-  measure("luca_folded", foldedHome);
+  measure("app_folded", foldedHome);
   expect(foldedHome.signal).toBe("working");
   expect(foldedHome.label).toContain("working");
-  await page.mouse.move(900, 600);
-  measure(
-    "shot_luca_folded",
-    await shot(page, "luca-folded", { x: 0, y: 0, width: 300, height: 160 }),
-  );
-  await page.getByTestId("rail-home-luca").locator("[data-chevron]").click();
-  if (await more.count()) await more.click();
-  // Each opens where it happened.
-  await page.getByTestId(`rail-side-exchange:${X_DONE}`).click();
+  await page
+    .getByTestId("rail-home-app:claude")
+    .locator("[data-chevron]")
+    .click();
+  // A task opens where it happened, marked under its app; the lip names it
+  // under the app.
+  await page.getByTestId("rail-side-task:task-build").click();
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
-    .toContain(`thread=${ROOT.done}`);
-  await page.waitForTimeout(1500);
-  expect(await page.evaluate(() => window.location.hash)).toContain(
-    `thread=${ROOT.done}`,
+    .toContain(`/channels/${GENERAL}`);
+  await expect(page.getByTestId("rail-side-task:task-build")).toHaveAttribute(
+    "data-current",
+    "true",
+  );
+  await expect(page.getByTestId("rail-home-app:claude")).toHaveAttribute(
+    "data-active",
+    "true",
+  );
+  await expect(page.getByTestId("shell-lip")).toContainText(
+    /Claude Code\s*\/\s*Fix the failing build/,
   );
 });
 
 test("a connected app: what Luca did with it", async ({ page }) => {
-  await boot(page, { hash: "/agents?connected=claude-code" });
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+  // The minds' states are read on the Agents rail; the app's card is in
+  // Chats since WP-34 (Decided 9).
+  await boot(page, { hash: "/agents" });
+  await expect(page.getByTestId("place-rail-agents")).toBeVisible({
     timeout: 20_000,
   });
   // A mind running a runtime task counts as working (review, fix 5); Atlas,
@@ -914,6 +855,14 @@ test("a connected app: what Luca did with it", async ({ page }) => {
     luca: await stateOf(LUCA),
   });
   expect(await stateOf(ATLAS)).toBe("talking");
+  await page.getByTestId("shell-place-conversations").click();
+  await page
+    .getByTestId("rail-home-app:claude")
+    .locator("[data-rail-focus=home]")
+    .click();
+  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+    timeout: 20_000,
+  });
   const history = page.getByTestId("connected-what-luca-did");
   await expect(history).toBeVisible({ timeout: 20_000 });
   await history.scrollIntoViewIfNeeded();
@@ -959,9 +908,9 @@ test("a connected app: what Luca did with it", async ({ page }) => {
     .toContain(`/channels/${GENERAL}`);
 });
 
-test("800 x 500: needs you and side conversations", async ({ page }) => {
+test("800 x 500: needs you and all activity", async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 500 });
-  await boot(page, { hash: "/pulse" });
+  await boot(page, { hash: "/needs-you" });
   await expect(page.locator("[data-needs-kind]")).toHaveCount(4, {
     timeout: 20_000,
   });
@@ -994,14 +943,19 @@ test("800 x 500: needs you and side conversations", async ({ page }) => {
     expect(ask.answersBelow).toBe(true);
   }
   measure("shot_needs_you_800", await shot(page, "needs-you-800"));
-  await page
-    .getByTestId("place-row-side")
-    .click()
-    .catch(async () => {
-      await page.goto("/#/pulse?stream=side");
-    });
-  await expect(page.getByTestId("side-conversations-card")).toBeVisible();
-  measure("shot_side_800", await shot(page, "side-conversations-800"));
+  await page.goto("/#/pulse");
+  await expect(page.getByTestId("all-activity-card")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.locator("[data-activity-kind]").first()).toBeVisible({
+    timeout: 20_000,
+  });
+  const allOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  measure("narrow_all_activity_overflow", allOverflow);
+  expect(allOverflow).toBeLessThanOrEqual(0);
+  measure("shot_all_activity_800", await shot(page, "all-activity-800"));
 });
 
 test("flag off: the same as the base build", async ({ browser }) => {
@@ -1075,16 +1029,15 @@ test("flag off: the same as the base build", async ({ browser }) => {
 test("landing on an exchange: its message in view, named for you", async ({
   page,
 }) => {
-  await boot(page, { hash: "/pulse?stream=side" });
-  await expect(page.getByTestId("side-conversations-card")).toBeVisible({
-    timeout: 20_000,
-  });
+  // From its row under Atlas in the Chats rail (WP-34; Side conversations'
+  // feed before).
+  await boot(page, { hash: "/needs-you" });
+  await expect(page.getByTestId("chat-list")).toBeVisible({ timeout: 20_000 });
   await speak(page);
-  await expect(page.getByTestId(`side-row-${X_OPEN}`)).toBeVisible({
-    timeout: 20_000,
-  });
+  const exchange = page.getByTestId(`rail-side-exchange:${X_OPEN}`);
+  await expect(exchange).toBeVisible({ timeout: 20_000 });
   // general holds a permission request and a proposal: the waiting stack.
-  await page.getByTestId(`side-row-${X_OPEN}`).getByRole("button").click();
+  await exchange.click();
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 15_000 })
     .toContain(`thread=${ROOT.open}`);
@@ -1163,53 +1116,31 @@ test("landing on an exchange: its message in view, named for you", async ({
   measure("shot_landing_shown", await shot(page, "exchange-landing-shown"));
 });
 
-test("now: the live side conversations among who's working", async ({
-  page,
-}) => {
+// Now retired with WP-34 (Decided 10): live work shows once, in the Chats
+// rail. An old address to it lands on All activity, and what was live in
+// Now is live in the rail.
+test("now: retired; live work is in the rail", async ({ page }) => {
   await boot(page, { hash: "/pulse?stream=now" });
-  await expect(page.getByTestId("owner-activity-view")).toBeVisible({
+  await expect(page.getByTestId("all-activity-card")).toBeVisible({
     timeout: 20_000,
   });
+  await expect(page.getByTestId("owner-activity-view")).toHaveCount(0);
+  await expect(page.getByTestId("place-row-now")).toHaveCount(0);
   await speak(page);
-  const live = page.locator('[data-testid^="owner-activity-side-"]');
+  await page.getByTestId("shell-place-conversations").click();
+  const live = page.locator('[data-shell-rail] [data-side-row="live"]');
   await expect(live).toHaveCount(2, { timeout: 20_000 });
   const rows = await live.evaluateAll((nodes) =>
     nodes.map((node) => ({
-      group: (node as HTMLElement).dataset.activityGroup,
-      title: node.querySelector(".luca-place-row-title")?.textContent,
-      summary: node.querySelector(".luca-place-row-summary")?.textContent,
-      note: node.querySelector(".luca-place-row-note")?.textContent,
-      underActiveHeading:
-        getComputedStyle(
-          document.querySelector(
-            '[data-testid="owner-activity-group-active"]',
-          ) as Element,
-        ).display !== "none",
+      home: node.closest<HTMLElement>("[data-home-group]")?.dataset.homeGroup,
+      title: node.querySelector(".luca-rail-session-title")?.textContent,
     })),
   );
-  measure("now_side", rows);
-  // Named as Side conversations names them (WP-18, Decided 4).
-  expect(rows.map((row) => `${row.title} · ${row.summary}`).sort()).toEqual([
-    "Luca asked Atlas · general",
-    "Luca asked Claude Code · Rail glass plates",
+  measure("now_live_in_rail", rows);
+  expect(rows.map((row) => `${row.home} ${row.title}`).sort()).toEqual([
+    `agent:${ATLAS} Luca · general`,
+    "app:claude Rail glass plates",
   ]);
-  for (const row of rows) {
-    expect(row.group).toBe("active");
-    expect(row.underActiveHeading).toBe(true);
-  }
-  // Each mind once (WP-18, Decided 4): Luca and Atlas, named by the live
-  // side conversations, have no row of their own lower down.
-  const ownRows = await page
-    .locator('[data-testid="owner-activity-list"] .luca-place-row-title')
-    .evaluateAll(
-      (titles) =>
-        titles.filter((title) =>
-          ["Luca", "Atlas"].includes(title.textContent ?? ""),
-        ).length,
-    );
-  measure("now_own_rows", ownRows);
-  expect(ownRows).toBe(0);
-  measure("shot_now_side", await shot(page, "now-side"));
 });
 
 test("the count past 99 reads 99+, on the icon and the row", async ({
@@ -1234,24 +1165,25 @@ test("the count past 99 reads 99+, on the icon and the row", async ({
     })),
   });
   await expect(async () => {
-    await page.goto("/#/pulse");
+    await page.goto(`/#/channels/${GENERAL}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({
       timeout: 20_000,
     });
   }).toPass({ timeout: 60_000 });
-  await expect(page.getByTestId("open-activity-view-count")).toHaveText("99+", {
-    timeout: 20_000,
-  });
-  const row = await page
-    .getByTestId("place-row-needs-you")
-    .locator(".luca-rail-note")
-    .textContent();
+  // On the Chats icon and the Chats rail's row since WP-34 (Decided 2).
+  await expect(page.getByTestId("shell-place-conversations-count")).toHaveText(
+    "99+",
+    {
+      timeout: 20_000,
+    },
+  );
+  const row = await page.getByTestId("rail-needs-you-count").textContent();
   const overhang = await page.evaluate(() => {
     const tile = document
-      .querySelector('[data-testid="open-activity-view"]')
+      .querySelector('[data-testid="shell-place-conversations"]')
       ?.getBoundingClientRect();
     const count = document
-      .querySelector('[data-testid="open-activity-view-count"]')
+      .querySelector('[data-testid="shell-place-conversations-count"]')
       ?.getBoundingClientRect();
     return tile && count
       ? { left: count.left - tile.left, right: tile.right - count.right }

@@ -11,8 +11,6 @@ import {
   rememberPick,
   type RailPlace,
 } from "@/app/shell/placeRails/placePicks";
-import { needsYouNote } from "@/app/shell/placeRails/needsYou";
-import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { useArtifactLibrary } from "@/features/artifacts/hooks";
 import { useCapabilitySkills } from "@/features/capabilities/hooks";
 import { skillRuntimeLabel } from "@/features/capabilities/lib/skillHandoff";
@@ -29,18 +27,13 @@ import {
 import { buildResidentLibrary } from "@/features/agents/ui/agentLibraryViewModel";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
-import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
-import {
-  runtimeConnectionKey,
-  runtimeReadinessLabel,
-} from "@/features/runtime-sessions/runtimeSessionModel";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 /**
  * Each place's rail, from the app's own data (NAVIGATION.md; SHELL_BUILD.md
  * WP-10, Decided 3, 5, 6). Rows only: what the rail draws, the lip names and
  * the cards pick by. A section with nothing in it hides, except Luca and
- * Activity's streams (Decided 10; WP-14); a section with a `+` keeps its
+ * All activity (Decided 10; WP-34); a section with a `+` keeps its
  * heading, so its `+` is never out of reach.
  */
 
@@ -77,7 +70,6 @@ function useAgentsRail(): PlaceRail {
   const agentsQuery = useManagedAgentsQuery();
   const personasQuery = usePersonasQuery();
   const teamsQuery = useTeamsQuery();
-  const { isLoading: runtimesLoading, runtimes } = useRuntimeRailConnections();
   const luca = useCanonicalLucaPubkey();
   // Each mind's one state (WP-18, Decided 2): its live turn, its runtime
   // tasks, its live side conversations and its errors.
@@ -85,8 +77,7 @@ function useAgentsRail(): PlaceRail {
   const ready =
     agentsQuery.data !== undefined &&
     personasQuery.data !== undefined &&
-    teamsQuery.data !== undefined &&
-    !runtimesLoading;
+    teamsQuery.data !== undefined;
   const sections = React.useMemo(() => {
     const library = buildResidentLibrary(
       agentsQuery.data ?? [],
@@ -127,16 +118,6 @@ function useAgentsRail(): PlaceRail {
         note: stateOf(resident),
         title: resident.displayName,
       }));
-    const connected = runtimes.map((runtime) => ({
-      id: `connected:${runtimeConnectionKey(runtime)}`,
-      // Connected is the ordinary state and says nothing; a runtime that
-      // needs you says what it needs, as its row always has.
-      note:
-        runtime.readiness === "ready" && runtime.authentication !== "required"
-          ? undefined
-          : runtimeReadinessLabel(runtime).toLocaleLowerCase(),
-      title: runtime.label,
-    }));
     const groups = (teamsQuery.data ?? []).map((team) => ({
       id: `group:${team.id}`,
       title: team.name,
@@ -150,8 +131,7 @@ function useAgentsRail(): PlaceRail {
         title: "Agents",
       },
     ];
-    if (connected.length > 0)
-      sections.push({ key: "connected", rows: connected, title: "Connected" });
+    // Connected left for the Chats rail, as Apps (WP-34, Decided 9).
     sections.push({
       add: { action: "new-group", label: "New group" },
       key: "groups",
@@ -159,40 +139,27 @@ function useAgentsRail(): PlaceRail {
       title: "Groups",
     });
     return sections;
-  }, [
-    agentsQuery.data,
-    luca,
-    personasQuery.data,
-    runtimes,
-    signals,
-    teamsQuery.data,
-  ]);
+  }, [agentsQuery.data, luca, personasQuery.data, signals, teamsQuery.data]);
   return { ready, sections };
 }
 
+/** Activity is the record (WP-34, Decided 10): All activity first, then
+ *  each mind's signed record. Needs you moved to the top of Chats; Now and
+ *  Side conversations retired, live work being in the Chats rail. */
 function useActivityRail(): PlaceRail {
   const agentsQuery = useManagedAgentsQuery();
-  // Needs you, with its count at the row's end (WP-14, Decided 2 and 4).
-  const { count } = useNeedsYou();
   const sections = React.useMemo(() => {
     const records = (agentsQuery.data ?? []).map((agent) => ({
       id: `record:${normalizePubkey(agent.pubkey)}`,
       title: agent.name,
     }));
     const sections: PlaceRailSection[] = [
-      {
-        key: "streams",
-        rows: [
-          { id: "needs-you", note: needsYouNote(count), title: "Needs you" },
-          { id: "now", title: "Now" },
-          { id: "side", title: "Side conversations" },
-        ],
-      },
+      { key: "streams", rows: [{ id: "all", title: "All activity" }] },
     ];
     if (records.length > 0)
       sections.push({ key: "record", rows: records, title: "Signed record" });
     return sections;
-  }, [agentsQuery.data, count]);
+  }, [agentsQuery.data]);
   return { ready: agentsQuery.data !== undefined, sections };
 }
 

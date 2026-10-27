@@ -872,7 +872,7 @@ for (const mode of ["dark", "light"] as const) {
   test(`Needs you (${mode}): the head, the plate, faces on the asks`, async ({
     page,
   }) => {
-    await boot(page, { hash: "/pulse?stream=needs-you", mode });
+    await boot(page, { hash: "/needs-you", mode });
     await expect(page.getByTestId("needs-you-card")).toBeVisible({
       timeout: 20_000,
     });

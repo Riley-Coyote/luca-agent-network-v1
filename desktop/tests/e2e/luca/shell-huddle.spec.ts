@@ -1732,15 +1732,15 @@ test("with a huddle live a connected app's card ends where the cards do", async 
   page,
 }) => {
   // The runtime sessions column retired (SHELL_SPEC.md, "The rail"): a
-  // connected app's sessions are its card in Agents (WP-10), on the one card
-  // (WP-12). With a huddle live it ends where the rail does, 6 above the
-  // band, as the column's card did.
+  // connected app's sessions are its card, in Chats under Apps since WP-34,
+  // on the one card (WP-12). With a huddle live it ends where the rail does,
+  // 6 above the band, as the column's card did.
   test.setTimeout(120_000);
   await openApp(page, { frame: true });
   await openGeneral(page);
   await startHuddle(page);
   await page.evaluate(() => {
-    window.location.hash = "#/agents?connected=claude-code";
+    window.location.hash = "#/apps/claude";
   });
   await expect(page.getByTestId("connected-app-card")).toBeVisible({
     timeout: 20_000,

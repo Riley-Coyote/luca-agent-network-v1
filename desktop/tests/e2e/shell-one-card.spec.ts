@@ -345,8 +345,15 @@ function columnsClear(m: Measured) {
     paint != null &&
     paint.background === "rgba(0, 0, 0, 0)" &&
     paint.image === "none";
+  // The rail lies on the card in its own tone and nothing else (WP-34,
+  // Decided 7): black at 20% by night, the paper's recess at 15% by day;
+  // no image, no shadow of its own.
+  const toned = (paint: Measured["railPaint"]) =>
+    paint != null &&
+    /^rgba\(.+, 0\.(2|15)\)$/.test(paint.background ?? "") &&
+    paint.image === "none";
   return {
-    rail: clear(m.railPaint) && m.railPaint?.shadow === "none",
+    rail: toned(m.railPaint) && m.railPaint?.shadow === "none",
     content: clear(m.surfacePaint) && m.surfacePaint?.shadow === "none",
     inset: m.inset?.background === "rgba(0, 0, 0, 0)",
     panes: m.panes.every(
@@ -544,7 +551,9 @@ test("one card in every place", async ({ page }) => {
     ready: () => Promise<void>,
     name?: string,
   ) => {
-    await page.getByTestId(testId).click();
+    // "key:…" presses a key in place of a click.
+    if (testId.startsWith("key:")) await page.keyboard.press(testId.slice(4));
+    else await page.getByTestId(testId).click();
     await ready();
     await page.waitForTimeout(600);
     await settle(page);
@@ -583,8 +592,8 @@ test("one card in every place", async ({ page }) => {
   await visit("chats", "shell-place-conversations", async () => {
     await page.waitForURL(/channels/, { timeout: 20_000 });
   });
-  // New conversation is the Chats rail's + now (NAVIGATION.md), not a place.
-  await visit("new_conversation", "rail-new-conversation", async () => {
+  // New conversation is ⌘N (the Chats rail's + opens Luca since WP-34).
+  await visit("new_conversation", "key:Meta+n", async () => {
     await expect(page.getByTestId("new-message-body")).toBeVisible({
       timeout: 20_000,
     });

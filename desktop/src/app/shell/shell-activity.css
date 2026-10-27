@@ -1,5 +1,5 @@
-/* ── Activity: Needs you and Side conversations (SHELL_BUILD.md WP-14) ──
- * Both cards wear the place page (shell-place-rails.css); these rules add
+/* ── Needs you and Activity (SHELL_BUILD.md WP-14; WP-34) ─────────────
+ * The cards wear the place page (shell-place-rails.css); these rules add
  * what Needs you has and no other list does: an item that is a question,
  * then its answer in place. Sizes are rem, so ⌘+ and ⌘− scale them. */
 
@@ -202,6 +202,12 @@
 /* "What Luca did with it", under a connected app's sessions. */
 .luca-connected-history {
   margin-top: 32px;
+}
+
+/* All activity's "Read further back", under the thread (WP-34). */
+.luca-all-activity-more {
+  display: flex;
+  margin-top: 16px;
 }
 
 @media (prefers-reduced-motion: reduce) {

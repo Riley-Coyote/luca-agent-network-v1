@@ -9,9 +9,7 @@ import {
   workspaceSlot,
 } from "@/features/conversation-workspace";
 import { useOpenSideId } from "@/features/exchange/openSide";
-import { isLucas, lucaRowLabel } from "@/features/exchange/sideConversations";
-import { useSideConversations } from "@/features/exchange/useSideConversations";
-import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
+import { useRailWork } from "@/features/sidebar/lib/useRailWork";
 import type { Channel } from "@/shared/api/types";
 import { setShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
 import { SHELL_FRAME_RAIL_WIDTH, shellShortcuts } from "@/app/shell/shellFrame";
@@ -313,7 +311,7 @@ export function ShellLip({
     !workspaceSlot(workspace.layout, workspace.layout.focusedSlotId).activeTab;
   const named = focusedPaneEmpty ? null : channel;
   // A side conversation open is named under its home, as the Chats rail
-  // lights it there: "Luca / Atlas · general" (WP-25, Decided 2).
+  // lights it there: "Atlas / Luca · general" (WP-25, Decided 2; WP-34).
   const side = useOpenSideName(named?.id ?? null);
   // Under 768 the rail is a sheet: the toggle says the sheet's state.
   const railOpen = sidebar
@@ -435,29 +433,17 @@ export function ShellLip({
 
 /**
  * The side conversation open in `channelId`, named as the Chats rail names
- * its row under Luca (ShellRail.tsx; SPEC.md, "Selection"): Luca's name for
- * the home, and the row's own words ("Atlas · general") for the session.
- * Null when what is open is the room itself.
+ * its row (ShellRail.tsx; SPEC.md, "Selection"): the name of whoever does
+ * the work for the home, and the row's own words ("Luca · general", a
+ * task's summary) for the session. Null when what is open is the room
+ * itself.
  */
 function useOpenSideName(
   channelId: string | null,
 ): { home: string; name: string } | null {
-  const luca = useCanonicalLucaPubkey();
-  const side = useSideConversations();
-  const rows = React.useMemo(
-    () =>
-      luca
-        ? side.items
-            .filter((item) => isLucas(item, luca))
-            .map((item) => ({
-              conversationId: item.conversationId,
-              id: `${item.kind}:${item.id}`,
-              label: lucaRowLabel(item, luca, side.nameOf, side.roomOf),
-              messageId: item.kind === "exchange" ? item.rootEventId : null,
-            }))
-        : [],
-    [luca, side.items, side.nameOf, side.roomOf],
-  );
+  // The work under whoever does it (WP-34): an exchange under the agent it
+  // asks, a task under its app, as the Chats rail lists them.
+  const work = useRailWork();
   const threadTarget = useRouterState({
     select: (state) => {
       const search = state.location.search as Record<string, unknown>;
@@ -465,8 +451,9 @@ function useOpenSideName(
       return typeof target === "string" && target.length > 0 ? target : null;
     },
   });
-  const openId = useOpenSideId(channelId, threadTarget, rows);
-  const row = openId ? rows.find((each) => each.id === openId) : undefined;
-  if (!luca || !row) return null;
-  return { home: side.nameOf(luca), name: row.label };
+  const openId = useOpenSideId(channelId, threadTarget, work.rows);
+  const row = openId ? work.rows.find((each) => each.id === openId) : undefined;
+  const home = row ? work.homeName(row.id) : null;
+  if (!row || !home) return null;
+  return { home, name: row.label };
 }

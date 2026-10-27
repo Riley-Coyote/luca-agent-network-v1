@@ -1024,10 +1024,18 @@ test.describe("the solid marks, under the frame", () => {
       const ink = getComputedStyle(document.documentElement)
         .getPropertyValue("--mn-ink")
         .trim();
+      // The open row brightens its words and nothing else (WP-34,
+      // Decided 4): its stretch of the thread is the thread's own.
+      const other = document.querySelector(
+        "[data-shell-rail] .luca-rail-session:not([data-current]):not(.luca-rail-session-more)",
+      );
       return {
         colour: cs.color,
         background: cs.backgroundColor,
-        thread: before.backgroundColor,
+        thread: before.borderLeftColor,
+        restThread: other
+          ? getComputedStyle(other, "::before").borderLeftColor
+          : null,
         ink,
         active_rows: document.querySelectorAll(
           '[data-shell-rail] [data-active="true"]',
@@ -1066,7 +1074,8 @@ test.describe("the solid marks, under the frame", () => {
         look.active_rows === 1 &&
         look.pill === 0 &&
         look.background === "rgba(0, 0, 0, 0)" &&
-        look.colour === look.thread &&
+        look.thread === look.restThread &&
+        look.colour !== look.thread &&
         close(onSession, beside, 3),
     };
     verdict("session_lit_not_marked");

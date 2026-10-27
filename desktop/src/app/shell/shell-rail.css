@@ -1,8 +1,9 @@
 /* ── the shell's rail ────────────────────────────────────────────────
  * docs/luca/rail-system/SPEC.md, "The rail, ironed out"; every measure is the
  * shell study's (desktop/src/testing/shellStudy/shellStudy.css, "the
- * conversations rail"). Luca first; then every place you talk, each with its
- * sessions nested under its name, on a thread.
+ * conversations rail"), as BETA14_RELEASE.md WP-34 settled it: what needs
+ * you, Luca, then Projects, Agents and Apps, each row led by its face, and
+ * only work nested, on the thread under whoever does it.
  *
  * The selection is not drawn here: a home's row carries `data-active` and
  * today's pill (RailGlass) follows it until the shell's marks take over. The
@@ -25,8 +26,10 @@
   padding: 0 3px 20px;
 }
 
-/* ── section labels: CHATS, PROJECTS, AGENTS, PEOPLE, ROOMS (Fragment Mono
- * caps, 11) ── */
+/* ── section names: Chats, Projects, Agents, Apps, and every place's ──
+ * In the pages' own voice (WP-34, Decided 8): sentence case at 11.5 and a
+ * semibold weight, as Apple's sidebars set theirs. For the rails' heads
+ * only: the app's `.type-eyebrow` is unchanged everywhere else. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-section {
   margin-top: 14px;
 }
@@ -38,6 +41,14 @@
   height: 26px;
   justify-content: space-between;
   padding: 0 6px 0 10px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-section-head.type-eyebrow {
+  font-family: inherit;
+  font-size: 0.71875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 /* The rail's own heading, CHATS, with the + for a new conversation: the
@@ -128,6 +139,69 @@
   .luca-rail-row[data-active]
   .luca-rail-row-name {
   color: var(--rail-ink);
+}
+
+/* ── a row's face (WP-34, Decided 6) ──────────────────────────────────
+ * One 18 column, 10 to the words, on every row: the agent mark (17) for a
+ * mind, the maker's mark (16) for an app, a line drawing (15) for the rest:
+ * a folder for a project, # for a loose room, the hand for what needs you.
+ * A drawing is quiet until its row is hovered or open; a mark reads at the
+ * names' own weight. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-face {
+  align-items: center;
+  color: var(--rail-faint);
+  display: flex;
+  flex: none;
+  height: 18px;
+  justify-content: center;
+  margin-right: 10px;
+  pointer-events: none;
+  position: relative;
+  transition: color 120ms;
+  width: 18px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-face > svg {
+  height: 15px;
+  stroke-width: 1.6;
+  width: 15px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-face
+  > svg[data-agent-mark] {
+  height: 17px;
+  width: 17px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-face:is([data-face="agent"], [data-face="app"]) {
+  color: var(--rail-muted);
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row:is(:hover, [data-active])
+  .luca-rail-face[data-face="icon"] {
+  color: var(--rail-muted);
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row:is(:hover, [data-active])
+  .luca-rail-face:is([data-face="agent"], [data-face="app"]) {
+  color: var(--rail-ink);
+}
+
+/* What needs you: its count at the words' own ink and weight, the one note
+ * in the rail that asks to be read (WP-34, Decided 2). */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-needs {
+  color: var(--rail-ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  padding-right: 5px;
 }
 
 /* The chevron, right after the name: › closed, turned a quarter open. */
@@ -243,27 +317,51 @@
   content: "…";
 }
 
-/* ── a home's sessions, on a thread ──────────────────────────────────
- * The way Claude Code nests a session's tasks: quieter than their home, each
- * saying quietly how long ago it was last active, and the open one lit. */
+/* ── the work under an agent or an app, on a thread ───────────────────
+ * The way Claude Code nests a session's tasks (WP-34, Decided 4): quieter
+ * than their home, each saying quietly how long ago it last moved. The
+ * thread is a 1-point line at ink 16% under the face's centre (the row's 10
+ * in, and half its 18): it starts 3 below the face, runs straight past the
+ * middle rows, and turns into the last on a 7 corner that ends 6 short of
+ * its words. The edge sits at 18.5, so the line's centre is the face's. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-sessions {
   border: 0;
-  margin: 1px 0 6px 11px;
+  margin: 1px 0 6px 18.5px;
   min-width: 0;
-  /* 5 here and 8 inside each row keep the titles where the study sets them
-   * (13 from the thread) and give a row's focus ring air before its text. */
-  padding: 0 0 0 5px;
+  /* 11 here and 8 inside each row put the titles 19 from the thread, as
+   * the study sets them, and give a row's focus ring air before its text. */
+  padding: 0 0 0 11px;
   position: relative;
 }
 
-:root[data-luca-shell] [data-shell-rail] .luca-rail-sessions::before {
-  background: var(--rail-thread);
-  bottom: 6px;
+/* Each row draws its own stretch of the thread. */
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-session:not(.luca-rail-session-more)::before {
+  border-left: 1px solid var(--rail-thread);
+  bottom: 0;
   content: "";
-  left: 0;
+  left: -11px;
+  pointer-events: none;
   position: absolute;
-  top: 6px;
-  width: 1px;
+  top: 0;
+}
+
+/* The first reaches up to 3 below the face: the row's 30 holds the face's
+ * 18 at 6 from its foot, and the thread begins 1 below the row. */
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-session:first-child::before {
+  top: -4px;
+}
+
+/* The last turns into its row at the row's middle, on a 7 corner, and
+ * stops 6 short of the words (19 from the thread: 13 wide). */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session[data-last]::before {
+  border-bottom: 1px solid var(--rail-thread);
+  border-bottom-left-radius: 7px;
+  bottom: calc(50% - 0.5px);
+  width: 13px;
 }
 
 :root[data-luca-shell] [data-shell-rail] .luca-rail-session {
@@ -307,35 +405,16 @@
   padding-left: 8px;
 }
 
-/* "N more": a session row's place and shape, one size smaller. */
+/* "N more" and "Show fewer": a session row's place and shape, one size
+ * smaller, under the hook and off the thread. The open row brightens its
+ * words and nothing else (above): the thread stays as it is. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-session-more {
   color: var(--rail-faint);
 }
 
-/* The open session's stretch of the thread, lit to its words' tone. */
-:root[data-luca-shell]
-  [data-shell-rail]
-  .luca-rail-session[data-current]::before {
-  background: var(--rail-ink);
-  bottom: 6px;
-  content: "";
-  left: -5px;
-  position: absolute;
-  top: 6px;
-  width: 1px;
-}
-
-@media (prefers-contrast: more) {
-  :root[data-luca-shell]
-    [data-shell-rail]
-    .luca-rail-session[data-current]::before {
-    left: -5.5px;
-    width: 2px;
-  }
-}
-
-/* Rooms ends on two quiet ways in, Browse rooms… and Archived (the study's
- * .shell-rail-tail): a home row's inset, a session's size and tone. */
+/* Projects ends on two quiet ways in, Browse rooms… and Archived (the
+ * study's .shell-rail-tail; WP-34, Decided 1): a home row's inset, a
+ * session's size and tone. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-tail {
   border-radius: 8px;
   color: var(--rail-faint);
@@ -406,12 +485,56 @@
   color: hsl(var(--mn-ink));
 }
 
+/* ── the rail's tone, in the one card (WP-34, Decided 7) ──────────────
+ * A step toward the floor the card lies on, the least a careful eye can
+ * see: by night black at 20% over the card (7 of 255 against the page's 9),
+ * by day the paper's recess at 15%. The hairline tells the rail first; the
+ * tone only settles it. Not while peeking: the peeking rail is a card of its
+ * own. Its foot's fade carries the tone too, so the two meet without a
+ * seam. */
+:root[data-luca-frame="solid"] {
+  --luca-rail-tone: hsl(var(--mn-recess) / 0.15);
+}
+
+:root[data-luca-frame="solid"].dark {
+  --luca-rail-tone: rgb(0 0 0 / 0.2);
+}
+
+:root[data-luca-frame="solid"]
+  [data-frame]:not([data-peek="true"])
+  [data-sidebar="sidebar"].bg-sidebar:not([data-buzz-flat]) {
+  background-color: var(--luca-rail-tone);
+}
+
+/* Settings' section list stands where the rail does: the same tone. */
+:root[data-luca-frame="solid"]
+  [data-frame]:not([data-peek="true"])
+  > [data-luca-settings-list] {
+  background-color: var(--luca-rail-tone);
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+:root[data-luca-frame="solid"]
+  [data-frame]:not([data-peek="true"])
+  [data-sidebar="footer"]::before {
+  background:
+    linear-gradient(var(--luca-rail-tone), var(--luca-rail-tone)),
+    var(--mn-card-finish, none), hsl(var(--mn-surface));
+  background-attachment: fixed;
+  background-position: 0 0;
+  background-size:
+    100% 100%,
+    256px 256px,
+    100% 100%;
+}
+
 /* Reduce Motion: expansion is instant, and nothing in the rail eases. */
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell]
     [data-shell-rail]
     :is(
       .luca-rail-chevron svg,
+      .luca-rail-face,
       .luca-rail-row-name,
       .luca-rail-session,
       .luca-rail-tail,

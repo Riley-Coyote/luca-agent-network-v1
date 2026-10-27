@@ -446,26 +446,6 @@ test("expansion is stored per home and ignores anything else", () => {
   assert.deepEqual(readExpandedHomes({ getItem: () => "{oops" }, key), {});
 });
 
-test("project rooms sit in the rail unless Settings says a column", async () => {
-  const { parseProjectRoomsPlacement, readProjectRoomsPlacement } =
-    await import("./projectRoomsPlacement.ts");
-  assert.equal(parseProjectRoomsPlacement(null), "rail");
-  assert.equal(parseProjectRoomsPlacement("column"), "column");
-  assert.equal(parseProjectRoomsPlacement("sideways"), "rail");
-  assert.equal(
-    readProjectRoomsPlacement({ getItem: () => "column" }),
-    "column",
-  );
-  assert.equal(
-    readProjectRoomsPlacement({
-      getItem: () => {
-        throw new Error("blocked");
-      },
-    }),
-    "rail",
-  );
-});
-
 test("lucaSideRows_shareTheLatestThree_andATalkingOneNeverFolds", () => {
   const sessions = ["s1", "s2", "s3"].map((id) => chat(id, [LUCA])).reverse();
   // The sessions above were made last, so they are the newest chats.

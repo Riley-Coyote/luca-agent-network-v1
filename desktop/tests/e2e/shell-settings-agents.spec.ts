@@ -375,8 +375,12 @@ test("d2: Add agent and a connected app open their homes", async ({
     .first();
   const name = await first.innerText();
   await first.click();
-  await expect(page).toHaveURL(/connected=/);
+  // The app's card is in Chats, under Apps, since WP-34.
+  await expect(page).toHaveURL(/#\/apps\//);
   const connectedUrl = page.url();
+  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+    timeout: 20_000,
+  });
   const card = await page.getByTestId("connected-app-card").count();
   measure("d2", { addUrl, dialog, addHash, name, connectedUrl, card });
   expect(dialog).toBeGreaterThan(0);

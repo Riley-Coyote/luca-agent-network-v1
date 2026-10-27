@@ -20,15 +20,35 @@ import {
   runtimeSessionContextScopeKey,
   stageRuntimeSessionContext,
 } from "@/features/runtime-sessions/runtimeSessionHandoff";
+import { runtimeRailFamilyFromRuntimeId } from "@/features/runtime-sessions/runtimeRailPreferences";
 import { runtimeConnectionKey } from "@/features/runtime-sessions/runtimeSessionModel";
 import { useIdentityQuery } from "@/shared/api/hooks";
 
 /**
- * A connected app's card in Agents (NAVIGATION.md, "Agents"; SHELL_BUILD.md
- * WP-10, Decided 4): its sessions, ready to start from, under the head
- * "Connected · on this Mac" and its name. The list is the one the runtime
- * sessions column drew (its search, its empty states, "Start with this
- * context"), which retires under the shell: two steps, not three.
+ * A connected app's page, from the address's family ("claude", "codex"):
+ * its row under Apps in the Chats rail opens it in the Chats card
+ * (BETA14_RELEASE.md WP-34, Decided 1 and 9; it was Connected's card in
+ * Agents).
+ */
+export function AppPage({ family }: { family: string }) {
+  const { runtimes } = useRuntimeRailConnections();
+  const runtime = runtimes.find(
+    (each) => runtimeRailFamilyFromRuntimeId(each.runtimeId) === family,
+  );
+  return (
+    <ConnectedAppCard
+      runtimeKey={runtime ? runtimeConnectionKey(runtime) : family}
+    />
+  );
+}
+
+/**
+ * A connected app's card (NAVIGATION.md, "Agents"; SHELL_BUILD.md WP-10,
+ * Decided 4; in the Chats card since WP-34): its sessions, ready to start
+ * from, under the head "Connected · on this Mac" and its name. The list is
+ * the one the runtime sessions column drew (its search, its empty states,
+ * "Start with this context"), which retires under the shell: two steps, not
+ * three.
  */
 export function ConnectedAppCard({ runtimeKey }: { runtimeKey: string }) {
   const { isLoading, runtimes } = useRuntimeRailConnections();

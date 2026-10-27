@@ -14,7 +14,9 @@ import { railGlassAtRest } from "../flagOffSettle";
  * runtime sessions column retires; NAVIGATION.md, "Agents"; SHELL_BUILD.md
  * WP-10, Decided 4, and WP-15). Until WP-10 the column was a card of its own
  * between the rail's and the conversation's (WP-08c, Decided 12); one card
- * and the Connected card in Agents replace it. So the column's checks move to
+ * and the connected app's card replace it (in Agents until WP-34; since
+ * then the app is a row under Apps in the Chats rail, and its card opens in
+ * the Chats card). So the column's checks move to
  * that card: it lies on the one card beside the rail, with no surface of its
  * own; the lip follows what the rail opens; nothing opens the column, at any
  * size; Paper by day, the glass's one shadow, text zoom. The column's own
@@ -33,7 +35,8 @@ const EDGE = 6;
 const PLACES = 44;
 const RAIL = 220;
 const SLIDE_MS = 460;
-const CONNECTED = "claude-code";
+/** The app's row in the Chats rail (WP-34), by its family. */
+const APP_ROW = "rail-home-app:claude";
 
 test.use({ deviceScaleFactor: 2 });
 test.describe.configure({ mode: "serial" });
@@ -59,7 +62,7 @@ async function openApp(
   {
     frame,
     origin = "",
-    route = "#/agents",
+    route,
     size = { width: 1440, height: 900 },
     reducedMotion = "no-preference",
     colorScheme = "dark",
@@ -72,6 +75,8 @@ async function openApp(
     colorScheme?: "dark" | "light";
   },
 ) {
+  // Under the frame the app opens on Chats, whose rail holds Apps (WP-34).
+  route ??= frame ? "#/" : "#/agents";
   await page.setViewportSize(size);
   await page.emulateMedia({ colorScheme, reducedMotion });
   await installMockBridge(page);
@@ -94,15 +99,15 @@ async function openApp(
     },
     { key: FEATURE_OVERRIDES_STORAGE_KEY, on: frame },
   );
-  // Under the frame a connected app is a row of the Agents rail; without it,
-  // today's Runtimes rows. The frame boots at the bare /#/ route (no page
+  // Under the frame a connected app is a row of the Chats rail's Apps
+  // (WP-34); without it, today's Runtimes rows. The frame boots at the bare /#/ route (no page
   // query, which the hash router glues onto the last value on Back: WP-10);
   // the flag-off path is kept as it was, for the base comparison.
   const ready = !frame
     ? page.locator("[data-runtime-connection-key]").first()
     : // Under 768 the rail is a closed sheet: its rows are not on screen.
-      route.startsWith("#/agents") && size.width >= 768
-      ? page.getByTestId(`place-row-connected:${CONNECTED}`)
+      route === "#/" && size.width >= 768
+      ? page.getByTestId(APP_ROW)
       : page.getByTestId("shell-lip");
   const url = frame ? `${origin}/${route}` : `${origin}/?e2e=mock${route}`;
   // The first load can be slow while the machine is busy: one retry past a
@@ -133,13 +138,10 @@ async function openRuntime(page: Page) {
   await page.locator("[data-runtime-connection-key]").first().click();
 }
 
-/** Picks the connected app in the Agents rail, and waits for its card. */
+/** Picks the connected app in the Chats rail's Apps, and waits for its
+ *  card. */
 async function openConnected(page: Page) {
-  await page
-    .getByTestId(`place-row-connected:${CONNECTED}`)
-    .locator("button")
-    .first()
-    .click();
+  await page.getByTestId(APP_ROW).locator('[data-rail-focus="home"]').click();
   await expect(page.getByTestId("connected-app-card")).toBeVisible({
     timeout: 20000,
   });
@@ -470,9 +472,7 @@ test("by day on the glass: one shadow on the floor, the one card's", async ({
     (window as unknown as { isTauri: boolean }).isTauri = true;
   });
   await page.reload();
-  await expect(
-    page.getByTestId(`place-row-connected:${CONNECTED}`),
-  ).toBeVisible({ timeout: 20000 });
+  await expect(page.getByTestId(APP_ROW)).toBeVisible({ timeout: 20000 });
   await openConnected(page);
   const file = await shot(page, "day-glass-connected");
   const m = await measure(page);
@@ -494,9 +494,16 @@ test("by day on the glass: one shadow on the floor, the one card's", async ({
 test("narrow: under 768 the connected card still opens, and no sheet of the column", async ({
   page,
 }) => {
-  await openApp(page, { frame: true, size: { width: 700, height: 600 } });
-  // Under 768 the rail is a sheet; the pick still lands in the address.
-  await page.goto(`/#/agents?connected=${CONNECTED}`);
+  // Opened on Agents, so the first screen's own landing (the bare route's)
+  // can't follow the address below.
+  await openApp(page, {
+    frame: true,
+    route: "#/agents",
+    size: { width: 700, height: 600 },
+  });
+  // Under 768 the rail is a sheet; the app's page still opens by its
+  // address (in Chats since WP-34).
+  await page.goto("/#/apps/claude");
   await expect(page.getByTestId("connected-app-card")).toBeVisible({
     timeout: 20000,
   });

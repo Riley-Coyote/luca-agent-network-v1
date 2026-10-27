@@ -16,8 +16,8 @@ import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 type AgentsRouteSearch = {
   /** Under the shell, the rail's `+`: Add agent or New group (WP-10). */
   add?: "agent" | "group";
-  /** Under the shell, the connected app or group picked in the rail. */
-  connected?: string;
+  /** Under the shell, the group picked in the rail. A connected app's card
+   *  moved to Chats, under Apps (WP-34). */
   group?: string;
   profile?: string;
   profilePersona?: string;
@@ -54,7 +54,6 @@ function validateAgentsSearch(
     add:
       search.add === "agent" || search.add === "group" ? search.add : undefined,
     at: parseMindSettingsAt(search.at),
-    connected: nonEmptyString(search.connected),
     group: nonEmptyString(search.group),
     profile: nonEmptyString(search.profile),
     profilePersona: nonEmptyString(search.profilePersona),

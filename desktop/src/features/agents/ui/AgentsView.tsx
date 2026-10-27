@@ -40,7 +40,6 @@ import {
 } from "@/shared/ui/dialog";
 import type { ManagedAgent } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { ConnectedAppCard } from "@/app/shell/placeRails/ConnectedAppCard";
 import { GroupCard } from "@/app/shell/placeRails/GroupCard";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useElementWidth } from "@/shared/hooks/use-mobile";
@@ -64,7 +63,6 @@ const AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX = 600;
 
 export function AgentsView({
   addRequest = null,
-  connectedKey = null,
   focusAt = null,
   groupId = null,
   mindSection = "notebook",
@@ -83,8 +81,6 @@ export function AgentsView({
 }: {
   /** Under the shell: the rail's `+` asking for Add agent or New group. */
   addRequest?: "agent" | "group" | null;
-  /** Under the shell: the connected app picked in the rail. */
-  connectedKey?: string | null;
   /** Under the shell: open the mind's space at What they can read. */
   /** Under the shell: the row of a mind's Settings a way in names. */
   focusAt?: MindSettingsAt | null;
@@ -394,9 +390,7 @@ export function AgentsView({
               />
             </div>
           )}
-          {shellFrame && connectedKey ? (
-            <ConnectedAppCard runtimeKey={connectedKey} />
-          ) : shellFrame && selectedTeam ? (
+          {shellFrame && selectedTeam ? (
             <GroupCard
               isPending={isActionPending}
               onAddToRoom={teamActions.setTeamToAddToChannel}

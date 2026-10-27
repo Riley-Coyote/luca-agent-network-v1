@@ -48,6 +48,10 @@ export function shellFramePageName(view: AppView): string {
       return "Workflows";
     case "projects":
       return "Projects";
+    case "needs-you":
+      return "Needs you";
+    case "app":
+      return "Apps";
     default:
       return "Chats";
   }
