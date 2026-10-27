@@ -164,3 +164,57 @@ Not in scope: WP-30's files.
    release README requires.
 6. On his word: signing with the update key, notarization, the tag `v0.5.0-beta.14`, and the upload, in the order the
    README gives.
+
+## Riley's further calls (2026-10-26)
+
+- **Mnemos waits for its own release:** "hold off on mnemos and do it as its own release. especially because we also
+  have the mnemo connector and could potentially bring it in that way so someone could keep their existing memory".
+  Codex's uncommitted Mnemos work is backed up at
+  `/Volumes/LaCie/luca-unsaved-work/polyphonic-beta14-consolidation-mnemos-2026-10-26.*`.
+- **The glass ships in beta.14:** "i wanted to get our new shell and glass finished so we could ship it in beta.14 ...
+  get that all finished and tested so we know the whole update for 14 is rock solid, and then we ship."
+
+## WP-32 · Apple's glass ships in beta.14
+
+**Why.** Today the glass exists only in test builds.
+- `desktop/src-tauri/build.rs` compiles the Swift glass (`native/glass/`) only when `LUCA_BUILD_NATIVE_GLASS=1`.
+- `src/native_glass.rs` attaches it only when the app's own environment carries `LUCA_NATIVE_RAIL_GLASS=1` (the
+  rail-glass candidate's `LSEnvironment`), on macOS 26 and later.
+- So a beta.14 built as things stand would offer only the frosted fallback for Glass.
+- The page side is ready. `app/shell/shellGlass.ts`:
+  - the frame starts solid;
+  - Glass draws Liquid Glass where the native glass announces itself;
+  - otherwise it draws the frosted fallback on a Mac, and solid under Reduce Transparency.
+- The plan the glass was built to is `docs/luca/native-rail-glass/PLAN.md`.
+
+**Files in scope:**
+- `desktop/src-tauri/build.rs`, `src/native_glass.rs` and `native/glass/`;
+- `desktop/release/README.md`;
+- the rail-glass test app's pins: `scripts/build-companion-delegation-candidate.sh` and
+  `desktop/src-tauri/tauri.rail-glass-candidate.conf.json`, which still require 0.5.0-beta.13;
+- `crates/buzz-acp/src/scoped_codex_initiative.rs:313`, which tells Codex it is 0.5.0-beta.13.
+
+**Decisions:**
+1. **Every macOS build carries the glass:** build.rs compiles it whenever it builds for macOS, so the release, the test
+   app and dev builds draw the same thing and nothing can be forgotten at release time.
+   - If the Swift toolchain is missing, the build says so plainly rather than silently leaving the glass out.
+2. **It attaches on its own on macOS 26 and later,** without the test variable. `LUCA_NATIVE_RAIL_GLASS=0` still turns
+   it off, for testing. On macOS 14 to 25 nothing native attaches, and Glass draws the frosted fallback, as designed.
+3. **The frame still starts solid,** as designed: Glass is the Frame row's choice in Appearance.
+4. **The release binary opens on macOS 14 and 15.** The minimum system version is 14.0.
+   - Everything newer than 14 that the glass uses (`NSGlassEffectView` and the rest) is weak-linked and guarded by
+     availability checks.
+   - Prove it from the built binary (`otool -l`, `nm -m`, the Swift `@available` guards), because this Mac runs 27 and
+     can't launch 14.
+5. **The versions agree.** Codex is told 0.5.0-beta.14, and the rail-glass test app reads beta.14 too.
+
+**Verification:**
+- The desktop's Rust tests.
+- A rail-glass test-app build from your branch:
+  - `nm` shows `_polyphonic_glass_attach`;
+  - its `Info.plist` carries no `LUCA_NATIVE_RAIL_GLASS`, since it is no longer needed.
+- A static proof that the binary loads on macOS 14: its minimum OS, and every 26-only symbol imported weakly.
+- The real-app check (glass attached, the Frame row, Reduce Transparency) is the orchestrator's, after the merge.
+- Never launch anything.
+
+**Checks JSON keys:** `compiled_always`, `attaches_by_itself`, `frame_default`, `loads_on_14`, `versions`, `gates`.
