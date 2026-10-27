@@ -248,6 +248,12 @@ fn build_native_glass() {
     println!("cargo:rustc-link-lib=static=polyphonic_glass");
     println!("cargo:rustc-link-search=native={sdk}/usr/lib/swift");
     println!("cargo:rustc-link-search=native={}", shims.display());
+    // A program built for a macOS older than 12 (cargo test's, at the
+    // compiler's default of 11) links Swift's concurrency by @rpath, as the
+    // back-deployment copy. Apple's answer: look in the system's Swift first,
+    // so whatever it was built for, it finds the system's library. The app
+    // (built for 14.0) already links that one by path; its links don't change.
+    println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
     for framework in ["AppKit", "WebKit", "QuartzCore", "Metal"] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }

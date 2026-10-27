@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildMindEntries,
   dayLabel,
+  emptyDaysLine,
   firstLine,
   firstLines,
   forYouOrOwn,
@@ -222,4 +223,11 @@ test("day labels: today, yesterday, then dates", () => {
   assert.equal(dayLabel(today(1) * 1000, NOW), "Today");
   assert.equal(dayLabel(yesterday(1) * 1000, NOW), "Yesterday");
   assert.notEqual(dayLabel(Date.parse("2026-10-20T10:00:00"), NOW), "Today");
+});
+
+test("an empty Notebook says what it holds", () => {
+  assert.equal(
+    emptyDaysLine("Atlas"),
+    "Atlas's days will gather here: what they do for you, their own work, their journal.",
+  );
 });

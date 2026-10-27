@@ -425,7 +425,9 @@ for (const frame of ["solid", "glass"] as const) {
     console.log(`[slate one card ${frame}] ${JSON.stringify(paint)}`);
     expect(paint?.bg).not.toBe("rgba(0, 0, 0, 0)");
     expect(paint?.bg).toBe(paint?.surface);
-    expect(paint?.rail).toBe("rgba(0, 0, 0, 0)");
+    // The rail's own tone on the one card, by night (BETA14_RELEASE.md
+    // WP-34, Decided 7): rgb(0 0 0 / 0.2), no longer clear.
+    expect(paint?.rail).toBe("rgba(0, 0, 0, 0.2)");
   });
 }
 

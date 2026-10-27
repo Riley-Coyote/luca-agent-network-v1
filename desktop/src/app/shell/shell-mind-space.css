@@ -715,3 +715,14 @@
 .luca-mind-aside .luca-place-row-middle:empty {
   display: none;
 }
+
+/* An empty Notebook's one quiet line, on a plate under its toolbar
+ * (BETA14_RELEASE.md WP-37, Decided 2): the row's own padding and the
+ * state line's size, in the muted ink. */
+.luca-mind-empty {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  margin: 0;
+  padding: 11px 10px;
+}

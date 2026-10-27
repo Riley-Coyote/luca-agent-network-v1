@@ -744,6 +744,27 @@ test("every answer works in place", async ({ browser, baseURL }) => {
 // ── flag off: the room as the base draws it ─────────────────────────────
 test("flag off matches the base", async ({ page }) => {
   const out: Record<string, unknown> = {};
+  // Both builds are drawn from one fixed time, so a minute turning between
+  // the two captures can't change a time drawn behind the ask stack. Each
+  // page load starts its clock at the same whole minute and lets it run.
+  // Only the date moves: Playwright's clock.install (luca/shell-status.spec.ts)
+  // also fakes the timers and frames, and here that left the rail's selected
+  // row drawn differently in every capture.
+  const pinned = Math.ceil(Date.now() / 60_000) * 60_000;
+  await page.addInitScript((pinned) => {
+    const RealDate = Date;
+    const offset = pinned - RealDate.now();
+    class PinnedDate extends RealDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) super(RealDate.now() + offset);
+        else super(...(args as [number]));
+      }
+      static now() {
+        return RealDate.now() + offset;
+      }
+    }
+    window.Date = PinnedDate as DateConstructor;
+  }, pinned);
   const roomAt = async (origin: string | undefined, width: number) => {
     await page.setViewportSize({ width, height: width === 800 ? 500 : 900 });
     await boot(page, { baseURL: origin, flag: false });

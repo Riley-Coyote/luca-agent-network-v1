@@ -59,6 +59,7 @@ import {
   MIND_FILTERS,
   MIND_KIND_LABEL,
   buildMindEntries,
+  emptyDaysLine,
   entryTime,
   groupMindDays,
   presentKinds,
@@ -222,6 +223,7 @@ export function MindNotebook({
             </div>
           ) : null
         }
+        name={name}
         notebook={notebook}
         onOpenItem={async (itemId) => {
           if (!managedAgent) return;
@@ -253,6 +255,9 @@ function useResidentNotebookStream(residentPubkey: string | null) {
   const [list, setList] = React.useState<ResidentNotebookList | null>(null);
   const [job, setJob] = React.useState<ResidentJournalJob | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
+  // Whose notebook has answered at least once (or failed to): until then its
+  // part of the stream is still on its way.
+  const [settledFor, setSettledFor] = React.useState<string | null>(null);
   const generation = React.useRef(0);
 
   const refresh = React.useCallback(async () => {
@@ -266,9 +271,13 @@ function useResidentNotebookStream(residentPubkey: string | null) {
       if (own !== generation.current) return;
       setList(next);
       setJob(nextJob);
+      setSettledFor(residentPubkey);
     } catch {
       // The notebook may be locked or unavailable: its part of the stream hides.
-      if (own === generation.current) setList(null);
+      if (own === generation.current) {
+        setList(null);
+        setSettledFor(residentPubkey);
+      }
     }
   }, [residentPubkey]);
 
@@ -320,6 +329,7 @@ function useResidentNotebookStream(residentPubkey: string | null) {
     loadingMore,
     refresh,
     setJob,
+    settled: residentPubkey === null || settledFor === residentPubkey,
   };
 }
 
@@ -454,6 +464,7 @@ const ACTIVE_ARTIFACTS = {
 function MindDays({
   actions,
   afterToolbar,
+  name,
   notebook,
   onOpenItem,
   pubkey,
@@ -463,6 +474,8 @@ function MindDays({
   actions: React.ReactNode;
   /** What an action opens, under that row. */
   afterToolbar: React.ReactNode;
+  /** Whose days these are, for the line an empty Notebook says. */
+  name: string;
   notebook: NotebookStream;
   onOpenItem: (itemId: string) => void;
   pubkey: string | null;
@@ -567,7 +580,30 @@ function MindDays({
     return () => observer.disconnect();
   }, [hasMore]);
 
-  if (entries.length === 0 && !actions) return null;
+  // Nothing in their days yet, and every source has answered (BETA14_RELEASE.md
+  // WP-37, Decided 2): one quiet line says what the Notebook holds. Never
+  // while a source is still on its way, so it can't flash; gone the moment a
+  // day arrives.
+  const settled =
+    notebook.settled &&
+    channels.status !== "pending" &&
+    artifacts.status !== "pending" &&
+    (!pubkey || provenance.status !== "pending") &&
+    (!(readMemory && pubkey) || memory.status !== "pending");
+  const empty =
+    entries.length === 0 && settled ? (
+      <div className="luca-place-plate" data-testid="mind-notebook-empty">
+        <p className="luca-mind-empty">{emptyDaysLine(name)}</p>
+      </div>
+    ) : null;
+
+  if (entries.length === 0 && !actions) {
+    return empty ? (
+      <section aria-label="Their days" className="luca-mind-days">
+        {empty}
+      </section>
+    ) : null;
+  }
 
   return (
     <section aria-label="Their days" className="luca-mind-days">
@@ -598,6 +634,7 @@ function MindDays({
         {actions}
       </div>
       {afterToolbar}
+      {empty}
       {days.map((day) => (
         <section aria-label={day.label} className="luca-mind-day" key={day.key}>
           <PlaceSectionLabel count={day.entries.length} label={day.label} />
