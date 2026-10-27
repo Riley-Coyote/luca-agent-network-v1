@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Hand } from "lucide-react";
 
 import "@/app/shell/shell-activity.css";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -17,7 +18,11 @@ import {
   PlaceAskRow,
   PlaceQuietButton,
 } from "@/app/shell/placeRails/PlaceAskRow";
-import { PlacePage, placeNoteTime } from "@/app/shell/placeRails/PlacePage";
+import {
+  PlacePage,
+  PlaceSectionLabel,
+  placeNoteTime,
+} from "@/app/shell/placeRails/PlacePage";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { ProposalAsk } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
@@ -41,6 +46,7 @@ import type { RuntimeTaskProposal } from "@/shared/api/tauriRuntimeTasks";
 import type { PendingManagedPermission } from "@/shared/api/types";
 import { EXCHANGE_BUCKET_CEILING } from "@/shared/constants/kinds";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { AgentMark } from "@/shared/ui/AgentMark";
 
 /**
  * Needs you (NAVIGATION.md, "Activity"; SHELL_BUILD.md WP-14, Decided 3 and
@@ -135,9 +141,22 @@ export function NeedsYouCard() {
   const keys = React.useMemo(() => items.map((item) => item.key), [items]);
   const { listRef, onFocus } = useAskFocusHandoff(keys, emptyRef);
 
+  // The head's one line (WP-33, Decided 1): how many wait, and from whom,
+  // in the order they ask.
+  const askers = [...new Set(items.map((item) => side.nameOf(item.askedBy)))];
+  const state =
+    items.length > 0
+      ? `${items.length} waiting, from ${namesAsList(askers)}`
+      : undefined;
+
   return (
     <PlacePage testId="needs-you-card">
-      <PlacePageHead eyebrow="Activity" title="Needs you" />
+      <PlacePageHead
+        eyebrow="Activity"
+        face={<Hand />}
+        state={state}
+        title="Needs you"
+      />
       {items.length === 0 ? (
         <p
           className="luca-place-page-line"
@@ -149,8 +168,12 @@ export function NeedsYouCard() {
         </p>
       ) : (
         <section aria-label="Waiting on you" className="luca-place-group">
-          <h2 className="type-eyebrow">Waiting on you</h2>
-          <ul className="luca-ask-list" onFocus={onFocus} ref={listRef}>
+          <PlaceSectionLabel count={items.length} label="Waiting on you" />
+          <ul
+            className="luca-ask-list luca-place-plate"
+            onFocus={onFocus}
+            ref={listRef}
+          >
             {items.map((item) => (
               <NeedsYouItem
                 item={item}
@@ -198,6 +221,7 @@ function NeedsYouItem({
     "data-needs-key": item.key,
     "data-needs-kind": item.kind,
     "data-testid": `needs-you-${item.key}`,
+    face: <AgentMark />,
     note: item.at ? placeNoteTime(new Date(item.at).toISOString()) : "now",
     onOpen,
     openTestId: "needs-you-open",

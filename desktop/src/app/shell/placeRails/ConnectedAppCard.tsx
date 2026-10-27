@@ -9,6 +9,7 @@ import {
   placeNoteTime,
 } from "@/app/shell/placeRails/PlacePage";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
+import { HarnessFace } from "@/app/shell/placeRails/placeFaces";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import type { TaskSide } from "@/features/exchange/sideConversations";
@@ -53,6 +54,7 @@ export function ConnectedAppCard({ runtimeKey }: { runtimeKey: string }) {
     <PlacePage testId="connected-app-card">
       <PlacePageHead
         eyebrow="Connected · on this Mac"
+        face={runtime ? <HarnessFace runtimeId={runtime.runtimeId} /> : null}
         title={runtime?.label ?? (isLoading ? "" : runtimeKey)}
       />
       {runtime ? (
@@ -112,7 +114,11 @@ function WhatLucaDid({ runtimeId }: { runtimeId: string }) {
   if (tasks.length === 0) return null;
   return (
     <div className="luca-connected-history">
-      <PlaceList label="What Luca did with it" testId="connected-what-luca-did">
+      <PlaceList
+        count={tasks.length}
+        label="What Luca did with it"
+        testId="connected-what-luca-did"
+      >
         {tasks.map((task) => {
           const room = roomOf(task.conversationId);
           return (

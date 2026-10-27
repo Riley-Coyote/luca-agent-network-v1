@@ -157,6 +157,8 @@ function RuntimeTaskProposalForm({
  *  and its open. */
 type ProposalCommon = {
   "data-testid": string;
+  /** Who asks, on a page\'s plate (WP-33, Decided 6). */
+  face?: React.ReactNode;
   note?: string;
   onOpen?: () => void;
   openTestId?: string;

@@ -4,6 +4,7 @@ import { ArrowLeft, Menu } from "lucide-react";
 
 import { ShellSettingsMarks } from "@/app/shell/ShellMarks";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
+import { SETTINGS_SECTION_FACES } from "@/app/shell/placeRails/placeFaces";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
@@ -205,6 +206,8 @@ export function SettingsView({
   // section list takes the rail card's place and the panels the
   // conversation card's.
   const frame = useShellFrameEnabled();
+  // The section's own face on the head's tile (WP-33, Decided 1).
+  const SectionFace = SETTINGS_SECTION_FACES[section];
 
   const [isLoaded, setIsLoaded] = React.useState(false);
   const [appVersion, setAppVersion] = React.useState<string | null>(null);
@@ -460,6 +463,7 @@ export function SettingsView({
                 >
                   <PlacePageHead
                     eyebrow={activeGroupLabel}
+                    face={<SectionFace />}
                     title={settingsSectionLabel(section, true)}
                   />
                   <div data-testid={`settings-panel-${section}`}>{panel}</div>

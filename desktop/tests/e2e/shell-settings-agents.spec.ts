@@ -151,10 +151,9 @@ async function minds(page: Page) {
       detail: row.querySelector(".luca-place-row-detail")?.textContent ?? "",
       word: row.querySelector("[data-mind-state]")?.textContent ?? "",
       markBox: (() => {
-        const body =
-          row.querySelector(".agent-identity-specimen canvas") ??
-          row.querySelector(".agent-identity-specimen") ??
-          row.querySelector(".luca-settings-mind-initial");
+        // Every mind wears the agent mark (BETA14_RELEASE.md WP-33,
+        // Decided 7), drawn in its 20 face column.
+        const body = row.querySelector(".luca-place-row-face");
         const title = row.querySelector(".luca-place-row-title");
         if (!body || !title) return null;
         const a = body.getBoundingClientRect();
@@ -165,11 +164,9 @@ async function minds(page: Page) {
           gap: b.x - (a.x + a.width),
         };
       })(),
-      mark: row.querySelector(".agent-identity-specimen")
-        ? "specimen"
-        : row.querySelector(".luca-settings-mind-initial")
-          ? "initial"
-          : "none",
+      mark: row.querySelector(".luca-place-row-face [data-agent-mark]")
+        ? "agent-mark"
+        : "none",
       box: (() => {
         const box = row.getBoundingClientRect();
         return { x: box.x, y: box.y, w: box.width, h: box.height };
@@ -281,9 +278,14 @@ for (const mode of ["dark", "light"] as const) {
       expect(settled.length).toBeGreaterThanOrEqual(3);
       expect(settled[0]?.name).toBe("Luca");
       expect(settled[0]?.main).toBe(true);
-      expect(settled.every((row) => row.mark !== "none")).toBe(true);
+      expect(settled.every((row) => row.mark === "agent-mark")).toBe(true);
       expect(Object.values(removed).every((count) => count === 0)).toBe(true);
-      expect(eyebrow.fontFamily).toMatch(/Fragment Mono/);
+      // A section's label is sentence case, never the mono capitals
+      // (WP-33, Decided 2).
+      expect(eyebrow.text).toBe("Connected");
+      expect(eyebrow.fontFamily).not.toMatch(/Fragment Mono/);
+      expect(eyebrow.textTransform).toBe("none");
+      expect(eyebrow.fontSize).toBe("12.5px");
       for (const each of caps) expect(each.fontFamily).toMatch(/Fragment Mono/);
       expect(connected.length).toBeGreaterThan(0);
       await expect(page.getByTestId("settings-agents-add")).toBeVisible();

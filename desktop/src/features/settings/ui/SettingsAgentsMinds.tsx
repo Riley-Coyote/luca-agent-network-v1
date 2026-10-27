@@ -3,6 +3,10 @@ import { useNavigate } from "@tanstack/react-router";
 
 import "@/app/shell/shell-place-rails.css";
 import "@/app/shell/shell-settings-agents.css";
+import {
+  PlaceRowFace,
+  PlaceSectionLabel,
+} from "@/app/shell/placeRails/PlacePage";
 import { searchForPick } from "@/app/shell/placeRails/placePicks";
 import {
   useManagedAgentsQuery,
@@ -30,11 +34,8 @@ import {
 } from "@/features/runtime-sessions/runtimeSessionModel";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
+import { AgentMark } from "@/shared/ui/AgentMark";
 import { Button } from "@/shared/ui/button";
-
-/** The specimen's box for a 20 body (it draws its body at 29 of 40). */
-const MARK_SIZE = 28;
 
 /** The old detail's words in the address, still sent by ways in (an agent
  *  asking to show its runtime or its access). */
@@ -149,7 +150,11 @@ export function SettingsAgentsMinds() {
       {ready && minds.length === 0 ? (
         <p className="luca-settings-minds-line">No agents yet.</p>
       ) : null}
-      <ul aria-label="Agents" data-testid="settings-agents-minds">
+      <ul
+        aria-label="Agents"
+        className="luca-place-plate"
+        data-testid="settings-agents-minds"
+      >
         {minds.map(({ main, resident }) => {
           const key = resident.pubkey ? normalizePubkey(resident.pubkey) : null;
           const agent = key ? managed.get(key) : undefined;
@@ -165,21 +170,9 @@ export function SettingsAgentsMinds() {
               data-testid={`settings-mind-${key ?? resident.residentId}`}
               key={resident.residentId}
             >
-              <span aria-hidden className="luca-settings-mind-mark">
-                {resident.pubkey ? (
-                  <AgentIdentitySpecimen
-                    accessibleName={resident.displayName}
-                    avatarUrl={resident.avatarUrl}
-                    publicKey={resident.pubkey}
-                    size={MARK_SIZE}
-                    state={identityState(resident)}
-                  />
-                ) : (
-                  <span className="luca-settings-mind-initial">
-                    {resident.displayName.slice(0, 1).toUpperCase()}
-                  </span>
-                )}
-              </span>
+              <PlaceRowFace>
+                <AgentMark />
+              </PlaceRowFace>
               <button
                 aria-label={`${resident.displayName}, ${state}. Open their settings`}
                 className="luca-place-row-what luca-place-row-open"
@@ -212,8 +205,8 @@ export function SettingsAgentsMinds() {
           className="luca-settings-minds-group"
           data-testid="settings-agents-connected"
         >
-          <h2 className="type-eyebrow">Connected</h2>
-          <ul>
+          <PlaceSectionLabel label="Connected" />
+          <ul className="luca-place-plate">
             {runtimes.map((runtime) => {
               const id = runtimeConnectionKey(runtime);
               const readiness =
@@ -249,12 +242,4 @@ export function SettingsAgentsMinds() {
       ) : null}
     </section>
   );
-}
-
-function identityState(resident: ResidentSummaryViewModel) {
-  if (resident.availability === "failed") return "fault" as const;
-  if (resident.availability === "working") return "working" as const;
-  if (resident.availability === "idle") return "idle" as const;
-  if (resident.availability === "offline") return "unavailable" as const;
-  return "present" as const;
 }

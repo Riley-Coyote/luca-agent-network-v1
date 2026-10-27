@@ -1,3 +1,5 @@
+import { MessagesSquare } from "lucide-react";
+
 import "@/app/shell/shell-activity.css";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
@@ -15,6 +17,7 @@ import {
 } from "@/features/exchange/sideConversations";
 import { noteOpenSide } from "@/features/exchange/openSide";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
+import { AgentMark } from "@/shared/ui/AgentMark";
 
 /**
  * Side conversations (NAVIGATION.md, "Activity"; SHELL_BUILD.md WP-14,
@@ -29,7 +32,11 @@ export function SideConversationsCard() {
   const days = sideDays(items);
   return (
     <PlacePage testId="side-conversations-card">
-      <PlacePageHead eyebrow="Activity" title="Side conversations" />
+      <PlacePageHead
+        eyebrow="Activity"
+        face={<MessagesSquare />}
+        title="Side conversations"
+      />
       <p className="luca-place-page-line">
         What your agents say to each other, and what they ask Claude Code and
         Codex, in the conversations you share with them.
@@ -41,7 +48,12 @@ export function SideConversationsCard() {
         </p>
       ) : (
         days.map((day) => (
-          <PlaceList key={day.key} label={day.label} testId="side-day">
+          <PlaceList
+            count={day.items.length}
+            key={day.key}
+            label={day.label}
+            testId="side-day"
+          >
             {day.items.map((item) => (
               <SideRow
                 item={item}
@@ -96,6 +108,7 @@ function SideRow({
     <PlaceListRow
       data-side-kind={item.kind}
       data-side-state={item.word}
+      face={<AgentMark />}
       detail={
         <>
           <span className="luca-side-state" data-live={item.live || undefined}>

@@ -1,8 +1,19 @@
 import * as React from "react";
-import { LoaderCircle, Plus } from "lucide-react";
+import {
+  Bookmark,
+  LoaderCircle,
+  NotebookPen,
+  Plus,
+  Sparkles,
+  UserRound,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import {
+  PlaceRowFace,
+  PlaceSectionLabel,
+} from "@/app/shell/placeRails/PlacePage";
 import {
   PermissionAsk,
   QuestionAsk,
@@ -42,6 +53,7 @@ import {
 import { useIdentityQuery } from "@/shared/api/hooks";
 import type { ManagedAgent } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { AgentMark } from "@/shared/ui/AgentMark";
 import { MadeThumb } from "./MadeThumb";
 import {
   MIND_FILTERS,
@@ -52,10 +64,21 @@ import {
   presentKinds,
   type MindEntry,
   type MindFilter,
+  type MindKind,
   type StreamArtifact,
 } from "./mindStream";
 
 const NOTEBOOK_PAGE = 25;
+
+/** Each kind's glyph (BETA14_RELEASE.md WP-33, Decided 8): what they did
+ *  for you, their own time, their journal, what they kept. The filters wear
+ *  the same glyphs. */
+const KIND_GLYPH: Record<MindKind, typeof UserRound> = {
+  you: UserRound,
+  own: Sparkles,
+  journal: NotebookPen,
+  memory: Bookmark,
+};
 
 /**
  * Notebook: their days (Decided 3). Their own words, what they're asking
@@ -357,6 +380,7 @@ function MindAsks({ residentPubkey }: { residentPubkey: string }) {
     "data-ask-key": `${kind}:${pendingId}`,
     "data-ask-kind": kind,
     "data-testid": `mind-ask-${kind}:${pendingId}`,
+    face: <AgentMark />,
     note: "now",
     onOpen: () => void goChannel(conversationId),
     openTestId: "mind-ask-open",
@@ -369,7 +393,12 @@ function MindAsks({ residentPubkey }: { residentPubkey: string }) {
       className="luca-mind-asks"
       data-testid="mind-asks"
     >
-      <ul className="luca-ask-list" onFocus={onFocus} ref={listRef}>
+      <PlaceSectionLabel count={keys.length} label="Asks you" />
+      <ul
+        className="luca-ask-list luca-place-plate"
+        onFocus={onFocus}
+        ref={listRef}
+      >
         {permissions.map((pending) => (
           <PermissionAsk
             common={common(
@@ -545,19 +574,23 @@ function MindDays({
       <div className="luca-mind-toolbar">
         {filters.length > 1 ? (
           <fieldset aria-label="Show" className="luca-mind-filters">
-            {filters.map((each) => (
-              <button
-                aria-pressed={shown === each.id}
-                className="luca-mind-filter"
-                data-selected={shown === each.id ? "true" : undefined}
-                data-testid={`mind-filter-${each.id}`}
-                key={each.id}
-                onClick={() => setFilter(each.id)}
-                type="button"
-              >
-                {each.label}
-              </button>
-            ))}
+            {filters.map((each) => {
+              const Glyph = each.id === "all" ? null : KIND_GLYPH[each.id];
+              return (
+                <button
+                  aria-pressed={shown === each.id}
+                  className="luca-mind-filter"
+                  data-selected={shown === each.id ? "true" : undefined}
+                  data-testid={`mind-filter-${each.id}`}
+                  key={each.id}
+                  onClick={() => setFilter(each.id)}
+                  type="button"
+                >
+                  {Glyph ? <Glyph aria-hidden /> : null}
+                  {each.label}
+                </button>
+              );
+            })}
           </fieldset>
         ) : (
           <span />
@@ -567,8 +600,8 @@ function MindDays({
       {afterToolbar}
       {days.map((day) => (
         <section aria-label={day.label} className="luca-mind-day" key={day.key}>
-          <h2 className="type-eyebrow">{day.label}</h2>
-          <ul>
+          <PlaceSectionLabel count={day.entries.length} label={day.label} />
+          <ul className="luca-place-plate" data-thread="true">
             {day.entries.map((entry) => (
               <MindEntryRow
                 entry={entry}
@@ -617,9 +650,16 @@ function MindEntryRow({
       ) : null}
     </>
   );
+  const Glyph = KIND_GLYPH[entry.kind];
   return (
-    <li data-kind={entry.kind} data-testid="mind-entry">
-      <span className="luca-mind-kind">{MIND_KIND_LABEL[entry.kind]}</span>
+    <li
+      className="luca-place-row luca-mind-day-row"
+      data-kind={entry.kind}
+      data-testid="mind-entry"
+    >
+      <PlaceRowFace label={MIND_KIND_LABEL[entry.kind]}>
+        <Glyph />
+      </PlaceRowFace>
       <div className="luca-mind-entry">
         {itemId ? (
           <button
@@ -645,7 +685,10 @@ function MindEntryRow({
           />
         ) : null}
       </div>
-      <time dateTime={new Date(entry.at).toISOString()}>
+      <time
+        className="luca-place-row-note"
+        dateTime={new Date(entry.at).toISOString()}
+      >
         {entryTime(entry.at)}
       </time>
     </li>

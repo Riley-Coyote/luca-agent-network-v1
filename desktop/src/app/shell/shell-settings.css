@@ -230,7 +230,7 @@ button.luca-settings-row:hover:not([data-current]) {
 }
 
 .luca-settings-group-head-page h2 {
-  color: hsl(var(--mn-ink-faint));
+  color: hsl(var(--mn-ink-muted));
 }
 
 .luca-settings-group-line {
@@ -262,23 +262,28 @@ button.luca-settings-row:hover:not([data-current]) {
 }
 
 .luca-settings-page-group > h2 {
-  color: hsl(var(--mn-ink-faint));
-  margin-bottom: 6px;
+  color: hsl(var(--mn-ink-muted));
+  margin-bottom: 8px;
 }
 
-/* The panels' own headings name groups too, so they take the same label:
- * the mono, opened up, in the faint tone (typography.css, `.type-eyebrow`).
- * A mind's name in Agents stays its name. */
-[data-luca-settings-page]
+/* The panels' own headings name groups too, so they take the same label as
+ * a group's head: the page system's section label (BETA14_RELEASE.md
+ * WP-33, Decided 2), sentence case at 12.5 and 600 in the muted ink, never
+ * the mono capitals. A mind's name in Agents stays its name. */
+:root[data-luca-frame]
+  [data-luca-settings-page]
+  :is(.luca-settings-group-head-page h2, .luca-settings-page-group > h2),
+:root[data-luca-frame]
+  [data-luca-settings-page]
   [data-testid^="settings-panel-"]
-  :is(h2, h3):not(.type-eyebrow):not([data-testid="settings-agents"] *) {
-  color: hsl(var(--mn-ink-faint));
-  font-family: var(--font-mono);
-  font-size: var(--type-eyebrow-size);
-  font-weight: 400;
-  letter-spacing: var(--type-caps-tracking);
-  line-height: var(--type-eyebrow-leading);
-  text-transform: uppercase;
+  :is(h2, h3):not([data-testid="settings-agents"] *) {
+  color: hsl(var(--mn-ink-muted));
+  font-family: inherit;
+  font-size: 0.78125rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.25;
+  text-transform: none;
 }
 
 /* Every choice of a few is the study's segment (shellStudy.css:1137-1155),

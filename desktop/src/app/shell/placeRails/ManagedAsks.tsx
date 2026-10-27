@@ -36,6 +36,8 @@ export { QuestionAsk } from "@/features/capabilities/ui/ManagedInputCard";
  *  ask is in). */
 export type AskCommon = {
   "data-testid": string;
+  /** Who asks, on a page's plate (WP-33, Decided 6). */
+  face?: React.ReactNode;
   note?: string;
   onOpen?: () => void;
   openTestId?: string;

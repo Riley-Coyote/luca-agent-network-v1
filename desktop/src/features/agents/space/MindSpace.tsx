@@ -2,6 +2,12 @@ import * as React from "react";
 import { CircleAlert, Play } from "lucide-react";
 
 import "@/app/shell/shell-mind-space.css";
+import {
+  PlaceList,
+  PlaceListRow,
+  PlaceSectionLabel,
+} from "@/app/shell/placeRails/PlacePage";
+import { PLACE_RAIL_HOOKS } from "@/app/shell/placeRails/usePlaceRails";
 import { ResidentDocumentsSection } from "@/features/agents/documents/ResidentDocumentsSection";
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
 import {
@@ -16,13 +22,19 @@ import {
 } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
+import { AgentMark } from "@/shared/ui/AgentMark";
 import {
   LogsSheet,
   SettingsSection,
 } from "@/features/agents/ui/AgentLibraryWorkspace";
-import type { ResidentSummaryViewModel } from "@/features/agents/ui/agentLibraryViewModel";
+import {
+  residentSourceLabel,
+  type ResidentSummaryViewModel,
+} from "@/features/agents/ui/agentLibraryViewModel";
 import { MindNotebook } from "./MindNotebook";
+import { usePermissionsValue, useWhatTheyCanRead } from "./MindSettings";
 import type { MindSection, MindSettingsAt } from "./mindSection";
 
 /** The specimen's box, for a 40 body: it draws its body at 29 of 40. */
@@ -144,66 +156,69 @@ export function MindSpace({
             </button>
           ))}
         </div>
-        <div
-          aria-labelledby={`mind-tab-${section}`}
-          className="luca-mind-body"
-          id={`mind-panel-${section}`}
-          role="tabpanel"
-        >
-          {actionErrorMessage ? (
-            <div className="luca-mind-alert" role="alert">
-              <CircleAlert aria-hidden />
-              <span>{actionErrorMessage}</span>
-            </div>
-          ) : actionNoticeMessage ? (
-            <p className="luca-mind-quiet" role="status">
-              {actionNoticeMessage}
-            </p>
-          ) : null}
-          {section === "notebook" ? (
-            <MindNotebook
-              key={resident.pubkey ?? resident.residentId}
-              managedAgent={managedAgent}
-              resident={resident}
-            />
-          ) : section === "self" ? (
-            managedAgent ? (
-              <ResidentDocumentsSection
-                agent={managedAgent}
-                onRestart={onRestart}
-                residentName={name}
-                variant="space"
-              />
-            ) : (
-              <p className="luca-mind-quiet">
-                {name} doesn't have a folder yet. Their documents — soul,
-                convictions, self-model, user model, lessons, instructions — are
-                laid down when the resident is set up
-                {persona?.systemPrompt
-                  ? ", starting from this definition's instructions"
-                  : ""}
-                .
+        <div className="luca-mind-columns">
+          <div
+            aria-labelledby={`mind-tab-${section}`}
+            className="luca-mind-body"
+            id={`mind-panel-${section}`}
+            role="tabpanel"
+          >
+            {actionErrorMessage ? (
+              <div className="luca-mind-alert" role="alert">
+                <CircleAlert aria-hidden />
+                <span>{actionErrorMessage}</span>
+              </div>
+            ) : actionNoticeMessage ? (
+              <p className="luca-mind-quiet" role="status">
+                {actionNoticeMessage}
               </p>
-            )
-          ) : (
-            <SettingsSection
-              channels={channels}
-              focusAt={focusAt}
-              isActionPending={isActionPending}
-              layout="space"
-              managedAgent={managedAgent}
-              onEdit={onEdit}
-              onOpenChannel={onOpenChannel}
-              onOpenLogs={() => setLogsOpen(true)}
-              onFocusAtConsumed={onFocusAtConsumed}
-              onRestart={onRestart}
-              onStart={onStart}
-              onStop={onStop}
-              onToggleStartOnLaunch={onToggleStartOnLaunch}
-              persona={persona}
-              resident={resident}
-            />
-          )}
+            ) : null}
+            {section === "notebook" ? (
+              <MindNotebook
+                key={resident.pubkey ?? resident.residentId}
+                managedAgent={managedAgent}
+                resident={resident}
+              />
+            ) : section === "self" ? (
+              managedAgent ? (
+                <ResidentDocumentsSection
+                  agent={managedAgent}
+                  onRestart={onRestart}
+                  residentName={name}
+                  variant="space"
+                />
+              ) : (
+                <p className="luca-mind-quiet">
+                  {name} doesn't have a folder yet. Their documents — soul,
+                  convictions, self-model, user model, lessons, instructions —
+                  are laid down when the resident is set up
+                  {persona?.systemPrompt
+                    ? ", starting from this definition's instructions"
+                    : ""}
+                  .
+                </p>
+              )
+            ) : (
+              <SettingsSection
+                channels={channels}
+                focusAt={focusAt}
+                isActionPending={isActionPending}
+                layout="space"
+                managedAgent={managedAgent}
+                onEdit={onEdit}
+                onOpenChannel={onOpenChannel}
+                onOpenLogs={() => setLogsOpen(true)}
+                onFocusAtConsumed={onFocusAtConsumed}
+                onRestart={onRestart}
+                onStart={onStart}
+                onStop={onStop}
+                onToggleStartOnLaunch={onToggleStartOnLaunch}
+                persona={persona}
+                resident={resident}
+              />
+            )}
+          </div>
+          <MindAside managedAgent={managedAgent} resident={resident} />
         </div>
       </div>
       {managedAgent ? (
@@ -214,6 +229,124 @@ export function MindSpace({
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Beside all three tabs (BETA14_RELEASE.md WP-33, Decided 8): how they run
+ * at a glance, from what the app holds about them, and who they work with,
+ * from the side conversations they share. A fact the app doesn't hold is
+ * left out.
+ */
+function MindAside({
+  managedAgent,
+  resident,
+}: {
+  managedAgent: ManagedAgent | null;
+  resident: ResidentSummaryViewModel;
+}) {
+  const reads = useWhatTheyCanRead(Boolean(resident.pubkey));
+  const permissions = usePermissionsValue(managedAgent?.pubkey ?? null);
+  const workspace = managedAgent?.nativeRuntimeBinding?.defaultWorkspace;
+  const facts = [
+    {
+      label: "Runs on",
+      value: [
+        residentSourceLabel(resident),
+        managedAgent || resident.modelLabel
+          ? (resident.modelLabel ?? "Default model")
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    },
+    {
+      label: "Wakes",
+      value: managedAgent
+        ? managedAgent.startOnAppLaunch
+          ? "With the app"
+          : "When started"
+        : "",
+    },
+    { label: "Works in", value: workspace ?? "" },
+    { label: "Reads", value: reads },
+    { label: "Permissions", value: managedAgent ? permissions : "" },
+  ].filter((fact) => fact.value.length > 0);
+
+  // Who they work with: every other mind in a side conversation they share,
+  // in the order the feed holds them (newest first), with the state the
+  // Agents rail gives each.
+  const side = useSideConversations();
+  const { sections } = PLACE_RAIL_HOOKS.agents();
+  const minds = React.useMemo(
+    () =>
+      new Map(
+        sections
+          .flatMap((each) => each.rows)
+          .filter((row) => row.id.startsWith("mind:"))
+          .map((row) => [row.id.slice(5), row]),
+      ),
+    [sections],
+  );
+  const key = resident.pubkey ? normalizePubkey(resident.pubkey) : null;
+  const withThem = React.useMemo(() => {
+    if (!key) return [];
+    const seen: string[] = [];
+    for (const item of side.items) {
+      if (item.kind !== "exchange") continue;
+      const people = [item.openedBy, ...item.members].map(normalizePubkey);
+      if (!people.includes(key)) continue;
+      for (const other of people)
+        if (other !== key && minds.has(other) && !seen.includes(other))
+          seen.push(other);
+    }
+    return seen;
+  }, [key, minds, side.items]);
+
+  if (facts.length === 0 && withThem.length === 0) return null;
+  return (
+    <aside
+      aria-label="At a glance"
+      className="luca-mind-aside"
+      data-testid="mind-aside"
+    >
+      {facts.length > 0 ? (
+        <section aria-label="At a glance" className="luca-place-group">
+          <PlaceSectionLabel label="At a glance" />
+          <dl className="luca-mind-facts" data-testid="mind-at-a-glance">
+            {facts.map((fact) => (
+              <div
+                className="luca-mind-fact"
+                data-fact={fact.label}
+                key={fact.label}
+              >
+                <dt>{fact.label}</dt>
+                <dd title={fact.value}>{fact.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
+      {withThem.length > 0 ? (
+        <PlaceList
+          count={withThem.length}
+          label="Works with"
+          testId="mind-works-with"
+        >
+          {withThem.map((pubkey) => {
+            const row = minds.get(pubkey);
+            return (
+              <PlaceListRow
+                face={<AgentMark />}
+                key={pubkey}
+                note={row?.note}
+                title={row?.title ?? side.nameOf(pubkey)}
+              />
+            );
+          })}
+        </PlaceList>
+      ) : null}
+    </aside>
   );
 }
 

@@ -476,11 +476,12 @@ function ActivityGroupHeading({
   title: string;
 }) {
   if (flat) {
-    // The app's eyebrow over its rows, as the study's lists have.
+    // A section's label over its rows (BETA14_RELEASE.md WP-33, Decided
+    // 2): sentence case, never the mono capitals.
     return (
       <h2
         className={cn(
-          "type-eyebrow mt-5 mb-1.5 hidden text-ink-faint",
+          "luca-now-label mt-5 mb-2 hidden",
           group === "active" &&
             "order-[1] group-has-[[data-activity-group=active]]/activity:block",
           group === "recent" &&
