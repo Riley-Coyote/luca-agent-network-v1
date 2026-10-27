@@ -151,15 +151,15 @@ impl RelayInfo {
         }
 
         Self {
-            name: "Buzz Relay".to_string(),
-            description: "Buzz — private team communication relay".to_string(),
+            name: "Polyphonic relay".to_string(),
+            description: "The relay inside Polyphonic".to_string(),
             icon: icon.filter(|s| !s.is_empty()).map(|s| s.to_string()),
             pubkey: None,
             contact: None,
             supported_nips,
             supported_extensions: Some(vec!["nip-er".to_string()]),
             push: None,
-            software: "https://github.com/block/buzz".to_string(),
+            software: "https://github.com/Riley-Coyote/polyphonic-app".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             limitation: Some(relay_limitation(max_message_length)),
             pairing_relay_url: pairing_relay_url.map(str::to_string),
@@ -385,9 +385,14 @@ mod tests {
     }
 
     #[test]
-    fn build_advertises_buzz_repository_url() {
+    fn build_describes_itself_as_polyphonics_relay() {
         let info = RelayInfo::build(None, None, false, DEFAULT_MAX_FRAME_BYTES, None);
-        assert_eq!(info.software, "https://github.com/block/buzz");
+        assert_eq!(info.name, "Polyphonic relay");
+        assert_eq!(info.description, "The relay inside Polyphonic");
+        assert_eq!(
+            info.software,
+            "https://github.com/Riley-Coyote/polyphonic-app"
+        );
     }
 
     #[test]

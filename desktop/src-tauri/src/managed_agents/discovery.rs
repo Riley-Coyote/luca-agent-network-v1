@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::managed_agents::{
@@ -23,8 +23,43 @@ const CLAUDE_CODE_AVATAR_URL: &str = "https://anthropic.gallerycdn.vsassets.io/e
 const CODEX_AVATAR_URL: &str = "https://openai.gallerycdn.vsassets.io/extensions/openai/chatgpt/26.5313.41514/1773706730621/Microsoft.VisualStudio.Services.Icons.Default";
 const KIMI_AVATAR_URL: &str = "https://moonshotai.github.io/Branding-Guide/scenarios/03-icon-without-kimi/kimi-icon-rounded-corner.png";
 const GROK_AVATAR_URL: &str = "https://grok.com/images/android-chrome-512x512.png";
-const BUZZ_AGENT_AVATAR_URL: &str =
-    "https://raw.githubusercontent.com/block/buzz/refs/heads/main/crates/buzz-agent/buzz-agent.png";
+/// Placeholder in the runtime table for an avatar bundled into the app; see
+/// [`runtime_avatar_url`].
+const BUNDLED_APP_ICON_AVATAR: &str = "bundled:app-icon";
+/// The built-in runtime's face is Polyphonic's own app icon, carried inside the
+/// binary as a data URL so it is never fetched from anywhere.
+static BUZZ_AGENT_AVATAR_URL: LazyLock<String> = LazyLock::new(|| {
+    use base64::Engine as _;
+    format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(include_bytes!("../../icons/128x128.png"))
+    )
+});
+
+/// The avatar address a runtime presents: its maker's image, or the bundled
+/// app icon for the built-in runtime.
+fn runtime_avatar_url(runtime: &KnownAcpRuntime) -> String {
+    if runtime.avatar_url == BUNDLED_APP_ICON_AVATAR {
+        BUZZ_AGENT_AVATAR_URL.clone()
+    } else {
+        runtime.avatar_url.to_string()
+    }
+}
+
+/// Earlier builds stored the built-in runtime's avatar as an address on the
+/// upstream project's GitHub. Recognised by its path, so a stored record can be
+/// moved to the bundled icon and the old address is never fetched again.
+pub(crate) fn is_legacy_buzz_agent_avatar_url(url: &str) -> bool {
+    let url = url.trim();
+    url.starts_with("https://raw.githubusercontent.com/")
+        && url.ends_with("/crates/buzz-agent/buzz-agent.png")
+}
+
+/// The bundled built-in runtime avatar, for records that still carry the legacy
+/// address.
+pub(crate) fn buzz_agent_avatar_url() -> String {
+    BUZZ_AGENT_AVATAR_URL.clone()
+}
 
 fn common_binary_paths() -> &'static [PathBuf] {
     static PATHS: OnceLock<Vec<PathBuf>> = OnceLock::new();
@@ -283,15 +318,16 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         label: "Polyphonic runtime",
         commands: &["buzz-agent"],
         aliases: &[],
-        avatar_url: BUZZ_AGENT_AVATAR_URL,
+        avatar_url: BUNDLED_APP_ICON_AVATAR,
         mcp_command: Some("buzz-dev-mcp"),
         mcp_hooks: true,
         underlying_cli: None,
         cli_install_commands: &[],
         cli_install_commands_windows: &[],
         adapter_install_commands: &[],
-        install_instructions_url: "https://github.com/block/buzz",
-        cli_install_hint: "Built into Luca.",
+        // Built in, so there is nothing to install and no page to open.
+        install_instructions_url: "",
+        cli_install_hint: "Built into Polyphonic.",
         adapter_install_hint: "",
         skill_dir: None,
         supports_acp_model_switching: true,
@@ -1458,7 +1494,7 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                 entry: AcpRuntimeCatalogEntry {
                     id: runtime.id.to_string(),
                     label: runtime.label.to_string(),
-                    avatar_url: runtime.avatar_url.to_string(),
+                    avatar_url: runtime_avatar_url(runtime),
                     availability,
                     command,
                     binary_path,
@@ -1581,7 +1617,7 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
 
 pub fn managed_agent_avatar_url(command: &str) -> Option<String> {
     let runtime = known_acp_runtime(command)?;
-    Some(runtime.avatar_url.to_string())
+    Some(runtime_avatar_url(runtime))
 }
 
 #[cfg(test)]

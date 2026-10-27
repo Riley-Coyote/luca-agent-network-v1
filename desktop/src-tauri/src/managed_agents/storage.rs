@@ -181,7 +181,7 @@ fn load_agent_store(app: &AppHandle) -> Result<Vec<ManagedAgentRecord>, String> 
 
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("failed to read agent store: {error}"))?;
-    serde_json::from_str(&content).map_err(|error| {
+    let mut records: Vec<ManagedAgentRecord> = serde_json::from_str(&content).map_err(|error| {
         // Fail loudly and preserve the evidence: a later in-app save rewrites
         // this file wholesale, which would silently destroy a malformed hand
         // edit. Best-effort file-authoring contract (see managed_agents::
@@ -190,7 +190,24 @@ fn load_agent_store(app: &AppHandle) -> Result<Vec<ManagedAgentRecord>, String> 
         // swallowed into an empty store.
         backup_invalid_store(&path);
         format!("failed to parse agent store (preserved as .invalid): {error}")
-    })
+    })?;
+    replace_legacy_buzz_agent_avatars(&mut records);
+    Ok(records)
+}
+
+/// Move records that still carry the built-in runtime's old fetched avatar to
+/// the bundled one. The next save persists it, and the next profile reconcile
+/// republishes the agent's picture.
+pub(crate) fn replace_legacy_buzz_agent_avatars(records: &mut [ManagedAgentRecord]) {
+    for record in records {
+        if record
+            .avatar_url
+            .as_deref()
+            .is_some_and(crate::managed_agents::is_legacy_buzz_agent_avatar_url)
+        {
+            record.avatar_url = Some(crate::managed_agents::buzz_agent_avatar_url());
+        }
+    }
 }
 
 /// Load the keyed agent *instances*. Key-less definitions (former personas,
@@ -1391,5 +1408,27 @@ mod tests {
         // tests in secret_store.rs; the rollback aggregation is tested in
         // team_snapshot::tests::rollback_aggregates_multiple_errors.
         let _: fn(&str) -> Result<(), String> = super::try_delete_agent_key;
+    }
+
+    #[test]
+    fn legacy_built_in_runtime_avatar_moves_to_the_bundled_icon() {
+        let legacy = "https://raw.githubusercontent.com/block/buzz/refs/heads/main/crates/buzz-agent/buzz-agent.png";
+        let photo = "https://example.com/portrait.png";
+        let mut records = vec![
+            record_with_key(""),
+            record_with_key(""),
+            record_with_key(""),
+        ];
+        records[0].avatar_url = Some(legacy.to_string());
+        records[1].avatar_url = Some(photo.to_string());
+        records[2].avatar_url = None;
+
+        super::replace_legacy_buzz_agent_avatars(&mut records);
+
+        let bundled = crate::managed_agents::buzz_agent_avatar_url();
+        assert!(bundled.starts_with("data:image/png;base64,"));
+        assert_eq!(records[0].avatar_url.as_deref(), Some(bundled.as_str()));
+        assert_eq!(records[1].avatar_url.as_deref(), Some(photo));
+        assert_eq!(records[2].avatar_url, None);
     }
 }

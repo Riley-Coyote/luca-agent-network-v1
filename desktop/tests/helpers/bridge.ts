@@ -198,18 +198,6 @@ type MockBridgeOptions = {
   projectHeadBranch?: string;
   /** Relay NIP-11 identity used to sign authoritative repository state. */
   relaySelf?: string | null;
-  /** Builderlab account returned by hosted-community onboarding. Null/omitted = signed out. */
-  builderlabAuth?: { email?: string; name?: string; expiresAt: string } | null;
-  /** Bound Builderlab Nostr identity. Null/omitted = not linked yet. */
-  builderlabIdentity?: { npub?: string; pubkey_hex?: string } | null;
-  /** Communities owned by the mocked Builderlab account. */
-  builderlabCommunities?: Array<{
-    id?: string;
-    name?: string;
-    slug?: string;
-    normalized_host?: string;
-    archived_at?: string | null;
-  }>;
   acpRuntimesCatalog?: Record<string, unknown>[];
   operatorForgeRuntimeOptionsSequence?: RuntimeTargetOptionV1[][];
   operatorForgeSettingsError?: string;

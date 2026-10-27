@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import {
@@ -15,6 +16,27 @@ import {
 const CODEX_FALLBACK =
   "https://openai.gallerycdn.vsassets.io/extensions/openai/chatgpt/26.5313.41514/1773706730621/Microsoft.VisualStudio.Services.Icons.Default";
 const SAVED_PHOTO = "https://example.com/my-agent-portrait.png";
+
+test("the built-in runtime's face is the bundled app icon, never a photo", () => {
+  const icon = fs.readFileSync(
+    new URL("../../../../src-tauri/icons/128x128.png", import.meta.url),
+  );
+  const bundled = `data:image/png;base64,${icon.toString("base64")}`;
+  assert.equal(isCustomAgentPhotoUrl(bundled), false);
+  // Records from earlier builds, until they catch up, are a default too.
+  assert.equal(
+    isCustomAgentPhotoUrl(
+      "https://raw.githubusercontent.com/block/buzz/refs/heads/main/crates/buzz-agent/buzz-agent.png",
+    ),
+    false,
+  );
+  assert.equal(
+    isCustomAgentPhotoUrl(
+      "https://example.com/crates/buzz-agent/buzz-agent.png",
+    ),
+    true,
+  );
+});
 
 test("runtime defaults are exact matches, while uploaded photos remain photos", () => {
   assert.equal(isCustomAgentPhotoUrl(CODEX_FALLBACK), false);
