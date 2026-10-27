@@ -421,6 +421,10 @@ for (const [mode, width, height] of [
       .getByTestId("all-activity-task:task-glass")
       .locator(".luca-place-row-open")
       .click();
+    // A task opens its own page (WP-35), marked under its app.
+    await expect
+      .poll(() => page.evaluate(() => window.location.hash))
+      .toContain("/apps/claude/tasks/task-glass");
     await expect(page.getByTestId("chat-list")).toBeVisible({
       timeout: 20_000,
     });

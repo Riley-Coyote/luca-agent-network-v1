@@ -766,6 +766,64 @@ test("Reduce Motion holds the dot still", async ({ page }) => {
   await shot(page, "task-live-reduce-motion-night");
 });
 
+/** The task page as every way in lands on it: the address, the lip, the
+ *  task's row lit under its app, and the app's row holding the glass. */
+async function landedOnTask(page: Page, taskId: string, summary: string) {
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash), { timeout: 20_000 })
+    .toContain(`/apps/claude/tasks/${taskId}`);
+  await expect(page.getByTestId("app-task-card")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.locator(".luca-place-page-name")).toHaveText(summary);
+  await expect(page.getByTestId("shell-lip")).toContainText(
+    new RegExp(`Claude Code\\s*/\\s*${summary}`),
+  );
+  await expect(
+    page.getByTestId("chat-list").getByTestId(`rail-side-task:${taskId}`),
+  ).toHaveAttribute("data-current", "true", { timeout: 20_000 });
+  await expect(page.getByTestId("rail-home-app:claude")).toHaveAttribute(
+    "data-active",
+    "true",
+  );
+}
+
+test("All activity's task rows open the task's page", async ({ page }) => {
+  await boot(page, { hash: "/pulse?stream=all" });
+  const row = page.getByTestId("all-activity-task:task-glass");
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await row.locator(".luca-place-row-open").click();
+  await landedOnTask(page, "task-glass", "Rail glass plates");
+  await expect(page.locator(".luca-app-task-now")).toHaveText(
+    "Running the rail's glass spec",
+  );
+  // A finished one too.
+  await page.evaluate(() => {
+    window.location.hash = "#/pulse?stream=all";
+  });
+  const done = page.getByTestId("all-activity-task:task-build");
+  await expect(done).toBeVisible({ timeout: 20_000 });
+  await done.locator(".luca-place-row-open").click();
+  await landedOnTask(page, "task-build", "Fix the failing build");
+  await expect(page.locator(".luca-app-task-came-back-text")).toHaveText(
+    RESULTS["task-build"],
+  );
+  measure("from_all_activity", { page: await readPage(page) });
+  await shot(page, "task-from-all-activity-night");
+});
+
+test("the app page's What Luca did with it rows open the task's page", async ({
+  page,
+}) => {
+  await boot(page, { hash: "/apps/claude" });
+  const row = page.getByTestId("connected-task-task-build");
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await row.getByRole("button").click();
+  await landedOnTask(page, "task-build", "Fix the failing build");
+  measure("from_app_page", { page: await readPage(page) });
+  await shot(page, "task-from-app-page-night");
+});
+
 test("Settings › Agents lists the apps under Apps", async ({ page }) => {
   await boot(page, { hash: "/settings?section=agents", tasks: false });
   const section = page.getByTestId("settings-agents-connected");

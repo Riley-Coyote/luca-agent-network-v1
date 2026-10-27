@@ -115,12 +115,12 @@ export function ConnectedAppCard({ runtimeKey }: { runtimeKey: string }) {
 
 /**
  * What Luca did with it (SHELL_BUILD.md WP-14, Decided 7): this app's
- * runtime tasks, newest first, each opening its room, where its receipt is.
+ * runtime tasks, newest first, each opening its own page (WP-35).
  * Shown once there is one, as a rail's sections are.
  */
 function WhatLucaDid({ runtimeId }: { runtimeId: string }) {
   const { items, roomOf } = useSideConversations();
-  const { goChannel } = useAppNavigation();
+  const { goAppTask, goChannel } = useAppNavigation();
   // Luca's runs only (review fix 11): what another mind did with the app is
   // in its own space.
   const luca = useCanonicalLucaPubkey();
@@ -154,7 +154,14 @@ function WhatLucaDid({ runtimeId }: { runtimeId: string }) {
               }
               key={task.id}
               note={placeNoteTime(new Date(task.at).toISOString())}
-              onOpen={() => void goChannel(task.conversationId)}
+              onOpen={() => {
+                // A task opens as the work, under its app (WP-35).
+                const family = runtimeRailFamilyFromRuntimeId(
+                  task.runtimeFamily,
+                );
+                if (family) void goAppTask(family, task.id);
+                else void goChannel(task.conversationId);
+              }}
               openLabel={[task.summary, task.word, room && `in ${room}`]
                 .filter(Boolean)
                 .join(", ")}

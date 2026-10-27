@@ -903,9 +903,10 @@ test("a connected app: what Luca did with it", async ({ page }) => {
     .getByTestId("connected-task-task-build")
     .getByRole("button")
     .click();
+  // A task opens its own page (WP-35).
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
-    .toContain(`/channels/${GENERAL}`);
+    .toContain("/apps/claude/tasks/task-build");
 });
 
 test("800 x 500: needs you and all activity", async ({ page }) => {
