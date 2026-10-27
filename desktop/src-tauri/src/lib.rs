@@ -470,8 +470,8 @@ pub fn run() {
                         // second line nothing in CSS can reach.
                         commands::set_titlebar_separator_hidden(&window, true);
 
-                        // Native test builds only: Apple's glass beneath the
-                        // page, for the card and the rail's selection.
+                        // Apple's glass beneath the page, for the frame and
+                        // the rail (macOS 26 and later; native_glass.rs).
                         native_glass::attach(&webview);
 
                         if first_run {

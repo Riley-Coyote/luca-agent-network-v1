@@ -39,6 +39,30 @@ Check it from the files, without launching: the built `dist/index.html` (and
 the app's bundled copy) carries `var frameBuild = "1"`. A build without the
 flag carries the placeholder `%VITE_LUCA_SHELL_FRAME%` instead.
 
+### Apple's glass is in every macOS build (beta.14)
+
+`src-tauri/build.rs` compiles the Swift glass (`src-tauri/native/glass/`) into
+every macOS build, so the release, the rail-glass test app and dev builds draw
+the same thing and nothing has to be switched on at release time. It needs
+Apple's Swift compiler (Xcode or the Command Line Tools): without one the build
+stops and says so.
+
+The glass attaches on its own on macOS 26 and later. On macOS 14 to 25 nothing
+native attaches and Settings → Appearance's Glass draws the frosted fallback.
+The frame still starts solid; Glass is the Frame row's choice. Launching with
+`LUCA_NATIVE_RAIL_GLASS=0` leaves the glass out, for testing; no build or
+bundle sets it.
+
+The app still opens on macOS 14: everything newer that the glass uses is
+weak-linked and behind `#available(macOS 26)`. Check it from the built binary,
+without launching (`B=<app>/Contents/MacOS/buzz-desktop`):
+
+- `nm -m "$B" | grep _polyphonic_glass_attach` shows the glass is in;
+- `otool -l "$B" | grep -A4 LC_BUILD_VERSION` shows `minos 14.0`;
+- `nm -m "$B" | grep 'GlassEffect'` shows every glass class as
+  `(undefined) weak external`;
+- the bundle's `Info.plist` has no `LUCA_NATIVE_RAIL_GLASS`.
+
 The overlay alone does not enable the native updater. Export
 `BUZZ_UPDATER_PUBLIC_KEY` and `BUZZ_UPDATER_ENDPOINT` from this overlay before
 compilation; `src-tauri/build.rs` requires both. Keep the existing trusted key.

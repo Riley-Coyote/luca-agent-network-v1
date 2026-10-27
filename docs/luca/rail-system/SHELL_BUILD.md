@@ -384,8 +384,10 @@ identical `shell-frame` entry to `preview-features.json` yourself so you can tes
   - `settings`;
   - `off`.
 
-  It announces itself as `window.__POLYPHONIC_NATIVE_GLASS__` and a `polyphonic-native-glass` event. It attaches only
-  in builds with `LUCA_BUILD_NATIVE_GLASS=1`, launched with `LUCA_NATIVE_RAIL_GLASS=1`, on macOS 26 and later.
+  It announces itself as `window.__POLYPHONIC_NATIVE_GLASS__` and a `polyphonic-native-glass` event. Since beta.14
+  (WP-32) every macOS build carries it and it attaches on its own on macOS 26 and later; `LUCA_NATIVE_RAIL_GLASS=0`
+  leaves it out, for testing. Only the shell's reporter (`app/shell/shellGlass.ts`) talks to it: the classic layout's
+  `NativeRailGlass` and `NativeGlassSettings` were removed.
 - The study's reporter is `desktop/src/testing/shellStudy/nativeGlass.ts`: `reportFrame` dedupes by JSON, plus
   `startGlass`, `stopGlass`, and `useNativeGlass` with Reduce Transparency. `sync` in `ShellStudy.tsx` sends the sheet
   as the whole window with radius 16, floor `"none"`, and the conversation card's rect with radius 10.

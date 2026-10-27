@@ -47,7 +47,6 @@ import {
   AppSidebarPrimaryMenu,
 } from "@/features/sidebar/ui/AppSidebarPinnedHeader";
 import { MoreUnreadButton } from "@/features/sidebar/ui/MoreUnreadButton";
-import { NativeRailGlass } from "@/features/sidebar/ui/NativeRailGlass";
 import { RailGlass } from "@/features/sidebar/ui/RailGlass";
 import {
   assignRoomProject,
@@ -894,17 +893,11 @@ export function AppSidebar({
               data-rail-glass=""
               data-testid="sidebar-scroll-content"
             >
-              {/* Under the frame the rail's solid mark replaces today's
-                  pill and the native pour, which are never drawn or
-                  attached there (SHELL_SPEC.md, "Where you are"). */}
-              {frame ? (
-                <ShellRailMarks />
-              ) : (
-                <>
-                  <RailGlass />
-                  <NativeRailGlass />
-                </>
-              )}
+              {/* Under the frame the rail's solid mark replaces the
+                  classic web pill (SHELL_SPEC.md, "Where you are"). Apple's
+                  glass belongs to the shell only: the classic layout draws
+                  as it did in beta.13. */}
+              {frame ? <ShellRailMarks /> : <RailGlass />}
               {showLoadingRows ? (
                 <SidebarLoadingContent shape={sidebarLoadingShape} />
               ) : null}

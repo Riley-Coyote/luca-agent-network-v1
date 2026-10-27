@@ -28,7 +28,7 @@ function shell(code, args = [], env = {}) {
 test("initiative identity is distinct, and every kind compiles only in the warm shared cache", () => {
   const env = { POLYPHONIC_COMPANION_CANDIDATE_KIND: "initiative" };
   const overlay = join(repository, "desktop/src-tauri/tauri.companion-initiative-candidate.conf.json");
-  const identity = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME"', [overlay], env);
+  const identity = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" "$APP_VERSION"', [overlay], env);
   assert.equal(identity.status, 0, identity.stderr);
   const cache = join(process.env.HOME, "Library/Caches/luca-build/cargo-target");
   for (const kind of [env, {}]) {
@@ -42,19 +42,23 @@ test("initiative identity is distinct, and every kind compiles only in the warm 
   assert.notEqual(shell('true', [], { POLYPHONIC_COMPANION_CANDIDATE_KIND: "unexpected" }).status, 0);
 });
 
-test("the rail-glass candidate is its own identity and the only one that carries native glass", () => {
+test("the rail-glass candidate is the shell's beta.14 test app, and no kind needs a glass switch", () => {
   const env = { POLYPHONIC_COMPANION_CANDIDATE_KIND: "rail-glass" };
   const overlay = join(repository, "desktop/src-tauri/tauri.rail-glass-candidate.conf.json");
-  const identity = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME"', [overlay], env);
+  const identity = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" "$APP_VERSION"', [overlay], env);
   assert.equal(identity.status, 0, identity.stderr);
-  assert.equal(shell('printf %s "$NATIVE_GLASS"', [], env).stdout, "1");
-  assert.equal(shell('printf %s "$NATIVE_GLASS"', []).stdout, "0");
-  const glassed = JSON.parse(shell('json environment /d /n scope 1', [], env).stdout);
-  assert.equal(glassed.LUCA_NATIVE_RAIL_GLASS, "1");
-  assert.equal(Object.keys(glassed).length, 5);
-  const plain = JSON.parse(shell('json environment /d /n scope 0').stdout);
-  assert.equal(plain.LUCA_NATIVE_RAIL_GLASS, undefined);
-  assert.equal(Object.keys(plain).length, 4);
+  assert.equal(shell('printf %s "$APP_VERSION"', [], env).stdout, "0.5.0-beta.14");
+  assert.equal(JSON.parse(readFileSync(overlay, "utf8")).version, "0.5.0-beta.14");
+  assert.equal(shell('printf %s "$APP_VERSION"', []).stdout, "0.5.0-beta.13");
+  const stale = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" 0.5.0-beta.13', [overlay], env);
+  assert.notEqual(stale.status, 0);
+  assert.equal(shell('printf %s "$SHELL_FRAME"', [], env).stdout, "1");
+  assert.equal(shell('printf %s "$SHELL_FRAME"', []).stdout, "0");
+  for (const kind of [env, {}]) {
+    const environment = JSON.parse(shell('json environment /d /n scope', [], kind).stdout);
+    assert.equal(environment.LUCA_NATIVE_RAIL_GLASS, undefined);
+    assert.equal(Object.keys(environment).length, 4);
+  }
 });
 
 test("the entrypoint refuses any build target but the one shared cache", () => {
@@ -78,7 +82,7 @@ function temporary(run) {
 
 test("candidate shell syntax and static overlay contract are valid", () => {
   assert.equal(spawnSync("bash", ["-n", script]).status, 0);
-  const result = shell("json config \"$1\" \"$BUNDLE_ID\" \"$PRODUCT_NAME\" \"$URL_SCHEME\"", [overlay]);
+  const result = shell("json config \"$1\" \"$BUNDLE_ID\" \"$PRODUCT_NAME\" \"$URL_SCHEME\" \"$APP_VERSION\"", [overlay]);
   assert.equal(result.status, 0, result.stderr);
   const config = JSON.parse(readFileSync(overlay, "utf8"));
   assert.equal(config.identifier, identity);
@@ -105,7 +109,7 @@ test("updater, identity, scheme, and inherited build widening fail closed", () =
       mutate(config);
       const file = join(root, "invalid.json");
       writeFileSync(file, JSON.stringify(config));
-      const result = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME"', [file]);
+      const result = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" "$APP_VERSION"', [file]);
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /metadata validation failed/);
       assert.doesNotMatch(result.stderr, /example\.invalid|unexpected/);

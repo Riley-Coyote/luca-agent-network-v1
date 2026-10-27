@@ -332,10 +332,10 @@ management, the artifact Canvas)
   sheet and never `floor: "none"`: a reporter like the study's (`nativeGlass.ts`, `sync` in `ShellStudy.tsx`) sends
   the sheet, the floor and the cards, and stands it all down (`off`) under Reduce Transparency, as the rail's reporter
   already does.
-- Today it is compiled only with `LUCA_BUILD_NATIVE_GLASS=1` and attached only with `LUCA_NATIVE_RAIL_GLASS=1` (the
-  rail-glass candidate). For the shell it is compiled into the app and attached whenever the frame is Glass on macOS 26
-  or later; the candidate script's plist checks and their test change with it. Older Macs take the frosted path above
-  and never attach it.
+- Since beta.14 (WP-32) every macOS build compiles it in (`build.rs`; no Swift compiler, no build) and it attaches on
+  its own on macOS 26 and later (`LUCA_NATIVE_RAIL_GLASS=0` leaves it out, for testing). Nothing of it shows until the
+  shell's reporter sends a frame, so the solid frame and the classic layout draw as before. Older Macs take the frosted
+  path above; nothing native attaches there.
 - What the frame doesn't use goes when it lands: the frosted `FrameFrost`, the rail's selection pieces (the stage), and
   the `settings` message's material, motion and grain.
 - The window's appearance follows the palette for every palette (today `ThemeProvider` pins it only for the glass
