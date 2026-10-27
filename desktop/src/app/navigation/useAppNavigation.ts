@@ -75,11 +75,14 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  /** Brain, its own place under the shell (WP-38); `view` names the view
+   *  its rail picks, for a way in that needs one in front. */
   const goBrain = React.useCallback(
-    (behavior?: NavigationBehavior) =>
+    (behavior?: NavigationBehavior & { view?: "connections" | "activity" }) =>
       commitNavigation(
         {
           to: "/brain",
+          ...(behavior?.view ? { search: { view: behavior.view } } : {}),
         },
         behavior,
       ),

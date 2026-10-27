@@ -127,7 +127,8 @@ type CreateChannelKind = "stream" | "forum";
 const RAIL_PLACES: Partial<Record<AppSidebarProps["selectedView"], RailPlace>> =
   {
     agents: "agents",
-    brain: "agents",
+    // Brain is a place again, with its own rail (WP-38).
+    brain: "brain",
     pulse: "activity",
     artifacts: "library",
   };

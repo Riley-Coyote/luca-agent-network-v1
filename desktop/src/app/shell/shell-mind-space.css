@@ -614,20 +614,6 @@
   padding: 2px 10px 20px;
 }
 
-/* What they can read: Brain's body, its cards at the space's sizes. */
-.luca-mind-read-bar {
-  margin-bottom: 4px;
-}
-
-.luca-mind-setting-panel [data-testid^="brain-card-"] {
-  border-radius: 10px;
-}
-
-.luca-mind-setting-panel [data-testid^="brain-card-"] h2 {
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .luca-mind-now[data-live]::before {
     animation: none;

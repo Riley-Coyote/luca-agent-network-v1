@@ -204,3 +204,26 @@ test("oneState_aMindNotRunningIsOff_belowWhatIsLive", () => {
   assert.equal(at({ availability: "ready" }), "resting");
   assert.equal(at({ availability: "started" }), "resting");
 });
+
+test("brain_isAPlaceAgain_itsTwoViewsRoundTrip (WP-38)", () => {
+  for (const id of ["connections", "activity"]) {
+    assert.equal(pickIdOf("brain", paramsOfPick("brain", id)), id, id);
+  }
+  assert.equal(firstPickId("brain", LUCA), "connections");
+  assert.equal(pickIdOf("brain", {}), null);
+  assert.equal(pickIdOf("brain", { view: "nonsense" }), null);
+  assert.deepEqual(paramsOfPick("brain", "nonsense"), { view: "connections" });
+  assert.equal(
+    resolvePickId({
+      place: "brain",
+      search: {},
+      remembered: "activity",
+      lucaPubkey: null,
+    }),
+    "activity",
+  );
+  assert.deepEqual(
+    searchForPick("brain", { view: "connections", other: "kept" }, "activity"),
+    { view: "activity", other: "kept" },
+  );
+});

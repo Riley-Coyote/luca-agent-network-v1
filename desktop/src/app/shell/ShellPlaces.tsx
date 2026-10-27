@@ -1,10 +1,18 @@
 import * as React from "react";
-import { Activity, Bot, Library, MessagesSquare, Settings } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  Brain,
+  Library,
+  MessagesSquare,
+  Settings,
+} from "lucide-react";
 
 import {
   preloadActivitySurface,
   preloadAgentsSurface,
   preloadArtifactsSurface,
+  preloadBrainSurface,
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
 import { needsYouNote } from "@/app/shell/placeRails/needsYou";
@@ -25,12 +33,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 /**
  * THE PLACES (docs/luca/rail-system/SHELL_SPEC.md, "The places column", as
  * amended by NAVIGATION.md): a column 44 wide under the lip, its icons on the
- * traffic lights' axis (22). Search (⌘K); then Chats, Agents, Activity and
- * Library; Settings (⌘,) and the avatar at the foot. Every one is the app's
- * existing action: this column only gives them their home. New conversation
- * is ⌘N (the Chats rail's `+` opens Luca's one chat, WP-34), Brain belongs
- * to Agents until a mind's own space takes it, and the Inbox becomes Needs
- * you, at the top of Chats (WP-34). The current place is marked by the
+ * traffic lights' axis (22). Search (⌘K); then Chats, Agents, Activity,
+ * Library and Brain, the whole account's (BETA14_RELEASE.md WP-38); Settings
+ * (⌘,) and the avatar at the foot. Every one is the app's existing action:
+ * this column only gives them their home. New conversation is ⌘N (the Chats
+ * rail's `+` opens Luca's one chat, WP-34), and the Inbox becomes Needs you,
+ * at the top of Chats (WP-34). The current place is marked by the
  * places' mark (ShellMarks.tsx), which slides between them.
  */
 
@@ -49,12 +57,18 @@ type PlacesView =
   | "app"
   | "settings";
 
-type PlaceId = "conversations" | "agents" | "activity" | "library" | "settings";
+type PlaceId =
+  | "conversations"
+  | "agents"
+  | "activity"
+  | "library"
+  | "brain"
+  | "settings";
 
 /** Which place a view belongs to (SHELL_BUILD.md WP-10, Decided 2): Chats
- *  holds conversations, New conversation, projects and workflows; Agents
- *  holds Brain until a mind's own space takes it. The Inbox has left the
- *  column and belongs to no place. */
+ *  holds conversations, New conversation, projects and workflows; Brain is
+ *  its own place again (WP-38). The Inbox has left the column and belongs to
+ *  no place. */
 export function placeOfView(view: PlacesView): PlaceId | null {
   switch (view) {
     case "home":
@@ -68,8 +82,9 @@ export function placeOfView(view: PlacesView): PlaceId | null {
     case "artifacts":
       return "library";
     case "agents":
-    case "brain":
       return "agents";
+    case "brain":
+      return "brain";
     case "pulse":
       return "activity";
     case "settings":
@@ -241,6 +256,7 @@ export type ShellPlacesProps = {
   hasUnread: boolean;
   onSelectAgents: () => void;
   onSelectArtifacts: () => void;
+  onSelectBrain: () => void;
   onSelectConversations: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
@@ -265,6 +281,7 @@ export function ShellPlaces({
   hasUnread,
   onSelectAgents,
   onSelectArtifacts,
+  onSelectBrain,
   onSelectConversations,
   onSelectPulse,
   onSelectSettings,
@@ -353,6 +370,15 @@ export function ShellPlaces({
           testId="open-artifacts-view"
         >
           <Library />
+        </PlaceTile>
+        <PlaceTile
+          current={here === "brain"}
+          label="Brain"
+          onClick={onSelectBrain}
+          onPreload={() => void preloadBrainSurface()}
+          testId="open-brain-setup"
+        >
+          <Brain />
         </PlaceTile>
       </div>
       <div className="luca-places-group luca-places-end">

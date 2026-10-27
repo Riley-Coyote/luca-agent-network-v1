@@ -32,11 +32,12 @@ import {
 
 export const PLACE_ROUTE: Record<
   RailPlace,
-  "/agents" | "/pulse" | "/artifacts"
+  "/agents" | "/pulse" | "/artifacts" | "/brain"
 > = {
   agents: "/agents",
   activity: "/pulse",
   library: "/artifacts",
+  brain: "/brain",
 };
 
 /** Words a new pick in Agents starts without: the open tab, a profile

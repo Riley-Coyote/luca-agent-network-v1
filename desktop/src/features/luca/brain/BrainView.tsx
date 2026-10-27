@@ -53,7 +53,7 @@ import { PageHeader } from "@/shared/ui/PageHeader";
 import { NavigationTransition } from "@/shared/ui/NavigationTransition";
 
 type BrainCategory = ConnectedBrainSourceKind | "files";
-type ViewMode = "connections" | "activity";
+export type BrainViewMode = "connections" | "activity";
 
 const categoryLabels: Record<BrainCategory, string> = {
   repository: "Repositories",
@@ -63,23 +63,25 @@ const categoryLabels: Record<BrainCategory, string> = {
 };
 
 /**
- * Brain: what residents can read. `embedded` is its body without its page
- * header (SHELL_BUILD.md WP-13, Decided 6): the views, the scan, the four
- * cards, the consent dialogs and the details, inside a mind's Settings as
- * What they can read, with that mind's access grants in the details.
+ * Brain: what residents can read, for the whole account. Given a `view`, it
+ * is the body of Brain's place under the shell (BETA14_RELEASE.md WP-38,
+ * Decided 2): the four cards, connecting and adding folders, the consent
+ * dialogs, the details and the activity, without its page header or its
+ * tab strip; the place's rail picks the view and its head holds the scan.
  */
 export function BrainView({
-  embedded = false,
-  residentPubkey = null,
+  view,
 }: {
-  embedded?: boolean;
-  residentPubkey?: string | null;
+  /** The view the place's rail picked: Brain's place under the shell. */
+  view?: BrainViewMode;
 } = {}) {
+  const embedded = view !== undefined;
   const connectedQuery = useConnectedBrainInventoryQuery();
   const ownerQuery = useOwnerBrainStateQuery();
   const residentsQuery = useLucaResidentsQuery();
   const actions = useConnectedBrainActions();
-  const [mode, setMode] = React.useState<ViewMode>("connections");
+  const [localMode, setMode] = React.useState<BrainViewMode>("connections");
+  const mode = view ?? localMode;
   const [detailCategory, setDetailCategory] =
     React.useState<BrainCategory | null>(null);
   const [connectionCategory, setConnectionCategory] =
@@ -106,13 +108,7 @@ export function BrainView({
   const busySourceIdsRef = React.useRef(new Set<string>());
 
   const inventory = connectedQuery.data;
-  const allResidents = residentsQuery.data?.residents ?? [];
-  const residentKey = residentPubkey?.toLowerCase() ?? null;
-  const residents = residentKey
-    ? allResidents.filter(
-        (resident) => resident.residentPubkey.toLowerCase() === residentKey,
-      )
-    : allResidents;
+  const residents = residentsQuery.data?.residents ?? [];
   const run = React.useCallback(async (operation: () => Promise<unknown>) => {
     setOperationError(null);
     try {
@@ -276,7 +272,7 @@ export function BrainView({
       <Body
         className={
           embedded
-            ? undefined
+            ? "@container"
             : "mx-auto w-full max-w-5xl px-5 pb-12 pt-14 sm:px-7 sm:pt-7 lg:px-9"
         }
       >
@@ -293,35 +289,13 @@ export function BrainView({
           />
         )}
 
-        <div
-          className={cn(
-            "flex items-center justify-between gap-3",
-            embedded ? "luca-mind-read-bar" : "mt-6 border-b border-border/45",
-          )}
-        >
-          {embedded ? (
-            // In a mind's Settings the two views are a quiet filter, like
-            // the Notebook's, not a second strip of tabs.
-            <fieldset aria-label="Brain views" className="luca-mind-filters">
-              {(
-                [
-                  ["connections", "Connections"],
-                  ["activity", "Activity"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  aria-pressed={mode === id}
-                  className="luca-mind-filter"
-                  data-selected={mode === id ? "true" : undefined}
-                  key={id}
-                  onClick={() => setMode(id)}
-                  type="button"
-                >
-                  {label}
-                </button>
-              ))}
-            </fieldset>
-          ) : (
+        {embedded ? null : (
+          <div
+            className={cn(
+              "flex items-center justify-between gap-3",
+              "mt-6 border-b border-border/45",
+            )}
+          >
             <div aria-label="Brain views" className="flex" role="tablist">
               <ViewTab
                 active={mode === "connections"}
@@ -336,25 +310,28 @@ export function BrainView({
                 onClick={() => setMode("activity")}
               />
             </div>
-          )}
-          <Button
-            aria-label="Scan for Brain sources"
-            disabled={connectedQuery.isFetching}
-            onClick={() => void connectedQuery.refetch()}
-            size="xs"
-            type="button"
-            variant="ghost"
-          >
-            <RefreshCw
-              className={cn(connectedQuery.isFetching && "animate-spin")}
-            />
-            Scan again
-          </Button>
-        </div>
+            <Button
+              aria-label="Scan for Brain sources"
+              disabled={connectedQuery.isFetching}
+              onClick={() => void connectedQuery.refetch()}
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              <RefreshCw
+                className={cn(connectedQuery.isFetching && "animate-spin")}
+              />
+              Scan again
+            </Button>
+          </div>
+        )}
 
         {operationError ? (
           <div
-            className="mt-5 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+            className={cn(
+              embedded ? "mb-5" : "mt-5",
+              "flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive",
+            )}
             role="alert"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -366,10 +343,11 @@ export function BrainView({
           {mode === "connections" ? (
             <section
               aria-label="Brain connections"
-              className={cn(
-                "mt-6 grid gap-4",
-                embedded ? "@lg:grid-cols-2" : "md:grid-cols-2",
-              )}
+              className={
+                embedded
+                  ? "grid gap-4 @lg:grid-cols-2"
+                  : cn("mt-6 grid gap-4", "md:grid-cols-2")
+              }
             >
               {cards.map((card) => {
                 const hasDetails = card.connectedCount > 0;
@@ -426,7 +404,7 @@ export function BrainView({
               })}
             </section>
           ) : (
-            <div className="mt-6">
+            <div className={embedded ? undefined : "mt-6"}>
               <BrainActivity
                 connected={inventory}
                 imported={ownerQuery.data}

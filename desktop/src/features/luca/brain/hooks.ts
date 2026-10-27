@@ -21,6 +21,8 @@ import {
   type OwnerBrainGrantInput,
 } from "@/shared/api/tauriBrain";
 
+import { brainReadsLine } from "./brainReads";
+
 export const ownerBrainStateQueryKey = ["owner-brain-state"] as const;
 export const connectedBrainInventoryQueryKey = [
   "connected-brain-inventory",
@@ -128,4 +130,12 @@ export function useConnectedBrainActions() {
       onSuccess: refresh,
     }),
   };
+}
+
+/** What the account's minds can read, in a breath (brainReads.ts): Brain's
+ *  sources as its cards count them. Empty until the inventory arrives. */
+export function useWhatTheyCanRead(enabled: boolean): string {
+  const connected = useConnectedBrainInventoryQuery({ enabled });
+  const owner = useOwnerBrainStateQuery({ enabled });
+  return brainReadsLine(connected.data, owner.data?.sources.length ?? 0);
 }

@@ -975,37 +975,28 @@ test("Self and Settings: who they are; how they run", async ({ page }) => {
     .locator("button")
     .first()
     .click();
-  await expect(page.getByTestId("brain-body")).toBeVisible();
-  await expect(page.getByTestId("brain-card-repository")).toBeVisible({
-    timeout: 20_000,
-  });
+  // WP-38 (BETA14_RELEASE.md, Decided 3): the row is this mind's own access,
+  // source by source, with Open Brain; Brain's body is Brain's place alone.
+  await expect(page.getByTestId("mind-brain-access")).toBeVisible();
+  await expect(
+    page.getByTestId("mind-brain-source-connected-repository-luca"),
+  ).toBeVisible({ timeout: 20_000 });
   await page
     .getByTestId("mind-what-they-can-read")
     .evaluate((each) => each.scrollIntoView({ block: "start" }));
   const read = await shot(page, "what-they-can-read");
-  const brain = await page.getByTestId("brain-body").evaluate((body) => {
-    const card = body.querySelector<HTMLElement>(
-      "[data-testid^='brain-card-']",
-    );
-    const title = card?.querySelector<HTMLElement>("h2");
-    const row = body.closest("li");
-    return {
-      cards: body.querySelectorAll("[data-testid^='brain-card-']").length,
-      cardRadius: card ? getComputedStyle(card).borderRadius : null,
-      titleFont: title
-        ? `${getComputedStyle(title).fontSize} ${getComputedStyle(title).fontWeight}`
-        : null,
-      tabStrip: body.querySelectorAll("[role=tablist]").length,
-      filters: [...body.querySelectorAll(".luca-mind-filter")].map(
-        (each) => each.textContent,
-      ),
-      brainLabel: [...(row?.querySelectorAll("*") ?? [])].filter(
-        (each) =>
-          each.children.length === 0 &&
-          each.textContent?.trim().toLowerCase() === "brain",
-      ).length,
-    };
-  });
+  const brain = await page
+    .getByTestId("mind-what-they-can-read")
+    .evaluate((row) => ({
+      sources: row.querySelectorAll("[data-testid^='mind-brain-source-']")
+        .length,
+      cards: row.querySelectorAll("[data-testid^='brain-card-']").length,
+      tabStrip: row.querySelectorAll("[role=tablist]").length,
+      openBrain: Boolean(row.querySelector("[data-testid='mind-open-brain']")),
+    }));
+  expect(brain.sources).toBeGreaterThan(0);
+  expect(brain.cards).toBe(0);
+  expect(brain.openBrain).toBe(true);
   measure("settings", {
     brain,
     helpClosed,
@@ -1019,25 +1010,21 @@ test("Self and Settings: who they are; how they run", async ({ page }) => {
   });
 });
 
-test("/brain opens Luca's space on Settings, What they can read open", async ({
-  page,
-}) => {
+// WP-38 (BETA14_RELEASE.md, Decided 1 and 6): `/brain` is Brain's own place
+// again, no longer a redirect to Luca's space.
+test("/brain opens Brain's own place, not Luca's space", async ({ page }) => {
   await boot(page, { hash: "/brain" });
-  await expect(page.getByTestId("mind-space")).toBeVisible({
+  await expect(page.getByTestId("brain-place")).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByTestId("brain-body")).toBeVisible({
+  await expect(page.getByTestId("brain-card-repository")).toBeVisible({
     timeout: 10_000,
   });
-  await expect(page.getByTestId("mind-what-they-can-read")).toBeInViewport({
-    timeout: 10_000,
-  });
+  await expect(page.getByTestId("mind-space")).toHaveCount(0);
   const landing = await hashOf(page);
-  const open = await page
-    .getByTestId("mind-what-they-can-read")
-    .getAttribute("data-open");
+  expect(landing).toMatch(/^#\/brain/);
   const redirect = await shot(page, "brain-redirect");
-  measure("brain-redirect", { landing, open, redirect });
+  measure("brain-redirect", { landing, redirect });
 });
 
 test("the profile card for an agent is a short summary", async ({ page }) => {

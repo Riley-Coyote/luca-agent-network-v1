@@ -1201,13 +1201,15 @@ for (const mode of ["dark", "light"] as const) {
     measure(name, { head, plates, step });
   });
 
-  test(`a Brain page (${mode}): /brain opens on What they can read`, async ({
+  // WP-38 (BETA14_RELEASE.md, Decided 1 and 2): /brain is Brain's own page.
+  test(`a Brain page (${mode}): /brain opens Brain's own place`, async ({
     page,
   }) => {
     await boot(page, { hash: "/brain", mode });
-    await expect(page.getByTestId("brain-body")).toBeVisible({
+    await expect(page.getByTestId("brain-place")).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.getByTestId("brain-body")).toBeVisible();
     await page.waitForTimeout(800);
     const name = `brain-${mode}`;
     hashes[name] = await shot(page, name);
