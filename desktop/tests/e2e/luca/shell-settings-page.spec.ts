@@ -269,10 +269,24 @@ function read(page: Page) {
     const controls =
       "input, textarea, select, button, label, [role=switch], img, canvas, svg, kbd, [role=img], [role=radio], [role=option]";
     const axisWidth = axis?.getBoundingClientRect().width ?? 640;
+    // A list of rows sits on the page system's plate (BETA14_RELEASE.md
+    // WP-33, Decided 3): read on its own below, never counted as a box.
+    const plates = [...panel.querySelectorAll<HTMLElement>(".luca-place-plate")]
+      .filter((el) => visible(el))
+      .map((el) => {
+        const s = getComputedStyle(el);
+        return {
+          border: s.borderTopWidth,
+          fill: parse(s.backgroundColor).a,
+          padding: s.padding,
+          radius: s.borderTopLeftRadius,
+        };
+      });
     const boxes = [...panel.querySelectorAll<HTMLElement>("*")]
       .filter((el) => {
         if (!visible(el) || el.matches(controls) || el.closest("button"))
           return false;
+        if (el.classList.contains("luca-place-plate")) return false;
         // A choice is a control, however it is drawn (a theme's tile).
         if (el.querySelector("button, input") && el.children.length === 1)
           return false;
@@ -339,6 +353,7 @@ function read(page: Page) {
       lip: document.querySelector('[data-testid="shell-lip-name"]')
         ?.textContent,
       boxes,
+      plates,
       solid,
       luca,
       // Every control the section offers, by its name, for the capability
@@ -424,6 +439,16 @@ test.describe("WP-17", () => {
         if (Math.abs(r.axisCentreOffset ?? 99) > 0.5)
           fail(`axis off centre ${r.axisCentreOffset}`);
         if (r.boxes.length) fail(`boxes ${JSON.stringify(r.boxes)}`);
+        // A plate is the ink lifted a step, never a box: radius 12, padding
+        // 4, no border, its fill under 3% (WP-33, Decided 3).
+        for (const plate of r.plates)
+          if (
+            plate.radius !== "12px" ||
+            plate.padding !== "4px" ||
+            plate.border !== "0px" ||
+            plate.fill > 0.03
+          )
+            fail(`plate ${JSON.stringify(plate)}`);
         if (r.overflowX) fail("overflows sideways");
         if (r.lip !== label) fail(`lip ${r.lip}`);
         for (const s of r.solid) {
