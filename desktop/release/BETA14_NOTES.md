@@ -5,7 +5,7 @@ Draft for Riley's approval. Not published.
 ## A new layout
 
 Polyphonic has a new home. Everything sits on one calm card in a thin frame: a
-rail on the left and what you picked beside it. Along the top are your places:
+rail on the left and what you picked beside it. Down the left edge are your places:
 Search, then Chats, Agents, Activity and Library, then Settings. Each place
 keeps its own rail, so Chats lists Luca, your projects, agents, people and
 rooms, and Agents lists every mind you work with. The rail folds away when you
@@ -39,7 +39,7 @@ and never cover a message.
 ## Fixed: the freeze with Reduce Motion
 
 With Reduce Motion turned on in macOS, the opening of a first conversation
-could freeze the app while it drew. It now opens without the stall and looks
+could stall the app while it drew. It now opens without the stall and looks
 the same.
 
 ## The window's first size
