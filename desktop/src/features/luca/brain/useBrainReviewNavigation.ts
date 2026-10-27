@@ -5,6 +5,7 @@ import { classifyAgentManagementOrigin } from "@/features/agents/agentManagement
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import { subscribeBrainReviewRequests } from "@/features/agents/observerRelayStore";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 import type { BrainReviewRequest } from "./brainReviewRequest";
 
@@ -14,9 +15,15 @@ type BufferedRequest = {
   request: BrainReviewRequest;
 };
 
-/** Authenticate an owned resident's conversation-bound request, then open Brain. */
+/**
+ * Authenticate an owned resident's conversation-bound request, then open
+ * Brain. Under the shell it opens Brain's place with its Connections in
+ * front, whichever view was last picked, as the classic page opens on them
+ * (BETA14_RELEASE.md WP-38, Decided 4).
+ */
 export function useBrainReviewNavigation() {
   const { goBrain } = useAppNavigation();
+  const shellFrame = useShellFrameEnabled();
   const managedAgentsQuery = useManagedAgentsQuery();
   const channelsQuery = useChannelsQuery();
   const managedAgentsRef = React.useRef(managedAgentsQuery.data);
@@ -39,7 +46,7 @@ export function useBrainReviewNavigation() {
       return;
     }
     seenRequestIdsRef.current.add(request.requestId);
-    void goBrain();
+    void goBrain(shellFrame ? { view: "connections" } : undefined);
   });
 
   React.useEffect(() => {

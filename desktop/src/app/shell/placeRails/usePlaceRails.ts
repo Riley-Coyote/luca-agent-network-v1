@@ -2,6 +2,7 @@ import * as React from "react";
 import { useRouterState } from "@tanstack/react-router";
 
 import {
+  BRAIN_VIEWS,
   firstPickId,
   LIBRARY_KINDS,
   PICK_KEYS,
@@ -64,6 +65,7 @@ export const PLACE_NAMES: Record<RailPlace, string> = {
   agents: "Agents",
   activity: "Activity",
   library: "Library",
+  brain: "Brain",
 };
 
 function useAgentsRail(): PlaceRail {
@@ -219,11 +221,27 @@ function useLibraryRail(): PlaceRail {
   };
 }
 
+/** Brain's rail (BETA14_RELEASE.md WP-38, Decided 2): its body's two views,
+ *  Connections and Activity, as rows in one untitled section. */
+function useBrainRail(): PlaceRail {
+  const sections = React.useMemo(
+    (): PlaceRailSection[] => [
+      {
+        key: "views",
+        rows: BRAIN_VIEWS.map((each) => ({ id: each.id, title: each.label })),
+      },
+    ],
+    [],
+  );
+  return { ready: true, sections };
+}
+
 /** Each place's rail hook. A component calls the one for its place and is
  *  keyed by the place, so the hooks it calls never change under it. */
 export const PLACE_RAIL_HOOKS: Record<RailPlace, () => PlaceRail> = {
   activity: useActivityRail,
   agents: useAgentsRail,
+  brain: useBrainRail,
   library: useLibraryRail,
 };
 
@@ -231,6 +249,7 @@ const PLACE_ROUTES: Record<RailPlace, string> = {
   agents: "/agents",
   activity: "/pulse",
   library: "/artifacts",
+  brain: "/brain",
 };
 
 function sessionStore(): Storage | null {
@@ -244,7 +263,7 @@ function sessionStore(): Storage | null {
 /**
  * What the place has picked (Decided 7): the address's row, else the last
  * one picked this session, else the place's first. Off the place's own route
- * (Brain, under Agents) nothing is picked. An address that names a row is
+ * nothing is picked. An address that names a row is
  * remembered for the session, by community.
  */
 export function usePlacePick(place: RailPlace): {

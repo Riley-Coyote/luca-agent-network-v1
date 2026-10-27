@@ -8,7 +8,21 @@ const BrainScreen = React.lazy(async () => {
   return { default: module.BrainScreen };
 });
 
+type BrainRouteSearch = {
+  /** Under the shell, the view Brain's rail picked (WP-38). */
+  view?: "connections" | "activity";
+};
+
+function validateBrainSearch(
+  search: Record<string, unknown>,
+): BrainRouteSearch {
+  return search.view === "connections" || search.view === "activity"
+    ? { view: search.view }
+    : {};
+}
+
 export const Route = createFileRoute("/brain")({
+  validateSearch: validateBrainSearch,
   component: BrainRouteComponent,
 });
 

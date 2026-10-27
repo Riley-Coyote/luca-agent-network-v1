@@ -18,8 +18,9 @@ import {
 
 /**
  * The lip's name on a place with its own rail: the picked row's name
- * (SHELL_BUILD.md WP-10, Decided 8). Off the place's own route (Brain,
- * under Agents), or before its rows arrive, the page's own name.
+ * (SHELL_BUILD.md WP-10, Decided 8). Off the place's own route, or before
+ * its rows arrive, the page's own name. Brain's lip says "Brain" whichever
+ * view is picked (BETA14_RELEASE.md WP-38, Decided 2), so it isn't here.
  */
 export function PlaceLipName({
   fallback,

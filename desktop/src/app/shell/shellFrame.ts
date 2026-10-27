@@ -62,8 +62,9 @@ export function shellFramePageName(view: AppView): string {
 export function shellFrameRailName(view: AppView): string {
   switch (view) {
     case "agents":
-    case "brain":
       return "agents rail";
+    case "brain":
+      return "brain rail";
     case "pulse":
       return "activity rail";
     case "artifacts":

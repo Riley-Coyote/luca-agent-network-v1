@@ -1026,6 +1026,7 @@ export function AppShell() {
         hasUnread: unreadChannelIds.size > 0,
         onSelectAgents: () => void goAgents(),
         onSelectArtifacts: () => void goArtifacts(),
+        onSelectBrain: () => void goBrain(),
         onSelectPulse: () => void goPulse(),
         // In Settings already: pressing it keeps your place.
         onSelectSettings: settingsOpen ? () => {} : handleOpenSettings,

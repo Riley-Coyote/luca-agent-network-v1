@@ -9,13 +9,14 @@
  * same functions, so they never disagree about what is picked.
  */
 
-export type RailPlace = "agents" | "activity" | "library";
+export type RailPlace = "agents" | "activity" | "library" | "brain";
 
 /** The address's words that say a place's pick. */
 export const PICK_KEYS: Record<RailPlace, readonly string[]> = {
   agents: ["profile", "profilePersona", "group"],
   activity: ["stream", "record"],
   library: ["made", "skills", "deleted"],
+  brain: ["view"],
 };
 
 /** The words a pick sets; every other pick word of its place is cleared. */
@@ -45,6 +46,19 @@ export const LIBRARY_KINDS = [
   { id: "code", label: "Code", kind: "code" },
 ] as const;
 
+/** Brain's two views, by the row's id and the address's `view` word
+ *  (BETA14_RELEASE.md WP-38, Decided 2): its body's own Connections and
+ *  Activity, as rows. */
+export const BRAIN_VIEWS = [
+  { id: "connections", label: "Connections" },
+  { id: "activity", label: "Activity" },
+] as const;
+
+export type BrainViewId = (typeof BRAIN_VIEWS)[number]["id"];
+
+const isBrainView = (value: string | null): value is BrainViewId =>
+  BRAIN_VIEWS.some((each) => each.id === value);
+
 export type LibraryKindId = (typeof LIBRARY_KINDS)[number]["id"];
 export type LibraryKind = (typeof LIBRARY_KINDS)[number]["kind"];
 
@@ -66,6 +80,10 @@ export function pickIdOf(place: RailPlace, search: Search): string | null {
     return stream && (ACTIVITY_STREAMS as readonly string[]).includes(stream)
       ? stream
       : null;
+  }
+  if (place === "brain") {
+    const view = word(search, "view");
+    return isBrainView(view) ? view : null;
   }
   if (word(search, "deleted") === "recently") return "deleted";
   const skills = word(search, "skills");
@@ -92,6 +110,7 @@ export function paramsOfPick(place: RailPlace, id: string): PickParams {
       stream: (ACTIVITY_STREAMS as readonly string[]).includes(id) ? id : "all",
     };
   }
+  if (place === "brain") return { view: isBrainView(id) ? id : "connections" };
   // Words, never numbers: the router reads `1` in an address as a number.
   if (head === "deleted") return { deleted: "recently" };
   if (head === "skills") return { skills: tail || "all" };
@@ -113,12 +132,14 @@ export function searchForPick(
 }
 
 /** The row a place opens on, the first time (Decided 7): Agents, Luca;
- *  Activity, All activity (WP-34, Decided 10); Library, All. Luca's row, before
- *  Luca is known, is the bare `luca`. */
+ *  Activity, All activity (WP-34, Decided 10); Library, All; Brain,
+ *  Connections (WP-38). Luca's row, before Luca is known, is the bare
+ *  `luca`. */
 export function firstPickId(place: RailPlace, lucaPubkey: string | null) {
   if (place === "agents")
     return lucaPubkey ? `mind:${lucaPubkey.toLowerCase()}` : "luca";
   if (place === "activity") return "all";
+  if (place === "brain") return "connections";
   return "made:all";
 }
 

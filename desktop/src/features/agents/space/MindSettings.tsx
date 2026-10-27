@@ -32,16 +32,14 @@ import {
   residentSourceLabel,
   type ResidentSummaryViewModel,
 } from "@/features/agents/ui/agentLibraryViewModel";
-import { BrainView } from "@/features/luca/brain/BrainView";
-import {
-  useConnectedBrainInventoryQuery,
-  useOwnerBrainStateQuery,
-} from "@/features/luca/brain/hooks";
+import { BrainMindAccess } from "@/features/luca/brain/BrainMindAccess";
+import { useWhatTheyCanRead } from "@/features/luca/brain/hooks";
+import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import { ResidentAccessControl } from "@/features/settings/ui/ResidentCapabilitySettings";
 import { useSettingsAppName } from "@/features/settings/ui/SettingsSectionHeader";
 import { getResidentCapabilitySettings } from "@/shared/api/residentCapabilities";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import { agentOriginDescription, authorityLabel } from "./mindRunsOn";
@@ -157,6 +155,7 @@ export function MindSettings({
   });
 
   const readValue = useWhatTheyCanRead(Boolean(resident.pubkey));
+  const luca = useCanonicalLucaPubkey();
   const permissionsValue = usePermissionsValue(managedAgent?.pubkey ?? null);
   const restartFirst =
     managedAgent?.needsRestart &&
@@ -398,7 +397,13 @@ export function MindSettings({
           title={`What ${name} can read`}
           value={readValue}
         >
-          <BrainView embedded residentPubkey={resident.pubkey} />
+          {/* This mind's own access; Brain itself is its own place
+              (BETA14_RELEASE.md WP-38, Decided 3). */}
+          <BrainMindAccess
+            isLuca={Boolean(luca && normalizePubkey(resident.pubkey) === luca)}
+            name={name}
+            residentPubkey={resident.pubkey}
+          />
         </SettingRow>
       ) : null}
 
@@ -708,31 +713,8 @@ function SettingRow({
   );
 }
 
-/** What they can read, in a breath: Brain's sources as its cards count them. */
-export function useWhatTheyCanRead(enabled: boolean): string {
-  const connected = useConnectedBrainInventoryQuery({ enabled });
-  const owner = useOwnerBrainStateQuery({ enabled });
-  const sources = (connected.data?.sources ?? []).filter(
-    (source) => source.status !== "disconnected",
-  );
-  const count = (kind: string) =>
-    sources.filter((source) => source.sourceKind === kind).length;
-  const repositories = count("repository");
-  const histories = [
-    count("claude_history") > 0 ? "Claude Code" : null,
-    count("codex_history") > 0 ? "Codex" : null,
-  ].filter(Boolean);
-  const files = owner.data?.sources.length ?? 0;
-  const parts = [
-    repositories > 0
-      ? `${repositories} ${repositories === 1 ? "repository" : "repositories"}`
-      : null,
-    histories.length > 0 ? `${histories.join(" and ")} history` : null,
-    files > 0 ? `${files} ${files === 1 ? "file" : "files"}` : null,
-  ].filter(Boolean);
-  if (!connected.data) return "";
-  return parts.length > 0 ? parts.join(" · ") : "Nothing connected";
-}
+/** What they can read, in a breath; it lives with Brain now (WP-38). */
+export { useWhatTheyCanRead };
 
 /** Their machine access, as today's picker names it. */
 export function usePermissionsValue(residentPubkey: string | null): string {
