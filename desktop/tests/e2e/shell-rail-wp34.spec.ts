@@ -812,14 +812,15 @@ test("an app's row opens its page in Chats; its + starts a conversation", async 
   );
   await expect(page.getByTestId("shell-lip")).toContainText("Claude Code");
   await shot(page, "app-page-claude-night");
-  // A task row opens its room, marked under its app.
+  // A task row opens the task's page (WP-35), marked under its app.
   await page
     .getByTestId("chat-list")
     .getByTestId("rail-side-task:task-glass")
     .click();
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
-    .toContain("/channels/");
+    .toContain("/apps/claude/tasks/task-glass");
+  await expect(page.getByTestId("app-task-card")).toBeVisible();
   await expect(
     page.getByTestId("chat-list").getByTestId("rail-side-task:task-glass"),
   ).toHaveAttribute("data-current", "true");

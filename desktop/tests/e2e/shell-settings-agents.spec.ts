@@ -282,7 +282,7 @@ for (const mode of ["dark", "light"] as const) {
       expect(Object.values(removed).every((count) => count === 0)).toBe(true);
       // A section's label is sentence case, never the mono capitals
       // (WP-33, Decided 2).
-      expect(eyebrow.text).toBe("Connected");
+      expect(eyebrow.text).toBe("Apps");
       expect(eyebrow.fontFamily).not.toMatch(/Fragment Mono/);
       expect(eyebrow.textTransform).toBe("none");
       expect(eyebrow.fontSize).toBe("12.5px");
