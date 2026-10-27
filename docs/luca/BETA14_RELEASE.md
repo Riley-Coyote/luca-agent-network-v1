@@ -155,14 +155,15 @@ Not in scope: WP-30's files.
 ## Then
 
 1. Merge WP-30 to WP-35 by hand.
-2. Run every gate, the whole shell suite, and the desktop's Rust tests.
-3. Build the release candidate (WP-36), checked from its files and never launched here:
+2. WP-37, what the walkthrough of the test app found; merge it by hand.
+3. Run every gate, the whole shell suite, and the desktop's Rust tests.
+4. Build the release candidate (WP-36), checked from its files and never launched here:
    - with the beta overlay;
    - without the updater key, so no updater archive and no publication.
-4. Build a rail-glass test app from the same commit, for behaviour.
-5. Riley's walkthrough, in his own time: a fresh install and an upgrade from beta.13, in a disposable account, as the
+5. Build a rail-glass test app from the same commit, for behaviour.
+6. Riley's walkthrough, in his own time: a fresh install and an upgrade from beta.13, in a disposable account, as the
    release README requires.
-6. On his word: signing with the update key, notarization, the tag `v0.5.0-beta.14`, and the upload, in the order the
+7. On his word: signing with the update key, notarization, the tag `v0.5.0-beta.14`, and the upload, in the order the
    README gives.
 
 ## Riley's further calls (2026-10-26)
@@ -435,3 +436,104 @@ specs.
 
 **Checks JSON keys:** `head`, `now`, `steps_thread`, `came_back`, `between`, `open_in_app`, `live`, `reduce_motion`,
 `classic_identical`, `unit_tests`, `playwright`, `gates`.
+
+## WP-37 · What the walkthrough found (2026-10-27, from the test app)
+
+**Why.** I walked the rail-glass test app built from bfcfc58c7 by hand, on its real instance. The rail and the pages hold
+up. Six things don't. All are small, and one is a bug in both layouts that no spec could see, because the mock never
+sends what the relay sends.
+
+**Decided.**
+1. **A new conversation opens on its first-message view, in both layouts.**
+   - The relay writes one system note into every direct conversation it makes: kind 40099,
+     `{"type":"dm_created","actor":…,"participants":[…]}`. The timeline has no words for it (`describeSystemEvent`
+     returns null), so its row draws nothing.
+   - The note still counts in `projectedRoomMessages`, so `useFirstMessageView` sees one message and never opens. It
+     also makes a day of its own, so the page shows one lone date over nothing. Every agent's conversation in the test
+     app opens that way, and so would every conversation started from an agent's `+`.
+   - One shared rule, for the count, the day groups and the rows alike: a system note the timeline has no words for is
+     not a message. It isn't counted, makes no day and draws nothing. Say it once, in one function, and make every
+     place that decides whether there is anything here ask that function.
+   - The view is beta.14's own (046b67733, 8b8c9a291) and is in both layouts, so this fix is too. Flag off, a
+     conversation with the note now opens on the view. That is the intended change. Nothing else in the classic layout
+     may change: the existing flag-off checks still pass by hash.
+   - The proof runs on what the relay really sends. This package's spec puts the note into its own fixture
+     conversations. Don't add it to the shared mock, so the existing flag-off comparisons keep comparing like with like.
+2. **An empty Notebook says what it holds.**
+   - When a mind has nothing in its days yet and every source the Notebook reads has settled, the Notebook shows one
+     quiet line on a plate under its toolbar: "{Name}'s days will gather here: what they do for you, their own work,
+     their journal."
+   - Never while its sources load (no flash), and gone the moment a day arrives.
+3. **An app's page head reads like an agent's.**
+   - "Connected · on this Mac" moves from the quiet line above the name to the state line under it, where "Off" and
+     "Resting" sit for a mind. The quiet line goes.
+   - The state line says it only when it's true. An app that's no longer connected says "Not connected on this Mac",
+     never "Connected". Today the head says Connected over a body that says the app isn't.
+   - The head gets its one action at its end: "New conversation". It does exactly what the app's `+` does in the rail,
+     through the same handler (never a copy), and shows only while the app is connected.
+4. **One way of naming a day on the pages.**
+   - The Notebook and All activity, and any other page that groups by day, name a day with one shared function:
+     "Today", "Yesterday", then the weekday and the date ("Friday, Oct 23"), with the year when it isn't this year.
+   - Today the Notebook says "Oct 23" and All activity says "Friday, Oct 23".
+   - The conversation's own date pill keeps its form.
+5. **Settings' list speaks like the other rails.**
+   - Under the shell, the section names in Settings' list ("Account", "Experience", "Agent system", "Application") are
+     in sentence case, at the rails' heads' size and weight (WP-34, Decided 8), not in mono capitals.
+   - Flag off, Settings is unchanged by hash.
+6. **The desktop's Rust tests run on a Mac.**
+   - `cargo test` in `desktop/src-tauri` builds its test programs for the compiler's default, macOS 11. There, Swift's
+     concurrency library isn't part of the system, so the program built from `main.rs` links the toolchain's
+     back-deployment copy by `@rpath` with no rpath, and can't start: `Library not loaded:
+     @rpath/libswift_Concurrency.dylib`.
+   - The app is built for 14.0 (`minimumSystemVersion`) and links the system's copy, so it is unaffected.
+   - Decided: `build.rs`, where the glass's Swift is linked, adds `/usr/lib/swift` as an rpath on macOS. That is
+     Apple's own answer for back-deployed concurrency. Any program that links the glass then finds the system's Swift,
+     whatever it was built for. The app's own links don't change: the same libraries by the same paths, plus one rpath.
+   - Measured on bfcfc58c7:
+     - the library's tests: 2,926 passed, 0 failed, 18 ignored;
+     - `tests/rodio_mixer_diagnostic.rs`: 3 of 3;
+     - the `main.rs` program can't start. It holds 0 tests, but its failure stops `cargo test` before the integration
+       test.
+   - Hermit's `CARGO_HOME` (`.hermit/rust`) lacks the mesh-llm checkout the lockfile names. For offline runs, use
+     `CARGO_HOME=$HOME/.cargo` and the 1.95.0 toolchain directly, as `scripts/build-companion-delegation-candidate.sh`
+     does.
+
+**Not in this package:** the word "resident" still shows in about twenty places: "Resident settings", "No residents
+yet", and the Library's "When a resident creates something durable". That's a wording pass of its own, after beta.14.
+
+**Setup.**
+- The worktree's `node_modules` and `desktop/node_modules` link to the release folder's, as the other builders' do.
+- Never run `pnpm install` there. Call the tools in `node_modules/.bin` directly, or set
+  `pnpm_config_verify_deps_before_run=false` for a pnpm script: the shared folder's record names the lab, and pnpm 11's
+  check would try to wipe and reinstall it.
+
+**Files in scope:**
+- the timeline's handling of system notes (`desktop/src/features/messages/`, `ChannelPane.tsx`) and
+  `FirstMessageView.tsx`;
+- `MindNotebook.tsx`;
+- `ConnectedAppCard.tsx`, and the rail's app `+` handler, reused;
+- the day-label functions (`mindStream.ts`, `AllActivityCard.tsx`, `PlacePage.tsx`);
+- Settings' section list under the shell;
+- `desktop/src-tauri/build.rs`;
+- the tests: unit tests, and `tests/e2e/shell-walkthrough.spec.ts`, registered in the smoke project.
+
+**Proof:**
+- **A new conversation with an agent,** carrying the note and no message: the first-message view opens and no date
+  shows, in both layouts. After the first real message, the view steps aside and the message shows under its day, as
+  before.
+- **An empty Notebook:** the line appears once its sources settle and never during. Sample it at several moments while
+  they load.
+- **Claude Code's page:**
+  - the state line under the name;
+  - "New conversation" doing what the `+` does, with the same navigation observed;
+  - a disconnected app saying so and offering no action.
+- **Day labels:** the same dates under the same labels on the Notebook and on All activity.
+- **Settings:** the list's heads under the shell computed like the Chats rail's heads. Flag off, Settings matches the
+  base by hash.
+- **Rust:** `cargo test` in `desktop/src-tauri` passes on every target, and the app's links are compared before and
+  after (`otool -L`, `otool -l`).
+- Every view by night and by day.
+
+**Checks JSON keys:** `first_message_with_note`, `first_message_steps_aside`, `note_rule_unit`, `empty_notebook`,
+`no_flash`, `app_head`, `app_head_disconnected`, `new_conversation_same_as_plus`, `day_labels`, `settings_rail_heads`,
+`classic_identical`, `rust_tests`, `app_links`, `unit_tests`, `playwright`, `gates`.
