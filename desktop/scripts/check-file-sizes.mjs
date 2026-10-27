@@ -50,11 +50,8 @@ const rules = [
 // thresholds honest, but split only when architecture, cohesion, or security
 // review supports a substantive extraction—not to satisfy line count alone.
 const overrides = new Map([
-  // Native Builderlab auth/community commands add a small registration surface
-  // to the existing Tauri composition root. The implementation lives in
-  // builderlab.rs; this narrowly ratchets the command wiring while lib.rs is
-  // queued for a broader composition-root split. Bumped for the
-  // archive/unarchive/transfer community-management commands (web parity).
+  // The Tauri composition root registers every command; this ratchets its
+  // wiring while lib.rs is queued for a broader composition-root split.
   ["src-tauri/src/lib.rs", 1013],
   // persona-events rebase: build_deploy_payload threads `state` for the
   // read-time relay-URL workspace fallback while keeping the create-time env

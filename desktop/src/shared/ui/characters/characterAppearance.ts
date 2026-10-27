@@ -1,6 +1,9 @@
 import * as React from "react";
 
 import { normalizePubkey } from "@/shared/lib/pubkey";
+// The built-in runtime's face: the app icon, inlined exactly as discovery.rs
+// bundles it, so it is a runtime default and never fetched.
+import builtInRuntimeAvatarUrl from "../../../../src-tauri/icons/128x128.png?inline";
 
 // v1 default assignment order is frozen. Add future choices to CHARACTER_IDS,
 // never to this list: changing its length would reassign existing residents.
@@ -31,14 +34,29 @@ const RUNTIME_AVATAR_FALLBACKS = new Set([
   "https://openai.gallerycdn.vsassets.io/extensions/openai/chatgpt/26.5313.41514/1773706730621/Microsoft.VisualStudio.Services.Icons.Default",
   "https://moonshotai.github.io/Branding-Guide/scenarios/03-icon-without-kimi/kimi-icon-rounded-corner.png",
   "https://grok.com/images/android-chrome-512x512.png",
-  "https://raw.githubusercontent.com/block/buzz/refs/heads/main/crates/buzz-agent/buzz-agent.png",
+  builtInRuntimeAvatarUrl,
 ]);
+
+// Earlier builds stored the built-in runtime's avatar as an address on the
+// upstream project's GitHub; the agent store now moves those records to the
+// bundled icon. Until a record or relay profile catches up, the old address is
+// still a runtime default, recognised by its path, and never shown as a photo.
+function isLegacyBuiltInRuntimeAvatarUrl(url: string): boolean {
+  return (
+    url.startsWith("https://raw.githubusercontent.com/") &&
+    url.endsWith("/crates/buzz-agent/buzz-agent.png")
+  );
+}
 
 export function isCustomAgentPhotoUrl(
   avatarUrl: string | null | undefined,
 ): boolean {
   const url = avatarUrl?.trim();
-  return Boolean(url && !RUNTIME_AVATAR_FALLBACKS.has(url));
+  return Boolean(
+    url &&
+      !RUNTIME_AVATAR_FALLBACKS.has(url) &&
+      !isLegacyBuiltInRuntimeAvatarUrl(url),
+  );
 }
 
 type AppearanceRecord = {

@@ -5,7 +5,6 @@
 mod diag;
 mod app_state;
 mod archive;
-mod builderlab;
 mod commands;
 mod data_dir;
 mod deep_link;
@@ -40,7 +39,6 @@ mod templates;
 mod util;
 use crate::data_dir::BuzzPathExt;
 use app_state::{build_app_state, resolve_persisted_identity, AppState};
-use builderlab::*;
 use commands::*;
 use deep_link::{
     acknowledge_pending_community_deep_link, handle_deep_link_url,
@@ -679,8 +677,6 @@ pub fn run() {
         .manage(build_app_state())
         .manage(ClipboardState::new())
         .manage(PendingCommunityDeepLinks::default())
-        .manage(BuilderlabSession::default())
-        .manage(BuilderlabLogin::default())
         .manage(commands::pairing::PairingHandle::new())
         // WP-LOCAL1: supervises the bundled single-node relay. `apply_workspace`
         // calls `app.state::<RuntimeState>()`, which panics unless it is managed.
@@ -1147,19 +1143,6 @@ pub fn run() {
             get_build_identity,
             take_pending_community_deep_link,
             acknowledge_pending_community_deep_link,
-            start_builderlab_login,
-            cancel_builderlab_login,
-            get_builderlab_auth,
-            clear_builderlab_auth,
-            get_builderlab_nostr_identity,
-            bind_builderlab_nostr_identity,
-            delete_builderlab_nostr_identity,
-            list_builderlab_communities,
-            check_builderlab_community_name,
-            create_builderlab_community,
-            archive_builderlab_community,
-            unarchive_builderlab_community,
-            transfer_builderlab_community,
             title_bar_double_click,
             set_main_window_traffic_lights_hidden,
             set_traffic_lights_inset,

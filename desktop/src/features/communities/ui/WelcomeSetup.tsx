@@ -5,8 +5,6 @@ import {
   LOCAL_COMMUNITY_NAME,
   LOCAL_COMMUNITY_RELAY_URL,
 } from "@/features/communities/communityStorage";
-import { CommunityCreationChoice } from "@/features/communities/ui/CommunityCreationChoice";
-import { HostedCommunityOnboarding } from "@/features/communities/ui/HostedCommunityOnboarding";
 import { useCommunityOnboarding } from "@/features/onboarding/communityOnboarding";
 import { InviteRedeemForm } from "@/features/onboarding/ui/InviteRedeemForm";
 import { OnboardingChrome } from "@/features/onboarding/ui/OnboardingChrome";
@@ -27,13 +25,7 @@ import { Button } from "@/shared/ui/button";
 import { Card } from "@/shared/ui/card";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
-type WelcomeSetupPage =
-  | "welcome"
-  | "create"
-  | "existing"
-  | "join"
-  | "member"
-  | "owned";
+type WelcomeSetupPage = "welcome" | "join" | "member";
 type WelcomeTransitionMode = "initial" | OnboardingTransitionDirection;
 
 type WelcomeSetupProps = {
@@ -53,10 +45,6 @@ export function WelcomeSetup({
   const [page, setPage] = React.useState<WelcomeSetupPage>(initialPage);
   const [transitionMode, setTransitionMode] =
     React.useState<WelcomeTransitionMode>(initialTransitionMode);
-  // While true, the Builderlab sign-in modal floats over the current page —
-  // we only navigate to the hosted stage once sign-in completes, so the page
-  // behind the modal never changes out from under the user.
-  const [isHostedSignInOpen, setIsHostedSignInOpen] = React.useState(false);
   const [copiedNpub, setCopiedNpub] = React.useState(false);
   const communityOnboarding = useCommunityOnboarding();
   const localCommunitiesEnabled = useFeatureEnabled("localCommunities");
@@ -141,8 +129,9 @@ export function WelcomeSetup({
                   Join or create a community
                 </h1>
                 <p className="mt-3 text-sm leading-6 text-ink-muted">
-                  Join with an invite, create your own community, or reconnect
-                  one you already have.
+                  {localCommunitiesEnabled
+                    ? "Join with an invite, create your own community, or reconnect one you already have."
+                    : "Join with an invite, or reconnect a community you already have."}
                 </p>
               </div>
               <div className="flex w-full flex-1 translate-y-16 flex-col items-center justify-center gap-20 py-8">
@@ -159,19 +148,23 @@ export function WelcomeSetup({
                     Join a community
                   </button>
                 </Card>
-                <Card
-                  asChild
-                  className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
-                >
-                  <button
-                    data-testid="community-choice-create"
-                    onClick={() => showPage("create")}
-                    type="button"
+                {/* One way to create is left (on this device), so the choice
+                    goes straight to it. */}
+                {localCommunitiesEnabled ? (
+                  <Card
+                    asChild
+                    className={COMMUNITY_OPTION_CARD_CLASS}
+                    variant="textured"
                   >
-                    Create a community
-                  </button>
-                </Card>
+                    <button
+                      data-testid="community-choice-create"
+                      onClick={startLocalCommunity}
+                      type="button"
+                    >
+                      Create a community
+                    </button>
+                  </Card>
+                ) : null}
                 <Card
                   asChild
                   className={COMMUNITY_OPTION_CARD_CLASS}
@@ -179,7 +172,7 @@ export function WelcomeSetup({
                 >
                   <button
                     data-testid="community-choice-existing"
-                    onClick={() => showPage("existing")}
+                    onClick={() => showPage("member")}
                     type="button"
                   >
                     I already have a community
@@ -197,102 +190,6 @@ export function WelcomeSetup({
                   Back
                 </Button>
               </OnboardingFooter>
-            </OnboardingSlideTransition>
-          ) : page === "create" ? (
-            <OnboardingSlideTransition
-              className="flex h-full min-h-0 w-full flex-col items-center text-center"
-              containerClassName="h-full min-h-0 [&>.buzz-onboarding-transition-line]:h-full"
-              direction={transitionDirection}
-              transitionKey={`create-${transitionDirection}`}
-            >
-              <div className="w-full max-w-[760px]">
-                <h1 className="text-title font-normal">Create a community</h1>
-                <p className="mt-3 text-sm leading-6 text-foreground/80">
-                  Choose where your community will live.
-                </p>
-              </div>
-              <div className="flex w-full flex-1 items-center justify-center py-8">
-                <CommunityCreationChoice
-                  onChooseHosted={() => setIsHostedSignInOpen(true)}
-                  onChooseLocal={startLocalCommunity}
-                  showLocalOption={localCommunitiesEnabled}
-                  variant="onboarding"
-                />
-              </div>
-              <OnboardingFooter>
-                <Button
-                  className="h-9 rounded-full bg-foreground/10 px-6 hover:bg-foreground/15"
-                  data-testid="community-create-back"
-                  onClick={() => showPage("welcome")}
-                  type="button"
-                  variant="ghost"
-                >
-                  Back
-                </Button>
-              </OnboardingFooter>
-            </OnboardingSlideTransition>
-          ) : page === "existing" ? (
-            <OnboardingSlideTransition
-              className="flex h-full min-h-0 w-full flex-col items-center text-center"
-              containerClassName="h-full min-h-0 [&>.buzz-onboarding-transition-line]:h-full"
-              direction={transitionDirection}
-              transitionKey={`existing-${transitionDirection}`}
-            >
-              <div className="w-full max-w-[760px]">
-                <h1 className="text-title font-normal">
-                  Reconnect to your community
-                </h1>
-                <p className="mt-3 text-sm leading-6 text-ink-muted">
-                  Tell us your role so we can find the fastest way back in.
-                </p>
-              </div>
-              <div className="flex w-full flex-1 translate-y-16 flex-col items-center justify-center gap-20 py-8">
-                <Card
-                  asChild
-                  className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
-                >
-                  <button
-                    data-testid="existing-choice-owner"
-                    onClick={() => setIsHostedSignInOpen(true)}
-                    type="button"
-                  >
-                    I own the community
-                  </button>
-                </Card>
-                <Card
-                  asChild
-                  className={COMMUNITY_OPTION_CARD_CLASS}
-                  variant="textured"
-                >
-                  <button
-                    data-testid="existing-choice-member"
-                    onClick={() => showPage("member")}
-                    type="button"
-                  >
-                    I’m a member or admin
-                  </button>
-                </Card>
-              </div>
-              <OnboardingFooter>
-                <Button
-                  className="h-9 rounded-full bg-foreground/10 px-6 hover:bg-foreground/15"
-                  data-testid="existing-back"
-                  onClick={() => showPage("welcome")}
-                  type="button"
-                  variant="ghost"
-                >
-                  Back
-                </Button>
-              </OnboardingFooter>
-            </OnboardingSlideTransition>
-          ) : page === "owned" ? (
-            <OnboardingSlideTransition
-              className="flex w-full flex-col items-center text-center"
-              direction={transitionDirection}
-              transitionKey={`owned-${transitionDirection}`}
-            >
-              <HostedCommunityOnboarding onBack={() => showPage("welcome")} />
             </OnboardingSlideTransition>
           ) : (
             <OnboardingSlideTransition
@@ -316,9 +213,7 @@ export function WelcomeSetup({
                 <InviteRedeemForm
                   error={null}
                   isRedeeming={false}
-                  onCancel={() =>
-                    showPage(page === "member" ? "existing" : "welcome")
-                  }
+                  onCancel={() => showPage("welcome")}
                   onConnect={startConnection}
                   onRedeem={redeemInvite}
                   placeholder="Invite link or community URL"
@@ -373,16 +268,6 @@ export function WelcomeSetup({
               </div>
             </OnboardingSlideTransition>
           )}
-          {isHostedSignInOpen && page !== "owned" ? (
-            <HostedCommunityOnboarding
-              onBack={() => setIsHostedSignInOpen(false)}
-              onReady={() => {
-                setIsHostedSignInOpen(false);
-                showPage("owned");
-              }}
-              stageHidden
-            />
-          ) : null}
         </div>
       </OnboardingFooterProvider>
     </div>

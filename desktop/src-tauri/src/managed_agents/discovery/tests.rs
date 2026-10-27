@@ -5,10 +5,11 @@ use super::{
     apply_agent_command_update, artifact_mcp_support, classify_runtime, codex_adapter_availability,
     codex_adapter_is_outdated, create_time_agent_command_override, default_agent_command,
     effective_agent_command, find_nvm_default_bin, find_via_login_shell,
-    is_login_shell_path_uninit, is_safe_nvm_tag, managed_agent_avatar_url, normalize_agent_args,
-    parse_codex_acp_version_output, parse_semver_tag, probe_codex_acp_major_version,
-    record_agent_command, refresh_login_shell_path, BUZZ_AGENT_AVATAR_URL, CLAUDE_CODE_AVATAR_URL,
-    CODEX_AVATAR_URL, GOOSE_AVATAR_URL, GROK_AVATAR_URL, KIMI_AVATAR_URL,
+    is_legacy_buzz_agent_avatar_url, is_login_shell_path_uninit, is_safe_nvm_tag,
+    managed_agent_avatar_url, normalize_agent_args, parse_codex_acp_version_output,
+    parse_semver_tag, probe_codex_acp_major_version, record_agent_command,
+    refresh_login_shell_path, BUZZ_AGENT_AVATAR_URL, CLAUDE_CODE_AVATAR_URL, CODEX_AVATAR_URL,
+    GOOSE_AVATAR_URL, GROK_AVATAR_URL, KIMI_AVATAR_URL,
 };
 use crate::managed_agents::{AcpAvailabilityStatus, ArtifactMcpSupport};
 
@@ -121,6 +122,35 @@ fn resolves_buzz_agent_avatar() {
         managed_agent_avatar_url("/usr/local/bin/buzz-agent"),
         Some(BUZZ_AGENT_AVATAR_URL.to_string())
     );
+}
+
+#[test]
+fn built_in_runtime_face_is_the_bundled_app_icon() {
+    use base64::Engine as _;
+    let avatar = managed_agent_avatar_url("buzz-agent").expect("built-in avatar");
+    let encoded = avatar
+        .strip_prefix("data:image/png;base64,")
+        .expect("a data URL, never a fetched address");
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .expect("valid base64");
+    assert_eq!(decoded, include_bytes!("../../../icons/128x128.png"));
+
+    let runtime = super::known_acp_runtime("buzz-agent").expect("built-in runtime");
+    assert_eq!(runtime.install_instructions_url, "");
+    assert_eq!(runtime.cli_install_hint, "Built into Polyphonic.");
+}
+
+#[test]
+fn recognises_the_legacy_built_in_avatar_by_path() {
+    assert!(is_legacy_buzz_agent_avatar_url(
+        "https://raw.githubusercontent.com/block/buzz/refs/heads/main/crates/buzz-agent/buzz-agent.png"
+    ));
+    assert!(!is_legacy_buzz_agent_avatar_url(&BUZZ_AGENT_AVATAR_URL));
+    assert!(!is_legacy_buzz_agent_avatar_url(GOOSE_AVATAR_URL));
+    assert!(!is_legacy_buzz_agent_avatar_url(
+        "https://example.com/buzz-agent.png"
+    ));
 }
 
 #[test]

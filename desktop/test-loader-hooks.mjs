@@ -132,6 +132,18 @@ export async function load(url, context, nextLoad) {
     };
   }
 
+  // `?inline` PNG imports become base64 data URLs in Vite; serve the same
+  // string so code that compares against one sees the real value.
+  if (/\.png\?inline$/.test(url)) {
+    const file = fileURLToPath(url.slice(0, -"?inline".length));
+    const encoded = fs.readFileSync(file).toString("base64");
+    return {
+      format: "module",
+      shortCircuit: true,
+      source: `export default ${JSON.stringify(`data:image/png;base64,${encoded}`)};`,
+    };
+  }
+
   // Vite resolves imported image assets to URLs. Keep that contract in Node
   // without pretending to decode pixels; missing assets must still fail.
   if (/\.(png|jpe?g|webp|gif|svg|avif)$/.test(url)) {
