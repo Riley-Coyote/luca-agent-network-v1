@@ -4,6 +4,20 @@ const nativeArtifactApp = process.env.LUCA_ARTIFACT_NATIVE_APP?.trim();
 const testPort = process.env.LUCA_PLAYWRIGHT_PORT?.trim() || "4173";
 const testBaseUrl = `http://127.0.0.1:${testPort}`;
 
+// On a Mac, headless Chrome draws on the GPU through Metal instead of in
+// software: the shell's glass and marks cost the software renderer about seven
+// cores a run, and the same work takes less than half the CPU on Metal
+// (measured 2026-10-27, Riley: "of course it can use the graphics chip"). Still
+// headless, so nothing opens on screen; CI and other systems keep the default.
+const metalGpu =
+  process.platform === "darwin" && !process.env.CI
+    ? {
+        launchOptions: {
+          args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"],
+        },
+      }
+    : {};
+
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
@@ -20,6 +34,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     video: "retain-on-failure",
+    ...metalGpu,
   },
   projects: [
     {
