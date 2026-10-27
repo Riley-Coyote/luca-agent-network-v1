@@ -951,6 +951,22 @@ async function holdAgainIfGone(page: Page) {
   }
 }
 
+/** A request held afresh right before a check, so the app's 15-second
+ *  release can't land in the middle of it: the live one is stopped (the app
+ *  holds one at a time and turns a second away), then a new one is held
+ *  and the page settles under its badge. */
+async function holdFresh(page: Page) {
+  if ((await page.getByTestId("app-control-badge").count()) > 0) {
+    await page.getByRole("button", { name: "Stop app navigation" }).click();
+    await expect(page.getByTestId("app-control-badge")).toHaveCount(0, {
+      timeout: 10_000,
+    });
+  }
+  await holdCompanion(page, randomUUID());
+  await page.waitForTimeout(800);
+  await settle(page);
+}
+
 async function holdCompanion(
   page: Page,
   requestId = "daaa5f62-adfa-46c0-83b0-6812b643a2e5",
@@ -1180,6 +1196,7 @@ test("the companion's badge keeps its place with nothing under it, the stuck day
       .locator("[data-luca-timeline-viewport]")
       .boundingBox();
     if (!viewport) return null;
+    await holdFresh(page);
     await page.mouse.move(
       viewport.x + viewport.width / 2,
       viewport.y + viewport.height * 0.45,
@@ -1192,6 +1209,7 @@ test("the companion's badge keeps its place with nothing under it, the stuck day
     return read;
   };
   await page.waitForTimeout(800);
+  await holdFresh(page);
   const at1440 = await measure();
   await shot(page, "13-companion-badge-1440", {
     x: 268,
@@ -1206,6 +1224,7 @@ test("the companion's badge keeps its place with nothing under it, the stuck day
     await openRoute(page, GENERAL_ID, "general");
   await page.waitForTimeout(1200);
   await settle(page);
+  await holdFresh(page);
   const at800 = await measure();
   await shot(page, "13-companion-badge-800x500");
   const at800Scrolled = await scrolledUp();
@@ -1246,7 +1265,7 @@ test("the companion's badge keeps its place with nothing under it, the stuck day
   // The app lets a held request go after 15 seconds (CompanionAppControl.tsx,
   // its timeout); on a busy machine the steps above can take longer, so each
   // step from here is measured on a request held afresh when it has gone.
-  await holdAgainIfGone(page);
+  await holdFresh(page);
   const windowed = await radius();
   await page.evaluate(() => {
     (window as unknown as { __FULLSCREEN__: boolean }).__FULLSCREEN__ = true;
