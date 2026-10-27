@@ -5,7 +5,9 @@ import "@/app/shell/shell-place-rails.css";
 
 import type { AppView } from "@/app/AppShell.helpers";
 import type { RailPlace } from "@/app/shell/placeRails/placePicks";
+import { appPathOf } from "@/app/shell/placeRails/appTask";
 import { shellFramePageName } from "@/app/shell/shellFrame";
+import { useAllRuntimeTasks } from "@/features/capabilities/useAllRuntimeTasks";
 import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
 import { runtimeRailFamilyFromRuntimeId } from "@/features/runtime-sessions/runtimeRailPreferences";
 import {
@@ -84,15 +86,39 @@ export function shellFrameLipName(view: AppView): React.ReactNode {
 }
 
 /** A connected app's page (WP-34): the app's own name, as its row in the
- *  Chats rail says it. */
+ *  Chats rail says it; one of its tasks (WP-35) under it, as a session is
+ *  named under its home: "Claude Code / Fix the failing build". */
 function AppLipName({ fallback }: { fallback: string }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
   const { runtimes } = useRuntimeRailConnections();
-  const family = decodeURIComponent(pathname.slice("/apps/".length));
+  const path = appPathOf(pathname);
   const runtime = runtimes.find(
-    (each) => runtimeRailFamilyFromRuntimeId(each.runtimeId) === family,
+    (each) => runtimeRailFamilyFromRuntimeId(each.runtimeId) === path?.family,
   );
-  return <>{runtime?.label ?? fallback}</>;
+  const name = runtime?.label ?? fallback;
+  if (path?.taskId)
+    return <AppTaskLipName appName={name} taskId={path.taskId} />;
+  return <>{name}</>;
+}
+
+function AppTaskLipName({
+  appName,
+  taskId,
+}: {
+  appName: string;
+  taskId: string;
+}) {
+  const task = useAllRuntimeTasks().find((each) => each.taskId === taskId);
+  if (!task) return <>{appName}</>;
+  return (
+    <>
+      <span className="luca-lip-home">{appName}</span>
+      <span aria-hidden className="luca-lip-rule">
+        /
+      </span>
+      {task.summary}
+    </>
+  );
 }

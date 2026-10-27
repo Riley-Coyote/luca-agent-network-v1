@@ -359,13 +359,23 @@ for (const [mode, width, height] of [
         page,
         `d1-rail-exchange-${mode}-${width}`,
       );
+    // A task opens its own page (WP-35), marked under its app.
     await page.getByTestId("rail-side-task:task-glass").click();
+    await expect
+      .poll(() => page.evaluate(() => window.location.hash))
+      .toContain("/apps/claude/tasks/task-glass");
+    await settle(page, 1500);
+    out.railTask = await railMarks(page);
+    out.shotRailTask = await shot(page, `d1-rail-task-${mode}-${width}`);
+    // The task's room, by its address: one you haven't joined, where the
+    // lip's Join is the one solid button.
+    await page.evaluate((room) => {
+      window.location.hash = `#/channels/${room}`;
+    }, DESIGN);
     await expect
       .poll(() => page.evaluate(() => window.location.hash))
       .toContain(DESIGN);
     await settle(page, 1500);
-    out.railTask = await railMarks(page);
-    // A room you haven't joined: the lip's Join is the one solid button.
     out.join = await page.evaluate(() => {
       const fill = (selector: string) => {
         const node = document.querySelector<HTMLElement>(selector);
@@ -383,7 +393,10 @@ for (const [mode, width, height] of [
         banner: fill('[data-testid="join-banner"] button'),
       };
     });
-    out.shotRailTask = await shot(page, `d1-rail-task-${mode}-${width}`);
+    out.shotRailTaskRoom = await shot(
+      page,
+      `d1-rail-task-room-${mode}-${width}`,
+    );
 
     // Opening the room's own row marks the room again.
     const generalRow = page.locator(
@@ -408,6 +421,10 @@ for (const [mode, width, height] of [
       .getByTestId("all-activity-task:task-glass")
       .locator(".luca-place-row-open")
       .click();
+    // A task opens its own page (WP-35), marked under its app.
+    await expect
+      .poll(() => page.evaluate(() => window.location.hash))
+      .toContain("/apps/claude/tasks/task-glass");
     await expect(page.getByTestId("chat-list")).toBeVisible({
       timeout: 20_000,
     });

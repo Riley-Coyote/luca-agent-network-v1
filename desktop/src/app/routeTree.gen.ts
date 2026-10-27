@@ -22,6 +22,7 @@ import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
 import { Route as appsDotappIdRouteImport } from "./routes/apps.$appId";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
+import { Route as appsDotappIdDottasksDottaskIdRouteImport } from "./routes/apps.$appId.tasks.$taskId";
 
 const workflowsRoute = workflowsRouteImport.update({
   id: "/workflows",
@@ -109,6 +110,12 @@ const channelsDotchannelIdDotpostsDotpostIdRoute =
     path: "/channels/$channelId/posts/$postId",
     getParentRoute: () => rootRouteImport,
   } as any);
+const appsDotappIdDottasksDottaskIdRoute =
+  appsDotappIdDottasksDottaskIdRouteImport.update({
+    id: "/apps/$appId/tasks/$taskId",
+    path: "/apps/$appId/tasks/$taskId",
+    getParentRoute: () => rootRouteImport,
+  } as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
@@ -127,6 +134,7 @@ export interface FileRoutesByFullPath {
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/apps/$appId/tasks/$taskId": typeof appsDotappIdDottasksDottaskIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRoutesByTo {
@@ -146,6 +154,7 @@ export interface FileRoutesByTo {
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/apps/$appId/tasks/$taskId": typeof appsDotappIdDottasksDottaskIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRoutesById {
@@ -166,6 +175,7 @@ export interface FileRoutesById {
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/apps/$appId/tasks/$taskId": typeof appsDotappIdDottasksDottaskIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRouteTypes {
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/apps/$appId/tasks/$taskId"
     | "/channels/$channelId/posts/$postId";
   fileRoutesByTo: FileRoutesByTo;
   to:
@@ -206,6 +217,7 @@ export interface FileRouteTypes {
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/apps/$appId/tasks/$taskId"
     | "/channels/$channelId/posts/$postId";
   id:
     | "__root__"
@@ -225,6 +237,7 @@ export interface FileRouteTypes {
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/apps/$appId/tasks/$taskId"
     | "/channels/$channelId/posts/$postId";
   fileRoutesById: FileRoutesById;
 }
@@ -245,6 +258,7 @@ export interface RootRouteChildren {
   messagesDotnewRoute: typeof messagesDotnewRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
   workflowsDotworkflowIdRoute: typeof workflowsDotworkflowIdRoute;
+  appsDotappIdDottasksDottaskIdRoute: typeof appsDotappIdDottasksDottaskIdRoute;
   channelsDotchannelIdDotpostsDotpostIdRoute: typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 
@@ -369,6 +383,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof channelsDotchannelIdDotpostsDotpostIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/apps/$appId/tasks/$taskId": {
+      id: "/apps/$appId/tasks/$taskId";
+      path: "/apps/$appId/tasks/$taskId";
+      fullPath: "/apps/$appId/tasks/$taskId";
+      preLoaderRoute: typeof appsDotappIdDottasksDottaskIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
   }
 }
 
@@ -389,6 +410,7 @@ const rootRouteChildren: RootRouteChildren = {
   messagesDotnewRoute: messagesDotnewRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,
   workflowsDotworkflowIdRoute: workflowsDotworkflowIdRoute,
+  appsDotappIdDottasksDottaskIdRoute: appsDotappIdDottasksDottaskIdRoute,
   channelsDotchannelIdDotpostsDotpostIdRoute:
     channelsDotchannelIdDotpostsDotpostIdRoute,
 };

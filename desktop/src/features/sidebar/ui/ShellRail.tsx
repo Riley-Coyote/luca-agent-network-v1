@@ -13,6 +13,7 @@ import {
 
 import "@/app/shell/shell-rail.css";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { appPathOf } from "@/app/shell/placeRails/appTask";
 import { needsYouNote } from "@/app/shell/placeRails/needsYou";
 import { HarnessFace } from "@/app/shell/placeRails/placeFaces";
 import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
@@ -421,9 +422,10 @@ export function ShellRail({
     select: (state) => state.location.pathname,
   });
   const needsOpen = pathname === "/needs-you";
-  const openApp = pathname.startsWith("/apps/")
-    ? appHomeId(decodeURIComponent(pathname.slice("/apps/".length)))
-    : null;
+  // An app's page, or one of its tasks (WP-35): the app's home holds the
+  // glass, and the task's row under it is lit.
+  const appPath = appPathOf(pathname);
+  const openApp = appPath ? appHomeId(appPath.family) : null;
 
   // A side conversation open marks where it belongs (WP-18, Decided 1;
   // SPEC.md, "Selection"): the glass on the home doing the work, that row
@@ -435,7 +437,14 @@ export function ShellRail({
       return typeof target === "string" && target.length > 0 ? target : null;
     },
   });
-  const openSideId = useOpenSideId(selectedChannelId, threadTarget, work.rows);
+  const openRoomSideId = useOpenSideId(
+    selectedChannelId,
+    threadTarget,
+    work.rows,
+  );
+  const openSideId = appPath?.taskId
+    ? `task:${appPath.taskId}`
+    : openRoomSideId;
   const sideHome = openSideId
     ? ([...homes.agents, ...appHomes].find((home) =>
         sideOf(home).some((row) => row.id === openSideId),
@@ -469,11 +478,13 @@ export function ShellRail({
   revealing.current = {
     target: needsOpen
       ? "needs-you"
-      : (openApp ??
-        (sideOpen
-          ? `side:${openSideId}`
-          : (selectedChannelId ??
-            (selectedProjectId ? `project:${selectedProjectId}` : null)))),
+      : appPath?.taskId
+        ? `side:${openSideId}`
+        : (openApp ??
+          (sideOpen
+            ? `side:${openSideId}`
+            : (selectedChannelId ??
+              (selectedProjectId ? `project:${selectedProjectId}` : null)))),
     channelId: sideOpen || needsOpen || openApp ? null : selectedChannelId,
   };
   const reveal = React.useCallback((afterRoute: boolean) => {
@@ -560,10 +571,29 @@ export function ShellRail({
   // A project's details (its name, its grouping) and its sources: in the
   // room column's footer, and on the project row's menu here, so the
   // keyboard and the pointer reach them from the rail too.
-  const { goApp, goBrain, goChannel, goNeedsYou, goNewMessage, goSettings } =
-    useAppNavigation();
+  const {
+    goApp,
+    goAppTask,
+    goBrain,
+    goChannel,
+    goNeedsYou,
+    goNewMessage,
+    goSettings,
+  } = useAppNavigation();
   const openSide = (side: RailSideRow) => {
     const [kind, ...rest] = side.id.split(":");
+    // A task opens as the work, live or finished, under its app (WP-35).
+    if (kind === "task") {
+      const family = [...work.byApp].find(([, rows]) =>
+        rows.some((row) => row.id === side.id),
+      )?.[0];
+      if (family) {
+        clearOpenSide();
+        void goAppTask(family, rest.join(":"));
+        onLeave?.();
+        return;
+      }
+    }
     noteOpenSide({
       conversationId: side.conversationId,
       id: rest.join(":"),

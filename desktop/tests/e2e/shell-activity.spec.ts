@@ -815,12 +815,12 @@ test("the work under whoever does it, in the Chats rail", async ({ page }) => {
     .getByTestId("rail-home-app:claude")
     .locator("[data-chevron]")
     .click();
-  // A task opens where it happened, marked under its app; the lip names it
-  // under the app.
+  // A task opens its own page (WP-35), finished or not, marked under its
+  // app; the lip names it under the app.
   await page.getByTestId("rail-side-task:task-build").click();
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
-    .toContain(`/channels/${GENERAL}`);
+    .toContain("/apps/claude/tasks/task-build");
   await expect(page.getByTestId("rail-side-task:task-build")).toHaveAttribute(
     "data-current",
     "true",
@@ -903,9 +903,10 @@ test("a connected app: what Luca did with it", async ({ page }) => {
     .getByTestId("connected-task-task-build")
     .getByRole("button")
     .click();
+  // A task opens its own page (WP-35).
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
-    .toContain(`/channels/${GENERAL}`);
+    .toContain("/apps/claude/tasks/task-build");
 });
 
 test("800 x 500: needs you and all activity", async ({ page }) => {

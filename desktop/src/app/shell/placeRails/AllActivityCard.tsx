@@ -11,7 +11,7 @@ import {
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { HarnessFace } from "@/app/shell/placeRails/placeFaces";
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
-import { noteOpenSide } from "@/features/exchange/openSide";
+import { clearOpenSide, noteOpenSide } from "@/features/exchange/openSide";
 import {
   runtimeLabel,
   sideDays,
@@ -20,6 +20,7 @@ import {
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { ProvenanceRecord } from "@/features/provenance/lib/provenanceRecord";
 import { useAllProvenanceQuery } from "@/features/provenance/useAgentProvenance";
+import { runtimeRailFamilyFromRuntimeId } from "@/features/runtime-sessions/runtimeRailPreferences";
 import type { SearchHit } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { AgentMark } from "@/shared/ui/AgentMark";
@@ -31,7 +32,7 @@ import { Button } from "@/shared/ui/button";
  * by day, from the two records the app keeps and nothing else: what each
  * mind signed and the relay stored (the signed record, every mind's read as
  * one), and the runtime tasks the apps ran. Each row opens where it
- * happened.
+ * happened; a task, its own page (WP-35).
  */
 
 type Entry = {
@@ -70,7 +71,7 @@ export function AllActivityCard() {
   );
   const provenance = useAllProvenanceQuery(pubkeys);
   const { items: sideItems, nameOf, roomOf } = useSideConversations();
-  const { goChannel, openSearchHit } = useAppNavigation();
+  const { goAppTask, goChannel, openSearchHit } = useAppNavigation();
 
   const records = React.useMemo(
     () => provenance.data?.pages.flatMap((page) => page.records) ?? [],
@@ -132,8 +133,13 @@ export function AllActivityCard() {
           key: `task:${task.id}`,
           kind: "task",
           open: () => {
-            // Where the task is shown today: its room, marked under its app
-            // in the rail (WP-34, Decided 3).
+            // A task opens as the work, under its app in the rail (WP-35).
+            const family = runtimeRailFamilyFromRuntimeId(task.runtimeFamily);
+            if (family) {
+              clearOpenSide();
+              void goAppTask(family, task.id);
+              return;
+            }
             noteOpenSide(task);
             void goChannel(task.conversationId);
           },
@@ -152,7 +158,16 @@ export function AllActivityCard() {
       .sort((a, b) =>
         a.at !== b.at ? b.at - a.at : a.key.localeCompare(b.key),
       );
-  }, [goChannel, nameByKey, nameOf, openSearchHit, records, roomOf, sideItems]);
+  }, [
+    goAppTask,
+    goChannel,
+    nameByKey,
+    nameOf,
+    openSearchHit,
+    records,
+    roomOf,
+    sideItems,
+  ]);
 
   const days = sideDays(entries);
   const loading =

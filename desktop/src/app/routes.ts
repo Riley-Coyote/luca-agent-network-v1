@@ -9,6 +9,7 @@ export const routes = rootRoute("root.tsx", [
   route("/pulse", "pulse.tsx"),
   route("/needs-you", "needs-you.tsx"),
   route("/apps/$appId", "apps.$appId.tsx"),
+  route("/apps/$appId/tasks/$taskId", "apps.$appId.tasks.$taskId.tsx"),
   route("/reminders", "reminders.tsx"),
   route("/settings", "settings.tsx"),
   route("/workflows", "workflows.tsx"),

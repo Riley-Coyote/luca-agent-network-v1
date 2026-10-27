@@ -21,6 +21,8 @@ import {
  */
 
 const ALL_TASKS_KEY = ["runtime-tasks-all"] as const;
+/** The shared list's key, for a command's reply to land in (WP-35). */
+export const ALL_RUNTIME_TASKS_KEY = ALL_TASKS_KEY;
 const ALL_PROPOSALS_KEY = ["runtime-task-proposals-all"] as const;
 
 const EMPTY_TASKS: RuntimeTaskProjection[] = [];

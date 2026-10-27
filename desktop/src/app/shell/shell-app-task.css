@@ -1,0 +1,105 @@
+/* ── an app's task, as the work (AppTaskCard.tsx; BETA14_RELEASE.md
+ * WP-35; the lab's `TaskView`, shellStudy.css `.shell-task-now`) ────────
+ * Only what the page system lacks: the step on a plate with its breathing
+ * dot, what came back, and Try again. Everything else is WP-33's pieces.
+ * Text is rem, so ⌘+ and ⌘− scale it. */
+
+/* Now: the current step, its dot breathing while it works. */
+.luca-app-task-now {
+  align-items: center;
+  color: hsl(var(--mn-ink) / 0.9);
+  display: flex;
+  font-size: 0.875rem;
+  gap: 7px;
+  margin: 0;
+  padding: 12px 14px;
+}
+
+.luca-app-task-now[data-live]::before {
+  animation: luca-app-task-breathe 2.4s ease-in-out infinite;
+  background: hsl(var(--mn-ink));
+  border-radius: 50%;
+  content: "";
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+@keyframes luca-app-task-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Under Reduce Motion the dot holds still, lit. */
+@media (prefers-reduced-motion: reduce) {
+  .luca-app-task-now[data-live]::before {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* What came back: the result in its own words, or the error, with Try
+ * again at its end where the task can be retried. */
+.luca-app-task-came-back {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.luca-app-task-came-back-text {
+  color: hsl(var(--mn-ink) / 0.9);
+  flex: 1;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.luca-app-task-retry {
+  align-items: center;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  display: inline-flex;
+  flex: none;
+  font-size: 0.8125rem;
+  gap: 4px;
+  line-height: 1.3125rem;
+  white-space: nowrap;
+}
+
+.luca-app-task-retry:hover:not(:disabled) {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-app-task-retry:disabled {
+  opacity: 0.5;
+}
+
+.luca-app-task-retry:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
+.luca-app-task-retry svg {
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+/* A handoff or a retry that could not go through says so, quietly. */
+.luca-app-task-alert {
+  color: hsl(var(--destructive));
+  font-size: 0.75rem;
+  margin: -18px 0 26px;
+}
+
+.luca-place-group > .luca-app-task-alert {
+  margin: 8px 0 0;
+}

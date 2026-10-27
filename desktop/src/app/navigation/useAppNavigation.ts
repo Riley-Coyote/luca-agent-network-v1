@@ -114,6 +114,19 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  /** One of a connected app's tasks, as the work (WP-35). */
+  const goAppTask = React.useCallback(
+    (family: string, taskId: string, behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/apps/$appId/tasks/$taskId",
+          params: { appId: family, taskId },
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goInbox = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -412,6 +425,7 @@ export function useAppNavigation() {
     goAgent,
     goAgents,
     goApp,
+    goAppTask,
     goArtifacts,
     goBrain,
     goChannel,

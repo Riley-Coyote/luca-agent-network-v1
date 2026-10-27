@@ -202,11 +202,11 @@ export function SettingsAgentsMinds() {
       </ul>
       {runtimes.length > 0 ? (
         <section
-          aria-label="Connected"
+          aria-label="Apps"
           className="luca-settings-minds-group"
           data-testid="settings-agents-connected"
         >
-          <PlaceSectionLabel label="Connected" />
+          <PlaceSectionLabel label="Apps" />
           <ul className="luca-place-plate">
             {runtimes.map((runtime) => {
               const id = runtimeConnectionKey(runtime);
