@@ -535,7 +535,10 @@ for (const light of [false, true]) {
       page.evaluate(
         () =>
           document
-            .querySelector('[data-testid="place-page-head"] p')
+            // The eyebrow itself: the head's state line is a p too (WP-33).
+            .querySelector(
+              '[data-testid="place-page-head"] .luca-place-page-eyebrow',
+            )
             ?.textContent?.trim() ?? null,
       );
     const names: Record<string, { lip: string; eyebrow: string | null }> = {};
@@ -624,7 +627,16 @@ for (const light of [false, true]) {
     const pane = page.getByTestId("workspace-pane-slot-2");
     await expect(pane).toBeVisible();
     const paneWords = (await pane.innerText()).trim();
-    await page.getByTestId("workspace-layout-menu").first().click();
+    // Back to one pane. The menu that chose two columns is still leaving
+    // when the next click lands (on the GPU it eats that click), so wait for
+    // it to go, then open it again until its single preset shows.
+    await expect(page.getByTestId("workspace-preset-columns-2")).toHaveCount(0);
+    await expect(async () => {
+      await page.getByTestId("workspace-layout-menu").first().click();
+      await expect(page.getByTestId("workspace-preset-single")).toBeVisible({
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 20_000 });
     await page.getByTestId("workspace-preset-single").click();
     out.d7 = {
       kind,

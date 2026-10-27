@@ -570,6 +570,9 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   await page.getByTestId("message-input").click();
   const composerFocused = await edges(page, '[data-testid="message-composer"]');
   await page.keyboard.type("Hello");
+  // The disc arms on a transition (composer-states.css); read it settled,
+  // not part-way (on the GPU the read lands at about 40% of the way).
+  await waitForAnimations(page);
   const sendArmed = await edges(page, '[data-testid="send-message"]');
   const act = await tokenRgb(page, "hsl(var(--mn-act))");
   await page.keyboard.press("Meta+a");
