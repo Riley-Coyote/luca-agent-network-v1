@@ -310,7 +310,7 @@ async fn execute(
     request: &ResidentPrivateCognitionRequestV1,
     persona: Option<&str>,
 ) -> Result<String, String> {
-    native.call("initialize",serde_json::json!({"clientInfo":{"name":"polyphonic_companion_initiative","title":"Polyphonic companion","version":"0.5.0-beta.13"},"capabilities":{"experimentalApi":true}})).await?;
+    native.call("initialize",serde_json::json!({"clientInfo":{"name":"polyphonic_companion_initiative","title":"Polyphonic companion","version":"0.5.0-beta.14"},"capabilities":{"experimentalApi":true}})).await?;
     let notice = serde_json::to_vec(&serde_json::json!({"method":"initialized","params":{}}))
         .map_err(|_| "native initialization")?;
     native

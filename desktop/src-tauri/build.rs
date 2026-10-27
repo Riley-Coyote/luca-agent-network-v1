@@ -5,6 +5,7 @@ include!("src/commands/reconnect_hook_config.rs");
 use base64::Engine as _;
 
 fn main() {
+    require_swift_toolchain();
     build_quickchat_capture();
     build_companion_awareness();
     build_native_glass();
@@ -154,16 +155,34 @@ fn build_quickchat_capture() {
     );
 }
 
-// The rail in Apple's real glass (src/native_glass.rs), for native test builds
-// only: compiled from native/glass/ and linked into the app when the build sets
-// LUCA_BUILD_NATIVE_GLASS=1, so shipped builds carry no Swift and no glass.
+// Every macOS build compiles Swift: the Quick Chat and companion helpers, and
+// Apple's glass linked into the app itself. Without Apple's Swift compiler the
+// build stops here and says why, rather than leaving the glass out.
+fn require_swift_toolchain() {
+    // xcrun's choice of toolchain.
+    println!("cargo:rerun-if-env-changed=DEVELOPER_DIR");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
+    let found = std::process::Command::new("xcrun")
+        .args(["--find", "swiftc"])
+        .output()
+        .is_ok_and(|output| output.status.success());
+    assert!(
+        found,
+        "Polyphonic's macOS build needs Apple's Swift compiler, for its glass and its helpers, and `xcrun --find swiftc` \
+         found none. Install Xcode or the Command Line Tools (`xcode-select --install`), then build again."
+    );
+}
+
+// The rail and the frame in Apple's real glass (src/native_glass.rs),
+// compiled from native/glass/ and linked into the app on every macOS build:
+// the release, the test app and dev builds all carry the same glass. The app
+// runs from macOS 14; everything newer that the glass uses is weak-linked and
+// stays behind #available(macOS 26).
 fn build_native_glass() {
-    println!("cargo:rerun-if-env-changed=LUCA_BUILD_NATIVE_GLASS");
     println!("cargo:rerun-if-changed=native/glass");
-    println!("cargo:rustc-check-cfg=cfg(native_glass)");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos")
-        || std::env::var("LUCA_BUILD_NATIVE_GLASS").as_deref() != Ok("1")
-    {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
     let architecture = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
@@ -204,7 +223,7 @@ fn build_native_glass() {
         .status();
     assert!(
         matches!(status, Ok(status) if status.success()),
-        "Failed to compile native glass"
+        "Failed to compile Polyphonic's glass (native/glass) with Apple's Swift compiler"
     );
     let tool = |args: &[&str]| -> String {
         let out = std::process::Command::new("xcrun")
@@ -232,7 +251,6 @@ fn build_native_glass() {
     for framework in ["AppKit", "WebKit", "QuartzCore", "Metal"] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
-    println!("cargo:rustc-cfg=native_glass");
 }
 
 // Embedded command-line helper only. Compilation never invokes the helper,
