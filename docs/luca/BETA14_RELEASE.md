@@ -154,9 +154,9 @@ Not in scope: WP-30's files.
 
 ## Then
 
-1. Merge WP-30 and WP-31 by hand.
+1. Merge WP-30 to WP-35 by hand.
 2. Run every gate, the whole shell suite, and the desktop's Rust tests.
-3. Build the release candidate (WP-32), checked from its files and never launched here:
+3. Build the release candidate (WP-36), checked from its files and never launched here:
    - with the beta overlay;
    - without the updater key, so no updater archive and no publication.
 4. Build a rail-glass test app from the same commit, for behaviour.
@@ -218,3 +218,220 @@ Not in scope: WP-30's files.
 - Never launch anything.
 
 **Checks JSON keys:** `compiled_always`, `attaches_by_itself`, `frame_default`, `loads_on_14`, `versions`, `gates`.
+
+## The pages and the rail, for beta.14 (2026-10-27)
+
+Riley, 2026-10-27: "yes, build the new rail and the page system into the app for beta.14". He shaped both in the shell
+lab over the night of 2026-10-26, in his own words:
+- the pages read as "blank screens with text … like we threw words on a blank page";
+- the rail "darker, not lighter", "the most minimal difference" by night, and day "was fine before";
+- the line under a home "should be used for agents and their task sessions specifically. so like not below projects …
+  and not below luca. luca is one persistent chat";
+- "bring the harneses back into the main rail, not in the agents tab", each task under its app while it works;
+- "our own icon that represents agents used for all of them";
+- "we have never included People as a thing in this app … so it would be Luca, Projects, Agents, Runtimes";
+- and, keeping a way to talk to any of them yourself: "dont remove the plus button".
+
+**The reference for every value is the lab**, read-only: worktree
+`~/Documents/Repositories/.claude-worktrees/shell-lab-rail` (branch `claude/shell-lab-rail-faces`, commit 8bf285c18),
+`desktop/src/testing/shellStudy/` (`ShellStudy.tsx`, `shellStudy.css`, `content.ts`, `agentMark.tsx`). It is served at
+`http://localhost:1489/scripts/shell-lab.template.html?experience=shell&mode=dark&panel=0&cards=one&tone=darker`. Read
+it; never edit it or stop its server. Where the lab and a brief disagree, the brief wins; say so in your report.
+
+**What every package keeps.**
+- Only real data. The lab's sample content is never copied in. A fact the app doesn't hold is left out, never
+  invented, and named in your report.
+- Nothing is lost. A package that moves or removes UI returns a capability map: every old control or view, and where
+  it lives now, or LOST with Riley's decision as the reason.
+- Classic layout (the flag off) looks and behaves exactly as now: hash-compare against the base build at
+  `http://127.0.0.1:4300`.
+- The tests move with the decisions. Update the shell specs that asserted the old design, never delete a check
+  without replacing it, and add a spec for your package's decisions.
+
+The three run one after another, each from the last one's merge.
+
+## WP-33 · The page system: faces lead, plates hold, threads join
+
+**Why.** A page names what it is, rows sit on a surface, and what happened in order hangs from a thread. Research into
+Apple's Mac apps, Linear, Notion, Things and the AI apps found the same moves everywhere: two rows inside something read
+as "the contents of something", and on open black as "debris" (Linear). Riley then tuned the tones by eye.
+
+**Decided.**
+1. **The head** (`PlacePageHead`):
+   - a face tile (40, radius 11, ink 4%, the plate's lit top edge by night, none by day) holding the rail row's own
+     face at 22 (a line drawing at 19, the agent mark at 21);
+   - the eyebrow (12, faint), only where WP-19's rule keeps it;
+   - the name (22, weight 600, −0.012 em);
+   - one state line (13, muted), from real data only (Needs you: "2 waiting, from Luca and Atlas");
+   - the page's one action at the end, where it has one.
+2. **A section** (`PlaceList`): a sentence-case label (12.5, weight 600, muted) and its count (12, faint, tabular),
+   8 above one plate; 28 between sections. Pages stop using the mono capital eyebrow for section labels.
+3. **The plate** (the lab's dials on `.shell`, as CSS variables on the shell's root):
+   - by night: fill ink 1.3%, lit top edge `inset 0 0.5px 0` ink 4%, row hover ink 2%, rule ink 4.5%;
+   - by day: fill ink 1.4%, no edge, hover ink 2%, rule ink 6%;
+   - radius 12, padding 4; rows inside have padding 11/10 and radius 8.
+   Measured on the lab's render, a plate sits about 0.56 of perceived lightness above the card by night, and 1.4 by
+   day. Measure yours the same way and report both.
+4. **A row** (`PlaceListRow`):
+   - the face at 20, the words (title 14 at ink 90%, detail 13 muted), the note (12, faint, tabular, never wrapping)
+     in the end column, a gap of 12;
+   - the hairline between two rows, half a point at the rule's ink, runs from the words (42 in: 10, 20 and 12) to 10
+     short of the plate's end, and goes while either row is under the pointer. A row with no face starts its words
+     at 10.
+5. **A thread** (a list in time order: a mind's days here; All activity in WP-34; a task's steps in WP-35):
+   - no hairlines;
+   - a 1 px line at ink 14% under the faces' centres, from 4 below one face to 4 above the next.
+6. **Asks** (`PlaceAskRow`) keep their anatomy: their own words, who and where, the answers always in view, the long
+   form under them. They sit on a plate, led by the asker's face, with the words at 15/21.
+7. **The agent mark** is a new shared component, `desktop/src/shared/ui/AgentMark.tsx`. Take the lab's
+   `agentMark.tsx` path and its comment.
+   - Every mind that is a row's face in the shell's pages wears it: Needs you, Settings' agent rows, a mind's Works
+     with. WP-34 adds the rails.
+   - A conversation's author marks are out of scope.
+8. **A mind's space** (WP-13's component):
+   - Notebook's days are threads with a glyph for each kind: for you `UserRound`, their own `Sparkles`, journal
+     `NotebookPen`, memory `Bookmark`. The filters wear the same glyphs.
+   - Self's documents and Settings' rows each sit on a plate.
+   - Beside all three tabs, once the page is at least 940 wide (a container query), comes a column of 232, 36 from the
+     body; the axis then widens to 908. Below 940 the column stacks under the body.
+   - The column holds "At a glance": the mind's real facts (runtime and model, when it wakes, its folder, what it can
+     read, its permissions), only those the app has.
+   - It also holds "Works with", only if the app can derive it from real data (shared rooms or exchanges); otherwise
+     leave it out and say why.
+9. **Out:**
+   - "Answered today" (the app keeps only what waits);
+   - the Chats rail and which pages each place has (WP-34);
+   - an app's task (WP-35);
+   - conversations and the composer.
+
+**Files in scope:**
+- `desktop/src/app/shell/placeRails/` (`PlacePage.tsx`, `PlacePageHead.tsx`, `PlaceAskRow.tsx`, and the cards' look,
+  not their structure);
+- the mind's space files (find them from WP-13);
+- `shell-place-rails.css` and `shell-activity.css`;
+- `desktop/src/shared/ui/AgentMark.tsx` (new);
+- the shell specs that assert the page look, and a new `desktop/tests/e2e/shell-pages.spec.ts`.
+
+**Proof** (screenshots at 2×, by night and by day):
+- Needs you; a mind's Notebook at 1440 × 900 and at 1100 × 760; its Self and Settings;
+- Settings → Appearance; a Brain page; a Library page.
+- Measure:
+  - the plate's step by night and by day;
+  - hairline start minus words start, which must be 0;
+  - the thread x minus the face centre, which must be 0.
+
+**Checks JSON keys:** `head`, `section_labels`, `plate_steps`, `hairline_at_words`, `thread_under_faces`,
+`agent_mark_on_pages`, `mind_column_wide`, `mind_column_narrow`, `at_a_glance_fields`, `works_with`,
+`classic_identical`, `capability_map`, `unit_tests`, `playwright`, `gates`.
+
+## WP-34 · The rail: what needs you, Luca, and the work under whoever does it
+
+**Why.** Conversations and work are told apart. Luca, a project and a room are one ongoing chat each and never nest.
+What Luca hands an agent or an app hangs on the thread under whoever is doing it, while they work. Live work shows once,
+in the rail, and Activity becomes the record of what happened. What needs you, the one thing only you can do, comes to
+the top.
+
+**Decided: the Chats rail** (`desktop/src/features/sidebar/ui/ShellRail.tsx`):
+1. **The order:** Needs you (only while something waits), Luca, then three sections.
+   - **Projects** `+`. Loose rooms (in no project) follow the projects as rows of their own; Browse rooms… and Archived
+     close the section, as they close Rooms today.
+   - **Agents.**
+   - **Apps** `+` ("Connect an app"): the connected apps, the ones the Agents place lists under Connected today,
+     starting with Claude Code and Codex.
+   - People and Rooms go as sections. A person's chat stays findable in Search, LOST from the rail by Riley's decision.
+2. **Needs you** is a row above Luca: the hand face, the name, the count at the words' ink and weight 600. It opens the
+   Needs you page in the card, as Activity does today. That page isn't a conversation, so it takes no tab. The count on
+   the places column moves from Activity to Chats.
+3. **Only work nests.** Luca never has rows under it: its side conversations move under whoever does the work.
+   - Projects never nest: their rooms stay in the project's own column, as `roomsInColumn` draws them today. That
+     behaviour becomes the only one, and the setting retires (in the capability map).
+   - An agent shows its sessions.
+   - An app shows its tasks, from `useAllRuntimeTasks` by `runtimeFamily`: live ones, and finished ones for as long as
+     the rail shows a session's age today.
+   - A task row opens where the task is shown today (`openSide` or the task's own conversation) until WP-35.
+4. **The thread** under an agent or an app:
+   - a 1 px line at ink 16%, under the face's centre;
+   - it starts 3 below the face, runs straight past the middle rows, and turns into the last on a 7 radius, ending 6
+     short of its words;
+   - the open row brightens its words and nothing else;
+   - "N more" sits under the hook, unlined.
+5. **Every agent and app keeps its `+`:** "New conversation with Atlas", "New conversation with Claude Code", which
+   starts a session of your own with it. A project's `+` stays "New room in …". The `+` at the top of Chats opens
+   Luca's one chat.
+6. **Faces:** agents wear the agent mark (WP-33) at 17; apps their maker's mark; projects a folder; loose rooms `#`.
+7. **The rail's tone** in one card, always now:
+   - by night, `rgb(0 0 0 / 0.2)` over the card (7 of 255 against the page's 9);
+   - by day, the paper's recess (`--mn-recess`) at 15%.
+   - The hairline is unchanged. Any setting for the rail's tone retires.
+8. **Section names in sentence case** (11.5, weight 600) in every place's rail, for the rails' heads only: the app's
+   `.type-eyebrow` stays as it is.
+
+**Decided: the places.**
+9. **Agents** loses Connected, which moves to Chats as Apps. Luca, Agents and Groups stay.
+10. **Activity is the record:**
+    - **All activity**, its first pick: one thread of what every mind and app did, newest first, from the signed
+      record and the runtime tasks, with real data only;
+    - then **Signed record**: each mind, as today.
+    - Needs you moves to Chats. Now and Side conversations retire: live work is in the rail, and what passed between
+      two minds is in the work itself (WP-35 for an app's task).
+
+**Files in scope:**
+- `ShellRail.tsx` and the sidebar's shell stylesheet;
+- `desktop/src/app/shell/placeRails/` for the rails' sections and Activity's cards (`usePlaceRails.ts`,
+  `placePicks.ts`, `PlaceRail.tsx`, `SideConversationsCard.tsx`, `NeedsYouCard.tsx`'s route);
+- the places column's count;
+- the shell's settings where the tone or `roomsInColumn` lives;
+- the specs.
+
+**Proof:**
+- the Chats rail with something waiting and with nothing, by night and by day;
+- Needs you opened from Chats;
+- an agent's thread, and an app's thread with a live task;
+- Activity's All activity and one Signed record;
+- Agents without Connected;
+- the capability map;
+- measured hook geometry (thread x minus face centre, the turn's y minus the last row's middle, the end minus the
+  words);
+- the rail tone's step by night and by day.
+
+**Checks JSON keys:** `order`, `needs_you`, `only_work_nests`, `apps_tasks`, `thread_geometry`, `plus_buttons`,
+`rail_tone`, `section_names`, `agents_place`, `activity_record`, `capability_map`, `classic_identical`, `unit_tests`,
+`playwright`, `gates`.
+
+## WP-35 · An app's task, as the work
+
+**Why.** Riley: "maybe it doesnt appear like a traditional chat transcript but has slightly different ui with live
+actiivty and live feed of what theyre working on, what projects the work is happeniong in if any, and a link to open the
+session in that harness". The app holds all of it in a `RuntimeTaskProjection` (`desktop/src/shared/api/tauriRuntimeTasks.ts`):
+`summary`, `runtimeFamily`, `residentPubkey`, `workingFolder`, `state`, `currentStep`, `steps` (each with its state),
+`startedAt` and `completedAt`, `error`, `canRetry`, and the session references.
+
+**Decided.** A task row in the Chats rail opens this page in the card, made only of WP-33's pieces (the lab's
+`TaskView` is the reference):
+1. **The head:**
+   - the app's mark in the tile;
+   - the app's name as the eyebrow;
+   - the task's summary as the name;
+   - the state line: who it's for, the project its folder belongs to (or the folder itself when it belongs to none),
+     and "working since …" or "finished …", or the failure in a word;
+   - its one action, "Open in Claude Code" (or Codex), through the app's existing handoff to the native session,
+     shown only when the task carries a session to open.
+2. **Now:** while it works, the current step on a plate, its dot breathing; under Reduce Motion it holds still.
+3. **What it has done:** the steps as a thread, each with a glyph for its state (done, active, queued, failed) and its
+   time if the app keeps one.
+4. **What came back:** the result when it finished, or the error and, when `canRetry`, Try again through the app's
+   existing retry.
+5. **Between Luca and the app:** the brief (the summary, from whoever sent it) and the result, faces leading. A real
+   exchange, if the app holds one, goes here instead.
+6. The page follows the task live, as the rail does, and moves on to the finished state without a reload.
+
+**Files in scope:** a new card in `desktop/src/app/shell/placeRails/`, its route from the rail's task rows, and the
+specs.
+
+**Proof:**
+- a live task, a finished one and a failed one, by night and by day;
+- the handoff called (spy on the bridge);
+- Reduce Motion holding the dot still.
+
+**Checks JSON keys:** `head`, `now`, `steps_thread`, `came_back`, `between`, `open_in_app`, `live`, `reduce_motion`,
+`classic_identical`, `unit_tests`, `playwright`, `gates`.
