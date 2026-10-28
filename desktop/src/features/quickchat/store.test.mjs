@@ -89,6 +89,16 @@ test("invalid persisted state falls back without blocking chat", () => {
   );
 });
 
+test("a saved size comes back on whole pixels, within its bounds", () => {
+  const read = (width, height) =>
+    readQuickChat({ getItem: () => JSON.stringify({ width, height }) }, "key");
+  const restored = read(352.21875, 457.45703125);
+  assert.equal(restored.width, 352);
+  assert.equal(restored.height, 457);
+  assert.equal(read(2000, 10).width, 900);
+  assert.equal(read(2000, 10).height, 380);
+});
+
 test("canonical companion storage preserves earlier Quick Chat history and drafts across restart", () => {
   let state = updateQuickChatRoom(emptyQuickChat(), resident, {
     channelId: "earlier-private-room",

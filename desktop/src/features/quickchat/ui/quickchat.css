@@ -320,3 +320,120 @@
   padding-left: 14px;
   list-style: disc;
 }
+
+/* ── the mini chat as the floor's glass ─────────────────────────────
+ * Under the glass frame (shell-glass.css) the mini chat is the floor's own
+ * glass carried over the page (useQuickChatGlass.ts, glass.ts): what lies
+ * beneath it, frosted and given the tone Apple's regular glass gives a dark
+ * backdrop (measured on macOS 27.0.1, the liquid-glass skill: 32/255 over
+ * black to 184/255 over white, so 0.596 of the backdrop plus 32/255, which
+ * is brightness 0.795 and then contrast 0.75), with the frame's own veil in
+ * front, the one that darkens the floor. So it shows the conversation that is
+ * really beneath it, never the windows behind the app. Its rim is the rail's
+ * glass rim (railGlass.css), the light itself, bright along the top and gone
+ * by the bottom, softer on a pane this size; its shadow is the cards' on the
+ * glass (shell-glass.css), a little deeper, since it floats above them. By
+ * day it takes the floor's daytime veil, no white edge (white on white says
+ * nothing) and the ink's shadow. `data-glass` is set only while the frame
+ * really is glass.
+ * ------------------------------------------------------------------ */
+.qc-glass {
+  --qc-glass-frost: blur(24px) brightness(0.795) contrast(0.75);
+  --qc-glass-veil: rgb(0 0 0 / var(--luca-frame-veil));
+  --qc-glass-rim: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.18),
+    rgb(255 255 255 / 0.06) 30%,
+    rgb(255 255 255 / 0.015) 55%,
+    rgb(255 255 255 / 0)
+  );
+  --qc-glass-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 20px 50px rgb(0 0 0 / 0.42);
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  color: var(--luca-frame-muted);
+  -webkit-backdrop-filter: var(--qc-glass-frost);
+  backdrop-filter: var(--qc-glass-frost);
+  background-color: var(--qc-glass-veil);
+  box-shadow: var(--qc-glass-shadow);
+}
+.qc-glass:not([data-placed]) {
+  visibility: hidden;
+}
+/* The rim: a hairline (one device pixel on a Retina screen) cut out of the
+ * light. */
+.qc-glass::before {
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  padding: 0.5px;
+  pointer-events: none;
+  position: absolute;
+  background: var(--qc-glass-rim);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+:root:not(.dark) .qc-glass {
+  --qc-glass-frost: blur(24px);
+  --qc-glass-veil: hsl(var(--mn-floor) / var(--luca-frame-veil));
+  --qc-glass-rim: none;
+  --qc-glass-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.1),
+    0 20px 48px -12px hsl(var(--mn-ink) / 0.26);
+}
+.qc-glass-mark {
+  position: absolute;
+  right: 13px;
+  bottom: 13px;
+}
+/* Over the launcher the disc takes the plate the rail's places take. */
+[data-quickchat]:has(.qc-launcher[data-glass]:hover) .qc-glass {
+  background-image: linear-gradient(
+    var(--luca-frame-plate),
+    var(--luca-frame-plate)
+  );
+  color: var(--luca-frame-ink);
+}
+.qc-launcher[data-glass],
+.qc-panel[data-glass] {
+  background: transparent;
+  box-shadow: none;
+}
+.qc-launcher[data-glass] {
+  color: var(--luca-frame-muted);
+}
+/* The disc's own element draws the mark, so it can fade as the disc spreads. */
+.qc-launcher[data-glass] > svg {
+  visibility: hidden;
+}
+.qc-panel[data-glass] {
+  animation: none;
+  border-radius: 16px;
+  color: var(--luca-frame-ink);
+}
+.qc-panel[data-glass]
+  :is(.qc-header .text-muted-foreground, .qc-actions, .qc-context, .qc-empty) {
+  color: var(--luca-frame-muted);
+}
+.qc-panel[data-glass] .qc-actions button:hover {
+  background: var(--luca-frame-plate);
+  color: var(--luca-frame-ink);
+}
+/* Your words in a tone of the glass, never a second surface on it. */
+.qc-panel[data-glass] .qc-owner {
+  background: var(--luca-frame-plate);
+}
+/* Increase Contrast: the rim is drawn whole. */
+@media (prefers-contrast: more) {
+  .qc-glass {
+    --qc-glass-rim: linear-gradient(
+      var(--luca-frame-thread),
+      var(--luca-frame-thread)
+    );
+  }
+}

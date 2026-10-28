@@ -692,7 +692,13 @@ export function useQuickChat({
     },
     width: state.width,
     height: state.height,
-    setSize: (width, height) => change((s) => ({ ...s, width, height })),
+    // Whole pixels: a drag's fractional size puts every word between pixels.
+    setSize: (width, height) =>
+      change((s) => ({
+        ...s,
+        width: Math.round(width),
+        height: Math.round(height),
+      })),
     scrollTop: room.scrollTop,
     setScrollTop: (scrollTop) => {
       if (selectedPubkey)
