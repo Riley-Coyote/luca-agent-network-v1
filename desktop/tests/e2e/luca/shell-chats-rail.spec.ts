@@ -810,6 +810,10 @@ test.describe("the Chats rail", () => {
     await hit(page, `agent:${WREN}`).focus();
     await page.keyboard.press("ArrowLeft");
     await page.reload();
+    await expect(page.getByTestId("app-sidebar")).toBeVisible();
+    // Mock channels live in page memory, unlike the real relay. Restore the
+    // scene after reload so this checks the saved fold, not an empty home.
+    await seedScene(page);
     await expect(hit(page, `agent:${WREN}`)).toHaveAttribute(
       "aria-expanded",
       "false",

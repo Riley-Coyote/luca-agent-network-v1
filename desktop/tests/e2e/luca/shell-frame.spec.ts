@@ -325,9 +325,8 @@ test("the frame, Black, dark", async ({ page }, info) => {
     icon_centres: icons.map((icon) => [icon.label, icon.cx, icon.y]),
     ok:
       places.w === 44 &&
-      // Six places and the avatar (NAVIGATION.md, 2026-10-25): Search;
-      // Chats, Agents, Activity, Library; Settings.
-      icons.length === 7 &&
+      // WP-38 restores Brain as its own place: seven places and the avatar.
+      icons.length === 8 &&
       icons.every((icon) => icon.cx === 22),
   };
   checks.rail_card = {

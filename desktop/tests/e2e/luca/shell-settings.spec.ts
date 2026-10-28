@@ -302,8 +302,8 @@ test("Settings in the frame", async ({ page }, info) => {
       lip?.h === 36 &&
       lip.w === W &&
       places?.w === 44 &&
-      // Six places and the avatar (NAVIGATION.md, 2026-10-25).
-      iconCentres.length === 7 &&
+      // WP-38 restores Brain as its own place: seven places and the avatar.
+      iconCentres.length === 8 &&
       iconCentres.every((cx) => cx === 22) &&
       current.join(",") === "open-settings-view" &&
       // No native lights in a browser: the toggle on the places' axis, its
@@ -374,8 +374,9 @@ test("Settings in the frame", async ({ page }, info) => {
       heads.every(
         (head) =>
           head.h === 26 &&
-          head.size === "11px" &&
-          head.transform === "uppercase",
+          // WP-37: Settings heads use the rails' sentence-case treatment.
+          head.size === "11.5px" &&
+          head.transform === "none",
       ) &&
       rows.length === 12 &&
       rows.every(
