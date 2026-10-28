@@ -166,6 +166,7 @@ function SettingsFrameSectionList({
                 onClick={() => onSelect(entry.value)}
                 type="button"
               >
+                <SettingsRowFace section={entry.value} />
                 <span className="luca-settings-row-name">
                   {settingsSectionLabel(entry.value, true)}
                 </span>
@@ -175,6 +176,17 @@ function SettingsFrameSectionList({
         </section>
       ))}
     </nav>
+  );
+}
+
+/** A section's face, as every rail row leads with one (BETA14_RELEASE.md
+ *  WP-40, Decided 2): its line drawing, the lab's Settings rail's. */
+function SettingsRowFace({ section }: { section: SettingsSection }) {
+  const Face = SETTINGS_SECTION_FACES[section];
+  return (
+    <span aria-hidden className="luca-settings-row-face">
+      <Face />
+    </span>
   );
 }
 

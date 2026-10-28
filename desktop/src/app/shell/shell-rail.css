@@ -28,9 +28,12 @@
 }
 
 /* ── section names: Chats, Projects, Agents, Apps, and every place's ──
- * In the pages' own voice (WP-34, Decided 8): sentence case at 11.5 and a
- * semibold weight, as Apple's sidebars set theirs. For the rails' heads
- * only: the app's `.type-eyebrow` is unchanged everywhere else. */
+ * Labels, not rows (BETA14_RELEASE.md WP-40, Decided 1; Riley, 2026-10-27:
+ * the heads were "small and looking the same as each item in the rail"):
+ * the app's own micro-label, `.type-eyebrow` as the shell sets it (the
+ * mono's capitals at 11, opened to 0.09em, faint), 28 tall with 6 above,
+ * so the eye reads a heading and then its rows. A section's 14 above
+ * collapses with the head's 6, as the lab's does. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-section {
   margin-top: 14px;
 }
@@ -39,17 +42,10 @@
   align-items: center;
   color: var(--rail-faint);
   display: flex;
-  height: 26px;
+  height: 28px;
   justify-content: space-between;
+  margin-top: 6px;
   padding: 0 6px 0 10px;
-}
-
-:root[data-luca-shell] [data-shell-rail] .luca-rail-section-head.type-eyebrow {
-  font-family: inherit;
-  font-size: 0.71875rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 /* The rail's own heading, CHATS, with the + for a new conversation: the

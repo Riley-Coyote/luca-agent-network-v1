@@ -332,12 +332,14 @@ test.describe("the shell's rail", () => {
     console.log("MEASURES", JSON.stringify(measures));
     expect(measures.row?.h).toBe(30);
     expect(measures.session?.h).toBe(28);
-    expect(measures.label?.h).toBe(26);
+    // WP-40 (BETA14_RELEASE.md, Decided 1): a head is 28 tall, 6 above it.
+    expect(measures.label?.h).toBe(28);
     expect(measures.name?.size).toBe("14px");
     expect(measures.session?.size).toBe("13px");
-    // Sentence case at 11.5 (WP-34, Decided 8).
-    expect(measures.label?.size).toBe("11.5px");
-    expect(measures.label?.caps).toBe("none");
+    // The app's micro-label again (WP-40, Decided 1), not WP-34's sentence
+    // case.
+    expect(measures.label?.size).toBe("11px");
+    expect(measures.label?.caps).toBe("uppercase");
 
     // Luca open.
     await hit(page, "luca").click(ON_NAME);
@@ -984,7 +986,9 @@ test.describe("the rail, finished (WP-02b)", () => {
       };
     });
     console.log("FIRST ROW", JSON.stringify(first));
-    expect(first?.offset).toBe(6);
+    // 6 from the scroller, and 6 above every head (BETA14_RELEASE.md WP-40,
+    // Decided 1; the lab's `.shell-rail-list .shell-section-head`).
+    expect(first?.offset).toBe(12);
     measured.first_row_offset = first;
     // The card's top, where the first row's 6 is measured.
     await page.mouse.move(1400, 880);
@@ -1532,7 +1536,8 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
         };
       }, scrollTop);
     const rest = await geometry(0);
-    expect(rest?.firstRowOffset).toBe(6);
+    // WP-40, Decided 1: the head's own 6 above it, on the scroller's 6.
+    expect(rest?.firstRowOffset).toBe(12);
     expect(rest?.scrollerTop).toBe(rest?.cardTop);
     await page.mouse.move(780, 480);
     await waitForAnimations(page);

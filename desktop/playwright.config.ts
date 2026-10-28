@@ -56,6 +56,7 @@ export default defineConfig({
         "**/shell-place-rails.spec.ts",
         "**/shell-one-card.spec.ts",
         "**/shell-mind-space.spec.ts",
+        "**/shell-agents-pages.spec.ts",
         "**/shell-brain.spec.ts",
         "**/shell-activity.spec.ts",
         "**/shell-one-state.spec.ts",

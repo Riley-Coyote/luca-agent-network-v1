@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { ChevronRight, FileText, Plus } from "lucide-react";
 import * as React from "react";
 
 import {
@@ -33,11 +33,14 @@ import { Button } from "@/shared/ui/button";
  */
 export function ResidentDocumentsSection({
   agent,
+  intro,
   onRestart,
   residentName,
   variant = "page",
 }: {
   agent: ManagedAgent;
+  /** `space`: the tab's own line above its documents (WP-40). */
+  intro?: string;
   onRestart: () => void;
   residentName: string;
   /** `space`: a mind's Self tab (WP-13): the same rows, named as the
@@ -116,69 +119,97 @@ export function ResidentDocumentsSection({
 
       {variant === "space" ? (
         <>
-          {/* They write most of it (documentKinds.ts: the self-model, the
-            user model and lessons are theirs). */}
-          <p className="luca-mind-quiet">Most of this grows from talking.</p>
-          <ul className="luca-mind-list" data-testid="mind-self">
-            {RESIDENT_DOCUMENT_KINDS.map((kind) => {
-              const meta = documentKindMeta(kind);
-              const entry = byKind.get(kind) ?? null;
-              const label = spaceDocumentLabel(kind, ownerName);
-              if (isNative && documents.data && !entry) {
+          {intro ? <p className="luca-mind-intro">{intro}</p> : null}
+          {/* Each document a row that clearly opens (BETA14_RELEASE.md
+              WP-40, Decided 3): its title, its file in the mono, one line
+              of what it says, who writes it, when it changed, a chevron. */}
+          <section aria-label="Documents" className="luca-mind-section">
+            <h2 className="luca-mind-h2">
+              Documents
+              <span className="luca-mind-count">
+                {RESIDENT_DOCUMENT_KINDS.length}
+              </span>
+            </h2>
+            <ul className="luca-mind-rows" data-testid="mind-self">
+              {RESIDENT_DOCUMENT_KINDS.map((kind) => {
+                const meta = documentKindMeta(kind);
+                const entry = byKind.get(kind) ?? null;
+                const label = spaceDocumentLabel(kind, ownerName);
+                const fileName = entry?.fileName ?? meta.fileName;
+                if (isNative && documents.data && !entry) {
+                  return (
+                    <li
+                      className="luca-mind-doc"
+                      data-quiet="true"
+                      data-testid={`resident-document-${kind}`}
+                      key={kind}
+                    >
+                      <span aria-hidden className="luca-mind-glyph">
+                        <FileText />
+                      </span>
+                      <span className="luca-mind-entry-words">
+                        <span className="luca-mind-doc-title">
+                          {label}
+                          <code className="luca-mind-file">{fileName}</code>
+                        </span>
+                        <span className="luca-mind-excerpt">{meta.blurb}</span>
+                      </span>
+                      <span className="luca-mind-writer">
+                        Not part of {runtimeName}
+                      </span>
+                    </li>
+                  );
+                }
                 return (
-                  <li
-                    data-quiet="true"
-                    data-testid={`resident-document-${kind}`}
-                    key={kind}
-                  >
-                    <div>
-                      <p className="luca-mind-title">{label}</p>
-                      <p className="luca-mind-excerpt">{meta.blurb}</p>
-                    </div>
-                    <span className="luca-mind-writer">
-                      Not part of {runtimeName}
-                    </span>
-                    <span />
+                  <li key={kind}>
+                    <button
+                      className="luca-mind-doc"
+                      data-testid={`resident-document-${kind}`}
+                      onClick={() => setSelected({ kind })}
+                      title={meta.blurb}
+                      type="button"
+                    >
+                      <span aria-hidden className="luca-mind-glyph">
+                        <FileText />
+                      </span>
+                      <span className="luca-mind-entry-words">
+                        <span className="luca-mind-doc-title">
+                          {label}
+                          <code className="luca-mind-file">{fileName}</code>
+                        </span>
+                        <DocumentFirstLine
+                          exists={entry?.exists ?? false}
+                          kind={kind}
+                          pending={documents.isPending}
+                          residentPubkey={agent.pubkey}
+                        />
+                      </span>
+                      <span
+                        className="luca-mind-writer"
+                        data-testid={`resident-document-${kind}-writer`}
+                      >
+                        {documentWriterLabel(meta.writer, residentName)}
+                      </span>
+                      <time
+                        className="luca-mind-date"
+                        data-testid={`resident-document-${kind}-status`}
+                      >
+                        {entry?.exists
+                          ? entry.modifiedAt == null
+                            ? formatDocumentBytes(entry.bytes)
+                            : formatRelativeAge(
+                                entry.modifiedAt * 1000,
+                                Date.now(),
+                              )
+                          : ""}
+                      </time>
+                      <ChevronRight aria-hidden className="luca-mind-chevron" />
+                    </button>
                   </li>
                 );
-              }
-              return (
-                <li key={kind}>
-                  <button
-                    className="luca-mind-row-open"
-                    data-testid={`resident-document-${kind}`}
-                    onClick={() => setSelected({ kind })}
-                    type="button"
-                  >
-                    <span>
-                      <span className="luca-mind-title">{label}</span>
-                      <DocumentFirstLine
-                        blurb={meta.blurb}
-                        exists={entry?.exists ?? false}
-                        kind={kind}
-                        residentPubkey={agent.pubkey}
-                      />
-                    </span>
-                    <span
-                      className="luca-mind-writer"
-                      data-testid={`resident-document-${kind}-writer`}
-                    >
-                      {documentWriterLabel(meta.writer, residentName)}
-                    </span>
-                    <time data-testid={`resident-document-${kind}-status`}>
-                      {entry?.exists
-                        ? entry.modifiedAt == null
-                          ? formatDocumentBytes(entry.bytes)
-                          : `Edited ${formatRelativeAge(entry.modifiedAt * 1000, Date.now())}`
-                        : documents.isPending
-                          ? "…"
-                          : "Not written yet"}
-                    </time>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+              })}
+            </ul>
+          </section>
         </>
       ) : (
         <ul className="divide-y divide-border/45 border-y border-border/55">
@@ -259,20 +290,31 @@ export function ResidentDocumentsSection({
         </ul>
       )}
 
-      <section className="mt-9" data-testid="resident-extra-files">
-        <div className="flex items-baseline justify-between gap-4">
-          <h3
-            className={
-              variant === "space"
-                ? "type-eyebrow text-ink-faint"
-                : "text-2xs uppercase tracking-caps-wide text-muted-foreground"
-            }
-          >
-            More files
-          </h3>
+      <section
+        className={variant === "space" ? "luca-mind-section" : "mt-9"}
+        data-testid="resident-extra-files"
+      >
+        <div
+          className={
+            variant === "space"
+              ? "luca-mind-section-head"
+              : "flex items-baseline justify-between gap-4"
+          }
+        >
+          {variant === "space" ? (
+            <h2 className="luca-mind-h2">More files</h2>
+          ) : (
+            <h3 className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
+              More files
+            </h3>
+          )}
           {!isNative ? (
             <button
-              className="inline-flex items-center gap-1 text-2xs text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden"
+              className={
+                variant === "space"
+                  ? "luca-mind-button"
+                  : "inline-flex items-center gap-1 text-2xs text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden"
+              }
               data-testid="resident-new-file"
               onClick={() => {
                 setNewFileOpen((open) => !open);
@@ -280,7 +322,7 @@ export function ResidentDocumentsSection({
               }}
               type="button"
             >
-              <Plus className="size-3" />
+              <Plus className={variant === "space" ? undefined : "size-3"} />
               New file
             </button>
           ) : null}
@@ -316,7 +358,36 @@ export function ResidentDocumentsSection({
           </form>
         ) : null}
 
-        {extraFiles.length > 0 ? (
+        {extraFiles.length > 0 && variant === "space" ? (
+          <ul className="luca-mind-rows">
+            {extraFiles.map((file) => (
+              <li key={file.relPath}>
+                <button
+                  className="luca-mind-doc"
+                  data-testid={`resident-extra-file-${file.relPath}`}
+                  onClick={() => setSelected({ relPath: file.relPath })}
+                  type="button"
+                >
+                  <span aria-hidden className="luca-mind-glyph">
+                    <FileText />
+                  </span>
+                  <span className="luca-mind-entry-words">
+                    <code className="luca-mind-file" data-solo="true">
+                      {file.relPath}
+                    </code>
+                  </span>
+                  <span className="luca-mind-writer">
+                    {formatDocumentBytes(file.bytes)}
+                  </span>
+                  <time className="luca-mind-date">
+                    {formatRelativeAge(file.modifiedAt * 1000, Date.now())}
+                  </time>
+                  <ChevronRight aria-hidden className="luca-mind-chevron" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : extraFiles.length > 0 ? (
           <ul className="mt-3 divide-y divide-border/45 border-y border-border/55">
             {extraFiles.map((file) => (
               <li key={file.relPath}>
@@ -338,10 +409,18 @@ export function ResidentDocumentsSection({
             ))}
           </ul>
         ) : (
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          <p
+            className={
+              variant === "space"
+                ? "luca-mind-help"
+                : "mt-3 text-sm leading-6 text-muted-foreground"
+            }
+          >
             {isNative
               ? "Their runtime keeps the rest of its files where it always has."
-              : "Nothing else in the folder yet."}
+              : variant === "space"
+                ? `Nothing else in ${residentName}'s folder yet.`
+                : "Nothing else in the folder yet."}
           </p>
         )}
         {documents.data && variant !== "space" ? (
@@ -357,14 +436,15 @@ export function ResidentDocumentsSection({
 /** A written document's own first line; the type's description only when
  *  nothing is written yet (WP-13, Self shows who they are). */
 function DocumentFirstLine({
-  blurb,
   exists,
   kind,
+  pending,
   residentPubkey,
 }: {
-  blurb: string;
   exists: boolean;
   kind: ResidentDocumentEntry["kind"];
+  /** The folder is still being read: nothing is said yet. */
+  pending: boolean;
   residentPubkey: string;
 }) {
   const target = React.useMemo(() => ({ kind }), [kind]);
@@ -377,9 +457,15 @@ function DocumentFirstLine({
     <span
       className="luca-mind-excerpt"
       data-testid={`resident-document-${kind}-line`}
+      data-empty={!exists && !pending ? "true" : undefined}
       data-written={line ? "true" : undefined}
     >
-      {line || (exists && document.isPending ? "\u00a0" : blurb)}
+      {line ||
+        (pending || (exists && document.isPending)
+          ? "\u00a0"
+          : exists
+            ? "Written, with no text yet"
+            : "Not written yet")}
     </span>
   );
 }

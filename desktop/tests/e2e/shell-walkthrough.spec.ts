@@ -408,6 +408,9 @@ async function openNotebook(page: Page) {
   });
   await page.getByTestId("mind-tab-notebook").click();
   await expect(page.getByTestId("mind-notebook")).toBeVisible();
+  // Their days is the Notebook's third tab now (BETA14_RELEASE.md WP-40,
+  // Decided 3).
+  await page.getByTestId("mind-view-days").click();
 }
 
 /** Every frame, whether the line is there and whether a day is. */
@@ -845,11 +848,12 @@ for (const mode of ["dark", "light"] as Mode[]) {
     measure(`settings-heads-${mode}`, { log, rail, settings });
     const voice = ({ shown: _shown, ...rest }: (typeof rail)[number]) => rest;
     expect(rail.length).toBeGreaterThan(0);
+    // WP-40 (Decided 1): mono capitals again, so they show in capitals.
     expect(settings.map((each) => each.shown)).toEqual([
-      "Account",
-      "Experience",
-      "Agent system",
-      "Application",
+      "ACCOUNT",
+      "EXPERIENCE",
+      "AGENT SYSTEM",
+      "APPLICATION",
     ]);
     for (const each of settings) expect(voice(each)).toEqual(voice(rail[0]));
   });
