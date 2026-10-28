@@ -204,7 +204,6 @@ fn build_native_glass() {
         .collect();
     sources.sort();
     sources.push("native/glass/PolyphonicGlass.swift".into());
-    sources.push("native/glass/PolyphonicComposer.swift".into());
     // The app runs from macOS 14; the glass itself stays behind #available(macOS 26).
     let status = std::process::Command::new("xcrun")
         .args([

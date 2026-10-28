@@ -623,9 +623,6 @@ public func polyphonicGlassAttach(_ window: UnsafeMutableRawPointer?, _ webView:
     return MainActor.assumeIsolated {
         guard #available(macOS 26.0, *), let pointer = UnsafeMutableRawPointer(bitPattern: address),
               let view = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue() as? WKWebView else { return false }
-        let attached = PolyphonicGlass.attach(to: view)
-        // The composer in Apple's glass, above the page: inert until the page asks for it (PolyphonicComposer.swift).
-        PolyphonicComposer.attach(to: view)
-        return attached
+        return PolyphonicGlass.attach(to: view)
     }
 }

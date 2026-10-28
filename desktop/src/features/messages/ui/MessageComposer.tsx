@@ -75,10 +75,6 @@ import { useMentionSendFlow } from "./useMentionSendFlow";
 import { usePersistentAgentMentionHydration } from "./usePersistentAgentMentionHydration";
 import { useComposerContentState } from "./useComposerContentState";
 import { useComposerShape } from "./useComposerShape";
-import {
-  useNativeComposerAvailable,
-  useNativeComposerGlass,
-} from "./useNativeComposerGlass";
 import { useDraftPersistLifecycle } from "./useDraftPersistSnapshot";
 import type { MessageComposerSendContext } from "./messageComposerTypes";
 import {
@@ -195,12 +191,6 @@ type MessageComposerProps = {
     explicitMentionPubkeys?: string[],
   ) => Promise<void>;
   placeholder?: string;
-  /**
-   * The conversation's own composer may be drawn in Apple's glass by the Mac
-   * (useNativeComposerGlass.ts), in builds that ask for it. Threads, edits and
-   * every other composer keep the page's.
-   */
-  nativeGlass?: boolean;
   profiles?: UserProfileLookup;
   replyTarget?: {
     author: string;
@@ -240,7 +230,6 @@ function MessageComposerImpl({
   onPreparingMentionSendChange,
   onSend,
   placeholder,
-  nativeGlass = false,
   profiles,
   replyTarget = null,
   mediaController,
@@ -660,18 +649,6 @@ function MessageComposerImpl({
     richText.editor,
     composerScrollRef,
   );
-  const formRef = React.useRef<HTMLFormElement>(null);
-  const nativeComposerAvailable = useNativeComposerAvailable();
-  const nativeGlassActive = useNativeComposerGlass({
-    enabled: nativeGlass && shellFrame && nativeComposerAvailable,
-    editor: richText.editor,
-    formRef,
-    suggestionsOpen:
-      mentions.isMentionOpen ||
-      channelLinks.isChannelOpen ||
-      emojiAutocomplete.isEmojiAutocompleteOpen ||
-      isCapabilityPaletteOpen,
-  });
 
   const persistentMentionHydration = usePersistentAgentMentionHydration({
     audienceScope,
@@ -1549,7 +1526,6 @@ function MessageComposerImpl({
               "relative z-10 rounded-[23px] border border-transparent bg-muted py-[5px] pl-[6px] pr-[5px]",
             )}
             data-composer-open={composerOpen ? "" : undefined}
-            data-native-glass={nativeGlassActive ? "" : undefined}
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}
@@ -1564,7 +1540,6 @@ function MessageComposerImpl({
             onSubmit={(event) => {
               handleSubmit(event);
             }}
-            ref={formRef}
           >
             <ComposerCapabilityPalette
               onClose={(reason) => {
