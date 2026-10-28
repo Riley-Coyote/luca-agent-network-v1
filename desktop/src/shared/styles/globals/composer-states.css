@@ -347,41 +347,23 @@
   box-shadow: none;
 }
 
-/* At night it is Ghost's dark glass, as on the phone (Riley, 2026-10-27, on
- * the lighter step: "thats too light", then Ghost's iPhone composer as the
- * look): Apple's regular glass under a 0.58 black veil. Matched by
- * measurement to the real thing over this card, in a window in use (the
- * composer glass lab, 27.0.1): the body a few levels above the card, light
- * gathering into the top and bottom edges over a few points, and a hairline
- * lit along the top and bottom that turns to a faint shadow at the sides.
- * Light on an edge, not a line drawn round. */
-:root[data-luca-frame].dark [data-testid="message-composer"] {
-  background:
-    linear-gradient(
-      to bottom,
-      rgb(255 255 255 / 0.05),
-      rgb(255 255 255 / 0.02) 2px,
-      rgb(255 255 255 / 0.008) 4px,
-      rgb(255 255 255 / 0) 6px,
-      rgb(255 255 255 / 0) calc(100% - 6px),
-      rgb(255 255 255 / 0.008) calc(100% - 4px),
-      rgb(255 255 255 / 0.02) calc(100% - 2px),
-      rgb(255 255 255 / 0.05)
-    )
-    padding-box,
-    linear-gradient(
-      color-mix(in srgb, hsl(var(--mn-surface)) 95.3%, #fff),
-      color-mix(in srgb, hsl(var(--mn-surface)) 95.3%, #fff)
-    )
-    padding-box,
-    linear-gradient(
-      to bottom,
-      rgb(255 255 255 / 0.235),
-      rgb(0 0 0 / 0.6) 16px,
-      rgb(0 0 0 / 0.6) calc(100% - 16px),
-      rgb(255 255 255 / 0.235)
-    )
-    border-box;
+/* At night a solid surface, quietly raised (Riley, 2026-10-28: "go back to a
+ * non-glass composer and just make it look excellent"; before that the
+ * lighter step was "too light", and an outline was "a border around it"). The
+ * plate the page uses for what floats over the conversation, a step stronger
+ * so it reads at a glance, and still a step under your own bubbles, so the box
+ * never outweighs what you've sent. A soft shadow beneath says it sits above
+ * what scrolls under it. Nothing drawn round it, no light on its edge. */
+:root[data-luca-frame].dark [data-testid="message-composer"],
+:root[data-luca-frame].dark [data-testid="message-composer"]:focus-within {
+  background-color: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 5.5%,
+    hsl(var(--mn-surface))
+  );
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 12px 28px -12px rgb(0 0 0 / 0.7);
 }
 
 /* Over the reply recess too: the box's own surface, no edge drawn on it. */

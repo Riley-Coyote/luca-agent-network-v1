@@ -342,36 +342,18 @@
   padding: 6px;
 }
 
-/* At night, the app composer's dark glass (composer-states.css), on the
- * panel's own surface: light gathering into the top and bottom edges, a
- * hairline lit along them that turns to shadow at the sides. */
-:root[data-luca-frame].dark .qc-composer {
-  background:
-    linear-gradient(
-      to bottom,
-      rgb(255 255 255 / 0.05),
-      rgb(255 255 255 / 0.02) 2px,
-      rgb(255 255 255 / 0.008) 4px,
-      rgb(255 255 255 / 0) 6px,
-      rgb(255 255 255 / 0) calc(100% - 6px),
-      rgb(255 255 255 / 0.008) calc(100% - 4px),
-      rgb(255 255 255 / 0.02) calc(100% - 2px),
-      rgb(255 255 255 / 0.05)
-    )
-    padding-box,
-    linear-gradient(
-      color-mix(in srgb, hsl(var(--background)) 95.3%, #fff),
-      color-mix(in srgb, hsl(var(--background)) 95.3%, #fff)
-    )
-    padding-box,
-    linear-gradient(
-      to bottom,
-      rgb(255 255 255 / 0.235),
-      rgb(0 0 0 / 0.6) 16px,
-      rgb(0 0 0 / 0.6) calc(100% - 16px),
-      rgb(255 255 255 / 0.235)
-    )
-    border-box;
+/* At night, the app composer's solid surface (composer-states.css), on the
+ * panel's own: a step above it, a soft shadow beneath, nothing drawn round
+ * it. On the mini chat's glass the composer keeps the frame's plate (below). */
+:root[data-luca-frame].dark .qc-panel:not([data-glass]) .qc-composer {
+  background-color: color-mix(
+    in srgb,
+    hsl(var(--foreground)) 5.5%,
+    hsl(var(--background))
+  );
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 12px 28px -12px rgb(0 0 0 / 0.7);
 }
 
 :root[data-luca-frame]:not(.dark) .qc-composer {
