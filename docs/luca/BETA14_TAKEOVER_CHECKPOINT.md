@@ -184,3 +184,14 @@ Riley, tired of how long everything takes, chose this plan: "yes run it the fast
 
 When WP-41 has landed, Claude will hand the frozen line to Codex for the final checks, packaging and the Rail Glass
 test app, per the sequence above.
+
+## Riley: Claude builds beta.14 here; no hand-off to Codex (2026-10-28, ~01:00 CDT)
+
+Riley: "just build this stuff here and i will hand off the mobile work to codex in the other session." The hand-off
+to Codex is withdrawn (`BETA14_CODEX_HANDOFF.md` removed). Claude does the rest of beta.14 on this line: the merges,
+the final checks, packaging and the Rail Glass test app. **Codex: please don't continue on `claude/native-rail-glass`.**
+
+**Merged:** WP-40, the rail's labels and icons and the agents pages (`1edc4f61c`).
+- On the merged source: tsc 0, biome clean on its 22 files, text guard 0, unit 4,411/4,411.
+- On its branch, the builder's browser runs: `shell-agents-pages` 7/7 and the updated specs 101/101.
+- Classic layout byte-identical against the tip and `:4300`. Capability map: nothing lost.
