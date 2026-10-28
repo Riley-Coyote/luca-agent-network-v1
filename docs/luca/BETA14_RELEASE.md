@@ -618,3 +618,87 @@ The two are merged by hand.
 
 **Checks JSON keys:** `places_column`, `brain_page_head`, `brain_body`, `brain_rail`, `ways_in`, `brain_review`,
 `agent_reads_row`, `capability_map`, `lip_name`, `classic_identical`, `unit_tests`, `playwright`, `gates`.
+
+## WP-39 · Agent fingerprints (2026-10-27, Riley's call)
+
+**Why.** Riley turned down the pixel creatures for agent marks: "i would love for the marks for each agent to look super
+premium in some way". From three live studies he picked the fingerprint. Then: "can we make it so that it moves no
+matter what in some way? my hope is that even just looking at the rail looks elevated and super beautiful with little
+things like these fingerpirint marks moving and making the app feel alive". And for this package: "Yes, bring them in".
+- The approved study is live at https://claude.ai/artifact/WZgXgFkZrKCXch6UodkbHs. Its source is in the lab worktree
+  `~/Documents/Repositories/.claude-worktrees/shell-lab-rail`, branch `claude/shell-lab-rail-faces` at `7f163fabb`,
+  in `design-lab/agent-marks/fingerprint/`: `template.html` holds the shaders and the motion; `index.html` is the built
+  page. `design-lab/agent-marks/grow/prints.py` is the exact growth the study used, in numpy. Read both before you build.
+- Today every agent wears one shared drawing, `shared/ui/AgentMark.tsx`. This package builds the fingerprint itself.
+  Putting it into the rail and the pages is a later package, so leave every `AgentMark` call site alone.
+
+**Decided** (under `shell-frame`; the classic layout doesn't change):
+1. **Whose print.** The seed is FNV-1a (the `0x811c9dc5` / `0x01000193` form) of `residentGlyphSeed(publicKey,
+   lucaPubkey)`. So Luca's print comes from Luca's fixed seed and is the same for every owner, and every other agent's
+   comes from its key. It never changes when an agent's model or runtime changes.
+2. **Its kind,** one of five: whorl, loop, arch, sideways loop, double loop.
+   - The kind comes from the seed (`seed % 5`). Among the owner's agents, taken in order (Luca first, then by when each
+     arrived), a later agent steps past a kind an earlier one holds, so the first five differ. Past five, kinds repeat,
+     but a print never does.
+   - Give a small helper the owner's resident list to make that assignment. Without the list, use `seed % 5`.
+3. **How it grows:** exactly as `prints.py` does it.
+   - Gray–Scott on a 96 × 96 grid: F .0545, k .062, Du .2, Dv .1, dt 1.
+   - Diffusion 2.1 along a ridge flow and 0.17 across it, by bilinear taps at ±1 along the flow and across it. Add a
+     little 9-point evenness for the round kinds: whorl .12, double loop .12, loop and sideways loop .06, arch 0.
+   - Held (clamped) edges. 4000 steps.
+   - The flow and the seed stripes come from each kind's phase, the formulas in `prints.py`: `sin(2π·φ/8) > 0.2` gives
+     V = .25 plus a little noise, and U = 1 − 2V.
+   - Use a seeded PRNG of your own; numpy's can't be matched. The kinds and the rules stay the same, and the ridges
+     will differ from the study's. That's expected.
+   - Grow on the GPU (WebGL 2 with float render targets) in one shared context. If float targets aren't available,
+     grow in a worker on the CPU.
+   - Grow one agent at a time, off the frame's critical path. Cache by seed and version (U and V quantized), so each
+     print is grown once per Mac.
+4. **How it's drawn:** port the study's print shader faithfully. Two variants:
+   - **`rail`** (small): the print pressed in ink. It's an oval 0.84 as wide as it is tall, whose ridges fade over its
+     outer 22%, with a little wet sheen. Take the ink from the face element's CSS color, so it follows the theme and
+     the row's hover and selected ink.
+   - **`large`** (an agent's page head and the like): black lacquer, lit from above, with a soft ring light so ridges
+     read in every direction, and a hairline rim brightest on top.
+   - One renderer draws every mark into one atlas and copies each changed mark out once a frame, as the study does.
+5. **How it moves.** The motion is drawn, never grown: a print always returns to exactly itself. Don't run the growth
+   while an agent works; the study's earlier regrowth wore a print into a scribble.
+   - **At rest,** each print keeps its own time, from its seed:
+     - light drifting across it, ±0.95 rad around the top, every 11–17 s;
+     - ridges that breathe, every 5–8 s;
+     - a wave running out from its core: 0.55 texel, about 6.5 s, wavenumber 2π/30.
+   - **Working:** the wave quickens to about 2.2 s and 1.5 texels, and the print brightens.
+   - **A voice in the room:** expose a way to send a ring of light across a print.
+   - **The pointer** moves the light.
+   - **Reduce Motion** holds every print exactly still.
+   - **Cost:** resting marks redraw at half rate, marks off screen do no work, and everything pauses while the
+     document is hidden.
+6. **The component:** `<AgentFingerprint residentKey size variant working current />`, aria-hidden, since the row's
+   name labels it. It works at 14–18 px and at 64–128 px. With no WebGL 2 at all, it falls back to today's `AgentMark`.
+7. **Not in this package:** any `AgentMark` call site, the dotted marks beside messages, and Settings.
+
+**Built beside:**
+- **WP-40,** the rail and the agents pages, may be running at the same time in `ShellRail.tsx`, `features/agents/space/`
+  and the shell CSS. Don't touch those files.
+- **Two side branches,** the glass mini chat and projects' rooms, wait to be merged. Don't touch quick-chat or the rail.
+
+**Files in scope:**
+- New, under `desktop/src/shared/ui/fingerprint/`: growth, shaders, renderer, cache, the kinds helper and the
+  component, with unit tests beside them (FNV seed, kind assignment with step-past, the cache's round trip).
+- A proof harness: a lab entry under `desktop/src/testing/`, or an e2e page with `installMockBridge` showing a rail of
+  real-looking rows and a large head.
+- A spec, `tests/e2e/shell-fingerprint.spec.ts`, registered in the smoke project.
+
+**Proof:**
+- Real size (18 px) in a dark and a light rail, cropped and shown 3×. A 64 px head and five 128 px prints, one of each
+  kind.
+- A frame strip showing rest motion.
+- Working beside resting.
+- Reduce Motion still, measured as zero changed pixels.
+- Identity: a print after 60 s of motion equals its rest frame.
+- The growth time per agent, on the GPU and on the CPU fallback. A cache hit on reload.
+- The study page next to your render, by eye.
+
+**Checks JSON keys:** `seed_rule`, `kinds_distinct`, `growth_gpu_ms`, `growth_cpu_ms`, `cache_hit`, `rail_dark`,
+`rail_light`, `large`, `rest_motion`, `working_motion`, `still_reduce_motion`, `identity_stable`, `offscreen_idle`,
+`hidden_pause`, `fallback_no_webgl`, `unit_tests`, `playwright`, `gates`.
