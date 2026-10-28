@@ -1111,23 +1111,29 @@ test("9: a project room opened from Search", async ({ page }) => {
     { timeout: 10_000 },
   );
   await page.waitForTimeout(900);
-  // A project nests nothing since WP-34 (Decided 3): its row is marked and
-  // in view, and its rooms are in its own column, the room picked there.
+  // A project's rooms sit under it in the rail (Riley, 2026-10-27, undoing
+  // WP-34's "projects never nest"): its row is marked, and the room is lit
+  // under it, in view, with no room column beside the conversation.
   const state = await page.evaluate((id) => {
+    const session = document.querySelector<HTMLElement>(
+      `[data-testid="rail-session-${id}"]`,
+    );
     const home = document.querySelector<HTMLElement>(
       '[data-testid="rail-home-project:tidepool"]',
     );
     const rail = document
       .querySelector('[data-sidebar="content"]')
       ?.getBoundingClientRect();
-    const box = home?.getBoundingClientRect();
+    const box = session?.getBoundingClientRect();
     return {
       home_active: home?.getAttribute("data-active") ?? null,
-      home_in_view:
+      home_expanded:
+        home
+          ?.querySelector(".luca-rail-row-hit")
+          ?.getAttribute("aria-expanded") ?? null,
+      session_current: session?.getAttribute("aria-current") ?? null,
+      session_in_view:
         box && rail ? box.top >= rail.top && box.bottom <= rail.bottom : null,
-      session_in_rail: Boolean(
-        document.querySelector(`[data-testid="rail-session-${id}"]`),
-      ),
       room_column: Boolean(
         document.querySelector('[data-testid="project-room-navigator"]'),
       ),
@@ -1141,9 +1147,10 @@ test("9: a project room opened from Search", async ({ page }) => {
   });
   const ok =
     state.home_active === "true" &&
-    state.home_in_view === true &&
-    state.session_in_rail === false &&
-    state.room_column === true;
+    state.home_expanded === "true" &&
+    state.session_current === "page" &&
+    state.session_in_view === true &&
+    state.room_column === false;
   record("search_room_open", { random, ...state, shot: shotFile, ok });
   expect.soft(ok, "search_room_open").toBe(true);
 });

@@ -1778,19 +1778,16 @@ test("a project room's own header gives way to the lip and the rail's rooms", as
   const before = reachable ? await look(BASE_URL, "rail") : "base unreachable";
   const after = await look("", "rail");
   const column = await look("", "column");
-  // Since WP-34 (Decided 3) a project's rooms are in its own column, the
-  // only placement: the setting retired, so a stored "In the rail" from
-  // before draws exactly as the column does.
   checks.project_room_header = {
     before_base_build: before,
-    stale_rail_setting: after,
+    after_rooms_in_rail: after,
     rooms_in_a_column: column,
     ok:
-      after.picker === 1 &&
-      column.picker === 1 &&
+      after.picker === 0 &&
+      after.card_header === 0 &&
       after.lip_name === "Tidepool/general" &&
-      column.lip_name === "Tidepool/general" &&
-      JSON.stringify(after) === JSON.stringify(column),
+      after.first_content_from_pane === 23 &&
+      column.picker === 1,
   };
   checks.console = seen;
   record("project-room", checks);

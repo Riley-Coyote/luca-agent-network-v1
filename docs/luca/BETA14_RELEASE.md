@@ -333,7 +333,8 @@ as "the contents of something", and on open black as "debris" (Linear). Riley th
 
 ## WP-34 · The rail: what needs you, Luca, and the work under whoever does it
 
-**Why.** Conversations and work are told apart. Luca, a project and a room are one ongoing chat each and never nest.
+**Why.** Conversations and work are told apart. Luca and a room are one ongoing chat each and never nest (a project's
+rooms sit under it on no thread: Decided 3, amended 2026-10-27).
 What Luca hands an agent or an app hangs on the thread under whoever is doing it, while they work. Live work shows once,
 in the rail, and Activity becomes the record of what happened. What needs you, the one thing only you can do, comes to
 the top.
@@ -350,8 +351,12 @@ the top.
    Needs you page in the card, as Activity does today. That page isn't a conversation, so it takes no tab. The count on
    the places column moves from Activity to Chats.
 3. **Only work nests.** Luca never has rows under it: its side conversations move under whoever does the work.
-   - Projects never nest: their rooms stay in the project's own column, as `roomsInColumn` draws them today. That
-     behaviour becomes the only one, and the setting retires (in the capability map).
+   - ~~Projects never nest~~ (amended 2026-10-27, `claude/rail-project-rooms`). This bullet read Riley's note on the
+     line ("not below projects for each chat within a prject") as "a project lists no rooms". He meant the line. On
+     the test app: "they should show each room/chat within the project below the project … it was never supposed to
+     change from how we had it built before". A project's rooms sit under it again, as before WP-34, on no thread.
+     The thread stays for an agent's and an app's work. Settings → Appearance → Project rooms is back: In the rail
+     (the default) or In a column.
    - An agent shows its sessions.
    - An app shows its tasks, from `useAllRuntimeTasks` by `runtimeFamily`: live ones, and finished ones for as long as
      the rail shows a session's age today.
