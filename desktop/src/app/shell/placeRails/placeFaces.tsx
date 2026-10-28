@@ -1,4 +1,6 @@
+import type * as React from "react";
 import {
+  Activity,
   AppWindow,
   Bell,
   Bot,
@@ -19,10 +21,16 @@ import {
   Stethoscope,
   Trash2,
   User,
+  Users,
+  Waypoints,
 } from "lucide-react";
 
-import type { LibraryKindId } from "@/app/shell/placeRails/placePicks";
+import type {
+  LibraryKindId,
+  RailPlace,
+} from "@/app/shell/placeRails/placePicks";
 import type { SettingsSection } from "@/features/settings/ui/SettingsPanels";
+import { AgentMark } from "@/shared/ui/AgentMark";
 import { HarnessLogo, harnessIdFromRuntimeId } from "@/shared/ui/HarnessLogo";
 
 /**
@@ -84,4 +92,49 @@ export function HarnessFace({
       size={size}
     />
   );
+}
+
+/** What a rail row's face is: a mind's mark, a maker's mark, or a line
+ *  drawing. The rail's CSS tones each kind (shell-rail.css). */
+export type RailFaceKind = "agent" | "app" | "icon";
+
+/**
+ * A place's rail row's face (BETA14_RELEASE.md WP-40, Decided 2), as the
+ * lab's rails draw them (shell-lab-rail `6049f9246`, content.ts): a mind
+ * wears the agent mark (WP-41 turns it into their fingerprint); a connected
+ * app its maker's mark; everything else a line drawing. Brain's two views
+ * have no row in the lab: Connections wears the joined points, Activity the
+ * pulse the lab gives "What they read".
+ */
+export function placeRowFace(
+  place: RailPlace,
+  rowId: string,
+): { kind: RailFaceKind; face: React.ReactNode } {
+  const icon = (Icon: typeof User) => ({
+    kind: "icon" as const,
+    face: <Icon />,
+  });
+  if (
+    rowId === "luca" ||
+    rowId.startsWith("mind:") ||
+    rowId.startsWith("persona:") ||
+    rowId.startsWith("record:")
+  )
+    return { kind: "agent", face: <AgentMark /> };
+  if (rowId.startsWith("group:")) return icon(Users);
+  if (place === "activity") return icon(Activity);
+  if (place === "brain")
+    return rowId === "connections" ? icon(Waypoints) : icon(Activity);
+  if (rowId === "deleted") return icon(LIBRARY_DELETED_FACE);
+  if (rowId === "skills:all") return icon(LIBRARY_SKILLS_FACE);
+  if (rowId.startsWith("skills:"))
+    return {
+      kind: "app",
+      face: <HarnessFace runtimeId={rowId.slice("skills:".length)} size={16} />,
+    };
+  if (rowId.startsWith("made:")) {
+    const kind = rowId.slice("made:".length) as LibraryKindId;
+    return icon(LIBRARY_KIND_FACES[kind] ?? LayoutGrid);
+  }
+  return icon(LayoutGrid);
 }

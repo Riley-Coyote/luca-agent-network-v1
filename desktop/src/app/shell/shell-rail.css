@@ -3,7 +3,8 @@
  * shell study's (desktop/src/testing/shellStudy/shellStudy.css, "the
  * conversations rail"), as BETA14_RELEASE.md WP-34 settled it: what needs
  * you, Luca, then Projects, Agents and Apps, each row led by its face, and
- * only work nested, on the thread under whoever does it.
+ * only work on the thread under whoever does it (a project's rooms sit under
+ * it on none).
  *
  * The selection is not drawn here: a home's row carries `data-active` and
  * today's pill (RailGlass) follows it until the shell's marks take over. The
@@ -27,9 +28,12 @@
 }
 
 /* ── section names: Chats, Projects, Agents, Apps, and every place's ──
- * In the pages' own voice (WP-34, Decided 8): sentence case at 11.5 and a
- * semibold weight, as Apple's sidebars set theirs. For the rails' heads
- * only: the app's `.type-eyebrow` is unchanged everywhere else. */
+ * Labels, not rows (BETA14_RELEASE.md WP-40, Decided 1; Riley, 2026-10-27:
+ * the heads were "small and looking the same as each item in the rail"):
+ * the app's own micro-label, `.type-eyebrow` as the shell sets it (the
+ * mono's capitals at 11, opened to 0.09em, faint), 28 tall with 6 above,
+ * so the eye reads a heading and then its rows. A section's 14 above
+ * collapses with the head's 6, as the lab's does. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-section {
   margin-top: 14px;
 }
@@ -38,17 +42,10 @@
   align-items: center;
   color: var(--rail-faint);
   display: flex;
-  height: 26px;
+  height: 28px;
   justify-content: space-between;
+  margin-top: 6px;
   padding: 0 6px 0 10px;
-}
-
-:root[data-luca-shell] [data-shell-rail] .luca-rail-section-head.type-eyebrow {
-  font-family: inherit;
-  font-size: 0.71875rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 /* The rail's own heading, CHATS, with the + for a new conversation: the
@@ -362,6 +359,16 @@
   border-bottom-left-radius: 7px;
   bottom: calc(50% - 0.5px);
   width: 13px;
+}
+
+/* A project's rooms sit under it on no thread, their names on the project's
+ * own: the line is for work (Riley, 2026-10-27: "for agents and their task
+ * sessions specifically. so like not below projects"). */
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-sessions[data-rooms]
+  .luca-rail-session::before {
+  content: none;
 }
 
 :root[data-luca-shell] [data-shell-rail] .luca-rail-session {

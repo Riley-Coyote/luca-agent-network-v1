@@ -142,9 +142,18 @@ function ContinuitySurfaceTab({
 }
 
 export function ResidentHandoffPanel({
+  onData,
   residentPubkey,
+  variant = "page",
 }: {
+  /** Each read or change of the handoff, for a summary drawn elsewhere
+   *  (a mind's Notebook draws its opener's line from it). */
+  onData?: (data: ResidentContinuityInspector) => void;
   residentPubkey: string;
+  /** `space`: inside a mind's Notebook opener (BETA14_RELEASE.md WP-40):
+   *  its parts under their labels, the switch and status after them. The
+   *  opener says "Saved handoff", so the panel doesn't again. */
+  variant?: "page" | "space";
 }) {
   const { goChannel } = useAppNavigation();
   const [data, setData] = React.useState<ResidentContinuityInspector | null>(
@@ -156,6 +165,13 @@ export function ResidentHandoffPanel({
   const [editing, setEditing] = React.useState(false);
   const [confirmForget, setConfirmForget] = React.useState(false);
   const [draft, setDraft] = React.useState<HandoffDraft>(EMPTY_DRAFT);
+
+  const onDataEvent = React.useEffectEvent(
+    (next: ResidentContinuityInspector) => onData?.(next),
+  );
+  React.useEffect(() => {
+    if (data) onDataEvent(data);
+  }, [data]);
 
   const refresh = React.useCallback(async () => {
     setLoading(true);
@@ -273,6 +289,121 @@ export function ResidentHandoffPanel({
     );
   }
 
+  const forgetDialog = (
+    <AlertDialog onOpenChange={setConfirmForget} open={confirmForget}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Forget this handoff?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Luca will permanently purge the encrypted handoff and its prior
+            revisions. The agent&apos;s native memory is not changed.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy}
+            onClick={(event) => {
+              event.preventDefault();
+              void apply(
+                () => forgetResidentHandoff(residentPubkey),
+                "Encrypted handoff forgotten.",
+              ).then((forgotten) => {
+                if (forgotten) setConfirmForget(false);
+              });
+            }}
+          >
+            Forget handoff
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  if (variant === "space") {
+    return (
+      <div
+        className="luca-mind-handoff"
+        data-testid="resident-continuity-panel"
+      >
+        {error ? (
+          <p className="luca-mind-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {data?.handoff ? (
+          editing ? (
+            <HandoffEditor
+              busy={busy}
+              draft={draft}
+              onCancel={() => {
+                setDraft(toDraft(data.handoff as ResidentHandoff));
+                setEditing(false);
+              }}
+              onChange={setDraft}
+              onSave={() => void saveDraft()}
+            />
+          ) : (
+            <SpaceHandoffView
+              handoff={data.handoff}
+              onEdit={() => setEditing(true)}
+              onForget={() => setConfirmForget(true)}
+              onOpenSource={(eventId) => void openSource(eventId)}
+              onRemoveItem={(field, index) => void removeItem(field, index)}
+            />
+          )
+        ) : (
+          <p className="luca-mind-help luca-mind-handoff-empty">
+            {savedHandoffPresentation(data).empty}
+          </p>
+        )}
+        {data?.job?.canRetry ? (
+          <button
+            className="luca-mind-button"
+            disabled={busy || !data.enabled}
+            onClick={() =>
+              void apply(
+                () => retryResidentHandoff(residentPubkey),
+                "Handoff save retry scheduled.",
+              )
+            }
+            type="button"
+          >
+            <RotateCcw aria-hidden /> Retry failed handoff
+          </button>
+        ) : null}
+        <div className="luca-mind-switch-row">
+          <div className="luca-mind-switch-words">
+            <span className="luca-mind-row-title">Keep a saved handoff</span>
+            <span className="luca-mind-help">
+              Luca stores a small encrypted handoff separately from the
+              resident&apos;s native memory. Saving it does not confirm it was
+              loaded for a later turn; that turn&apos;s context receipt says
+              what Polyphonic delivered.
+            </span>
+            <span className="luca-mind-meta">
+              <ContinuityStatusLine data={data} />
+            </span>
+          </div>
+          <Switch
+            aria-label="Enable handoff continuity"
+            checked={data?.enabled ?? false}
+            disabled={busy || !data}
+            onCheckedChange={(enabled) => {
+              void apply(
+                () => setResidentContinuityEnabled(residentPubkey, enabled),
+                enabled
+                  ? "Handoff saving enabled."
+                  : "Handoff saving disabled.",
+              );
+            }}
+          />
+        </div>
+        {forgetDialog}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4" data-testid="resident-continuity-panel">
       <section className="overflow-hidden rounded-2xl bg-muted/20">
@@ -355,34 +486,7 @@ export function ResidentHandoffPanel({
         <ContinuityEmptyState data={data} />
       )}
 
-      <AlertDialog onOpenChange={setConfirmForget} open={confirmForget}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Forget this handoff?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Luca will permanently purge the encrypted handoff and its prior
-              revisions. The agent&apos;s native memory is not changed.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault();
-                void apply(
-                  () => forgetResidentHandoff(residentPubkey),
-                  "Encrypted handoff forgotten.",
-                ).then((forgotten) => {
-                  if (forgotten) setConfirmForget(false);
-                });
-              }}
-            >
-              Forget handoff
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {forgetDialog}
     </div>
   );
 }
@@ -415,6 +519,126 @@ function ContinuityStatus({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** The status line, as the panel's status says it, in one breath. */
+function ContinuityStatusLine({
+  data,
+}: {
+  data: ResidentContinuityInspector | null;
+}) {
+  const presentation = savedHandoffPresentation(data);
+  const job = handoffJobLabel(data);
+  return (
+    <>
+      {[presentation.label, job].filter(Boolean).join(" · ")}
+      {data?.job?.state === "failed" ? ` · ${handoffFailureDetail(data)}` : ""}
+    </>
+  );
+}
+
+/** The handoff in a mind's Notebook (WP-40): each part under its label,
+ *  a hairline between, its sources, then Correct and Forget. */
+function SpaceHandoffView({
+  handoff,
+  onEdit,
+  onForget,
+  onOpenSource,
+  onRemoveItem,
+}: {
+  handoff: ResidentHandoff;
+  onEdit: () => void;
+  onForget: () => void;
+  onOpenSource: (eventId: string) => void;
+  onRemoveItem: (
+    field: "unresolvedThreads" | "commitments" | "explicitPreferences",
+    index: number,
+  ) => void;
+}) {
+  const parts: Array<{
+    field: "unresolvedThreads" | "commitments" | "explicitPreferences";
+    items: string[];
+    label: string;
+  }> = [
+    {
+      field: "unresolvedThreads",
+      items: handoff.unresolvedThreads,
+      label: "Unresolved",
+    },
+    { field: "commitments", items: handoff.commitments, label: "Commitments" },
+    {
+      field: "explicitPreferences",
+      items: handoff.explicitPreferences,
+      label: "Preferences",
+    },
+  ];
+  return (
+    <>
+      <dl className="luca-mind-fields" data-testid="mind-handoff-parts">
+        {handoff.summary ? (
+          <div className="luca-mind-field">
+            <dt className="type-eyebrow luca-mind-eyebrow">Summary</dt>
+            <dd>{handoff.summary}</dd>
+          </div>
+        ) : null}
+        {parts.map((part) =>
+          part.items.length > 0 ? (
+            <div className="luca-mind-field" key={part.field}>
+              <dt className="type-eyebrow luca-mind-eyebrow">{part.label}</dt>
+              <dd>
+                <ul className="luca-mind-handoff-items">
+                  {part.items.map((item, index) => (
+                    <li key={`${part.field}-${item}`}>
+                      <span>{item}</span>
+                      <button
+                        aria-label={`Remove ${part.label.toLowerCase()} item`}
+                        className="luca-mind-handoff-remove"
+                        onClick={() => onRemoveItem(part.field, index)}
+                        type="button"
+                      >
+                        <X aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          ) : null,
+        )}
+        {handoff.sourceEventIds.length > 0 ? (
+          <div className="luca-mind-field">
+            <dt className="type-eyebrow luca-mind-eyebrow">Sources</dt>
+            <dd className="luca-mind-sources">
+              {handoff.sourceEventIds.map((eventId) => (
+                <button
+                  className="luca-mind-source"
+                  key={eventId}
+                  onClick={() => onOpenSource(eventId)}
+                  type="button"
+                >
+                  {eventId.slice(0, 8)}
+                  <ExternalLink aria-hidden />
+                </button>
+              ))}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+      <div className="luca-mind-actions">
+        <button
+          aria-label="Correct handoff"
+          className="luca-mind-button"
+          onClick={onEdit}
+          type="button"
+        >
+          <Pencil aria-hidden /> Correct
+        </button>
+        <button className="luca-mind-button" onClick={onForget} type="button">
+          <Trash2 aria-hidden /> Forget handoff
+        </button>
+      </div>
+    </>
   );
 }
 

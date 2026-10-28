@@ -15,10 +15,12 @@ import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import { ThinkingEffortControl } from "@/features/thinking/ui/ThinkingEffortControl";
 import type { QuickChatViewModel } from "../types";
+import { useQuickChatGlass } from "./useQuickChatGlass";
 import "./quickchat.css";
 import { shapeQuickComposer } from "./quickComposerShape";
 
 export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
+  const glass = useQuickChatGlass({ open: model.open });
   const pendingPermissions = useManagedPermissions();
   const permissions = pendingPermissions.filter(
     (pending) =>
@@ -140,24 +142,30 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
     target.addEventListener("pointerup", stop);
     target.addEventListener("pointercancel", stop);
   };
-  if (!model.open)
-    return (
-      <button
-        type="button"
-        className="qc-launcher"
-        data-testid="quickchat-launcher"
-        aria-label="Open Quick Chat"
-        title="Quick Chat"
-        onClick={() => model.setOpen(true)}
-      >
-        <MessageCircle size={20} />
-      </button>
-    );
-  return (
+  const launcher = (
+    <button
+      ref={glass.launcher}
+      type="button"
+      className="qc-launcher"
+      data-testid="quickchat-launcher"
+      data-glass={glass.drawn ? "" : undefined}
+      aria-label="Open Quick Chat"
+      title="Quick Chat"
+      onClick={() => model.setOpen(true)}
+    >
+      <MessageCircle size={20} />
+    </button>
+  );
+  // While its glass drains home the panel stays, words gone and out of reach.
+  const panel = (
     <section
+      ref={glass.panel}
       className="qc-panel"
       data-testid="quickchat-panel"
+      data-glass={glass.drawn ? "" : undefined}
       aria-label="Quick Chat"
+      aria-hidden={model.open ? undefined : true}
+      inert={model.open ? undefined : true}
       style={{ width: model.width, height: model.height }}
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes("Files")) event.preventDefault();
@@ -569,5 +577,15 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
         )}
       </form>
     </section>
+  );
+  if (!glass.drawn) return model.open ? panel : launcher;
+  return (
+    <>
+      <div ref={glass.shell} className="qc-glass" aria-hidden="true">
+        <MessageCircle ref={glass.mark} className="qc-glass-mark" size={20} />
+      </div>
+      {model.open || glass.leaving ? panel : null}
+      {model.open ? null : launcher}
+    </>
   );
 }

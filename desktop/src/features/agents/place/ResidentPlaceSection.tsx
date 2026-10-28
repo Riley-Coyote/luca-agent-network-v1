@@ -1,3 +1,5 @@
+import { PenLine } from "lucide-react";
+
 import { MadeThumb } from "@/features/agents/space/MadeThumb";
 import { useArtifactCanvas } from "@/features/artifacts/ArtifactCanvasProvider";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -97,78 +99,152 @@ function ScopedResidentPlace({
         : null;
 
   if (variant === "space" && !draft) {
+    const open = () => {
+      if (!selected || !selectedAvailable) return;
+      openArtifact({
+        artifactId: selected.artifactId,
+        version: selected.version,
+        previewSessionId: null,
+        conversationId: selected.conversationId,
+        residentPubkey,
+        turnId: null,
+        source: "library",
+      });
+    };
+    // Place as a titled section (BETA14_RELEASE.md WP-40, Decided 3): who
+    // wrote it and when, Edit place, then each part under its label with a
+    // hairline between, the piece as a card with Open, and the switch with
+    // what it allows.
     return (
       <section
-        aria-label={`${residentName}'s own words`}
-        className="luca-mind-own"
+        aria-labelledby="resident-place-title"
+        className="luca-mind-section"
         data-testid="resident-place"
       >
-        {!isEmpty ? (
-          <figure className="luca-mind-words">
-            <div>
-              {content.introduction.trim() ? (
-                <blockquote data-testid="resident-place-introduction">
-                  {content.introduction}
-                </blockquote>
-              ) : null}
-              {content.exploration.trim() ? (
-                <figcaption data-testid="resident-place-exploration">
-                  Exploring: {content.exploration}
-                </figcaption>
-              ) : null}
-            </div>
-            {content.selectedWork && selectedAvailable ? (
-              <button
-                aria-label={`Open ${selected.title}`}
-                className="luca-mind-piece"
-                data-testid="resident-place-selected-work"
-                onClick={() =>
-                  openArtifact({
-                    artifactId: selected.artifactId,
-                    version: selected.version,
-                    previewSessionId: null,
-                    conversationId: selected.conversationId,
-                    residentPubkey,
-                    turnId: null,
-                    source: "library",
-                  })
-                }
-                title={selected.title}
-                type="button"
-              >
-                <MadeThumb
-                  artifactId={selected.artifactId}
-                  kind={selected.kind}
-                  title={selected.title}
-                  version={selected.version}
-                />
-              </button>
+        <div className="luca-mind-section-head">
+          <div className="luca-mind-section-who">
+            <h2 className="luca-mind-h2" id="resident-place-title">
+              Place
+            </h2>
+            {authorLabel ? (
+              <p className="luca-mind-meta" data-testid="resident-place-author">
+                {authorLabel}
+                {place.updatedAt
+                  ? ` · ${formatUpdatedAt(place.updatedAt)}`
+                  : ""}{" "}
+                · revision {place.revision}
+              </p>
             ) : null}
-          </figure>
-        ) : null}
+          </div>
+          <button
+            className="luca-mind-button"
+            data-testid="resident-place-edit"
+            onClick={state.beginEdit}
+            type="button"
+          >
+            <PenLine aria-hidden />
+            Edit place
+          </button>
+        </div>
+        {isEmpty ? (
+          <div className="luca-mind-empty" data-testid="resident-place-empty">
+            <p className="luca-mind-empty-title">Nothing written here yet</p>
+            <p className="luca-mind-help">
+              {residentName}'s place can hold an introduction, what they're
+              exploring, and one piece of their work.
+            </p>
+          </div>
+        ) : (
+          <dl className="luca-mind-fields">
+            {content.introduction.trim() ? (
+              <div className="luca-mind-field">
+                <dt className="type-eyebrow luca-mind-eyebrow">Introduction</dt>
+                <dd
+                  className="luca-mind-quote"
+                  data-testid="resident-place-introduction"
+                >
+                  {content.introduction}
+                </dd>
+              </div>
+            ) : null}
+            {content.exploration.trim() ? (
+              <div className="luca-mind-field">
+                <dt className="type-eyebrow luca-mind-eyebrow">Exploring</dt>
+                <dd data-testid="resident-place-exploration">
+                  {content.exploration}
+                </dd>
+              </div>
+            ) : null}
+            {content.selectedWork ? (
+              <div className="luca-mind-field">
+                <dt className="type-eyebrow luca-mind-eyebrow">
+                  Selected work
+                </dt>
+                <dd>
+                  <div
+                    className="luca-mind-piece"
+                    data-testid="resident-place-selected-work"
+                  >
+                    {selectedAvailable ? (
+                      <MadeThumb
+                        artifactId={selected.artifactId}
+                        kind={selected.kind}
+                        title={selected.title}
+                        version={selected.version}
+                      />
+                    ) : null}
+                    <span className="luca-mind-piece-words">
+                      <span className="luca-mind-row-title">
+                        {selectedAvailable
+                          ? selected.title
+                          : "Selected work is unavailable"}
+                      </span>
+                      {selectedAvailable ? (
+                        <span className="luca-mind-meta">
+                          {pieceKind(selected.kind)} · version{" "}
+                          {selected.version}
+                        </span>
+                      ) : null}
+                    </span>
+                    <button
+                      aria-label={
+                        selectedAvailable ? `Open ${selected.title}` : "Open"
+                      }
+                      className="luca-mind-button"
+                      disabled={!selectedAvailable}
+                      onClick={open}
+                      type="button"
+                    >
+                      Open
+                    </button>
+                  </div>
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        )}
         {state.readError || state.saveError ? (
           <p className="luca-mind-error" role="alert">
             {state.saveError ?? state.readError}
           </p>
         ) : null}
-        <div className="luca-mind-own-controls">
-          <button
-            className="luca-mind-action"
-            onClick={state.beginEdit}
-            type="button"
-          >
-            Edit
-          </button>
-          <span className="luca-mind-switch">
-            <span id="place-editing-label">Let {residentName} edit this</span>
-            <Switch
-              aria-label={`Let ${residentName} edit this`}
-              aria-describedby="place-editing-label"
-              checked={place.residentEditingEnabled}
-              disabled={state.switching}
-              onCheckedChange={() => void state.toggleEditing()}
-            />
-          </span>
+        <div className="luca-mind-switch-row">
+          <div className="luca-mind-switch-words">
+            <span className="luca-mind-row-title">
+              Let {residentName} edit this place
+            </span>
+            <span className="luca-mind-help" id="place-editing-description">
+              {residentName} can update their introduction, what they're
+              exploring and the selected work during a conversation.
+            </span>
+          </div>
+          <Switch
+            aria-describedby="place-editing-description"
+            aria-label={`Let ${residentName} edit this place`}
+            checked={place.residentEditingEnabled}
+            disabled={state.switching}
+            onCheckedChange={() => void state.toggleEditing()}
+          />
         </div>
       </section>
     );
@@ -590,4 +666,9 @@ function formatUpdatedAt(timestamp: number): string {
         month: "short",
         day: "numeric",
       }).format(date);
+}
+
+/** A piece's kind as a word: "Image", "Document". */
+function pieceKind(kind: string): string {
+  return kind ? kind.charAt(0).toUpperCase() + kind.slice(1) : "Work";
 }

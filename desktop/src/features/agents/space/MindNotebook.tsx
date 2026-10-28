@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   Bookmark,
+  ChevronRight,
   LoaderCircle,
   NotebookPen,
   Plus,
@@ -10,10 +11,6 @@ import {
 import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
-import {
-  PlaceRowFace,
-  PlaceSectionLabel,
-} from "@/app/shell/placeRails/PlacePage";
 import {
   PermissionAsk,
   QuestionAsk,
@@ -33,6 +30,13 @@ import { useRoomProjects } from "@/features/channels/lib/roomProjects";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 import { ResidentHandoffPanel } from "@/features/profile/ui/ResidentContinuityPanel";
+import {
+  notebookAvailabilityCopy,
+  notebookCategoryLabel,
+  notebookCountWhenComplete,
+  notebookExcerpt,
+  notebookTimestamp,
+} from "@/features/profile/ui/notebook/notebookPresentation";
 import { ResidentNotebookDetailView } from "@/features/profile/ui/notebook/ResidentNotebookDetailView";
 import {
   JournalJobStrip,
@@ -48,8 +52,13 @@ import {
   retryResidentJournalPage,
   type ResidentJournalJob,
   type ResidentNotebookDetail,
+  type ResidentNotebookItem,
   type ResidentNotebookList,
 } from "@/shared/api/tauriNotebook";
+import {
+  getResidentContinuity,
+  type ResidentContinuityInspector,
+} from "@/shared/api/tauriContinuity";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import type { ManagedAgent } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -105,7 +114,7 @@ export function MindNotebook({
     null,
   );
   const [creating, setCreating] = React.useState(false);
-  const [handoffOpen, setHandoffOpen] = React.useState(false);
+  const [view, setView] = React.useState<NotebookView>("notes");
   const [openError, setOpenError] = React.useState<string | null>(null);
   // New page's form can open below the fold: bring it into view (WP-13
   // flows, item 20), at once under Reduce Motion.
@@ -138,8 +147,45 @@ export function MindNotebook({
     );
   }
 
+  const openItem = async (itemId: string) => {
+    if (!managedAgent) return;
+    setOpenError(null);
+    try {
+      const next = await getResidentNotebookItem(managedAgent.pubkey, itemId);
+      if (next.item) setDetail(next);
+      else setOpenError("That notebook item is no longer available.");
+    } catch (cause) {
+      setOpenError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  // Continuity notes, journal pages, their days (BETA14_RELEASE.md WP-40,
+  // Decided 3): notes and pages are the notebook's, so a mind not on this
+  // Mac has only its days.
+  const views: { id: NotebookView; label: string; count?: number | null }[] =
+    managedAgent
+      ? [
+          {
+            id: "notes",
+            label: "Continuity notes",
+            count: notebook.countOf("memory_note"),
+          },
+          {
+            id: "journal",
+            label: "Journal pages",
+            count: notebook.countOf("journal_page"),
+          },
+          { id: "days", label: "Their days" },
+        ]
+      : [{ id: "days", label: "Their days" }];
+  const shown = views.some((each) => each.id === view) ? view : "days";
+
   return (
     <div className="luca-mind-notebook" data-testid="mind-notebook">
+      <p className="luca-mind-intro">
+        What {name} keeps between conversations. A saved note is there for
+        later; each turn's receipt says what {name} actually used.
+      </p>
       {managedAgent && onThisMac ? (
         <ResidentPlaceSection
           residentName={name}
@@ -147,105 +193,377 @@ export function MindNotebook({
           variant="space"
         />
       ) : null}
-      {pubkey ? <MindAsks residentPubkey={pubkey} /> : null}
-      {notebook.job ? (
-        <JournalJobStrip
-          job={notebook.job}
-          onCancel={async () => {
-            await cancelResidentJournalPage(notebook.job?.jobId ?? "");
-            await notebook.refresh();
-          }}
-          onRetry={async () => {
-            await retryResidentJournalPage(notebook.job?.jobId ?? "");
-            await notebook.refresh();
-          }}
-        />
+      {pubkey ? <MindAsks name={name} residentPubkey={pubkey} /> : null}
+      {managedAgent ? (
+        <MindHandoff name={name} residentPubkey={managedAgent.pubkey} />
       ) : null}
-      {creating && managedAgent ? (
-        <div ref={formRef}>
-          <NewJournalPageForm
-            residentName={name}
-            busy={journalBusy}
-            onCancel={() => setCreating(false)}
-            onCreate={async (input) => {
-              try {
-                const job = await createResidentJournalPage({
-                  residentPubkey: managedAgent.pubkey,
-                  ownerPrompt: input.prompt || null,
-                  selectedEventIds: input.eventIds,
-                  selectedPageIds: input.pageIds,
-                });
-                notebook.setJob(job);
-                setCreating(false);
-                toast.success("Private journal request started.");
-              } catch (cause) {
-                setOpenError(
-                  cause instanceof Error ? cause.message : String(cause),
-                );
-              }
+      <section aria-label="Notes and pages" className="luca-mind-section">
+        <div className="luca-mind-subbar">
+          <div
+            aria-label="Notebook"
+            className="luca-mind-subtabs"
+            role="tablist"
+          >
+            {views.map((each, index) => (
+              <button
+                aria-selected={shown === each.id}
+                className="luca-mind-subtab"
+                data-selected={shown === each.id ? "true" : undefined}
+                data-testid={`mind-view-${each.id}`}
+                key={each.id}
+                onClick={() => setView(each.id)}
+                onKeyDown={(event) => {
+                  const step =
+                    event.key === "ArrowRight"
+                      ? 1
+                      : event.key === "ArrowLeft"
+                        ? -1
+                        : 0;
+                  if (!step) return;
+                  event.preventDefault();
+                  const next =
+                    views[(index + step + views.length) % views.length];
+                  if (!next) return;
+                  setView(next.id);
+                  const bar = event.currentTarget.parentElement;
+                  bar
+                    ?.querySelector<HTMLButtonElement>(
+                      `[data-testid="mind-view-${next.id}"]`,
+                    )
+                    ?.focus();
+                }}
+                role="tab"
+                tabIndex={shown === each.id ? 0 : -1}
+                type="button"
+              >
+                {each.label}
+                {typeof each.count === "number" ? (
+                  <span className="luca-mind-count">{each.count}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+          {managedAgent && shown === "journal" ? (
+            <button
+              className="luca-mind-button"
+              data-testid="mind-new-page"
+              disabled={journalBusy}
+              onClick={() => setCreating(true)}
+              type="button"
+            >
+              <Plus aria-hidden /> New page
+            </button>
+          ) : null}
+        </div>
+        {notebook.job ? (
+          <JournalJobStrip
+            job={notebook.job}
+            onCancel={async () => {
+              await cancelResidentJournalPage(notebook.job?.jobId ?? "");
+              await notebook.refresh();
+            }}
+            onRetry={async () => {
+              await retryResidentJournalPage(notebook.job?.jobId ?? "");
+              await notebook.refresh();
             }}
           />
+        ) : null}
+        {creating && managedAgent ? (
+          <div className="luca-mind-form" ref={formRef}>
+            <NewJournalPageForm
+              residentName={name}
+              busy={journalBusy}
+              onCancel={() => setCreating(false)}
+              onCreate={async (input) => {
+                try {
+                  const job = await createResidentJournalPage({
+                    residentPubkey: managedAgent.pubkey,
+                    ownerPrompt: input.prompt || null,
+                    selectedEventIds: input.eventIds,
+                    selectedPageIds: input.pageIds,
+                  });
+                  notebook.setJob(job);
+                  setCreating(false);
+                  toast.success("Private journal request started.");
+                } catch (cause) {
+                  setOpenError(
+                    cause instanceof Error ? cause.message : String(cause),
+                  );
+                }
+              }}
+            />
+          </div>
+        ) : null}
+        {openError ? (
+          <p className="luca-mind-error" role="alert">
+            {openError}
+          </p>
+        ) : null}
+        <div
+          role="tabpanel"
+          aria-label={views.find((each) => each.id === shown)?.label}
+        >
+          {shown === "days" ? (
+            <MindDays
+              name={name}
+              notebook={notebook}
+              onOpenItem={(itemId) => void openItem(itemId)}
+              pubkey={pubkey}
+              readMemory={Boolean(managedAgent)}
+            />
+          ) : (
+            <NotebookItems
+              kind={shown === "notes" ? "memory_note" : "journal_page"}
+              name={name}
+              notebook={notebook}
+              onOpen={(itemId) => void openItem(itemId)}
+            />
+          )}
         </div>
-      ) : null}
-      {openError ? (
-        <p className="luca-mind-error" role="alert">
-          {openError}
-        </p>
-      ) : null}
-      <MindDays
-        actions={
-          managedAgent ? (
-            <div className="luca-mind-actions">
-              <button
-                className="luca-mind-action"
-                disabled={journalBusy}
-                onClick={() => setCreating(true)}
-                type="button"
-              >
-                <Plus aria-hidden /> New page
-              </button>
-              <button
-                aria-expanded={handoffOpen}
-                className="luca-mind-action"
-                data-testid="mind-handoff-toggle"
-                onClick={() => setHandoffOpen((open) => !open)}
-                type="button"
-              >
-                Saved handoff
-              </button>
-            </div>
-          ) : null
-        }
-        afterToolbar={
-          handoffOpen && managedAgent ? (
-            <div className="luca-mind-handoff-body" data-testid="mind-handoff">
-              <ResidentHandoffPanel residentPubkey={managedAgent.pubkey} />
-            </div>
-          ) : null
-        }
-        name={name}
-        notebook={notebook}
-        onOpenItem={async (itemId) => {
-          if (!managedAgent) return;
-          setOpenError(null);
-          try {
-            const next = await getResidentNotebookItem(
-              managedAgent.pubkey,
-              itemId,
-            );
-            if (next.item) setDetail(next);
-            else setOpenError("That notebook item is no longer available.");
-          } catch (cause) {
-            setOpenError(
-              cause instanceof Error ? cause.message : String(cause),
-            );
-          }
-        }}
-        pubkey={pubkey}
-        readMemory={Boolean(managedAgent)}
-      />
+      </section>
     </div>
   );
+}
+
+type NotebookView = "notes" | "journal" | "days";
+
+/** "Today", "Yesterday", else the date. */
+function dayWord(value: string): string {
+  const at = new Date(value);
+  if (Number.isNaN(at.valueOf())) return "";
+  const today = new Date();
+  const start = (date: Date) =>
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()).valueOf();
+  const days = Math.round((start(today) - start(at)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return notebookTimestamp(value);
+}
+
+/**
+ * Continuity notes or journal pages (WP-40, Decided 3), each entry its kind
+ * as a label, its words, a line of who wrote it, its revision and its
+ * sources, and a date. Each opens, as the classic Notebook's rows do, to be
+ * read, corrected, annotated, archived or forgotten.
+ */
+function NotebookItems({
+  kind,
+  name,
+  notebook,
+  onOpen,
+}: {
+  kind: "memory_note" | "journal_page";
+  name: string;
+  notebook: NotebookStream;
+  onOpen: (itemId: string) => void;
+}) {
+  const items = notebook.items.filter((item) => item.kind === kind);
+  const isPage = kind === "journal_page";
+  if (!notebook.settled) return <div className="luca-mind-more" />;
+  if (items.length === 0) {
+    const copy =
+      notebook.availability === "locked" ||
+      notebook.availability === "unavailable"
+        ? notebookAvailabilityCopy(
+            notebook.availability,
+            isPage ? "pages" : "notes",
+          )
+        : isPage
+          ? {
+              title: "No journal pages yet",
+              body: `Pages ${name} writes for themselves, when you ask for one. They stay out of your conversations unless you choose one.`,
+            }
+          : {
+              title: "No continuity notes yet",
+              body: `After a meaningful exchange, ${name} may keep a short note, with where it came from, for later conversations.`,
+            };
+    return (
+      <div
+        className="luca-mind-empty"
+        data-testid={`mind-${isPage ? "journal" : "notes"}-empty`}
+      >
+        <p className="luca-mind-empty-title">{copy.title}</p>
+        <p className="luca-mind-help">{copy.body}</p>
+      </div>
+    );
+  }
+  const Glyph = isPage ? NotebookPen : Bookmark;
+  return (
+    <>
+      <ul
+        className="luca-mind-rows"
+        data-testid={`mind-${isPage ? "journal" : "notes"}`}
+      >
+        {items.map((item) => {
+          const sources =
+            item.sourceEventIds.length + item.sourcePageIds.length;
+          const meta = [
+            item.authorship === "owner"
+              ? "Written by you"
+              : `Written by ${name}`,
+            item.pinnedOwnerCorrection ? "pinned" : null,
+            `revision ${item.revision}`,
+            sources > 0 ? `${sources} source${sources === 1 ? "" : "s"}` : null,
+            item.status !== "active" ? item.status : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            <li key={item.itemId}>
+              <button
+                className="luca-mind-entry-row"
+                data-testid="mind-notebook-item"
+                onClick={() => onOpen(item.itemId)}
+                type="button"
+              >
+                <span aria-hidden className="luca-mind-glyph">
+                  <Glyph />
+                </span>
+                <span className="luca-mind-entry-words">
+                  <span className="type-eyebrow luca-mind-eyebrow">
+                    {isPage
+                      ? "Journal page"
+                      : notebookCategoryLabel(item.category)}
+                  </span>
+                  {isPage ? (
+                    <>
+                      <span className="luca-mind-entry-title">
+                        {item.title || "Untitled page"}
+                      </span>
+                      {item.body.trim() ? (
+                        <span className="luca-mind-excerpt">
+                          {notebookExcerpt(item.body, 180)}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="luca-mind-entry-text">
+                      {notebookExcerpt(item.body, 280)}
+                    </span>
+                  )}
+                  <span className="luca-mind-meta">{meta}</span>
+                </span>
+                <time className="luca-mind-date" dateTime={item.updatedAt}>
+                  {dayWord(item.updatedAt)}
+                </time>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {notebook.hasMore ? (
+        <button
+          className="luca-mind-button luca-mind-older"
+          disabled={notebook.loadingMore}
+          onClick={() => void notebook.loadMore()}
+          type="button"
+        >
+          {notebook.loadingMore ? (
+            <LoaderCircle aria-hidden className="animate-spin" />
+          ) : null}
+          Load older
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The saved handoff, as an opener (WP-40, Decided 3): a row that says when
+ * it was saved, with Show and a chevron that turns, opening to its parts
+ * and today's controls (correct, forget, its sources, the switch).
+ */
+function MindHandoff({
+  name,
+  residentPubkey,
+}: {
+  name: string;
+  residentPubkey: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [data, setData] = React.useState<ResidentContinuityInspector | null>(
+    null,
+  );
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => {
+    let live = true;
+    getResidentContinuity(residentPubkey)
+      .then((next) => {
+        if (live) setData(next);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [residentPubkey]);
+  const handoff = data?.handoff ?? null;
+  const line = handoff
+    ? `Saved ${savedWhen(handoff.updatedAt)} · revision ${handoff.revision}${handoff.pinnedOwnerCorrection ? " · corrected by you" : ""}`
+    : failed
+      ? "Couldn't read the saved handoff."
+      : !data
+        ? "\u00a0"
+        : data.enabled
+          ? `Nothing saved yet. ${name} keeps one after real work.`
+          : `Off. ${name} keeps no handoff.`;
+  const panelId = `mind-handoff-${residentPubkey}`;
+  return (
+    <section aria-label="Saved handoff" className="luca-mind-section">
+      <div className="luca-mind-box">
+        <button
+          aria-controls={panelId}
+          aria-expanded={open}
+          className="luca-mind-opener"
+          data-testid="mind-handoff-toggle"
+          onClick={() => setOpen((value) => !value)}
+          type="button"
+        >
+          <span aria-hidden className="luca-mind-glyph">
+            <Bookmark />
+          </span>
+          <span className="luca-mind-entry-words">
+            <span className="luca-mind-row-title">Saved handoff</span>
+            <span className="luca-mind-meta" data-testid="mind-handoff-line">
+              {line}
+            </span>
+          </span>
+          <span className="luca-mind-opener-end">
+            {open ? "Hide" : "Show"}
+            <ChevronRight aria-hidden />
+          </span>
+        </button>
+        {open ? (
+          <div
+            className="luca-mind-opened"
+            data-testid="mind-handoff"
+            id={panelId}
+          >
+            <ResidentHandoffPanel
+              onData={setData}
+              residentPubkey={residentPubkey}
+              variant="space"
+            />
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/** "today at 7:58 AM", "yesterday at 9:12 PM", else the date and time. */
+function savedWhen(value: string): string {
+  const at = new Date(value);
+  if (Number.isNaN(at.valueOf())) return "recently";
+  const time = at.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const word = dayWord(value);
+  if (word === "Today") return `today at ${time}`;
+  if (word === "Yesterday") return `yesterday at ${time}`;
+  return `${word} at ${time}`;
 }
 
 type NotebookStream = ReturnType<typeof useResidentNotebookStream>;
@@ -321,7 +639,21 @@ function useResidentNotebookStream(residentPubkey: string | null) {
     }
   }, [list, loadingMore, residentPubkey]);
 
+  const countOf = React.useCallback(
+    (kind: ResidentNotebookItem["kind"]) =>
+      list
+        ? notebookCountWhenComplete(
+            list.items,
+            list.nextCursor,
+            (item) => item.kind === kind,
+          )
+        : null,
+    [list],
+  );
+
   return {
+    availability: list?.availability ?? null,
+    countOf,
     hasMore: list?.nextCursor !== null && list?.nextCursor !== undefined,
     items: list?.items ?? [],
     job,
@@ -336,7 +668,13 @@ function useResidentNotebookStream(residentPubkey: string | null) {
 /** What they're asking you (Decided 3), each ask in the one row Needs you
  *  uses (WP-09b, Decided 1), answered in place the same way. The space is
  *  theirs, so the line under an ask says only where it was asked. */
-function MindAsks({ residentPubkey }: { residentPubkey: string }) {
+function MindAsks({
+  name,
+  residentPubkey,
+}: {
+  name: string;
+  residentPubkey: string;
+}) {
   const key = normalizePubkey(residentPubkey);
   const allInputs = useManagedInputs();
   const allPermissions = useManagedPermissions();
@@ -385,7 +723,24 @@ function MindAsks({ residentPubkey }: { residentPubkey: string }) {
     [inputs, permissions, proposals],
   );
   const { listRef, onFocus } = useAskFocusHandoff(keys);
-  if (keys.length === 0) return null;
+  // Nothing waiting: the part says what it will hold (WP-40, Decided 3).
+  if (keys.length === 0)
+    return (
+      <section
+        aria-label="What they're asking you"
+        className="luca-mind-section"
+        data-testid="mind-asks"
+      >
+        <h2 className="luca-mind-h2">Asks you</h2>
+        <div className="luca-mind-empty" data-testid="mind-asks-empty">
+          <p className="luca-mind-empty-title">Nothing waiting on you</p>
+          <p className="luca-mind-help">
+            When {name} needs an answer or your go-ahead, the question waits
+            here and in Needs you.
+          </p>
+        </div>
+      </section>
+    );
   const common = (kind: string, pendingId: string, conversationId: string) => ({
     "data-ask-key": `${kind}:${pendingId}`,
     "data-ask-kind": kind,
@@ -400,12 +755,14 @@ function MindAsks({ residentPubkey }: { residentPubkey: string }) {
   return (
     <section
       aria-label="What they're asking you"
-      className="luca-mind-asks"
+      className="luca-mind-section luca-mind-asks"
       data-testid="mind-asks"
     >
-      <PlaceSectionLabel count={keys.length} label="Asks you" />
+      <h2 className="luca-mind-h2">
+        Asks you <span className="luca-mind-count">{keys.length}</span>
+      </h2>
       <ul
-        className="luca-ask-list luca-place-plate"
+        className="luca-ask-list luca-place-plate luca-mind-box"
         onFocus={onFocus}
         ref={listRef}
       >
@@ -462,18 +819,12 @@ const ACTIVE_ARTIFACTS = {
 
 /** Their days: one stream, its filters, and more as you scroll. */
 function MindDays({
-  actions,
-  afterToolbar,
   name,
   notebook,
   onOpenItem,
   pubkey,
   readMemory,
 }: {
-  /** Today's notebook actions, at the end of the filters' row. */
-  actions: React.ReactNode;
-  /** What an action opens, under that row. */
-  afterToolbar: React.ReactNode;
   /** Whose days these are, for the line an empty Notebook says. */
   name: string;
   notebook: NotebookStream;
@@ -592,53 +943,43 @@ function MindDays({
     (!(readMemory && pubkey) || memory.status !== "pending");
   const empty =
     entries.length === 0 && settled ? (
-      <div className="luca-place-plate" data-testid="mind-notebook-empty">
-        <p className="luca-mind-empty">{emptyDaysLine(name)}</p>
+      <div className="luca-mind-empty" data-testid="mind-notebook-empty">
+        <p className="luca-mind-empty-title">Nothing in their days yet</p>
+        <p className="luca-mind-help">{emptyDaysLine(name)}</p>
       </div>
     ) : null;
-
-  if (entries.length === 0 && !actions) {
-    return empty ? (
-      <section aria-label="Their days" className="luca-mind-days">
-        {empty}
-      </section>
-    ) : null;
-  }
 
   return (
-    <section aria-label="Their days" className="luca-mind-days">
-      <div className="luca-mind-toolbar">
-        {filters.length > 1 ? (
-          <fieldset aria-label="Show" className="luca-mind-filters">
-            {filters.map((each) => {
-              const Glyph = each.id === "all" ? null : KIND_GLYPH[each.id];
-              return (
-                <button
-                  aria-pressed={shown === each.id}
-                  className="luca-mind-filter"
-                  data-selected={shown === each.id ? "true" : undefined}
-                  data-testid={`mind-filter-${each.id}`}
-                  key={each.id}
-                  onClick={() => setFilter(each.id)}
-                  type="button"
-                >
-                  {Glyph ? <Glyph aria-hidden /> : null}
-                  {each.label}
-                </button>
-              );
-            })}
-          </fieldset>
-        ) : (
-          <span />
-        )}
-        {actions}
-      </div>
-      {afterToolbar}
+    <div className="luca-mind-days">
+      {filters.length > 1 ? (
+        <fieldset aria-label="Show" className="luca-mind-filters">
+          {filters.map((each) => {
+            const Glyph = each.id === "all" ? null : KIND_GLYPH[each.id];
+            return (
+              <button
+                aria-pressed={shown === each.id}
+                className="luca-mind-filter"
+                data-selected={shown === each.id ? "true" : undefined}
+                data-testid={`mind-filter-${each.id}`}
+                key={each.id}
+                onClick={() => setFilter(each.id)}
+                type="button"
+              >
+                {Glyph ? <Glyph aria-hidden /> : null}
+                {each.label}
+              </button>
+            );
+          })}
+        </fieldset>
+      ) : null}
       {empty}
       {days.map((day) => (
         <section aria-label={day.label} className="luca-mind-day" key={day.key}>
-          <PlaceSectionLabel count={day.entries.length} label={day.label} />
-          <ul className="luca-place-plate" data-thread="true">
+          <h3 className="type-eyebrow luca-mind-eyebrow">
+            {day.label}
+            <span className="luca-mind-count">{day.entries.length}</span>
+          </h3>
+          <ul className="luca-mind-rows">
             {day.entries.map((entry) => (
               <MindEntryRow
                 entry={entry}
@@ -665,7 +1006,7 @@ function MindDays({
           {loading ? <LoaderCircle className="animate-spin" /> : null}
         </div>
       ) : null}
-    </section>
+    </div>
   );
 }
 
@@ -690,13 +1031,17 @@ function MindEntryRow({
   const Glyph = KIND_GLYPH[entry.kind];
   return (
     <li
-      className="luca-place-row luca-mind-day-row"
+      className="luca-mind-entry-row luca-mind-day-row"
       data-kind={entry.kind}
       data-testid="mind-entry"
     >
-      <PlaceRowFace label={MIND_KIND_LABEL[entry.kind]}>
-        <Glyph />
-      </PlaceRowFace>
+      <span
+        aria-label={MIND_KIND_LABEL[entry.kind]}
+        className="luca-mind-glyph"
+        role="img"
+      >
+        <Glyph aria-hidden />
+      </span>
       <div className="luca-mind-entry">
         {itemId ? (
           <button
@@ -721,9 +1066,10 @@ function MindEntryRow({
             titled={entry.text !== entry.made.title}
           />
         ) : null}
+        <span className="luca-mind-meta">{MIND_KIND_LABEL[entry.kind]}</span>
       </div>
       <time
-        className="luca-place-row-note"
+        className="luca-mind-date"
         dateTime={new Date(entry.at).toISOString()}
       >
         {entryTime(entry.at)}

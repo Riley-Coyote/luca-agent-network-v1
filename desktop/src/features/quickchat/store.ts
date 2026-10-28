@@ -67,11 +67,12 @@ export function readQuickChat(
     return {
       selectedPubkey:
         typeof raw.selectedPubkey === "string" ? raw.selectedPubkey : null,
+      // On whole pixels, as setSize keeps it; older saves may hold fractions.
       width: Number.isFinite(raw.width)
-        ? Math.max(340, Math.min(900, raw.width))
+        ? Math.round(Math.max(340, Math.min(900, raw.width)))
         : 420,
       height: Number.isFinite(raw.height)
-        ? Math.max(380, Math.min(1000, raw.height))
+        ? Math.round(Math.max(380, Math.min(1000, raw.height)))
         : 560,
       rooms: readRooms(raw.rooms),
       companionRooms: readRooms(raw.companionRooms),

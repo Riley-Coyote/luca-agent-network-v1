@@ -302,8 +302,8 @@ test("Settings in the frame", async ({ page }, info) => {
       lip?.h === 36 &&
       lip.w === W &&
       places?.w === 44 &&
-      // Six places and the avatar (NAVIGATION.md, 2026-10-25).
-      iconCentres.length === 7 &&
+      // WP-38 restores Brain as its own place: seven places and the avatar.
+      iconCentres.length === 8 &&
       iconCentres.every((cx) => cx === 22) &&
       current.join(",") === "open-settings-view" &&
       // No native lights in a browser: the toggle on the places' axis, its
@@ -373,7 +373,9 @@ test("Settings in the frame", async ({ page }, info) => {
       heads.length === 4 &&
       heads.every(
         (head) =>
-          head.h === 26 &&
+          // WP-40 (BETA14_RELEASE.md, Decided 1), after WP-37: every
+          // place's rail heads are the mono capitals at 11, 28 tall.
+          head.h === 28 &&
           head.size === "11px" &&
           head.transform === "uppercase",
       ) &&

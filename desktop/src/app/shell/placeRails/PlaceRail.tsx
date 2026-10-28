@@ -4,6 +4,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 
 import "@/app/shell/shell-rail.css";
 import "@/app/shell/shell-place-rails.css";
+import { placeRowFace } from "@/app/shell/placeRails/placeFaces";
 import {
   type RailPlace,
   searchForPick,
@@ -227,6 +228,7 @@ function Row({
   place: RailPlace;
   row: PlaceRailRow;
 }) {
+  const { face, kind } = placeRowFace(place, row.id);
   return (
     <div
       className="luca-rail-row"
@@ -245,6 +247,11 @@ function Row({
         title={row.title}
         type="button"
       />
+      {/* Every row leads with its face (BETA14_RELEASE.md WP-40, Decided
+          2), in the Chats rail's one 18 column (shell-rail.css). */}
+      <span aria-hidden className="luca-rail-face" data-face={kind}>
+        {face}
+      </span>
       <span aria-hidden className="luca-rail-row-name text-sm">
         {row.title}
       </span>

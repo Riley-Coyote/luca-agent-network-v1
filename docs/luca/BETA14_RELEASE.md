@@ -168,6 +168,12 @@ Not in scope: WP-30's files.
 
 ## Riley's further calls (2026-10-26)
 
+- **Finish release preparation while Claude finishes the UI (2026-10-27).**
+  Riley explicitly wants the composer, rail, mini-chat and other finished,
+  approved UI updates included in this beta. Prepare independent release checks
+  now; integrate completed commits, not active dirty worktrees. Do not rebuild
+  the native candidate until the combined UI is ready. The integration and
+  acceptance sequence is recorded in `BETA14_TAKEOVER_CHECKPOINT.md`.
 - **Mnemos waits for its own release:** "hold off on mnemos and do it as its own release. especially because we also
   have the mnemo connector and could potentially bring it in that way so someone could keep their existing memory".
   Codex's uncommitted Mnemos work is backed up at
@@ -327,7 +333,8 @@ as "the contents of something", and on open black as "debris" (Linear). Riley th
 
 ## WP-34 · The rail: what needs you, Luca, and the work under whoever does it
 
-**Why.** Conversations and work are told apart. Luca, a project and a room are one ongoing chat each and never nest.
+**Why.** Conversations and work are told apart. Luca and a room are one ongoing chat each and never nest (a project's
+rooms sit under it on no thread: Decided 3, amended 2026-10-27).
 What Luca hands an agent or an app hangs on the thread under whoever is doing it, while they work. Live work shows once,
 in the rail, and Activity becomes the record of what happened. What needs you, the one thing only you can do, comes to
 the top.
@@ -344,8 +351,12 @@ the top.
    Needs you page in the card, as Activity does today. That page isn't a conversation, so it takes no tab. The count on
    the places column moves from Activity to Chats.
 3. **Only work nests.** Luca never has rows under it: its side conversations move under whoever does the work.
-   - Projects never nest: their rooms stay in the project's own column, as `roomsInColumn` draws them today. That
-     behaviour becomes the only one, and the setting retires (in the capability map).
+   - ~~Projects never nest~~ (amended 2026-10-27, `claude/rail-project-rooms`). This bullet read Riley's note on the
+     line ("not below projects for each chat within a prject") as "a project lists no rooms". He meant the line. On
+     the test app: "they should show each room/chat within the project below the project … it was never supposed to
+     change from how we had it built before". A project's rooms sit under it again, as before WP-34, on no thread.
+     The thread stays for an agent's and an app's work. Settings → Appearance → Project rooms is back: In the rail
+     (the default) or In a column.
    - An agent shows its sessions.
    - An app shows its tasks, from `useAllRuntimeTasks` by `runtimeFamily`: live ones, and finished ones for as long as
      the rail shows a session's age today.
@@ -612,3 +623,175 @@ The two are merged by hand.
 
 **Checks JSON keys:** `places_column`, `brain_page_head`, `brain_body`, `brain_rail`, `ways_in`, `brain_review`,
 `agent_reads_row`, `capability_map`, `lip_name`, `classic_identical`, `unit_tests`, `playwright`, `gates`.
+
+## WP-39 · Agent fingerprints (2026-10-27, Riley's call)
+
+**Why.** Riley turned down the pixel creatures for agent marks: "i would love for the marks for each agent to look super
+premium in some way". From three live studies he picked the fingerprint. Then: "can we make it so that it moves no
+matter what in some way? my hope is that even just looking at the rail looks elevated and super beautiful with little
+things like these fingerpirint marks moving and making the app feel alive". And for this package: "Yes, bring them in".
+- The approved study is live at https://claude.ai/artifact/WZgXgFkZrKCXch6UodkbHs. Its source is in the lab worktree
+  `~/Documents/Repositories/.claude-worktrees/shell-lab-rail`, branch `claude/shell-lab-rail-faces` at `7f163fabb`,
+  in `design-lab/agent-marks/fingerprint/`: `template.html` holds the shaders and the motion; `index.html` is the built
+  page. `design-lab/agent-marks/grow/prints.py` is the exact growth the study used, in numpy. Read both before you build.
+- Today every agent wears one shared drawing, `shared/ui/AgentMark.tsx`. This package builds the fingerprint itself.
+  Putting it into the rail and the pages is a later package, so leave every `AgentMark` call site alone.
+
+**Decided** (under `shell-frame`; the classic layout doesn't change):
+1. **Whose print.** The seed is FNV-1a (the `0x811c9dc5` / `0x01000193` form) of `residentGlyphSeed(publicKey,
+   lucaPubkey)`. So Luca's print comes from Luca's fixed seed and is the same for every owner, and every other agent's
+   comes from its key. It never changes when an agent's model or runtime changes.
+2. **Its kind,** one of five: whorl, loop, arch, sideways loop, double loop.
+   - The kind comes from the seed (`seed % 5`). Among the owner's agents, taken in order (Luca first, then by when each
+     arrived), a later agent steps past a kind an earlier one holds, so the first five differ. Past five, kinds repeat,
+     but a print never does.
+   - Give a small helper the owner's resident list to make that assignment. Without the list, use `seed % 5`.
+3. **How it grows:** exactly as `prints.py` does it.
+   - Gray–Scott on a 96 × 96 grid: F .0545, k .062, Du .2, Dv .1, dt 1.
+   - Diffusion 2.1 along a ridge flow and 0.17 across it, by bilinear taps at ±1 along the flow and across it. Add a
+     little 9-point evenness for the round kinds: whorl .12, double loop .12, loop and sideways loop .06, arch 0.
+   - Held (clamped) edges. 4000 steps.
+   - The flow and the seed stripes come from each kind's phase, the formulas in `prints.py`: `sin(2π·φ/8) > 0.2` gives
+     V = .25 plus a little noise, and U = 1 − 2V.
+   - Use a seeded PRNG of your own; numpy's can't be matched. The kinds and the rules stay the same, and the ridges
+     will differ from the study's. That's expected.
+   - Grow on the GPU (WebGL 2 with float render targets) in one shared context. If float targets aren't available,
+     grow in a worker on the CPU.
+   - Grow one agent at a time, off the frame's critical path. Cache by seed and version (U and V quantized), so each
+     print is grown once per Mac.
+4. **How it's drawn:** port the study's print shader faithfully. Two variants:
+   - **`rail`** (small): the print pressed in ink. It's an oval 0.84 as wide as it is tall, whose ridges fade over its
+     outer 22%, with a little wet sheen. Take the ink from the face element's CSS color, so it follows the theme and
+     the row's hover and selected ink.
+   - **`large`** (an agent's page head and the like): black lacquer, lit from above, with a soft ring light so ridges
+     read in every direction, and a hairline rim brightest on top.
+   - One renderer draws every mark into one atlas and copies each changed mark out once a frame, as the study does.
+5. **How it moves.** The motion is drawn, never grown: a print always returns to exactly itself. Don't run the growth
+   while an agent works; the study's earlier regrowth wore a print into a scribble.
+   - **At rest,** each print keeps its own time, from its seed:
+     - light drifting across it, ±0.95 rad around the top, every 11–17 s;
+     - ridges that breathe, every 5–8 s;
+     - a wave running out from its core: 0.55 texel, about 6.5 s, wavenumber 2π/30.
+   - **Working:** the wave quickens to about 2.2 s and 1.5 texels, and the print brightens.
+   - **A voice in the room:** expose a way to send a ring of light across a print.
+   - **The pointer** moves the light.
+   - **Reduce Motion** holds every print exactly still.
+   - **Cost:** resting marks redraw at half rate, marks off screen do no work, and everything pauses while the
+     document is hidden.
+6. **The component:** `<AgentFingerprint residentKey size variant working current />`, aria-hidden, since the row's
+   name labels it. It works at 14–18 px and at 64–128 px. With no WebGL 2 at all, it falls back to today's `AgentMark`.
+7. **Not in this package:** any `AgentMark` call site, the dotted marks beside messages, and Settings.
+
+**Built beside:**
+- **WP-40,** the rail and the agents pages, may be running at the same time in `ShellRail.tsx`, `features/agents/space/`
+  and the shell CSS. Don't touch those files.
+- **Two side branches,** the glass mini chat and projects' rooms, wait to be merged. Don't touch quick-chat or the rail.
+
+**Files in scope:**
+- New, under `desktop/src/shared/ui/fingerprint/`: growth, shaders, renderer, cache, the kinds helper and the
+  component, with unit tests beside them (FNV seed, kind assignment with step-past, the cache's round trip).
+- A proof harness: a lab entry under `desktop/src/testing/`, or an e2e page with `installMockBridge` showing a rail of
+  real-looking rows and a large head.
+- A spec, `tests/e2e/shell-fingerprint.spec.ts`, registered in the smoke project.
+
+**Proof:**
+- Real size (18 px) in a dark and a light rail, cropped and shown 3×. A 64 px head and five 128 px prints, one of each
+  kind.
+- A frame strip showing rest motion.
+- Working beside resting.
+- Reduce Motion still, measured as zero changed pixels.
+- Identity: a print after 60 s of motion equals its rest frame.
+- The growth time per agent, on the GPU and on the CPU fallback. A cache hit on reload.
+- The study page next to your render, by eye.
+
+**Checks JSON keys:** `seed_rule`, `kinds_distinct`, `growth_gpu_ms`, `growth_cpu_ms`, `cache_hit`, `rail_dark`,
+`rail_light`, `large`, `rest_motion`, `working_motion`, `still_reduce_motion`, `identity_stable`, `offscreen_idle`,
+`hidden_pause`, `fallback_no_webgl`, `unit_tests`, `playwright`, `gates`.
+
+## WP-40 · The rail and the agents pages, as the lab has them (2026-10-27, Riley's call)
+
+**Why.** Riley, comparing the test app with beta.13:
+- "i feel like you changed things on all of the pages in terms of design, and its made everything feel really empty."
+- "the biggest things are the rail not having icons and the headers or titles for sections in the rail being small and
+  looking the same as each item in the rail."
+- On the agents pages: "the text is basically teh same size everywhere, theres hardly any visual organization so
+  everything feels like it just blends together, and idk, it just feels like text on a blank page instead of having
+  clear structure and professional level organizational design."
+- "in agent settings, everything is hidden behind drop downs, but theres no indication that those drop downs exist."
+- "the new settings layout is fine overall, i think we just need to work on the text hierarchy and adding back in some
+  of the hairline borders and visual elements that make everything feel more clear and distinct."
+
+He approved the lab's answer ("this is looking much better", then "Yes, bring them in"). The lab is
+`~/Documents/Repositories/.claude-worktrees/shell-lab-rail`, branch `claude/shell-lab-rail-faces`. Build from commit
+`6049f9246` ("structure for the agents pages and real labels in the rail"): `desktop/src/testing/shellStudy/`
+(`ShellStudy.tsx`, `content.ts`, `shellStudy.css`). The later commits there (creatures, the mark studies) are not
+part of this. Today beside proposed, as Riley saw them: `design-lab/agents-pages-proposed/*.jpg` in that worktree.
+
+**Decided** (under `shell-frame`; the classic layout doesn't change):
+1. **The rail's section heads are labels again,** in every place's rail. They use the app's own micro-label, the
+   `.type-eyebrow` style under `data-luca-shell`: Fragment Mono, 11 px, caps, 0.09em tracking, faint. Each head is 28 px
+   tall with 6 px above it. Rows stay 14 px.
+2. **Every place's rail row leads with a face,** in one 18 px column, 10 px from the words: faint ink, muted on hover or
+   when picked.
+   - Things get line drawings: the lab's mapping, lucide icons.
+   - Apps keep their maker's mark.
+   - Minds keep `AgentMark` at its call sites. WP-41 turns those into fingerprints, so don't change `AgentMark` itself.
+3. **The agents pages** (`features/agents/space/`: Notebook, Self, Settings) get the lab's structure.
+   - **Type steps:** the name 26/600, section titles 17/600, rows 14, help 13, details 12, labels 11 in mono capitals.
+   - **Lines:** a hairline between sections (ink at 0.09), softer rules inside them (0.065), and edges at 0.11 (0.18 on
+     hover).
+   - **Notebook,** in this order:
+     - its intro line;
+     - **Place** as a titled section: "Written by {who} · {date} · revision n", Edit place, then Introduction, Exploring
+       and Selected work under their labels with hairlines between, the piece card with Open, and the "Let {name} edit
+       this place" switch with its explanation;
+     - **Asks you,** with its count, the asks in a bordered box;
+     - **Saved handoff** as an opener: a row with "Show ›" whose chevron turns, opening to Summary, Unresolved and
+       Commitments;
+     - then tabs: **Continuity notes n · Journal pages n · Their days.** Each entry shows its kind as a label, its words,
+       a line of who wrote it, its revision and its sources, and a date.
+     - An empty part says what it will hold.
+   - **Self:** each document is a row that clearly opens: its title, its file name in mono, one line of what it says
+     (or "Not written yet"), who writes it, when it changed, and a chevron. Then "More files", with New file.
+   - **Settings:** every section open, in two columns, with a hairline between sections. No hidden dropdowns.
+     - **Left:** the label and the question it answers as a 17 px title ("What runs Luca", "When Luca runs").
+     - **Right:** a line of help and the controls, each looking like what it is: a select with its chevron, a switch,
+       a button, a link with an arrow.
+4. **Real data only.** Wire the structure to what `MindSpace` already reads: notebook entries, continuity notes, journal
+   pages, documents and settings. The lab's sample content never ships.
+5. **A capability map:** every control and every piece of information on today's agent space, and on the classic agent
+   pages it replaced, mapped to its home after, or marked LOST. Nothing may be lost.
+
+**Built beside:**
+- **WP-39,** agent fingerprints, is running in new files under `shared/ui/fingerprint/`. Don't touch those or
+  `shared/ui/AgentMark.tsx`.
+- **The base** for this package is the release line after the glass mini chat and the projects-rooms fix are merged.
+  Start from the tip you're given.
+
+**Files in scope:**
+- `features/sidebar/ui/ShellRail.tsx`, the place rails in `app/shell/placeRails/`, and the rail CSS;
+- `features/agents/space/` (`MindSpace.tsx`, `MindNotebook.tsx`, `MindSettings.tsx` and their siblings) and
+  `app/shell/shell-mind-space.css`;
+- the specs:
+  - update the existing shell specs that assert the old heads or the old place count, citing WP-40 (e.g. `shell-frame`
+    places_width now counts Brain);
+  - add `tests/e2e/shell-agents-pages.spec.ts`, registered in the smoke project.
+
+**Proof:**
+- The rail in Chats, Agents, Activity, Library, Brain and Settings, by night and by day: heads and faces.
+- Luca's Notebook (Place, Asks you, the handoff closed and open, notes, journal, days), Self and Settings, at 1440 × 900
+  and 800 × 500.
+- One agent with little in it, to show the empty parts.
+- Each beside the matching lab picture.
+- The capability map.
+- Flag off, by hash against the base, `:4300`.
+
+**Checks JSON keys:** `rail_heads`, `rail_faces`, `type_steps`, `hairlines`, `notebook_place`, `asks_box`,
+`handoff_opener`, `notes_tabs`, `empty_states`, `self_rows`, `settings_open`, `capability_map`, `classic_identical`,
+`unit_tests`, `playwright`, `gates`.
+
+## WP-41 · Each agent wears its fingerprint (after WP-39 and WP-40)
+
+Every `AgentMark` call site that knows which agent it shows becomes `<AgentFingerprint residentKey …>`. That includes
+the rail's Luca and agent rows (`rail`, with `working` from the agent's state) and the agent's page head (`large`,
+64 px). Sites that mean "agents" in general keep `AgentMark`. A small package, briefed when both have landed.
