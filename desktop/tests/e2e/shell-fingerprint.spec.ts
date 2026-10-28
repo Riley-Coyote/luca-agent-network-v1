@@ -510,10 +510,46 @@ test("at rest each print moves: a frame strip", async ({ page }) => {
 test("working beside resting: the wave quickens and the print brightens", async ({
   page,
 }) => {
-  await boot(page, { query: "&working=Luca" });
+  await boot(page);
   const working = await markId(page.getByTestId("fp-spec-Luca"));
   const resting = await markId(page.getByTestId("fp-spec-Vektor"));
-  await page.waitForTimeout(1500);
+
+  // The print brightens: one print, Luca's, resting and then working. The
+  // pointer holds its light straight above (it would drift at rest), and
+  // six frames over 1.5 s average out the breath and the wave.
+  const lucaCanvas = page.getByTestId("fp-spec-Luca").locator("canvas");
+  const lb = await lucaCanvas.boundingBox();
+  if (!lb) throw new Error("no Luca box");
+  await page.mouse.move(lb.x + lb.width / 2, lb.y + 1);
+  await page.waitForTimeout(1000);
+  const averageLum = async (prefix: string) => {
+    let sum = 0;
+    for (let i = 0; i < 6; i++) {
+      await grab(page, `${prefix}${i}`);
+      sum += (await tone(page, `${prefix}${i}`, working)).meanLum;
+      await page.waitForTimeout(250);
+    }
+    return sum / 6;
+  };
+  const lumResting = await averageLum("lr");
+  // The harness's own switch, by keyboard, so the pointer stays put.
+  await page.getByTestId("fp-working-Luca").press("Enter");
+  await expect(page.getByTestId("fp-working-Luca")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  // The ease up is 0.5 s; 2.5 s is past 99%.
+  await page.waitForTimeout(2500);
+  const lumWorking = await averageLum("lw");
+  // The shader's level step for a large print: 0.84 to 0.98, a sixth more
+  // light. Body and rim don't scale, so ask for at least half of it.
+  const levelStep = 0.14 / 0.84;
+  expect(lumWorking).toBeGreaterThan(lumResting * (1 + levelStep / 2));
+  await page.mouse.move(2, 2);
+
+  // The wave quickens: frame-to-frame change, working Luca beside resting
+  // Vektor (a working print's change dwarfs any print's resting drift).
+  await page.waitForTimeout(1000);
   const windows = [];
   for (let i = 0; i < 6; i++) {
     await grab(page, `a${i}`);
@@ -524,10 +560,7 @@ test("working beside resting: the wave quickens and the print brightens", async 
   }
   const mean = (k: "working" | "resting") =>
     windows.reduce((s, w) => s + (w[k]?.meanAbs ?? 0), 0) / windows.length;
-  const tw = await tone(page, "b5", working);
-  const tr = await tone(page, "b5", resting);
   expect(mean("working")).toBeGreaterThan(mean("resting"));
-  expect(tw.meanLum).toBeGreaterThan(tr.meanLum);
   const pair = await page.evaluate(
     ([w, r]) =>
       (
@@ -612,7 +645,13 @@ test("working beside resting: the wave quickens and the print brightens", async 
     windowMs: 250,
     windows,
     meanAbs: { working: mean("working"), resting: mean("resting") },
-    tone: { working: tw, resting: tr },
+    brightness: {
+      print: "Luca, 128",
+      resting: lumResting,
+      working: lumWorking,
+      ratio: lumWorking / lumResting,
+      required: 1 + levelStep / 2,
+    },
     ring: { brightBefore: before, brightAfter: after, ringShot, ringStrip },
     pointer: { left: left.centroid, right: right.centroid },
     shots,
