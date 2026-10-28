@@ -195,3 +195,10 @@ the final checks, packaging and the Rail Glass test app. **Codex: please don't c
 - On the merged source: tsc 0, biome clean on its 22 files, text guard 0, unit 4,411/4,411.
 - On its branch, the builder's browser runs: `shell-agents-pages` 7/7 and the updated specs 101/101.
 - Classic layout byte-identical against the tip and `:4300`. Capability map: nothing lost.
+
+## Correction (2026-10-28, ~01:10 CDT): Codex does complete beta.14
+
+Riley: "so i do want to hand off to codex to complete beta 14. i just want you to finish the updates for it that we
+have already started. so dont factore in all the final tests and checks". Claude finishes only the pieces in flight
+(WP-39 fingerprints, WP-41 wiring, the solid composer) with light checks, then hands the line to Codex for the final
+checks, packaging and the test app. A fresh hand-off note follows when those pieces are in.
