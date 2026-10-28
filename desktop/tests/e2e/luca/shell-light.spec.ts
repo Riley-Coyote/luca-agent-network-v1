@@ -424,6 +424,18 @@ async function keyboardFocus(page: Page, selector: string) {
   }));
 }
 
+/** A background the shell computes, read the way an element's own is. */
+async function backgroundOf(page: Page, css: string) {
+  return page.evaluate((value) => {
+    const probe = document.createElement("i");
+    probe.style.backgroundColor = value;
+    document.body.append(probe);
+    const result = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return result;
+  }, css);
+}
+
 async function inkAt(page: Page, alpha: number) {
   return page.evaluate((a) => {
     const probe = document.createElement("i");
@@ -624,10 +636,17 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   await expect(page.getByTestId("search-results")).toHaveCount(0);
 
   const studyValues = {
-    composer_background: await inkAt(page, 0.045),
-    composer_shadow: `${await inkAt(page, 0.12)} 0px 1px 2px 0px inset, rgba(255, 255, 255, 0.9) 0px -0.5px 0px 0px inset`,
-    composer_focus_shadow: `${await inkAt(page, 0.16)} 0px 1px 2px 0px inset, rgb(255, 255, 255) 0px -0.5px 0px 0px inset`,
-    send_shadow: `${await inkAt(page, 0.22)} 0px 0.5px 1px 0px, ${await inkAt(page, 0.1)} 0px 1px 3px 0px`,
+    // The composer by day: a step darker than the paper, nothing drawn round
+    // it at rest or in focus (Riley, 2026-10-27 and 28); Send at rest a quiet
+    // disc of ink on it.
+    composer_background: await backgroundOf(
+      page,
+      "color-mix(in srgb, hsl(var(--mn-surface)) 94%, hsl(var(--mn-ink)))",
+    ),
+    composer_shadow: "none",
+    composer_focus_shadow: "none",
+    send_background: await inkAt(page, 0.07),
+    send_shadow: "none",
     scrim: await inkAt(page, 0.1),
     search_shadow: `${await inkAt(page, 0.1)} 0px 0px 0px 0.5px, ${await inkAt(page, 0.28)} 0px 24px 64px -12px`,
     search_chosen: await inkAt(page, 0.08),
@@ -648,7 +667,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       composer?.boxShadow === studyValues.composer_shadow &&
       composerFocused?.boxShadow === studyValues.composer_focus_shadow &&
       sendDisabled &&
-      send?.background === surfaceCss &&
+      send?.background === studyValues.send_background &&
       send?.boxShadow === studyValues.send_shadow &&
       sendArmed?.background === `rgb(${act.join(", ")})` &&
       scrim?.background === studyValues.scrim &&

@@ -1076,9 +1076,11 @@ const MessageTimelineBase = React.forwardRef<
         data-focused-view={focusedView ? "" : undefined}
         ref={timelineRootRef}
       >
-        {/* Under everything else in the timeline: the water paints first. */}
+        {/* Under everything else in the timeline: the water paints first.
+            Under the frame the film is a small pool around the face, which
+            the greeting holds (FirstMessageView.tsx). */}
         <AnimatePresence>
-          {firstMessageOpen ? (
+          {firstMessageOpen && !shellFrame ? (
             <FirstMessageSurface key={channelId ?? "none"} />
           ) : null}
         </AnimatePresence>

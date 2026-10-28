@@ -260,3 +260,113 @@
     transition: none;
   }
 }
+
+/* ------------------------------------------------------------------
+ * THE ONE COMPOSER'S SHAPE (under the frame; Riley, 2026-10-27)
+ *
+ * One line: a capsule, 48px high, the add button and Send on either side of
+ * the words, each 7px in from the edge. Past one line (useComposerShape) the
+ * words take the whole width above and the buttons keep their row beneath:
+ * the bottom 48px is the same in both shapes, so the buttons never move and
+ * the corners under them never change. Only the top grows.
+ * ------------------------------------------------------------------ */
+:root[data-luca-frame] [data-testid="message-composer"] {
+  border-radius: 1.5rem;
+  /* 6px inside its 1px border: the buttons sit 7px in from the edge. */
+  padding: 6px;
+}
+
+:root[data-luca-frame] .luca-composer-controls {
+  align-items: center;
+  column-gap: 8px;
+  display: grid;
+  grid-template-areas: "add field send";
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  min-height: 34px;
+}
+
+:root[data-luca-frame] .luca-composer-field {
+  display: contents;
+}
+
+:root[data-luca-frame]
+  .luca-composer-controls
+  > [data-testid="message-composer-add"] {
+  grid-area: add;
+  justify-self: center;
+  margin: 0;
+}
+
+:root[data-luca-frame] .luca-composer-controls [data-testid="send-message"] {
+  grid-area: send;
+}
+
+:root[data-luca-frame]
+  .luca-composer-controls
+  [data-testid="message-input-scroll"] {
+  align-self: center;
+  grid-area: field;
+}
+
+:root[data-luca-frame] [data-composer-open] .luca-composer-controls {
+  align-items: end;
+  grid-template-areas:
+    "field field field"
+    "add . send";
+  row-gap: 4px;
+}
+
+/* The words, open: 14px from the top and 18px from the side, the same air on
+ * every line; scrolling past the top, they pass under a short fade rather
+ * than being cut at the edge. */
+:root[data-luca-frame]
+  [data-composer-open]
+  [data-testid="message-input-scroll"] {
+  align-self: stretch;
+  max-height: min(15rem, 40vh);
+  padding: 7px 11px 0;
+}
+
+:root[data-luca-frame]
+  [data-composer-open]
+  [data-testid="message-input-scroll"][data-scrolled] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1rem);
+  mask-image: linear-gradient(to bottom, transparent, #000 1rem);
+}
+
+/* THE ONE COMPOSER'S MATERIAL (Riley, 2026-10-27: "i dont want a border
+ * around it like that. i would rather the surface material just be different
+ * enough to have clear differentiation from the background/main surface").
+ * No outline in any state: the box is its own surface, a step lighter than
+ * the card at night, the way Apple fills a field instead of drawing round it.
+ * Focus is the caret's. Mixed from the card's own surface, so every palette
+ * keeps the same step. */
+:root[data-luca-frame] [data-testid="message-composer"],
+:root[data-luca-frame] [data-testid="message-composer"]:focus-within {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* At night a solid surface, quietly raised (Riley, 2026-10-28: "go back to a
+ * non-glass composer and just make it look excellent"; before that the
+ * lighter step was "too light", and an outline was "a border around it"). The
+ * plate the page uses for what floats over the conversation, a step stronger
+ * so it reads at a glance, and still a step under your own bubbles, so the box
+ * never outweighs what you've sent. A soft shadow beneath says it sits above
+ * what scrolls under it. Nothing drawn round it, no light on its edge. */
+:root[data-luca-frame].dark [data-testid="message-composer"],
+:root[data-luca-frame].dark [data-testid="message-composer"]:focus-within {
+  background-color: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 5.5%,
+    hsl(var(--mn-surface))
+  );
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.35),
+    0 12px 28px -12px rgb(0 0 0 / 0.7);
+}
+
+/* Over the reply recess too: the box's own surface, no edge drawn on it. */
+:root[data-luca-frame] .luca-sheet-deck + [data-testid="message-composer"] {
+  box-shadow: none;
+}

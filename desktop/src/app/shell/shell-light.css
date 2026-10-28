@@ -219,34 +219,29 @@
 }
 
 /* ── the composer, Send and search ────────────────────────────────────
- * The well pressed into the paper: a shade of ink, its upper edge in shadow,
- * its lower lip catching the light (shellStudy.css:1365-1380). */
+ * By day the composer is a step darker than the paper, its own surface with
+ * nothing drawn round it (Riley, 2026-10-27; composer-states.css). */
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
-  [data-testid="message-composer"] {
-  background: hsl(var(--mn-ink) / 0.045);
-  box-shadow:
-    inset 0 1px 2px hsl(var(--mn-ink) / 0.12),
-    inset 0 -0.5px 0 rgb(255 255 255 / 0.9);
-}
-
+  [data-testid="message-composer"],
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
   [data-testid="message-composer"]:focus-within {
-  box-shadow:
-    inset 0 1px 2px hsl(var(--mn-ink) / 0.16),
-    inset 0 -0.5px 0 rgb(255 255 255);
+  background: color-mix(
+    in srgb,
+    hsl(var(--mn-surface)) 94%,
+    hsl(var(--mn-ink))
+  );
+  border-color: transparent;
+  box-shadow: none;
 }
 
-/* Send, a piece of paper standing up out of the well (shellStudy.css:1390-
- * 1396). The study draws it with the well empty; armed, it stays Riley's
- * blue disc (composer-states.css, 2026-10-23). */
+/* Send at rest on it: a quiet disc of ink, the arrow faint. Armed, it stays
+ * Riley's blue disc (composer-states.css, 2026-10-23). */
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
   [data-testid="message-composer"]
   [data-testid="send-message"]:disabled {
-  background-color: hsl(var(--mn-surface));
-  box-shadow:
-    0 0.5px 1px hsl(var(--mn-ink) / 0.22),
-    0 1px 3px hsl(var(--mn-ink) / 0.1);
-  color: hsl(var(--mn-ink));
+  background-color: hsl(var(--mn-ink) / 0.07);
+  box-shadow: none;
+  color: hsl(var(--mn-ink-faint));
 }
 
 /* Search: a scrim of the ink at 10%, and the panel lifted by a hairline of

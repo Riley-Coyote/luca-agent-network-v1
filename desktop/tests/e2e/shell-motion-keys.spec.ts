@@ -196,7 +196,9 @@ for (const [width, height] of [
           // The conversation's film, where there is one, is up before the
           // first press: the freeze came with it.
           const field = await page
-            .locator(".luca-first-message-surface canvas")
+            .locator(
+              ".luca-first-message-surface canvas, .luca-first-message-pool canvas",
+            )
             .waitFor({ state: "attached", timeout: 8000 })
             .then(() => true)
             .catch(() => false);
@@ -254,7 +256,21 @@ test("WP-20: under Reduce Motion the film settles to the base's moment, and the 
     { name: "this", origin: "" },
   ] as const) {
     const page = await fresh();
-    await boot(page, { hash: "/", origin: build.origin, reduce: true });
+    // The whole film is compared where both builds still draw it, without the
+    // frame: with the frame the new chat page is now the agent's face in a
+    // small pool (Riley, 2026-10-27), a different picture by design, and its
+    // own stillness is checked below.
+    await boot(page, {
+      hash: "/",
+      origin: build.origin,
+      reduce: true,
+      shell: false,
+    });
+    await page
+      .getByTestId("app-sidebar")
+      .getByRole("button", { name: "Luca", exact: true })
+      .first()
+      .click();
     // The base's film holds the page while it grows: wait it out.
     await page
       .locator(".luca-first-message-surface canvas")
@@ -269,6 +285,18 @@ test("WP-20: under Reduce Motion the film settles to the base's moment, and the 
       origin: build.origin || "this build",
       still_after_ms: still,
     };
+    await page.context().close();
+  }
+  // With the frame, the pool round the face settles too under Reduce Motion.
+  {
+    const page = await fresh();
+    await boot(page, { hash: "/", origin: "", reduce: true });
+    await page
+      .locator(".luca-first-message-pool canvas")
+      .waitFor({ state: "attached", timeout: 60_000 });
+    const at = Date.now();
+    const draws = await untilStill(page);
+    settled.pool = { draws, still_after_ms: Date.now() - at };
     await page.context().close();
   }
   measure("settled", settled);

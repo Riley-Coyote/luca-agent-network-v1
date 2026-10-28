@@ -58,6 +58,7 @@ import {
 } from "@/features/luca/context/ConversationContextComposerSurface";
 import { getBuzzCodeBlockClipboardText } from "@/shared/lib/codeBlockClipboard";
 import { cn } from "@/shared/lib/cn";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import type { ChannelType } from "@/shared/api/types";
 import { ChannelAutocomplete } from "./ChannelAutocomplete";
 import { ComposerReplyEditBanner } from "./ComposerReplyEditBanner";
@@ -73,6 +74,7 @@ import { NonMemberMentionDialog } from "./NonMemberMentionDialog";
 import { useMentionSendFlow } from "./useMentionSendFlow";
 import { usePersistentAgentMentionHydration } from "./usePersistentAgentMentionHydration";
 import { useComposerContentState } from "./useComposerContentState";
+import { useComposerShape } from "./useComposerShape";
 import { useDraftPersistLifecycle } from "./useDraftPersistSnapshot";
 import type { MessageComposerSendContext } from "./messageComposerTypes";
 import {
@@ -641,6 +643,12 @@ function MessageComposerImpl({
   onLinkSelectionChangeRef.current = linkEditor.showFromCursor;
   onLinkShortcutRef.current = linkEditor.openFromShortcut;
   useComposerSpoilerParticles(richText.editor, composerScrollRef);
+  const shellFrame = useShellFrameEnabled();
+  const composerOpen = useComposerShape(
+    shellFrame,
+    richText.editor,
+    composerScrollRef,
+  );
 
   const persistentMentionHydration = usePersistentAgentMentionHydration({
     audienceScope,
@@ -1517,6 +1525,7 @@ function MessageComposerImpl({
             className={cn(
               "relative z-10 rounded-[23px] border border-transparent bg-muted py-[5px] pl-[6px] pr-[5px]",
             )}
+            data-composer-open={composerOpen ? "" : undefined}
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}
@@ -1668,13 +1677,19 @@ function MessageComposerImpl({
                 onPaperclip={handlePaperclipClick}
                 onRunTask={beginRuntimeTask}
               />
-              <div className="flex min-w-0 flex-1 items-end gap-2">
+              <div className="luca-composer-field flex min-w-0 flex-1 items-end gap-2">
                 {/* biome-ignore lint/a11y/noStaticElementInteractions: keydown handler bridges Tiptap editor to autocomplete and submit */}
                 <div
                   className="rich-text-composer relative max-h-40 min-w-0 flex-1 self-center overflow-y-auto"
                   data-testid="message-input-scroll"
                   ref={composerScrollRef}
                   onKeyDown={handleEditorKeyDown}
+                  onScroll={(event) =>
+                    event.currentTarget.toggleAttribute(
+                      "data-scrolled",
+                      event.currentTarget.scrollTop > 0,
+                    )
+                  }
                 >
                   <EditorContent editor={richText.editor} />
                 </div>

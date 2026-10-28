@@ -17,6 +17,7 @@ import { ThinkingEffortControl } from "@/features/thinking/ui/ThinkingEffortCont
 import type { QuickChatViewModel } from "../types";
 import { useQuickChatGlass } from "./useQuickChatGlass";
 import "./quickchat.css";
+import { shapeQuickComposer } from "./quickComposerShape";
 
 export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
   const glass = useQuickChatGlass({ open: model.open });
@@ -450,6 +451,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
       </div>
       <form
         className="qc-composer"
+        ref={shapeQuickComposer}
         onSubmit={(event) => {
           event.preventDefault();
           void model.send();
@@ -467,6 +469,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
         />
         <button
           type="button"
+          className="qc-add"
           aria-label="Attach image"
           onClick={() => file.current?.click()}
         >
