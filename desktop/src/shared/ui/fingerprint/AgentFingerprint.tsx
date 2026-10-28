@@ -119,20 +119,30 @@ export const AgentFingerprint = React.memo(function AgentFingerprint({
     );
   }
 
+  // Until its print has grown (once per Mac, then from the cache), the agent
+  // mark holds the place, so a face is never empty; the print fades in over it.
   return (
-    <canvas
+    <span
       aria-hidden="true"
-      tabIndex={-1}
-      className={cn(
-        "luca-agent-fingerprint block transition-opacity duration-200 ease-out motion-reduce:transition-none",
-        className,
+      className={cn("relative inline-block", className)}
+      style={{ height: size, width: size }}
+    >
+      {ready ? null : (
+        <AgentMark
+          className="absolute inset-0"
+          style={{ height: size, width: size }}
+        />
       )}
-      data-agent-fingerprint=""
-      data-kind={kind}
-      data-ready={ready ? "" : undefined}
-      data-variant={variant}
-      ref={canvasRef}
-      style={{ height: size, opacity: ready ? 1 : 0, width: size }}
-    />
+      <canvas
+        tabIndex={-1}
+        className="luca-agent-fingerprint relative block transition-opacity duration-200 ease-out motion-reduce:transition-none"
+        data-agent-fingerprint=""
+        data-kind={kind}
+        data-ready={ready ? "" : undefined}
+        data-variant={variant}
+        ref={canvasRef}
+        style={{ height: size, opacity: ready ? 1 : 0, width: size }}
+      />
+    </span>
   );
 });

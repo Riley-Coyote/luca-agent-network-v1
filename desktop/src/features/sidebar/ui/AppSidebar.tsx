@@ -911,10 +911,12 @@ export function AppSidebar({
                       room navigator in the main application card. */}
                   {frame && railPlace ? (
                     // Every place but Chats lists its own things (WP-10).
-                    <PlaceRail
-                      onPicked={closeSheetAfterPick}
-                      place={railPlace}
-                    />
+                    <ResidentFingerprintKinds>
+                      <PlaceRail
+                        onPicked={closeSheetAfterPick}
+                        place={railPlace}
+                      />
+                    </ResidentFingerprintKinds>
                   ) : USE_CHAT_LIST && frame ? (
                     // The shell's rail: the connected apps are its Apps.
                     <ResidentFingerprintKinds>

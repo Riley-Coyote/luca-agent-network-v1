@@ -31,6 +31,7 @@ import type {
 } from "@/app/shell/placeRails/placePicks";
 import type { SettingsSection } from "@/features/settings/ui/SettingsPanels";
 import { AgentMark } from "@/shared/ui/AgentMark";
+import { AgentFingerprint } from "@/shared/ui/fingerprint/AgentFingerprint";
 import { HarnessLogo, harnessIdFromRuntimeId } from "@/shared/ui/HarnessLogo";
 
 /**
@@ -114,12 +115,19 @@ export function placeRowFace(
     kind: "icon" as const,
     face: <Icon />,
   });
-  if (
-    rowId === "luca" ||
-    rowId.startsWith("mind:") ||
-    rowId.startsWith("persona:") ||
-    rowId.startsWith("record:")
-  )
+  if (rowId.startsWith("mind:") || rowId.startsWith("record:")) {
+    // Each mind wears its own fingerprint (WP-41); one not yet keyed keeps the agent mark.
+    const key = rowId.slice(rowId.indexOf(":") + 1);
+    return {
+      kind: "agent",
+      face: key ? (
+        <AgentFingerprint residentKey={key} size={18} variant="rail" />
+      ) : (
+        <AgentMark />
+      ),
+    };
+  }
+  if (rowId === "luca" || rowId.startsWith("persona:"))
     return { kind: "agent", face: <AgentMark /> };
   if (rowId.startsWith("group:")) return icon(Users);
   if (place === "activity") return icon(Activity);
