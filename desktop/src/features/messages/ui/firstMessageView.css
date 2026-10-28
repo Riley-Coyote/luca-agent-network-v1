@@ -128,6 +128,94 @@
   opacity: 0;
 }
 
+/* ── Under the frame: the calm page (Riley, 2026-10-27, "calm, like a fresh
+   chat"). Their face in a small pool of their own ink, their name and one
+   line about them, set as their page sets them; then the composer, the same
+   one as everywhere. The group is centred by eye, a little above the middle. */
+/* Held from its bottom edge, not its middle, so nothing that comes or goes
+   above the composer as the first message sends can nudge it. */
+:root[data-luca-frame]
+  [data-first-message-column]:is(
+    [data-first-message],
+    [data-first-message-draining]
+  )
+  [data-testid="channel-composer-overlay"] {
+  bottom: calc(54% - 9rem);
+  transform: none;
+}
+
+:root[data-luca-frame] .luca-first-message-greeting {
+  bottom: 2.25rem;
+}
+
+/* The marks of who is in the room wait below, out of the layout, until the
+   page has become the conversation: hidden only by their ink, they held a
+   gap open under the greeting and then closed it as the message sent. */
+:root[data-luca-frame]
+  [data-first-message-column]:has([data-first-message-presence])
+  .luca-composer-presence {
+  display: none;
+}
+
+.luca-first-message-greeting__face {
+  block-size: 4.5rem;
+  inline-size: 4.5rem;
+  margin-block-end: 1.25rem;
+  position: relative;
+}
+
+.luca-first-message-greeting--quiet .luca-first-message-greeting__body {
+  block-size: 100%;
+  inline-size: 100%;
+  margin: 0;
+}
+
+/* The body's plain black stands in only where the pool can't run. */
+.luca-first-message-greeting__face:has(.luca-first-message-pool canvas)
+.luca-first-message-greeting__body {
+  background: transparent;
+}
+
+.luca-first-message-pool {
+  block-size: 20rem;
+  inline-size: 20rem;
+  left: 50%;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.luca-first-message-pool__canvas {
+  block-size: 100%;
+  inline-size: 100%;
+}
+
+/* The pool's edge: the ink thins out into the card. Masked on the canvas
+   itself, where every renderer composites it. */
+.luca-first-message-pool canvas {
+  -webkit-mask-image: radial-gradient(closest-side, #000 32%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 32%, transparent 100%);
+}
+
+.luca-first-message-greeting--quiet .luca-first-message-greeting__name {
+  font-size: 1.625rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 2rem;
+  position: relative;
+}
+
+.luca-first-message-greeting--quiet .luca-first-message-greeting__role {
+  color: hsl(var(--mn-ink-muted));
+  font-family: var(--font-ui);
+  font-size: 0.875rem;
+  letter-spacing: 0;
+  line-height: 1.25rem;
+  margin-top: 0.25rem;
+  position: relative;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-first-message-column][data-first-message-leaving]
     [data-testid="channel-composer-overlay"],

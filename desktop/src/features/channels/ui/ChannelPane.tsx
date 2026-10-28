@@ -940,6 +940,13 @@ export const ChannelPane = React.memo(function ChannelPane({
     messageCount: projectedRoomMessages.length,
     openThreadHeadId,
   });
+  // A conversation with one other names them, under the frame, as a chat
+  // with one person does; a group still names nothing ("ziggy, Luca").
+  const directMessageName =
+    directMessageIntro?.participants.length === 1
+      ? (firstMessage.subject?.name ??
+        directMessageIntro.participants[0].displayName)
+      : null;
   const composerLedgeAgents = React.useMemo(() => {
     const showSphereIdentity =
       chatMarkAppearance.visible && chatMarkAppearance.style === "sphere";
@@ -1642,7 +1649,9 @@ export const ChannelPane = React.memo(function ChannelPane({
                                 : activeChannel
                                   ? isLucaDm
                                     ? "Message Luca…"
-                                    : undefined
+                                    : shellFrame && directMessageName
+                                      ? `Message ${directMessageName}…`
+                                      : undefined
                                   : "Select a channel"
                       }
                       showTopBorder={false}

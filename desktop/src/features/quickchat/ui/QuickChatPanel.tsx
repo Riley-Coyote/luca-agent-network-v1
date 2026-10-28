@@ -16,6 +16,7 @@ import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCar
 import { ThinkingEffortControl } from "@/features/thinking/ui/ThinkingEffortControl";
 import type { QuickChatViewModel } from "../types";
 import "./quickchat.css";
+import { shapeQuickComposer } from "./quickComposerShape";
 
 export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
   const pendingPermissions = useManagedPermissions();
@@ -442,6 +443,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
       </div>
       <form
         className="qc-composer"
+        ref={shapeQuickComposer}
         onSubmit={(event) => {
           event.preventDefault();
           void model.send();
@@ -459,6 +461,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
         />
         <button
           type="button"
+          className="qc-add"
           aria-label="Attach image"
           onClick={() => file.current?.click()}
         >

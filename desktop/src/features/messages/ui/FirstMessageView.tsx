@@ -1,8 +1,11 @@
 import * as React from "react";
 import { motion, usePresence, useReducedMotion } from "motion/react";
 
+import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import type { DirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { HARNESS_LABELS, harnessIdForAgent } from "@/shared/ui/HarnessLogo";
 import {
   blinkAmount,
   drawGhostEyes,
@@ -33,6 +36,7 @@ import "./firstMessageView.css";
  */
 export type FirstMessageSubject = {
   name: string;
+  pubkey: string;
   /** At most one line about who they are, only when the app knows it. */
   role?: string | null;
 };
@@ -70,6 +74,7 @@ export function useFirstMessageView({
     if (!resident) return null;
     return {
       name: resident.name || other.displayName,
+      pubkey: key,
       role: directMessageIntro.role ?? null,
     };
   }, [activityAgents, directMessageIntro]);
@@ -104,7 +109,9 @@ export function useFirstMessageView({
     // The film drains into the composer where it waits; only then does it go.
     const drains =
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
-      document.querySelector(".luca-first-message-surface canvas") !== null;
+      document.querySelector(
+        ":is(.luca-first-message-surface, .luca-first-message-pool) canvas",
+      ) !== null;
     let drained = 0;
     if (drains) {
       setDraining(true);
@@ -278,6 +285,15 @@ export function FirstMessageGreeting({
 }: {
   subject: FirstMessageSubject;
 }) {
+  const framed = useShellFrameEnabled();
+  return framed ? (
+    <QuietGreeting subject={subject} />
+  ) : (
+    <FilmGreeting subject={subject} />
+  );
+}
+
+function FilmGreeting({ subject }: { subject: FirstMessageSubject }) {
   const reduceMotion = useReducedMotion();
   return (
     <motion.div
@@ -308,6 +324,172 @@ export function FirstMessageGreeting({
         <p className="luca-first-message-greeting__role">{subject.role}</p>
       ) : null}
     </motion.div>
+  );
+}
+
+/**
+ * One line about them, from what the app can vouch for: their role when it is
+ * known, else what they run on.
+ */
+function useSubjectLine(subject: FirstMessageSubject): string | null {
+  const agents = useManagedAgentsQuery().data;
+  return React.useMemo(() => {
+    if (subject.role) return subject.role;
+    const agent = agents?.find(
+      (each) => normalizePubkey(each.pubkey) === subject.pubkey,
+    );
+    if (!agent) return null;
+    const harness = harnessIdForAgent(agent);
+    if (harness === "other") return null;
+    return `${HARNESS_LABELS[harness]} · ${agent.model?.trim() || "Default model"}`;
+  }, [agents, subject.pubkey, subject.role]);
+}
+
+/**
+ * Under the frame (Riley, 2026-10-27: "calm, like a fresh chat"): the one you
+ * are about to talk to, set as their page sets them, their face in a small
+ * pool of their own ink, their name, one line about them. The rest of the
+ * room stays the room. Sending, the words go first; the pool drains into the
+ * face, and then the face goes.
+ */
+function QuietGreeting({ subject }: { subject: FirstMessageSubject }) {
+  const reduceMotion = useReducedMotion();
+  const line = useSubjectLine(subject);
+  const ease = [0.16, 1, 0.3, 1] as const;
+  const words = {
+    initial: reduceMotion ? { opacity: 0 } : { opacity: 0, y: 4 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, transition: { duration: reduceMotion ? 0.12 : 0.2 } },
+    transition: {
+      duration: reduceMotion ? 0.2 : 0.6,
+      delay: reduceMotion ? 0 : 0.35,
+      ease,
+    },
+  };
+  return (
+    <div
+      className="luca-first-message-greeting luca-first-message-greeting--quiet"
+      data-first-message-presence=""
+      data-testid="first-message-greeting"
+    >
+      <motion.div
+        animate={{ opacity: 1, scale: 1 }}
+        className="luca-first-message-greeting__face"
+        exit={{
+          opacity: 0,
+          transition: {
+            duration: reduceMotion ? 0.12 : 0.28,
+            delay: reduceMotion ? 0 : TURING_DRAIN_SECONDS * 0.8,
+          },
+        }}
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
+        transition={{ duration: reduceMotion ? 0.2 : 0.7, ease }}
+      >
+        <FirstMessagePool />
+        {/* The eyes close over the drop as it drains: they go first. */}
+        <motion.div
+          aria-hidden="true"
+          className="luca-first-message-greeting__body"
+          data-first-message-body=""
+          exit={{ opacity: 0, transition: { duration: 0.16 } }}
+        >
+          <FirstMessageEyes />
+        </motion.div>
+      </motion.div>
+      <motion.p className="luca-first-message-greeting__name" {...words}>
+        {subject.name}
+      </motion.p>
+      {line ? (
+        <motion.p className="luca-first-message-greeting__role" {...words}>
+          {line}
+        </motion.p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The face's own body: where the pool draws the drop, and where it drains. */
+function faceBody(pool: HTMLElement | null): DOMRect | null {
+  return (
+    pool?.parentElement
+      ?.querySelector("[data-first-message-body]")
+      ?.getBoundingClientRect() ?? null
+  );
+}
+
+/**
+ * The Turing film, held to a small pool around the face. Each keystroke lands
+ * in it as a seed somewhere around the face; sending, it drains into the face.
+ */
+function FirstMessagePool() {
+  const surfaceRef = React.useRef<LivingSurfaceHandle | null>(null);
+  const poolRef = React.useRef<HTMLDivElement | null>(null);
+  const [available, setAvailable] = React.useState(true);
+  const [isPresent, safeToRemove] = usePresence();
+  const reduceMotion = useReducedMotion();
+  const leaving = React.useRef(false);
+
+  React.useEffect(() => {
+    let lastSeed = 0;
+    const onInput = (event: Event) => {
+      if (!composerInput(event.target) || !(event instanceof InputEvent))
+        return;
+      if (event.inputType.startsWith("delete")) return;
+      if (/^\s+$/.test(event.data ?? "")) return;
+      const now = performance.now();
+      if (now - lastSeed < 70) return;
+      lastSeed = now;
+      const face = faceBody(poolRef.current);
+      if (!face) return;
+      const angle = Math.random() * Math.PI * 2;
+      const reach = (face.width / 2) * (1.3 + Math.random() * 0.9);
+      surfaceRef.current?.pulse(
+        face.left + face.width / 2 + Math.cos(angle) * reach,
+        face.top + face.height / 2 + Math.sin(angle) * reach,
+      );
+    };
+    document.addEventListener("input", onInput, true);
+    return () => document.removeEventListener("input", onInput, true);
+  }, []);
+
+  // The ink parts around their name and the line under it.
+  const beforeFrame = React.useCallback(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const greeting = poolRef.current?.closest("[data-first-message-presence]");
+    surface.wells(
+      greeting ? Array.from(greeting.querySelectorAll("p"), textRect) : [],
+    );
+    if (!leaving.current) surface.body(faceBody(poolRef.current));
+  }, []);
+
+  React.useEffect(() => {
+    if (isPresent) return;
+    leaving.current = true;
+    const face = faceBody(poolRef.current);
+    if (!available || reduceMotion || !face) {
+      safeToRemove?.();
+      return;
+    }
+    surfaceRef.current?.release(face);
+    const drained = window.setTimeout(
+      () => safeToRemove?.(),
+      TURING_DRAIN_SECONDS * 1000 + 60,
+    );
+    return () => window.clearTimeout(drained);
+  }, [available, isPresent, reduceMotion, safeToRemove]);
+
+  if (!available) return null;
+  return (
+    <div aria-hidden="true" className="luca-first-message-pool" ref={poolRef}>
+      <LivingSurfaceCanvas
+        beforeFrame={beforeFrame}
+        className="luca-first-message-pool__canvas"
+        kind="turing"
+        onUnavailable={() => setAvailable(false)}
+        ref={surfaceRef}
+      />
+    </div>
   );
 }
 
