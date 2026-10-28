@@ -108,6 +108,9 @@ and groups appear twice. That goes.
 
 - By default a project nests its rooms in the rail, like an agent's sessions. Selecting the project opens its last
   room in the normal conversation view, with no extra column.
+- A project's rooms hang on no thread: their titles sit under the project's name, quieter, with no line beside them.
+  The thread is for work, "for agents and their task sessions specifically. so like not below projects" (Riley,
+  2026-10-27). WP-34 had read that as "projects never nest"; it never meant that, and the rooms are back under it.
 - The project room column (`ProjectRoomWorkspace`, the contextual navigator in the card) becomes an option:
   Settings → Appearance → "Project rooms: In the rail (default) · In a column". When "In a column", projects behave as
   they do today, and the rail draws their rows as today's rail does: no chevron and no nested rooms, so no room is

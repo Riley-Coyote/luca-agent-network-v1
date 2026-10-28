@@ -19,8 +19,10 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
  * and +, Luca, Projects (the loose rooms after the projects, Browse rooms…
  * and Archived closing it), Agents and Apps; one home per chat by what it
  * is, an agent's latest three with their times, "N more", where the app
- * opens, and a room's Manage. Only work nests: Luca and a project nest
- * nothing, and a person's 1:1 is found in Search. Screenshots land in WP11_SHOTS when set.
+ * opens, and a room's Manage. Only work hangs on the thread: Luca nests
+ * nothing, a project's rooms sit under it on no thread (Riley, 2026-10-27),
+ * and a person's 1:1 is found in Search. Screenshots land in WP11_SHOTS when
+ * set.
  * SHELL_BASE_URL is the base build for the flag-off comparison (default
  * http://127.0.0.1:4300); unreachable, it is reported as not run.
  */
@@ -567,8 +569,9 @@ test.describe("the Chats rail", () => {
       "1d",
       "2d",
     ]);
-    // Only work nests (WP-34, Decided 3): Luca is one chat and a project's
-    // rooms are in its own column.
+    // Luca is one chat (WP-34, Decided 3). A project's rooms sit under it,
+    // its latest three with their times and "1 more", as before WP-34
+    // (Riley, 2026-10-27).
     const luca = (rail ?? []).find((each) => each.home === "Luca") as {
       sessions: unknown[];
       expanded: string | null;
@@ -576,11 +579,22 @@ test.describe("the Chats rail", () => {
     expect(luca.sessions).toEqual([]);
     expect(luca.expanded).toBeNull();
     const tide = (rail ?? []).find((each) => each.home === "Tidepool") as {
-      sessions: unknown[];
+      sessions: { title: string; ago: string | null }[];
+      expanded: string | null;
     };
-    expect(tide.sessions).toEqual([]);
+    expect(tide.expanded).toBe("true");
+    expect(tide.sessions.map((each) => each.title)).toEqual([
+      "Landing page copy",
+      "Chapter nine",
+      "Hero image",
+      "1 more",
+    ]);
+    expect(tide.sessions.slice(0, 3).map((each) => each.ago)).toEqual([
+      "2h",
+      "1d",
+      "3d",
+    ]);
     await expect(session(page, ROOM.weekly)).toHaveCount(0);
-    await expect(session(page, ROOM.landing)).toHaveCount(0);
     await shoot(page, "home-more", wrenGroup);
 
     // "1 more" shows the rest, by keyboard too: the focus moves onto the
@@ -1164,9 +1178,9 @@ test.describe("the review's fixes", () => {
       const thread = current?.closest(".luca-rail-sessions");
       return {
         rail_display: rail ? getComputedStyle(rail).display : null,
-        // Since WP-34 Luca and the projects nest nothing: the gap after a
-        // closed home is Projects' after Luca; after the last row of a
-        // section, Agents' after Archived.
+        // Since WP-34 Luca nests nothing: the gap after a closed home is
+        // Projects' after Luca; after the last row of a section, Agents'
+        // after Archived.
         gap_after_open_home:
           top('[data-testid="rail-section-agent"] .luca-rail-section-head') -
           bottom('[data-testid="rail-archived-rooms"]'),

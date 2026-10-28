@@ -3,7 +3,8 @@
  * shell study's (desktop/src/testing/shellStudy/shellStudy.css, "the
  * conversations rail"), as BETA14_RELEASE.md WP-34 settled it: what needs
  * you, Luca, then Projects, Agents and Apps, each row led by its face, and
- * only work nested, on the thread under whoever does it.
+ * only work on the thread under whoever does it (a project's rooms sit under
+ * it on none).
  *
  * The selection is not drawn here: a home's row carries `data-active` and
  * today's pill (RailGlass) follows it until the shell's marks take over. The
@@ -362,6 +363,16 @@
   border-bottom-left-radius: 7px;
   bottom: calc(50% - 0.5px);
   width: 13px;
+}
+
+/* A project's rooms sit under it on no thread, their names on the project's
+ * own: the line is for work (Riley, 2026-10-27: "for agents and their task
+ * sessions specifically. so like not below projects"). */
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-sessions[data-rooms]
+  .luca-rail-session::before {
+  content: none;
 }
 
 :root[data-luca-shell] [data-shell-rail] .luca-rail-session {

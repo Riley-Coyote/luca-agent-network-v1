@@ -39,6 +39,7 @@ import {
   shownHomeEntries,
 } from "@/features/sidebar/lib/railHomes";
 import { useNewAppConversation } from "@/features/sidebar/lib/appConversation";
+import { useProjectRoomsPlacement } from "@/features/sidebar/lib/projectRoomsPlacement";
 import { useRailWork } from "@/features/sidebar/lib/useRailWork";
 import {
   clearOpenSide,
@@ -67,11 +68,12 @@ import { ContextMenuItem } from "@/shared/ui/context-menu";
  * BETA14_RELEASE.md WP-34): its own heading, whose + opens Luca's one chat;
  * Needs you while anything waits; Luca; then Projects (the loose rooms after
  * the projects, Browse rooms… and Archived closing it), Agents and Apps.
- * Only work nests: an agent's sessions and the exchanges it is asked into, an
- * app's tasks, each hung on the thread under its face. Luca, a project and a
- * room are one ongoing chat each and nest nothing. Shown only under the
- * `shell-frame` preview feature; today's rail (ChatList, AgentRail) is
- * untouched without it.
+ * Only work hangs on the thread: an agent's sessions and the exchanges it is
+ * asked into, an app's tasks, each under its face. A project's rooms sit
+ * under it too, on no thread (Riley, 2026-10-27), unless Settings puts them
+ * in a column. Luca and a room are one ongoing chat each and nest nothing.
+ * Shown only under the `shell-frame` preview feature; today's rail
+ * (ChatList, AgentRail) is untouched without it.
  *
  * The rows carry the attributes the selection follows and nothing more: the
  * parent of whatever is open is `data-active` (today's pill and the shell's
@@ -122,8 +124,8 @@ export function addLabel(home: RailHome) {
     : `New conversation with ${home.name}`;
 }
 
-/** Only work nests (WP-34, Decided 3): an agent's sessions, an app's
- *  tasks. */
+/** Only work hangs on the thread (WP-34, Decided 3): an agent's sessions,
+ *  an app's tasks. */
 const nestsWork = (home: RailHome) =>
   home.kind === "agent" || home.kind === "app";
 
@@ -414,6 +416,14 @@ export function ShellRail({
     },
     [work],
   );
+  // A project's rooms sit under it, as they did before WP-34, on no thread:
+  // the line is "for agents and their task sessions specifically" (Riley,
+  // 2026-10-27). "In a column" (Settings → Appearance, "Project rooms"):
+  // they sit in the room column beside the conversation, and the project's
+  // row nests nothing.
+  const roomsInColumn = useProjectRoomsPlacement() === "column";
+  const nests = (home: RailHome) =>
+    nestsWork(home) || (home.kind === "project" && !roomsInColumn);
 
   // What waits on you tops the rail while anything does, and while its page
   // is open, so the row you opened never leaves under you (WP-34,
@@ -570,8 +580,9 @@ export function ShellRail({
   );
 
   // A project's details (its name, its grouping) and its sources: in the
-  // room column's footer, and on the project row's menu here, so the
-  // keyboard and the pointer reach them from the rail too.
+  // room column's footer when rooms sit in a column, and on the project
+  // row's menu here, so the keyboard and the pointer reach them from the
+  // rail whichever way the rooms are listed.
   const { goApp, goAppTask, goBrain, goChannel, goNeedsYou, goSettings } =
     useAppNavigation();
   const newAppConversation = useNewAppConversation();
@@ -667,7 +678,7 @@ export function ShellRail({
       onLeave?.();
       return;
     }
-    if (home.sessions.length > 0 && nestsWork(home)) setOpen(home.id, true);
+    if (home.sessions.length > 0 && nests(home)) setOpen(home.id, true);
     if (home.kind === "project" && home.project) {
       const remembered = readLastProjectRoom(home.project.id);
       const preferred = home.sessions.some(
@@ -715,6 +726,7 @@ export function ShellRail({
       expanded={expanded[home.id] ?? true}
       home={home}
       key={home.id}
+      nests={nests(home)}
       onAdd={addTo}
       onOpen={openHome}
       onSession={(channelId) => {
@@ -1028,6 +1040,7 @@ function HomeRow({
   createdAtById,
   expanded,
   home,
+  nests,
   onAdd,
   onOpen,
   onSession,
@@ -1046,6 +1059,9 @@ function HomeRow({
   createdAtById: CreatedAtById;
   expanded: boolean;
   home: RailHome;
+  /** Whether anything sits under it: an agent's or an app's work, or a
+   *  project's rooms unless Settings puts them in a column. */
+  nests: boolean;
   onAdd: (home: RailHome) => void;
   onOpen: (home: RailHome) => void;
   onSession: (channelId: string) => void;
@@ -1075,8 +1091,7 @@ function HomeRow({
       item.channel.id !== selectedChannelId &&
       unreadChannelIds.has(item.channel.id),
   );
-  const nested =
-    nestsWork(home) && (home.sessions.length > 0 || side.length > 0);
+  const nested = nests && (home.sessions.length > 0 || side.length > 0);
   // What the rail marks: the open conversation, unless a side conversation
   // is open in it (WP-18, Decided 1), when no room's row is marked.
   const marked = openSideId ? null : selectedChannelId;
@@ -1251,8 +1266,14 @@ function HomeRow({
         // sessions are drawn only while it is open, so nothing hidden is ever
         // counted as unread above or below (useUnreadOverflow).
         <fieldset
-          aria-label={`${home.name}'s sessions`}
+          aria-label={
+            home.kind === "project"
+              ? `${home.name}'s rooms`
+              : `${home.name}'s sessions`
+          }
           className="luca-rail-sessions"
+          // A project's rooms hang on no thread (shell-rail.css).
+          data-rooms={home.kind === "project" ? "" : undefined}
           hidden={!expanded}
           id={sessionsId}
           ref={sessionsRef}

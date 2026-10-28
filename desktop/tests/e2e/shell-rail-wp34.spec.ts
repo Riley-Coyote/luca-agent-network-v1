@@ -11,9 +11,11 @@ import { railGlassAtRest } from "./flagOffSettle";
 /**
  * WP-34, the rail (docs/luca/BETA14_RELEASE.md): what needs you tops Chats,
  * then Luca, then Projects (loose rooms after the projects; Browse rooms…
- * and Archived closing it), Agents and Apps. Only work nests: an agent's
- * sessions and the exchanges it is asked into, an app's tasks, on a thread
- * under the face that hooks into the last row. Luca nests nothing. The
+ * and Archived closing it), Agents and Apps. Only work hangs on the thread:
+ * an agent's sessions and the exchanges it is asked into, an app's tasks,
+ * under the face that hooks into the last row. Luca and a loose room nest
+ * nothing; a project's rooms sit under it on no thread (Riley, 2026-10-27;
+ * shell-project-rooms.spec.ts). The
  * rail's tone is a step toward the floor. Activity is the record: All
  * activity, then each mind's signed record. Agents loses Connected.
  * Classic layout (the flag off) is compared by hash with WP34_BASE_URL.
@@ -526,7 +528,7 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
   );
   await expect(page.getByTestId("open-activity-view-count")).toHaveCount(0);
 
-  // ── only work nests (Decided 3) ──
+  // ── only work on the thread (Decided 3, as Riley put it, 2026-10-27) ──
   const nesting = await rail.evaluate((node) =>
     Object.fromEntries(
       [...node.querySelectorAll<HTMLElement>("[data-home-group]")].map(
@@ -541,8 +543,7 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
   expect(nesting.luca).toBe(0);
   expect(nesting["needs-you"]).toBe(0);
   for (const [home, rows] of Object.entries(nesting))
-    if (home.startsWith("project:") || home.startsWith("room:"))
-      expect(rows, home).toBe(0);
+    if (home.startsWith("room:")) expect(rows, home).toBe(0);
   expect(nesting[`agent:${ATLAS}`]).toBeGreaterThan(0);
   expect(nesting["app:claude"]).toBe(2);
   expect(nesting["app:codex"]).toBe(1);
@@ -1032,14 +1033,19 @@ test("by day: Needs you, the threads, Activity and Agents", async ({
   await shot(page, "agents-without-connected-day");
 });
 
-test("project rooms live in the project's column; the setting retires", async ({
-  page,
-}) => {
+test("Project rooms is a setting again; the Apps' words", async ({ page }) => {
   await boot(page, { hash: "/settings?section=appearance" });
   await expect(page.getByTestId("settings-content-scroll")).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByTestId("project-rooms-setting")).toHaveCount(0);
+  // WP-34 retired it, reading Riley's note on the line as "projects never
+  // nest"; his rooms sit under the project again, or in a column by this
+  // setting (2026-10-27).
+  await expect(page.getByTestId("project-rooms-setting")).toBeVisible();
+  await expect(page.getByTestId("project-rooms-rail")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(page.getByTestId("runtime-rail-pins-settings")).toContainText(
     "Choose which installed apps appear in Chats, under Apps.",
   );
