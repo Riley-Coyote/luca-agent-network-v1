@@ -161,3 +161,26 @@ Also in flight, on branches of their own (not merged; integrate by intent when t
   them in".
 - **WP-40 · The rail and the agents pages:** dispatched next, from this tip.
 - **WP-41:** each agent wears its fingerprint, after both land. Briefs are in `BETA14_RELEASE.md`.
+
+## Riley's scope freeze and the faster way (2026-10-28, ~00:20 CDT)
+
+Riley, tired of how long everything takes, chose this plan: "yes run it the faster way from now on." It means:
+- **Beta.14 is frozen** at what's finished or nearly finished:
+  - the projects fix (merged);
+  - the glass mini chat (merged);
+  - **WP-39** agent fingerprints (merging after one test fix);
+  - **WP-40** the rail's labels and icons and the agents pages (building);
+  - **WP-41** each agent wearing its fingerprint (small, after those two);
+  - the composer, solid, from the new-chat-composer session.
+
+  Anything new goes to beta.15.
+- **The composer is not glass.** Riley: "i dont like the glass composer at all. it looks super awkward and janky and just
+  out of place. we should go back to a non-glass composer and just make it look excellent." The glass composer
+  candidate is dropped. The mini chat's own glass stays as merged.
+- **One heavy job at a time,** through the shared queue, at full speed.
+- **Claude merges finished, checked work without asking Riley each time,** recording each merge here. Riley judges the
+  combined test app, not each merge.
+- **Lab first only for new looks.** Fixes go straight in, with pictures.
+
+When WP-41 has landed, Claude will hand the frozen line to Codex for the final checks, packaging and the Rail Glass
+test app, per the sequence above.
