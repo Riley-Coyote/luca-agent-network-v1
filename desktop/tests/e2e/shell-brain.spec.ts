@@ -540,7 +540,8 @@ test("a mind's read row is that mind's own access, with Open Brain to the place"
     hash: `/agents?profile=${LUCA}&section=settings&at=read`,
   });
   const row = page.getByTestId("mind-what-they-can-read");
-  await expect(row).toHaveAttribute("data-open", "true", { timeout: 20_000 });
+  // Every section is open now; the one a way in names is lit (WP-40).
+  await expect(row).toHaveAttribute("data-lit", "true", { timeout: 20_000 });
   await expect(page.getByTestId("mind-brain-access")).toBeVisible();
   await expect(
     page.getByTestId("mind-brain-source-connected-repository-luca"),
@@ -549,8 +550,12 @@ test("a mind's read row is that mind's own access, with Open Brain to the place"
     page.getByTestId("mind-what-they-can-read").evaluate(
       (li, pubkey) => ({
         pubkey,
-        title: li.querySelector(".luca-mind-title")?.textContent,
-        value: li.querySelector(".luca-mind-value")?.textContent,
+        title: li.querySelector(".luca-mind-setting-title")?.textContent,
+        // The section is always open (WP-40); its summary is At a
+        // glance's Reads.
+        value: li.ownerDocument.querySelector(
+          "[data-testid='mind-at-a-glance'] [data-fact='Reads'] dd",
+        )?.textContent,
         everything: li.querySelector(
           "[data-testid='mind-brain-access-everything']",
         )?.textContent,
@@ -599,7 +604,7 @@ test("a mind's read row is that mind's own access, with Open Brain to the place"
     window.location.hash = `#/agents?profile=${atlas}&section=settings&at=read`;
   }, ATLAS);
   await expect(page.getByTestId("mind-what-they-can-read")).toHaveAttribute(
-    "data-open",
+    "data-lit",
     "true",
     { timeout: 20_000 },
   );

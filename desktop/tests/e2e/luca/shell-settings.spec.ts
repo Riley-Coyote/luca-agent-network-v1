@@ -373,10 +373,11 @@ test("Settings in the frame", async ({ page }, info) => {
       heads.length === 4 &&
       heads.every(
         (head) =>
-          head.h === 26 &&
-          // WP-37: Settings heads use the rails' sentence-case treatment.
-          head.size === "11.5px" &&
-          head.transform === "none",
+          // WP-40 (BETA14_RELEASE.md, Decided 1), after WP-37: every
+          // place's rail heads are the mono capitals at 11, 28 tall.
+          head.h === 28 &&
+          head.size === "11px" &&
+          head.transform === "uppercase",
       ) &&
       rows.length === 12 &&
       rows.every(

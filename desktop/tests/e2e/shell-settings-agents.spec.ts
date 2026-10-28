@@ -411,11 +411,9 @@ for (const mode of ["dark", "light"] as const) {
           .__BUZZ_E2E_COMMANDS__ ?? []),
       ]);
 
+    // Every section is open (BETA14_RELEASE.md WP-40, Decided 3): nothing
+    // to open before its controls are used.
     // Connected app and model: instructions, runtime configuration, Recheck.
-    await page
-      .getByTestId("mind-setting-runtime")
-      .locator("button.luca-mind-row-open")
-      .click();
     const instructions = page.getByTestId("mind-setting-instructions");
     // The mock seeds no managed instructions: the detail's own words for
     // that, now in the row.
@@ -445,14 +443,6 @@ for (const mode of ["dark", "light"] as const) {
     const runtimeHash = await shot(page, `d4-runtime-${mode}`);
 
     // Permissions: Canvas tools, boundary, continuity, Manage MCP access.
-    await page
-      .getByTestId("mind-setting-runtime")
-      .locator("button.luca-mind-row-open")
-      .click();
-    await page
-      .getByTestId("mind-setting-permissions")
-      .locator("button.luca-mind-row-open")
-      .click();
     const canvas = page.getByTestId("agent-artifact-mcp-capability");
     await expect(canvas).toBeVisible();
     used.canvas = {
@@ -469,20 +459,12 @@ for (const mode of ["dark", "light"] as const) {
     const permissionsHash = await shot(page, `d4-permissions-${mode}`);
 
     // Identity: kind and authority.
-    await page
-      .getByTestId("mind-setting-identity")
-      .locator("button.luca-mind-row-open")
-      .click();
     const identity = page.getByTestId("mind-setting-identity");
     await expect(identity.getByText("Kind")).toBeVisible();
     await expect(identity.getByText("Authority")).toBeVisible();
     used.identity = await identity.innerText();
 
     // Wakes with the app and its restart switch (already there) still work.
-    await page
-      .getByTestId("mind-setting-wakes")
-      .locator("button.luca-mind-row-open")
-      .click();
     await page.getByRole("switch", { name: "Wakes with the app" }).click();
     await page.getByTestId("agent-settings-auto-restart").click();
     await expect

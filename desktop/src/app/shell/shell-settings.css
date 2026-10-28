@@ -89,24 +89,16 @@
   margin-top: 14px;
 }
 
-/* A group's name, in the rail's structure voice. */
+/* A group's name, as every rail's head says its (BETA14_RELEASE.md WP-40,
+ * Decided 1; shell-rail.css, `.luca-rail-section-head`): the app's own
+ * micro-label, `.type-eyebrow`, 28 tall with 6 above. */
 .luca-settings-group-head {
   align-items: center;
   color: hsl(var(--mn-ink-faint));
   display: flex;
-  height: 26px;
+  height: 28px;
+  margin-top: 6px;
   padding: 0 6px 0 10px;
-}
-
-/* Its words as the other rails' heads say theirs: sentence case, at their
- * size and weight, not mono capitals (BETA14_RELEASE.md WP-37, Decided 5;
- * WP-34, Decided 8; shell-rail.css, `.luca-rail-section-head`). */
-:root[data-luca-shell] .luca-settings-group-head.type-eyebrow {
-  font-family: inherit;
-  font-size: 0.71875rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 /* A section, as a home on the rail: 30 tall, the words at 14 in the
@@ -125,6 +117,32 @@
     color 120ms,
     background-color 120ms;
   width: 100%;
+}
+
+/* Its face, as every rail row's (WP-40, Decided 2; shell-rail.css,
+ * `.luca-rail-face`): one 18 column, 10 to the words, the faint ink, muted
+ * on hover and where you are. */
+.luca-settings-row-face {
+  align-items: center;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  flex: none;
+  height: 18px;
+  justify-content: center;
+  margin-right: 10px;
+  pointer-events: none;
+  transition: color 120ms;
+  width: 18px;
+}
+
+.luca-settings-row-face > svg {
+  height: 15px;
+  stroke-width: 1.6;
+  width: 15px;
+}
+
+.luca-settings-row:is(:hover, [data-current]) .luca-settings-row-face {
+  color: hsl(var(--mn-ink-muted));
 }
 
 .luca-settings-row-name {

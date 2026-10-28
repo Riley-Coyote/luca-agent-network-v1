@@ -2,11 +2,6 @@ import * as React from "react";
 import { CircleAlert, Play } from "lucide-react";
 
 import "@/app/shell/shell-mind-space.css";
-import {
-  PlaceList,
-  PlaceListRow,
-  PlaceSectionLabel,
-} from "@/app/shell/placeRails/PlacePage";
 import { PLACE_RAIL_HOOKS } from "@/app/shell/placeRails/usePlaceRails";
 import { ResidentDocumentsSection } from "@/features/agents/documents/ResidentDocumentsSection";
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
@@ -37,8 +32,9 @@ import { MindNotebook } from "./MindNotebook";
 import { usePermissionsValue, useWhatTheyCanRead } from "./MindSettings";
 import type { MindSection, MindSettingsAt } from "./mindSection";
 
-/** The specimen's box, for a 40 body: it draws its body at 29 of 40. */
-const MARK_SIZE = 55;
+/** The specimen's box, for the lab's 52 body (BETA14_RELEASE.md WP-40): it
+ *  draws its body at 29 of 40 of its box. */
+const MARK_SIZE = 72;
 
 const MIND_TABS: { id: MindSection; label: string }[] = [
   { id: "notebook", label: "Notebook" },
@@ -182,13 +178,14 @@ export function MindSpace({
             ) : section === "self" ? (
               managedAgent ? (
                 <ResidentDocumentsSection
+                  intro={`Who ${name} is. Most of this grows from talking.`}
                   agent={managedAgent}
                   onRestart={onRestart}
                   residentName={name}
                   variant="space"
                 />
               ) : (
-                <p className="luca-mind-quiet">
+                <p className="luca-mind-intro">
                   {name} doesn't have a folder yet. Their documents — soul,
                   convictions, self-model, user model, lessons, instructions —
                   are laid down when the resident is set up
@@ -311,8 +308,8 @@ function MindAside({
       data-testid="mind-aside"
     >
       {facts.length > 0 ? (
-        <section aria-label="At a glance" className="luca-place-group">
-          <PlaceSectionLabel label="At a glance" />
+        <section aria-label="At a glance" className="luca-mind-aside-part">
+          <h2 className="type-eyebrow luca-mind-eyebrow">At a glance</h2>
           <dl className="luca-mind-facts" data-testid="mind-at-a-glance">
             {facts.map((fact) => (
               <div
@@ -328,23 +325,30 @@ function MindAside({
         </section>
       ) : null}
       {withThem.length > 0 ? (
-        <PlaceList
-          count={withThem.length}
-          label="Works with"
-          testId="mind-works-with"
-        >
-          {withThem.map((pubkey) => {
-            const row = minds.get(pubkey);
-            return (
-              <PlaceListRow
-                face={<AgentMark />}
-                key={pubkey}
-                note={row?.note}
-                title={row?.title ?? side.nameOf(pubkey)}
-              />
-            );
-          })}
-        </PlaceList>
+        <section aria-label="Works with" className="luca-mind-aside-part">
+          <h2 className="type-eyebrow luca-mind-eyebrow">
+            Works with
+            <span className="luca-mind-count">{withThem.length}</span>
+          </h2>
+          <ul className="luca-mind-facts" data-testid="mind-works-with">
+            {withThem.map((pubkey) => {
+              const row = minds.get(pubkey);
+              return (
+                <li className="luca-mind-fact luca-mind-with" key={pubkey}>
+                  <span aria-hidden className="luca-mind-with-face">
+                    <AgentMark />
+                  </span>
+                  <span className="luca-mind-with-name">
+                    {row?.title ?? side.nameOf(pubkey)}
+                  </span>
+                  {row?.note ? (
+                    <span className="luca-mind-date">{row.note}</span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       ) : null}
     </aside>
   );
@@ -417,6 +421,16 @@ function MindHead({
     return mindStateLabel(state);
   }, [agentWorking, channelsQuery.data, key, side, state, talk, task]);
 
+  // What runs them, in a breath (the lab's head): their app and model.
+  const runs = [
+    residentSourceLabel(resident),
+    managedAgent || resident.modelLabel
+      ? (resident.modelLabel ?? "Default model")
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <header className="luca-mind-head" data-testid="mind-head">
       {/* The specimen draws its body inside its box with room for its
@@ -440,7 +454,7 @@ function MindHead({
         )}
       </span>
       <div className="luca-mind-who">
-        <h1 className="luca-place-page-name">{resident.displayName}</h1>
+        <h1 className="luca-mind-name">{resident.displayName}</h1>
         <p
           className="luca-mind-now"
           data-live={
@@ -454,6 +468,11 @@ function MindHead({
         >
           {now}
         </p>
+        {runs ? (
+          <p className="luca-mind-runs" data-testid="mind-runs">
+            {runs}
+          </p>
+        ) : null}
       </div>
       {managedAgent ? (
         <button

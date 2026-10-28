@@ -656,10 +656,12 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
     }),
   );
   measure("section_names", heads);
+  // WP-40 (BETA14_RELEASE.md, Decided 1): the heads are the app's
+  // micro-label again, the mono's capitals at 11, not WP-34's sentence case.
   for (const head of heads) {
-    expect(head.size).toBe("11.5px");
-    expect(head.weight).toBe("600");
-    expect(head.transform).toBe("none");
+    expect(head.size).toBe("11px");
+    expect(head.weight).toBe("400");
+    expect(head.transform).toBe("uppercase");
   }
 
   // ── the open row brightens its words and nothing else ──
@@ -874,9 +876,10 @@ test("Agents without Connected", async ({ page }) => {
       })),
     );
   measure("agents_place", heads);
+  // WP-40, Decided 1: mono capitals at 11 in every place's rail.
   for (const head of heads) {
-    expect(head.size).toBe("11.5px");
-    expect(head.transform).toBe("none");
+    expect(head.size).toBe("11px");
+    expect(head.transform).toBe("uppercase");
   }
   await shot(page, "agents-without-connected-night");
 });

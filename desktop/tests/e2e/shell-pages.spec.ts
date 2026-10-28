@@ -800,49 +800,6 @@ function readPlates(page: Page) {
   });
 }
 
-/** A thread: its line's x against the face's centre, and its ends against
- *  the faces above and below. */
-function readThreads(page: Page) {
-  return page.evaluate(() => {
-    const out: Array<Record<string, number | string>> = [];
-    for (const plate of document.querySelectorAll<HTMLElement>(
-      ".luca-place-plate[data-thread]",
-    )) {
-      const rows = [
-        ...plate.querySelectorAll<HTMLElement>(":scope > .luca-place-row"),
-      ];
-      rows.forEach((row, index) => {
-        const after = getComputedStyle(row, "::after");
-        const next = rows[index + 1];
-        if (!next || after.content === "none") return;
-        const rowBox = row.getBoundingClientRect();
-        const face = row
-          .querySelector(".luca-place-row-face")
-          ?.getBoundingClientRect();
-        const nextFace = next
-          .querySelector(".luca-place-row-face")
-          ?.getBoundingClientRect();
-        if (!face || !nextFace) return;
-        const left = rowBox.left + Number.parseFloat(after.left);
-        const width = Number.parseFloat(after.width);
-        const top = rowBox.top + Number.parseFloat(after.top);
-        const bottom = rowBox.bottom - Number.parseFloat(after.bottom);
-        out.push({
-          color: after.backgroundColor,
-          fromFaceBottom: Math.round((top - face.bottom) * 100) / 100,
-          toNextFaceTop: Math.round((nextFace.top - bottom) * 100) / 100,
-          width,
-          xMinusFaceCentre:
-            Math.round(
-              (left + width / 2 - (face.left + face.width / 2)) * 100,
-            ) / 100,
-        });
-      });
-    }
-    return out;
-  });
-}
-
 function hashOf(page: Page) {
   return page.evaluate(() => decodeURIComponent(window.location.hash));
 }
@@ -864,6 +821,9 @@ async function openLuca(page: Page, tab?: string) {
     timeout: 20_000,
   });
   if (tab) await page.getByTestId(`mind-tab-${tab}`).click();
+  // The stream is the Notebook's Their days now (BETA14_RELEASE.md WP-40,
+  // Decided 3).
+  else await page.getByTestId("mind-view-days").click();
 }
 
 const hashes: Record<string, string> = {};
@@ -966,14 +926,9 @@ for (const mode of ["dark", "light"] as const) {
     await page.waitForTimeout(800);
     const name = `notebook-${mode}-1440`;
     hashes[name] = await shot(page, name);
-    const threads = await readThreads(page);
-    expect(threads.length).toBeGreaterThan(0);
-    for (const thread of threads) {
-      expect(thread.xMinusFaceCentre).toBe(0);
-      expect(thread.fromFaceBottom).toBe(4);
-      expect(thread.toNextFaceTop).toBe(4);
-      expect(thread.width).toBe(1);
-    }
+    // WP-40 retired the space's threads and plates for the lab's
+    // structure: hairlines between rows, labels, one thin border for what
+    // belongs together (shell-agents-pages.spec.ts measures it).
     const layout = await page.evaluate(() => {
       const box = (selector: string) => {
         const element = document.querySelector(selector);
@@ -988,7 +943,7 @@ for (const mode of ["dark", "light"] as const) {
       };
       const glyphs = [
         ...document.querySelectorAll<HTMLElement>(
-          "[data-testid='mind-entry'] .luca-place-row-face",
+          "[data-testid='mind-entry'] .luca-mind-glyph",
         ),
       ].map((face) => ({
         kind: face.closest("[data-kind]")?.getAttribute("data-kind"),
@@ -1009,12 +964,12 @@ for (const mode of ["dark", "light"] as const) {
       ]);
       const worksWith = [
         ...document.querySelectorAll<HTMLElement>(
-          "[data-testid='mind-works-with'] .luca-place-row",
+          "[data-testid='mind-works-with'] .luca-mind-with",
         ),
       ].map((row) => ({
         agentMark: Boolean(row.querySelector("[data-agent-mark]")),
-        note: row.querySelector(".luca-place-row-note")?.textContent,
-        title: row.querySelector(".luca-place-row-title")?.textContent,
+        note: row.querySelector(".luca-mind-date")?.textContent,
+        title: row.querySelector(".luca-mind-with-name")?.textContent,
       }));
       const asksMark = [
         ...document.querySelectorAll<HTMLElement>(
@@ -1032,28 +987,24 @@ for (const mode of ["dark", "light"] as const) {
         worksWith,
       };
     });
-    expect(layout.aside?.w).toBe(232);
+    // The lab's columns (WP-40): At a glance 220 wide, 40 from the body.
+    expect(layout.aside?.w).toBe(220);
     expect(layout.axis?.w).toBe(908);
     expect(
       Math.round(
         (layout.aside?.x ?? 0) -
           ((layout.body?.x ?? 0) + (layout.body?.w ?? 0)),
       ),
-    ).toBe(36);
+    ).toBe(40);
     expect(layout.worksWith[0]?.title).toBe("Atlas");
     expect(layout.worksWith[0]?.agentMark).toBe(true);
     for (const glyph of layout.glyphs) expect(glyph.label).toBeTruthy();
-    const step = await plateStep(
-      page,
-      name,
-      ".luca-mind-day .luca-place-plate",
-    );
+    const step = await plateStep(page, name, ".luca-mind-day .luca-mind-rows");
     measure(`notebook-${mode}-1440`, {
       labels: await readLabels(page),
       layout,
       plates: await readPlates(page),
       step,
-      threads,
     });
   });
 }
@@ -1136,11 +1087,9 @@ for (const mode of ["dark", "light"] as const) {
       `mind-settings-${mode}`,
       "[data-testid='agent-settings']",
     );
-    for (const line of [...self.hairlines, ...settings.hairlines])
-      expect(line.startMinusWords).toBe(0);
-    const selfPlate = self.plates.find((each) => each.testid === "mind-self");
-    expect(selfPlate?.radius).toBe("12px");
-    expect(selfPlate?.padding).toBe("4px");
+    // WP-40: Self's documents are rows between hairlines, not a plate
+    // (measured after Settings, so read from the shot's own pass).
+    expect(self.plates.some((each) => each.testid === "mind-self")).toBe(false);
     measure(`self-settings-${mode}`, {
       self,
       selfStep,

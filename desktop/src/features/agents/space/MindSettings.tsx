@@ -109,10 +109,9 @@ export function MindSettings({
   const isRunning =
     managedAgent?.status === "running" || managedAgent?.status === "deployed";
   const name = resident.displayName;
-  const [open, setOpen] = React.useState<ReadonlySet<RowId>>(
-    () => new Set(focusAt ? [focusAt] : []),
-  );
-  // The row a way in opened stays lit until it is closed (WP-26, Decided 4).
+  // Every section is open (BETA14_RELEASE.md WP-40, Decided 3); the one a
+  // way in names is lit until you click elsewhere in Settings (WP-26,
+  // Decided 4).
   const [lit, setLit] = React.useState<RowId | null>(focusAt);
   const rows = React.useRef(new Map<RowId, HTMLLIElement>());
   const scrollTo = React.useRef<RowId | null>(null);
@@ -123,22 +122,11 @@ export function MindSettings({
     },
     [],
   );
-  const toggle = (id: RowId) => {
-    if (open.has(id)) setLit((current) => (current === id ? null : current));
-    setOpen((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  // A way in that names a row lands on it: `/brain` on What they can read,
-  // an agent showing its runtime on Connected app and model, one asking for
-  // access on Permissions. Open and lit at once, then consumed.
+  // A way in that names a section lands on it: What they can read, an
+  // agent showing its runtime on What runs them, one asking for access on
+  // Permissions. In view and lit at once, then consumed.
   React.useEffect(() => {
     if (!focusAt) return;
-    setOpen((current) => new Set([...current, focusAt]));
     setLit(focusAt);
     scrollTo.current = focusAt;
     onFocusAtConsumed?.();
@@ -154,9 +142,7 @@ export function MindSettings({
     row.scrollIntoView({ block: "start" });
   });
 
-  const readValue = useWhatTheyCanRead(Boolean(resident.pubkey));
   const luca = useCanonicalLucaPubkey();
-  const permissionsValue = usePermissionsValue(managedAgent?.pubkey ?? null);
   const restartFirst =
     managedAgent?.needsRestart &&
     managedAgent.backend.type === "local" &&
@@ -164,24 +150,23 @@ export function MindSettings({
 
   return (
     <ul
-      className="luca-mind-list luca-mind-settings"
+      className="luca-mind-settings"
       data-testid="agent-settings"
+      onPointerDown={(event) => {
+        if (
+          lit &&
+          !(event.target as Element).closest(`[data-setting="${lit}"]`)
+        )
+          setLit(null);
+      }}
     >
       <SettingRow
         id="runtime"
         lit={lit}
-        onToggle={toggle}
-        open={open}
         register={register}
-        title="Connected app and model"
-        value={[
-          residentSourceLabel(resident),
-          managedAgent || resident.modelLabel
-            ? (resident.modelLabel ?? "Default model")
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
+        help={`This follows ${name} into every room. Changing it restarts ${name}; their name, identity and documents stay the same.`}
+        label="Runtime"
+        title={`What runs ${name}`}
       >
         <LedgerRow label="Runtime" value={residentSourceLabel(resident)} />
         {managedAgent ? (
@@ -199,11 +184,6 @@ export function MindSettings({
                 testId="agent-settings-model"
                 variant="field"
               />
-              <p className="mt-2 text-2xs leading-4 text-muted-foreground">
-                This choice follows the resident into every room. Changing it
-                restarts the resident; their name, identity, and documents stay
-                the same.
-              </p>
             </div>
           </div>
         ) : resident.modelLabel ? (
@@ -315,11 +295,10 @@ export function MindSettings({
         <SettingRow
           id="wakes"
           lit={lit}
-          onToggle={toggle}
-          open={open}
           register={register}
-          title="Wakes with the app"
-          value={managedAgent.startOnAppLaunch ? "On" : "Off"}
+          help={`Whether ${name} is ready before you write, and how a change reaches them.`}
+          label="Lifecycle"
+          title={`When ${name} runs`}
         >
           <div className="flex items-center justify-between gap-6 py-2">
             <div>
@@ -365,11 +344,10 @@ export function MindSettings({
       <SettingRow
         id="workspace"
         lit={lit}
-        onToggle={toggle}
-        open={open}
         register={register}
-        title="Workspace"
-        value={workspace ?? "No native workspace reported"}
+        help={`The folder ${name} starts in, and where their documents live.`}
+        label="Working context"
+        title={`Where ${name} works`}
       >
         <LedgerRow
           icon={Folder}
@@ -390,12 +368,11 @@ export function MindSettings({
         <SettingRow
           id="read"
           lit={lit}
-          onToggle={toggle}
-          open={open}
           register={register}
           testId="mind-what-they-can-read"
+          help={`What Brain has connected that ${name} may read.`}
+          label="Brain"
           title={`What ${name} can read`}
-          value={readValue}
         >
           {/* This mind's own access; Brain itself is its own place
               (BETA14_RELEASE.md WP-38, Decided 3). */}
@@ -413,11 +390,10 @@ export function MindSettings({
         <SettingRow
           id="permissions"
           lit={lit}
-          onToggle={toggle}
-          open={open}
           register={register}
-          title="Permissions"
-          value={managedAgent ? permissionsValue : "After setup"}
+          help={`What ${name} may do on this Mac without asking you first.`}
+          label="Permissions"
+          title={`What ${name} may do`}
         >
           <MindPermissions
             appName={appName}
@@ -431,15 +407,14 @@ export function MindSettings({
       <SettingRow
         id="identity"
         lit={lit}
-        onToggle={toggle}
-        open={open}
         register={register}
-        title="Identity"
-        value={
+        help={
           managedAgent?.pubkey
-            ? `Signed as ${name} · ${truncatePubkey(managedAgent.pubkey)}`
-            : "Created when the resident starts"
+            ? `${name} signs as ${truncatePubkey(managedAgent.pubkey)}, whatever runs them.`
+            : "Created when the resident starts."
         }
+        label="Identity"
+        title={`Who ${name} is on the network`}
       >
         <LedgerRow
           icon={KeyRound}
@@ -466,11 +441,10 @@ export function MindSettings({
         <SettingRow
           id="character"
           lit={lit}
-          onToggle={toggle}
-          open={open}
           register={register}
-          title="Your character"
-          value=""
+          help={`How ${name} shows in conversations.`}
+          label="Appearance"
+          title={`${name}'s character`}
         >
           <CharacterAppearancePicker
             avatarUrl={resident.avatarUrl}
@@ -484,11 +458,10 @@ export function MindSettings({
         <SettingRow
           id="rooms"
           lit={lit}
-          onToggle={toggle}
-          open={open}
           register={register}
-          title="Recent rooms"
-          value={`${channels.length} ${channels.length === 1 ? "room" : "rooms"}`}
+          help={`The ${channels.length === 1 ? "room" : `${Math.min(channels.length, 6)} rooms`} ${name} was in most recently.`}
+          label="Rooms"
+          title={`Where ${name} talks`}
         >
           <div className="divide-y divide-border/45">
             {channels.slice(0, 6).map((channel) => (
@@ -510,13 +483,14 @@ export function MindSettings({
         <SettingRow
           id="health"
           lit={lit}
-          onToggle={toggle}
-          open={open}
           register={register}
-          title="Runtime health"
-          value={
-            managedAgent.lastError ? "Needs attention" : "Restart required"
+          help={
+            managedAgent.lastError
+              ? `${name}'s runtime needs attention.`
+              : `A change waits for ${name} to restart.`
           }
+          label="Health"
+          title="What needs fixing"
         >
           <div className="flex items-start gap-3 text-sm text-destructive">
             <CircleAlert className="mt-0.5 size-4 shrink-0" />
@@ -538,11 +512,10 @@ export function MindSettings({
         <SettingRow
           id="companion"
           lit={lit}
-          onToggle={toggle}
-          open={open}
           register={register}
+          help={`What ${name} notices while you work, and when ${name} may start something on their own.`}
+          label="Companion"
           title="Awareness and initiative"
-          value=""
         >
           <CompanionSettingsSection
             bare
@@ -662,53 +635,51 @@ function NoteRow({
   );
 }
 
-/** One section: its title and current value, opening its controls. */
+/** One section, always open (BETA14_RELEASE.md WP-40, Decided 3): at the
+ *  left its label and the question it answers; at the right a line of help
+ *  and its controls. A hairline between sections. */
 function SettingRow({
   children,
+  help,
   id,
+  label,
   lit,
-  onToggle,
-  open,
   register,
   testId,
   title,
-  value,
 }: {
   children: React.ReactNode;
+  help?: string;
   id: RowId;
+  label: string;
   lit: RowId | null;
-  onToggle: (id: RowId) => void;
-  open: ReadonlySet<RowId>;
   register: (id: RowId, element: HTMLLIElement | null) => void;
   testId?: string;
   title: string;
-  value: string;
 }) {
-  const isOpen = open.has(id);
-  const panelId = `mind-setting-${id}`;
+  const titleId = `mind-setting-${id}-title`;
   return (
     <li
+      aria-labelledby={titleId}
       className="luca-mind-setting"
       data-lit={lit === id ? "true" : undefined}
-      data-open={isOpen ? "true" : undefined}
+      data-setting={id}
       data-testid={testId ?? `mind-setting-${id}`}
       ref={(element) => register(id, element)}
     >
-      <button
-        aria-controls={panelId}
-        aria-expanded={isOpen}
-        className="luca-mind-row-open"
-        onClick={() => onToggle(id)}
-        type="button"
+      <div className="luca-mind-setting-label">
+        <p className="type-eyebrow luca-mind-eyebrow">{label}</p>
+        <h2 className="luca-mind-setting-title" id={titleId}>
+          {title}
+        </h2>
+      </div>
+      <div
+        className="@container luca-mind-setting-body"
+        id={`mind-setting-${id}`}
       >
-        <span className="luca-mind-title">{title}</span>
-        <span className="luca-mind-value">{value}</span>
-      </button>
-      {isOpen ? (
-        <div className="@container luca-mind-setting-panel" id={panelId}>
-          {children}
-        </div>
-      ) : null}
+        {help ? <p className="luca-mind-help">{help}</p> : null}
+        {children}
+      </div>
     </li>
   );
 }
