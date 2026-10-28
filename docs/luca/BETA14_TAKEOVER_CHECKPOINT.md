@@ -142,3 +142,22 @@ The installed app, candidate profiles, Ghost and provider state remain unchanged
    final DMG/updater assembly from the same app; compare extracted contents and
    smoke-test the distributed artifact. Then the approved tag and uploads,
    immutable assets before the manifest. No publication in the preparation pass.
+
+## Integrated by Claude after this checkpoint (2026-10-27, ~23:40 CDT, at Riley's word)
+
+Riley to Claude: "Yes, merge them" (the glass mini chat and the projects fix). The mini chat was already in
+(`baf91472f`), so only the projects fix landed:
+- The merge is `merge(beta14): a project's rooms sit under it again` (the projects-rooms commit `103e3b6d7`), made in a
+  scratch worktree and fast-forwarded here.
+- Your reload-fixture repair in `shell-chats-rail.spec.ts` (`13180d5ed`) and the projects change to that same file are
+  both kept, checked line by line.
+- On the merged source: `tsc` 0, biome clean on all 10 merged desktop files, text guard 0, and unit tests 4,411/4,411.
+  On a fresh `build:e2e` served by `tools/serve.py`, the browser specs `shell-chats-rail`, `shell-project-rooms`,
+  `shell-frame` and `shell-settings` passed 32/32.
+
+Also in flight, on branches of their own (not merged; integrate by intent when they report):
+- **WP-39 · Agent fingerprints:** builder `wp39`, worktree `.claude-worktrees/wp39-fingerprints`, branch
+  `claude/wp39-fingerprints`. New files only, in `shared/ui/fingerprint/`. Riley approved the design and "Yes, bring
+  them in".
+- **WP-40 · The rail and the agents pages:** dispatched next, from this tip.
+- **WP-41:** each agent wears its fingerprint, after both land. Briefs are in `BETA14_RELEASE.md`.
