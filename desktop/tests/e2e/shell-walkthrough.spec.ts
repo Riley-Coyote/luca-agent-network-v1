@@ -283,7 +283,12 @@ const conversation = (page: Page) =>
     messages: [...document.querySelectorAll('[data-testid="message-row"]')]
       .map((row) => (row.textContent ?? "").trim().slice(0, 80))
       .filter(Boolean),
-    surface: document.querySelector(".luca-first-message-surface") !== null,
+    // The new chat page's ground: the whole film without the frame, the
+    // agent's face in a small pool with it (Riley, 2026-10-27).
+    surface:
+      document.querySelector(
+        ".luca-first-message-surface, .luca-first-message-pool",
+      ) !== null,
     systemRows: document.querySelectorAll('[data-testid="system-message-row"]')
       .length,
   }));
@@ -315,7 +320,9 @@ for (const flag of [true, false]) {
       const log: string[] = [];
       await boot(page, { flag, log, mode });
       await openAtlas(page, flag);
-      await expect(page.locator(".luca-first-message-surface")).toBeVisible({
+      await expect(
+        page.locator(".luca-first-message-surface, .luca-first-message-pool"),
+      ).toBeVisible({
         timeout: 20_000,
       });
       const where = await noted(page);
@@ -337,7 +344,9 @@ for (const flag of [true, false]) {
       await input.click();
       await input.fill("Atlas, can you read the release notes once more?");
       await input.press("Enter");
-      await expect(page.locator(".luca-first-message-surface")).toHaveCount(0, {
+      await expect(
+        page.locator(".luca-first-message-surface, .luca-first-message-pool"),
+      ).toHaveCount(0, {
         timeout: 20_000,
       });
       await expect(

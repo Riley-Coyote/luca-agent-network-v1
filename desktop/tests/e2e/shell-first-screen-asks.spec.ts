@@ -306,14 +306,16 @@ for (const frame of ["black", "liquid"] as Frame[]) {
       await boot(page, { asks: false, frame, log, mode });
       const name = page.locator(".luca-first-message-greeting__name");
       await expect(name).toBeVisible({ timeout: 20_000 });
-      await expect(
-        page.locator(".luca-first-message-surface canvas"),
-      ).toHaveCount(1);
+      // The face's pool (Riley, 2026-10-27), not a film across the card.
+      await expect(page.locator(".luca-first-message-pool canvas")).toHaveCount(
+        1,
+      );
       await page.mouse.move(1430, 890);
       await page.waitForTimeout(600);
       const facts = await page.evaluate(() => {
         const card = document.querySelector("[data-luca-one-card]");
-        const surface = document.querySelector(".luca-first-message-surface");
+        // The conversation's own ground, where the film used to lie.
+        const surface = document.querySelector("[data-luca-timeline-viewport]");
         const rail = document.querySelector('[data-testid="app-sidebar"]');
         const title = document.querySelector(
           ".luca-first-message-greeting__name",
