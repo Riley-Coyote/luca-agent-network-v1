@@ -388,3 +388,38 @@
 :root[data-luca-frame] .luca-sheet-deck + [data-testid="message-composer"] {
   box-shadow: none;
 }
+
+/* THE COMPOSER IN APPLE'S GLASS (useNativeComposerGlass.ts and the Mac's
+ * PolyphonicComposer.swift; Riley, 2026-10-27: the conversation runs under
+ * the glass). The page keeps the composer and everything it does, and draws
+ * none of the input row: the glass and the words are the Mac's, above the
+ * page, and the row keeps the glass's height so the conversation makes room
+ * for it. What sits above the row (suggestions, a chosen task, attachments
+ * waiting to go) stays the page's. Restated to outrank the frame's own
+ * composer rules. */
+:root:root[data-luca-native-composer]
+  [data-testid="message-composer"][data-native-glass],
+:root:root[data-luca-native-composer]
+  [data-testid="message-composer"][data-native-glass]:focus-within {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+:root:root[data-luca-native-composer]
+  [data-testid="message-composer"][data-native-glass]
+  .luca-composer-controls {
+  height: calc(var(--luca-native-composer-height, 48px) - 14px);
+  max-height: none;
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+/* The conversation runs on beneath the glass; the page's cover keeps only
+ * the strip under the composer, where its own tools sit. */
+:root:root[data-luca-native-composer][data-luca-shell]
+  .luca-conversation-veil-bottom.luca-conversation-veil-bottom {
+  -webkit-mask-image: linear-gradient(to top, #000 2.75rem, transparent 4.5rem);
+  mask-image: linear-gradient(to top, #000 2.75rem, transparent 4.5rem);
+}

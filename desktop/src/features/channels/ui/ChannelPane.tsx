@@ -1541,6 +1541,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                       </AnimatePresence>
                     </div>
                     <MessageComposer
+                      nativeGlass
                       ledgeAgents={composerLedgeAgents}
                       capabilityResidents={capabilityResidents}
                       channelId={activeChannel?.id ?? null}
