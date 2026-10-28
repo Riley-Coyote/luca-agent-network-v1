@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Polyphonic Composer Glass Candidate",
+  "identifier": "chat.polyphonic.desktop.composer-glass.dev",
+  "version": "0.5.0-beta.14",
+  "bundle": {
+    "targets": ["app"],
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "infoPlist": "Info.beta.plist",
+      "minimumSystemVersion": "14.0"
+    }
+  },
+  "plugins": {
+    "updater": { "endpoints": [] },
+    "deep-link": { "desktop": { "schemes": ["polyphonic-composer-glass"] } }
+  }
+}

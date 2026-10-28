@@ -61,6 +61,19 @@ test("the rail-glass candidate is the shell's beta.14 test app, and no kind need
   }
 });
 
+test("the composer-glass candidate is its own beta.14 shell test app", () => {
+  const env = { POLYPHONIC_COMPANION_CANDIDATE_KIND: "composer-glass" };
+  const overlay = join(repository, "desktop/src-tauri/tauri.composer-glass-candidate.conf.json");
+  const identity = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" "$APP_VERSION"', [overlay], env);
+  assert.equal(identity.status, 0, identity.stderr);
+  assert.equal(shell('printf %s "$BUNDLE_ID"', [], env).stdout, "chat.polyphonic.desktop.composer-glass.dev");
+  assert.equal(shell('printf %s "$EXPECTED_BRANCH"', [], env).stdout, "claude/new-chat-composer");
+  assert.equal(shell('printf %s "$APP_VERSION"', [], env).stdout, "0.5.0-beta.14");
+  assert.equal(shell('printf %s "$SHELL_FRAME"', [], env).stdout, "1");
+  const environment = JSON.parse(shell('json environment /d /n scope', [], env).stdout);
+  assert.equal(Object.keys(environment).length, 4);
+});
+
 test("the entrypoint refuses any build target but the one shared cache", () => {
   temporary((root) => {
     for (const mode of ["check", "build", "run"]) {

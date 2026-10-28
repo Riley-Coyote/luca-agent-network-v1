@@ -54,6 +54,18 @@ case "$CANDIDATE_KIND" in
         readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.rail-glass-candidate.conf.json"
         readonly APP_VERSION="0.5.0-beta.14"
         ;;
+    composer-glass)
+        # The composer in Apple's real glass with the conversation running
+        # under it (PolyphonicComposer.swift), for Riley to judge in the app.
+        readonly EXPECTED_BRANCH="claude/new-chat-composer"
+        readonly SOURCE_BASE="f84aaafa53386f213b832441983838b23c32c745"
+        readonly BUNDLE_ID="chat.polyphonic.desktop.composer-glass.dev"
+        readonly PRODUCT_NAME="Polyphonic Composer Glass Candidate"
+        readonly URL_SCHEME="polyphonic-composer-glass"
+        readonly PROTOCOL="polyphonic.composer-glass-candidate.v1"
+        readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.composer-glass-candidate.conf.json"
+        readonly APP_VERSION="0.5.0-beta.14"
+        ;;
     *) printf 'Candidate refused: unknown candidate identity\n' >&2; exit 1 ;;
 esac
 readonly ENTITLEMENTS_PATH="$REPO_ROOT/desktop/src-tauri/Entitlements.plist"
@@ -61,7 +73,7 @@ readonly ENTITLEMENTS_PATH="$REPO_ROOT/desktop/src-tauri/Entitlements.plist"
 # frame on. Apple's glass needs no switch: every macOS build compiles it in and
 # it attaches on its own on macOS 26 and later (desktop/src-tauri/build.rs).
 SHELL_FRAME=0
-[[ "$CANDIDATE_KIND" != rail-glass ]] || SHELL_FRAME=1
+[[ "$CANDIDATE_KIND" != rail-glass && "$CANDIDATE_KIND" != composer-glass ]] || SHELL_FRAME=1
 readonly SHELL_FRAME
 readonly SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz buzz-relay)
 
@@ -358,6 +370,8 @@ build_candidate() {
     # The rail-glass candidate is the shell's test app (docs/luca/rail-system/
     # SHELL_BUILD.md): its page is built with the shell's frame switched on.
     [[ "$SHELL_FRAME" != 1 ]] || export VITE_LUCA_SHELL_FRAME=1
+    # The composer-glass candidate's page asks the Mac for the composer in glass.
+    [[ "$CANDIDATE_KIND" != composer-glass ]] || export VITE_LUCA_NATIVE_COMPOSER=1
     signing="$SIGNING_IDENTITY"
     if [[ -z "$signing" ]]; then
         signing=$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | /usr/bin/head -1)
