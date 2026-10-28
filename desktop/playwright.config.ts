@@ -69,6 +69,7 @@ export default defineConfig({
         "**/shell-rail-wp34.spec.ts",
         "**/shell-app-task.spec.ts",
         "**/shell-walkthrough.spec.ts",
+        "**/shell-fingerprint.spec.ts",
         "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",
