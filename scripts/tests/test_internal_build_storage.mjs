@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -75,7 +75,7 @@ test(
 );
 
 test(
-  "external, broad, relative and traversal targets are refused before execution",
+  "alternate, external, broad, relative and traversal targets are refused before execution",
   macOnly,
   () => {
     for (const badTarget of [
@@ -84,6 +84,8 @@ test(
       "target",
       `${target}/../other`,
       `${target}//child`,
+      join(cacheRoot, "another-candidate"),
+      join(target, "another-candidate"),
     ]) {
       const result = run(
         [process.execPath, "-e", "process.stdout.write('should-not-run')"],
@@ -96,14 +98,14 @@ test(
 );
 
 test(
-  "a target symlink into the mounted-volume namespace is refused",
+  "a Cargo home symlink into the mounted-volume namespace is refused",
   macOnly,
   () => {
-    const fixture = mkdtempSync(join(cacheRoot, "storage-preflight-fixture-"));
+    const fixture = mkdtempSync(join(tmpdir(), "storage-preflight-fixture-"));
     try {
       const linked = join(fixture, "linked");
       symlinkSync("/Volumes", linked, "dir");
-      const result = run(["--check"], { CARGO_TARGET_DIR: linked });
+      const result = run(["--check"], { CARGO_HOME: linked });
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /internal data volume/);
     } finally {

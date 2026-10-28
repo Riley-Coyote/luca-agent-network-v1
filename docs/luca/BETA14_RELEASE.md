@@ -168,6 +168,12 @@ Not in scope: WP-30's files.
 
 ## Riley's further calls (2026-10-26)
 
+- **Finish release preparation while Claude finishes the UI (2026-10-27).**
+  Riley explicitly wants the composer, rail, mini-chat and other finished,
+  approved UI updates included in this beta. Prepare independent release checks
+  now; integrate completed commits, not active dirty worktrees. Do not rebuild
+  the native candidate until the combined UI is ready. The integration and
+  acceptance sequence is recorded in `BETA14_TAKEOVER_CHECKPOINT.md`.
 - **Mnemos waits for its own release:** "hold off on mnemos and do it as its own release. especially because we also
   have the mnemo connector and could potentially bring it in that way so someone could keep their existing memory".
   Codex's uncommitted Mnemos work is backed up at

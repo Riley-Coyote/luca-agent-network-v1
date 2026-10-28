@@ -37,8 +37,10 @@ candidates included, compiles in `~/Library/Caches/luca-build/cargo-target` (the
 global target in `~/.cargo/config.toml`). Never create a separate target for a
 candidate, a worktree or a proof (Riley, 2026-10-23: "we never need to do
 separate builds for this app. we cant and need to make sure we never try to
-anymore"). `scripts/build-companion-delegation-candidate.sh` refuses any other
-target. A candidate's isolation is its identity and its instance folder (app
+anymore"). Both `scripts/with-internal-build-cache.sh` and
+`scripts/build-companion-delegation-candidate.sh` refuse any other target,
+including another subfolder inside `luca-build`. A candidate's isolation is its
+identity and its instance folder (app
 data, native state, keychain scope), kept outside the cache, never its compiled
 output. Do not weaken candidate checks just to reuse an installed app.
 

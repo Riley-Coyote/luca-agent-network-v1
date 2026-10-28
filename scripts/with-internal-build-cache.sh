@@ -20,10 +20,8 @@ storage_reserve="${POLYPHONIC_BUILD_RESERVE_GIB:-20}"
 [[ "$storage_reserve" =~ ^[0-9]+$ && ${#storage_reserve} -le 5 ]] || storage_fail 'reserve must be a whole number of GiB'
 (( 10#$storage_reserve >= 8 )) || storage_fail 'reserve must be at least 8 GiB'
 
-case "$storage_target" in
-    "$HOME/Library/Caches/luca-build/"?*) ;;
-    *) storage_fail 'target must be a dedicated folder under ~/Library/Caches/luca-build' ;;
-esac
+[[ "$storage_target" == "$HOME/Library/Caches/luca-build/cargo-target" ]] ||
+    storage_fail 'all Polyphonic builds must use the one shared cache: ~/Library/Caches/luca-build/cargo-target'
 case "$storage_target/" in
     *'/../'*|*'/./'*|*'//'*|*$'\n'*|*$'\r'*|*$'\t'*) storage_fail 'target path is not canonical' ;;
 esac
