@@ -61,6 +61,7 @@ import {
 } from "@/features/sidebar/ui/sidebarMenuHelpers";
 import { getChannelDetails } from "@/shared/api/tauri";
 import { AgentMark } from "@/shared/ui/AgentMark";
+import { AgentFingerprint } from "@/shared/ui/fingerprint/AgentFingerprint";
 import { ContextMenuItem } from "@/shared/ui/context-menu";
 
 /**
@@ -981,13 +982,23 @@ function RowFace({
   );
 }
 
-function homeFace(home: RailHome) {
+function homeFace(home: RailHome, working = false) {
   switch (home.kind) {
     case "luca":
     case "agent":
+      // Each mind wears its own fingerprint (WP-41); one not yet keyed keeps the agent mark.
       return (
         <RowFace kind="agent">
-          <AgentMark />
+          {home.pubkey ? (
+            <AgentFingerprint
+              residentKey={home.pubkey}
+              size={18}
+              variant="rail"
+              working={working}
+            />
+          ) : (
+            <AgentMark />
+          )}
         </RowFace>
       );
     case "app":
@@ -1222,7 +1233,7 @@ function HomeRow({
           title={home.name}
           type="button"
         />
-        {homeFace(home)}
+        {homeFace(home, working > 0)}
         <span
           aria-hidden
           className="luca-rail-row-name text-sm"

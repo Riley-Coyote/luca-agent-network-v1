@@ -1,4 +1,5 @@
 // biome-ignore format: keep compact to stay within file size limit
+import { ResidentFingerprintKinds } from "@/features/luca/residents/ResidentFingerprintKinds";
 import * as React from "react";
 import { AgentSessionDialog } from "@/features/sidebar/ui/AgentSessionDialog";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
@@ -916,35 +917,37 @@ export function AppSidebar({
                     />
                   ) : USE_CHAT_LIST && frame ? (
                     // The shell's rail: the connected apps are its Apps.
-                    <ShellRail
-                      agentStorageKey={agentStorageKey}
-                      agents={railAgents}
-                      items={chatListItems}
-                      onAddToHome={addToHomeFromRail}
-                      onBrowseArchived={browseArchivedFromRail}
-                      onBrowseRooms={browseRoomsFromRail}
-                      onCreateProject={createProjectFromRail}
-                      onLeave={closeSheetAfterPick}
-                      onNewConversation={handleNewMessageNavigation}
-                      onMarkChannelRead={onMarkChannelRead}
-                      onMarkChannelUnread={onMarkChannelUnread}
-                      onOpenAgent={openAgentFromRail}
-                      onSelectChannel={selectChannelFromRail}
-                      onSelectProject={selectProjectFromRail}
-                      primaryPubkey={primaryPubkey}
-                      projectByChannelId={roomProjects}
-                      projects={projectCatalog}
-                      selectedChannelId={selectedChannelId}
-                      selectedProjectId={selectedProjectId}
-                      storageKey={railHomesStorageKey(
-                        currentPubkey ?? "",
-                        activeCommunity?.relayUrl ?? "",
-                        activeCommunity?.id ?? "",
-                      )}
-                      unreadChannelIds={unreadChannelIds}
-                      workingByChannelId={activeWorkingByChannelId}
-                      key={agentStorageKey}
-                    />
+                    <ResidentFingerprintKinds>
+                      <ShellRail
+                        agentStorageKey={agentStorageKey}
+                        agents={railAgents}
+                        items={chatListItems}
+                        onAddToHome={addToHomeFromRail}
+                        onBrowseArchived={browseArchivedFromRail}
+                        onBrowseRooms={browseRoomsFromRail}
+                        onCreateProject={createProjectFromRail}
+                        onLeave={closeSheetAfterPick}
+                        onNewConversation={handleNewMessageNavigation}
+                        onMarkChannelRead={onMarkChannelRead}
+                        onMarkChannelUnread={onMarkChannelUnread}
+                        onOpenAgent={openAgentFromRail}
+                        onSelectChannel={selectChannelFromRail}
+                        onSelectProject={selectProjectFromRail}
+                        primaryPubkey={primaryPubkey}
+                        projectByChannelId={roomProjects}
+                        projects={projectCatalog}
+                        selectedChannelId={selectedChannelId}
+                        selectedProjectId={selectedProjectId}
+                        storageKey={railHomesStorageKey(
+                          currentPubkey ?? "",
+                          activeCommunity?.relayUrl ?? "",
+                          activeCommunity?.id ?? "",
+                        )}
+                        unreadChannelIds={unreadChannelIds}
+                        workingByChannelId={activeWorkingByChannelId}
+                        key={agentStorageKey}
+                      />
+                    </ResidentFingerprintKinds>
                   ) : USE_CHAT_LIST ? (
                     <>
                       <ChatList
