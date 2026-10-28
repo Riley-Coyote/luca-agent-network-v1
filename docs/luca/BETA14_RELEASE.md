@@ -702,3 +702,91 @@ things like these fingerpirint marks moving and making the app feel alive". And 
 **Checks JSON keys:** `seed_rule`, `kinds_distinct`, `growth_gpu_ms`, `growth_cpu_ms`, `cache_hit`, `rail_dark`,
 `rail_light`, `large`, `rest_motion`, `working_motion`, `still_reduce_motion`, `identity_stable`, `offscreen_idle`,
 `hidden_pause`, `fallback_no_webgl`, `unit_tests`, `playwright`, `gates`.
+
+## WP-40 · The rail and the agents pages, as the lab has them (2026-10-27, Riley's call)
+
+**Why.** Riley, comparing the test app with beta.13:
+- "i feel like you changed things on all of the pages in terms of design, and its made everything feel really empty."
+- "the biggest things are the rail not having icons and the headers or titles for sections in the rail being small and
+  looking the same as each item in the rail."
+- On the agents pages: "the text is basically teh same size everywhere, theres hardly any visual organization so
+  everything feels like it just blends together, and idk, it just feels like text on a blank page instead of having
+  clear structure and professional level organizational design."
+- "in agent settings, everything is hidden behind drop downs, but theres no indication that those drop downs exist."
+- "the new settings layout is fine overall, i think we just need to work on the text hierarchy and adding back in some
+  of the hairline borders and visual elements that make everything feel more clear and distinct."
+
+He approved the lab's answer ("this is looking much better", then "Yes, bring them in"). The lab is
+`~/Documents/Repositories/.claude-worktrees/shell-lab-rail`, branch `claude/shell-lab-rail-faces`. Build from commit
+`6049f9246` ("structure for the agents pages and real labels in the rail"): `desktop/src/testing/shellStudy/`
+(`ShellStudy.tsx`, `content.ts`, `shellStudy.css`). The later commits there (creatures, the mark studies) are not
+part of this. Today beside proposed, as Riley saw them: `design-lab/agents-pages-proposed/*.jpg` in that worktree.
+
+**Decided** (under `shell-frame`; the classic layout doesn't change):
+1. **The rail's section heads are labels again,** in every place's rail. They use the app's own micro-label, the
+   `.type-eyebrow` style under `data-luca-shell`: Fragment Mono, 11 px, caps, 0.09em tracking, faint. Each head is 28 px
+   tall with 6 px above it. Rows stay 14 px.
+2. **Every place's rail row leads with a face,** in one 18 px column, 10 px from the words: faint ink, muted on hover or
+   when picked.
+   - Things get line drawings: the lab's mapping, lucide icons.
+   - Apps keep their maker's mark.
+   - Minds keep `AgentMark` at its call sites. WP-41 turns those into fingerprints, so don't change `AgentMark` itself.
+3. **The agents pages** (`features/agents/space/`: Notebook, Self, Settings) get the lab's structure.
+   - **Type steps:** the name 26/600, section titles 17/600, rows 14, help 13, details 12, labels 11 in mono capitals.
+   - **Lines:** a hairline between sections (ink at 0.09), softer rules inside them (0.065), and edges at 0.11 (0.18 on
+     hover).
+   - **Notebook,** in this order:
+     - its intro line;
+     - **Place** as a titled section: "Written by {who} · {date} · revision n", Edit place, then Introduction, Exploring
+       and Selected work under their labels with hairlines between, the piece card with Open, and the "Let {name} edit
+       this place" switch with its explanation;
+     - **Asks you,** with its count, the asks in a bordered box;
+     - **Saved handoff** as an opener: a row with "Show ›" whose chevron turns, opening to Summary, Unresolved and
+       Commitments;
+     - then tabs: **Continuity notes n · Journal pages n · Their days.** Each entry shows its kind as a label, its words,
+       a line of who wrote it, its revision and its sources, and a date.
+     - An empty part says what it will hold.
+   - **Self:** each document is a row that clearly opens: its title, its file name in mono, one line of what it says
+     (or "Not written yet"), who writes it, when it changed, and a chevron. Then "More files", with New file.
+   - **Settings:** every section open, in two columns, with a hairline between sections. No hidden dropdowns.
+     - **Left:** the label and the question it answers as a 17 px title ("What runs Luca", "When Luca runs").
+     - **Right:** a line of help and the controls, each looking like what it is: a select with its chevron, a switch,
+       a button, a link with an arrow.
+4. **Real data only.** Wire the structure to what `MindSpace` already reads: notebook entries, continuity notes, journal
+   pages, documents and settings. The lab's sample content never ships.
+5. **A capability map:** every control and every piece of information on today's agent space, and on the classic agent
+   pages it replaced, mapped to its home after, or marked LOST. Nothing may be lost.
+
+**Built beside:**
+- **WP-39,** agent fingerprints, is running in new files under `shared/ui/fingerprint/`. Don't touch those or
+  `shared/ui/AgentMark.tsx`.
+- **The base** for this package is the release line after the glass mini chat and the projects-rooms fix are merged.
+  Start from the tip you're given.
+
+**Files in scope:**
+- `features/sidebar/ui/ShellRail.tsx`, the place rails in `app/shell/placeRails/`, and the rail CSS;
+- `features/agents/space/` (`MindSpace.tsx`, `MindNotebook.tsx`, `MindSettings.tsx` and their siblings) and
+  `app/shell/shell-mind-space.css`;
+- the specs:
+  - update the existing shell specs that assert the old heads or the old place count, citing WP-40 (e.g. `shell-frame`
+    places_width now counts Brain);
+  - add `tests/e2e/shell-agents-pages.spec.ts`, registered in the smoke project.
+
+**Proof:**
+- The rail in Chats, Agents, Activity, Library, Brain and Settings, by night and by day: heads and faces.
+- Luca's Notebook (Place, Asks you, the handoff closed and open, notes, journal, days), Self and Settings, at 1440 × 900
+  and 800 × 500.
+- One agent with little in it, to show the empty parts.
+- Each beside the matching lab picture.
+- The capability map.
+- Flag off, by hash against the base, `:4300`.
+
+**Checks JSON keys:** `rail_heads`, `rail_faces`, `type_steps`, `hairlines`, `notebook_place`, `asks_box`,
+`handoff_opener`, `notes_tabs`, `empty_states`, `self_rows`, `settings_open`, `capability_map`, `classic_identical`,
+`unit_tests`, `playwright`, `gates`.
+
+## WP-41 · Each agent wears its fingerprint (after WP-39 and WP-40)
+
+Every `AgentMark` call site that knows which agent it shows becomes `<AgentFingerprint residentKey …>`. That includes
+the rail's Luca and agent rows (`rail`, with `working` from the agent's state) and the agent's page head (`large`,
+64 px). Sites that mean "agents" in general keep `AgentMark`. A small package, briefed when both have landed.
