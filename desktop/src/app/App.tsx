@@ -3,7 +3,9 @@ import { emit } from "@tauri-apps/api/event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import {
+  lazy,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -150,6 +152,13 @@ function LucaLoader({ className }: { className?: string }) {
 }
 
 // The tenancy is internal; first-run never introduces Buzz infrastructure.
+/** WP-39's fingerprint harness, loaded only when `?lab=fingerprint` asks. */
+const FingerprintLab = lazy(() =>
+  import("@/testing/fingerprintLab").then((m) => ({
+    default: m.FingerprintLab,
+  })),
+);
+
 /** Dev-only design labs, reachable by `?lab=<name>`; never in production builds. */
 function readDevLab(): string | null {
   if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) return null;
@@ -752,6 +761,14 @@ function MachineBootstrap({ sharedIdentity }: { sharedIdentity: boolean }) {
 
   if (readDevLab() === "thinking") {
     return <ThinkingIndicatorLab />;
+  }
+
+  if (readDevLab() === "fingerprint") {
+    return (
+      <Suspense fallback={null}>
+        <FingerprintLab />
+      </Suspense>
+    );
   }
 
   if (polyphonicOnboardingPreview) {

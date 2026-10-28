@@ -71,6 +71,7 @@ export default defineConfig({
         "**/shell-project-rooms.spec.ts",
         "**/shell-app-task.spec.ts",
         "**/shell-walkthrough.spec.ts",
+        "**/shell-fingerprint.spec.ts",
         "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",
