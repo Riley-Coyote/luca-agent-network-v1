@@ -1369,15 +1369,12 @@ test("flag on: the main window's appearance follows the palette", async ({
     .toContain("dark");
 });
 
-// ── with the frame (WP-01) merged: run against a merged build ─────────
-//
-// `WP07A_MERGE=1` against a build of this branch merged with the frame's.
-// Proves the glass leaves the frame's layout alone, lights the rail's card,
-// casts its shadow by day, and dresses the frame's words in the glass tones.
+// ── the integrated frame ─────────────────────────────────────────────
+// WP-12 now gives the rail and conversation one card, with one edge and
+// shadow. The marks own selection paint; the place button stays clear.
+// These checks run in the ordinary suite, not behind the old merge flag.
 
 test.describe("with the frame merged", () => {
-  test.skip(!process.env.WP07A_MERGE, "needs a build with WP-01 merged");
-
   /** A flat stand-in desktop, so what shows through can be read exactly. */
   const paintFlat = (page: Page) =>
     page.addStyleTag({
@@ -1408,6 +1405,7 @@ test.describe("with the frame merged", () => {
         const rail = document.querySelector<HTMLElement>(
           '[data-frame] [data-sidebar="sidebar"]',
         );
+        const oneCard = document.querySelector("[data-luca-one-card]");
         return {
           frame: root.getAttribute("data-luca-frame"),
           glass: root.getAttribute("data-luca-frame-glass"),
@@ -1417,11 +1415,12 @@ test.describe("with the frame merged", () => {
           rail: box('[data-frame] [data-sidebar="sidebar"]'),
           railRadius: rail ? getComputedStyle(rail).borderTopLeftRadius : null,
           railShadow: rail ? getComputedStyle(rail).boxShadow : null,
+          oneCard: box("[data-luca-one-card]"),
+          oneCardShadow: oneCard ? getComputedStyle(oneCard).boxShadow : null,
+          veil: Number(
+            getComputedStyle(root).getPropertyValue("--luca-frame-veil"),
+          ),
           card: box("[data-luca-card]"),
-          chatTitle: (() => {
-            const title = document.querySelector('[data-testid="chat-title"]');
-            return title ? getComputedStyle(title).display : null;
-          })(),
         };
       });
       test.info().annotations.push({
@@ -1435,14 +1434,18 @@ test.describe("with the frame merged", () => {
       expect(measured.places).toEqual({ x: 0, y: 36, w: 44, h: 864 });
       expect(measured.rail).toEqual({ x: 44, y: 36, w: 220, h: 858 });
       expect(measured.railRadius).toBe("10px");
-      expect(measured.railShadow).toBe(NIGHT_CARD_LIGHT);
+      expect(measured.railShadow).toBe("none");
+      expect(measured.oneCard).toEqual({ x: 44, y: 36, w: 1390, h: 858 });
+      expect(measured.oneCardShadow).toBe(NIGHT_CARD_LIGHT);
+      expect(measured.veil).toBe(liquid ? 0.64 : 0.22);
       expect(measured.card?.y).toBe(36);
       expect(measured.card?.x).toBe(264);
-      expect(measured.chatTitle).toBe("none");
+      // The shell owns the title; the old in-card heading is not rendered.
+      await expect(page.getByTestId("chat-title")).toBeHidden();
 
-      // Glass shows at every part of the frame: a flat red desktop under the
-      // veil (black at 22%) reads (199, 0, 0), where no card's shadow lies on
-      // it; with the cards' shadows hidden, everywhere.
+      // Glass shows around the one card, not through a former gap between
+      // rail and conversation. Liquid and frosted glass have different veils.
+      const bareRed = 255 * (1 - measured.veil);
       await paintFlat(page);
       await waitForAnimations(page);
       const probes = [
@@ -1451,7 +1454,6 @@ test.describe("with the frame merged", () => {
         { name: "places, beside the icons", x: 40, y: 450 },
         { name: "right 6", x: 1437, y: 450 },
         { name: "bottom 6", x: 720, y: 897 },
-        { name: "between the cards", x: 266, y: 450 },
         { name: "under the rail", x: 150, y: 897 },
       ];
       const shot = `${SHOTS}/merge-frame-${liquid ? "liquid" : "frosted"}-dark-probes`;
@@ -1488,10 +1490,10 @@ test.describe("with the frame merged", () => {
       });
       for (const rgb of shadowed) {
         // The glass, never the solid floor (0, 0, 0).
-        expect(rgb[0]).toBeGreaterThan(140);
+        expect(rgb[0]).toBeGreaterThan(bareRed * 0.7);
       }
       for (const rgb of bare) {
-        expect(Math.abs(rgb[0] - 199)).toBeLessThanOrEqual(3);
+        expect(Math.abs(rgb[0] - bareRed)).toBeLessThanOrEqual(3);
         expect(rgb[1]).toBeLessThanOrEqual(3);
         expect(rgb[2]).toBeLessThanOrEqual(3);
       }
@@ -1514,6 +1516,10 @@ test.describe("with the frame merged", () => {
           return element ? getComputedStyle(element).color : null;
         };
         const current = document.querySelector(".luca-place[data-current]");
+        const mark = document.querySelector(
+          '[data-testid="shell-places-marks"] .luca-mark',
+        );
+        const card = document.querySelector("[data-luca-one-card]");
         return {
           lip: color(".luca-lip"),
           name: color(".luca-lip-name"),
@@ -1523,6 +1529,10 @@ test.describe("with the frame merged", () => {
           currentPlate: current
             ? getComputedStyle(current).backgroundColor
             : null,
+          markMaterial: mark?.parentElement?.getAttribute("data-mark-material"),
+          markVisibility: mark ? getComputedStyle(mark).visibility : null,
+          markPlate: mark ? getComputedStyle(mark).backgroundColor : null,
+          cardPlate: card ? getComputedStyle(card).backgroundColor : null,
           ink: getComputedStyle(document.documentElement)
             .getPropertyValue("--mn-ink")
             .trim(),
@@ -1538,7 +1548,10 @@ test.describe("with the frame merged", () => {
         expect(tones.button).toBe("rgba(250, 248, 243, 0.76)");
         expect(tones.place).toBe("rgba(250, 248, 243, 0.76)");
         expect(tones.current).toBe("rgba(250, 248, 243, 0.96)");
-        expect(tones.currentPlate).toBe("rgba(255, 255, 255, 0.1)");
+        expect(tones.currentPlate).toBe("rgba(0, 0, 0, 0)");
+        expect(tones.markMaterial).toBe("card");
+        expect(tones.markVisibility).toBe("visible");
+        expect(tones.markPlate).toBe(tones.cardPlate);
       } else {
         const ink = tones.lip
           ?.match(/[\d.]+/g)
@@ -1590,7 +1603,7 @@ test.describe("with the frame merged", () => {
     });
   }
 
-  test("by day the rail's card casts its shadow, and it fades as it closes", async ({
+  test("by day one shadow stays put as the rail folds into the card", async ({
     page,
   }) => {
     await openGlass(page, `/#/channels/${GENERAL_CHANNEL_ID}`, {
@@ -1623,7 +1636,7 @@ test.describe("with the frame merged", () => {
       type: "open",
       description: JSON.stringify({ open, cards }),
     });
-    expect(open).toContainEqual({ x: 44, y: 36, w: 220, h: 858, opacity: 1 });
+    expect(open).toEqual([{ x: 44, y: 36, w: 1390, h: 858, opacity: 1 }]);
     for (const card of cards) expect(card.boxShadow).toBe("none");
     await paintDesktop(page);
     await waitForAnimations(page);
@@ -1633,13 +1646,14 @@ test.describe("with the frame merged", () => {
       caret: "hide",
     });
 
-    // Closing: sampled through the slide, then shut.
+    // Closing moves the content, not the shared card or its shadow.
     await page.getByTestId("shell-lip-toggle").click();
     const during: { w: number; opacity: number }[] = [];
     for (let i = 0; i < 6; i += 1) {
       await page.waitForTimeout(60);
-      const rail = (await shadows()).find((s) => s.x === 44 && s.w < 220);
-      if (rail) during.push({ w: rail.w, opacity: rail.opacity });
+      const frameShadows = await shadows();
+      expect(frameShadows).toEqual(open);
+      during.push({ w: frameShadows[0].w, opacity: frameShadows[0].opacity });
     }
     await page.waitForTimeout(700);
     await waitForAnimations(page);
@@ -1648,11 +1662,12 @@ test.describe("with the frame merged", () => {
       type: "closing",
       description: JSON.stringify({ during, closed }),
     });
-    expect(during.length).toBeGreaterThan(0);
-    for (const sample of during) {
-      expect(sample.opacity).toBeCloseTo(sample.w / 220, 2);
-    }
-    expect(closed.some((s) => s.x === 44 && s.w < 220)).toBe(false);
+    await expect(page.locator("[data-frame]")).toHaveAttribute(
+      "data-state",
+      "collapsed",
+    );
+    expect(during).toHaveLength(6);
+    expect(closed).toEqual(open);
     await page.screenshot({
       path: `${SHOTS}/merge-day-shadows-closed.png`,
       animations: "disabled",

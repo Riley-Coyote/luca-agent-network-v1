@@ -937,7 +937,11 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   };
 
   const track = await inkAt(page, 0.06);
+  // The solid composer removed Send's shadow, not the selected Settings
+  // segment's paper elevation (shell-light.css). Keep these independent.
+  const selectionShadow = `${await inkAt(page, 0.22)} 0px 0.5px 1px 0px, ${await inkAt(page, 0.1)} 0px 1px 3px 0px`;
   checks.chosen_stands_up = {
+    selection_shadow: selectionShadow,
     plate,
     place_current: placeCurrent,
     rail_current_pill: railPill,
@@ -962,7 +966,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       segments.every(
         (segment) =>
           segment.background === surfaceCss &&
-          segment.boxShadow.endsWith(studyValues.send_shadow) &&
+          segment.boxShadow.endsWith(selectionShadow) &&
           !segment.boxShadow.includes("0px 0px 0px 2px") &&
           segment.track === track,
       ) &&
@@ -972,7 +976,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
           mode.border === "rgba(0, 0, 0, 0)" &&
           (!mode.pressed ||
             (mode.background === surfaceCss &&
-              mode.boxShadow.endsWith(studyValues.send_shadow))),
+              mode.boxShadow.endsWith(selectionShadow))),
       ) &&
       modeHover === track &&
       focusRings.length >= 4 &&
@@ -981,7 +985,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
           ring.focused &&
           ring.focusVisible &&
           /0px 0px 0px 2px/.test(ring.boxShadow) &&
-          ring.boxShadow.endsWith(studyValues.send_shadow),
+          ring.boxShadow.endsWith(selectionShadow),
       ),
   };
 

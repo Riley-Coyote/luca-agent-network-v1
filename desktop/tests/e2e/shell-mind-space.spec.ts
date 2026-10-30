@@ -1102,13 +1102,17 @@ test("a mind not on this Mac: the same space, its parts with no data hide", asyn
   measure("native", { asks, native, ownWords: own });
 });
 
-// WP-40: the lab's 52 column (it was 40).
-test("the head's mark draws at 52 on a 52 column", async ({ page }) => {
+// WP-40 keeps the 52 column; WP-41 uses the existing 72 mark box for a fingerprint.
+test("the head's fingerprint draws at 72 on a 52 column", async ({ page }) => {
   await boot(page);
   await openLuca(page);
+  // Opening Their days scrolls that tab into view. Bring the head back
+  // before measuring and cropping it; a negative clip is not a UI defect.
+  await page.locator(".luca-mind-head").scrollIntoViewIfNeeded();
+  await waitForAnimations(page);
   const column = await page.locator(".luca-mind-mark").evaluate((box) => {
     const outer = box.getBoundingClientRect();
-    const specimen = box.querySelector<HTMLElement>(".agent-identity-specimen");
+    const specimen = box.firstElementChild;
     const next = box.nextElementSibling?.getBoundingClientRect();
     return {
       column: [Math.round(outer.width), Math.round(outer.height)],
@@ -1122,6 +1126,8 @@ test("the head's mark draws at 52 on a 52 column", async ({ page }) => {
       box: [Math.round(outer.x), Math.round(outer.y)],
     };
   });
+  expect(column.column).toEqual([52, 52]);
+  expect(column.specimen).toEqual([72, 72]);
   await page.mouse.move(0, 0);
   await page.screenshot({
     clip: {

@@ -21,11 +21,46 @@ your apps, like Claude Code and Codex. When Luca hands work to one of them, it
 shows under whoever is doing it while they work, so you can see at a glance
 who's on what. Every agent and app has a + to start a conversation of your own.
 
+A project's conversations sit directly beneath it. Section labels and icons
+make the rail easier to scan, without opening a second column to reach a chat.
+
+## A fingerprint for each agent
+
+Each agent has a fingerprint of their own, with quiet movement at rest and a
+different rhythm while they work. Their mark stays with them when you change
+their model or runtime. Reduce Motion keeps it still.
+
+## One familiar message box
+
+The same solid, uncluttered composer now appears in the main conversation and
+mini chat. A new conversation starts with a calmer view, and the message box
+keeps its shape and controls consistent as you move between chats.
+
+## Mini chat, close at hand
+
+Mini chat keeps its glass surface, with smoother opening and closing. Resize
+it to suit what you're doing; it remembers the size you leave it at.
+
 ## An app's work, as it happens
+
+Ask Luca to hand work to connected Codex or Claude Code, including continuing
+an existing session where the harness supports it. Progress and results come
+back to Polyphonic, with questions and blockers kept visible.
 
 Open a task under Claude Code or Codex to see the work itself: what it's doing
 right now, every step so far, what came back when it finished, and a button to
 open the session in the app.
+
+## A companion that can keep up
+
+Ask Luca to follow your Claude Code or Codex work. Polyphonic finds the usual
+local profiles for you and asks for approval before using new or changed
+session activity in your conversation. No folder picking is needed for the
+normal setup, and following does not import your old history.
+
+Note keeping and background work are separate choices. You can review or
+pause access from the agent's Settings as well as through chat. When Luca
+visibly controls the app, a soft border and a Stop button make it clear.
 
 ## Pages that say what they are
 
@@ -39,6 +74,9 @@ Notebook holds their days in order: what they did for you, their own work,
 their journal. Self shows the documents that make them who they are, and their
 Settings sit there too. On a wide window, the side shows how they run and who
 they work with.
+
+Clearer headings and subtle dividing lines separate each part. Settings are
+open and visible instead of hidden behind a series of dropdowns.
 
 ## Activity is the record
 

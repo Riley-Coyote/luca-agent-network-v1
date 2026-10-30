@@ -192,6 +192,23 @@ test("host disconnect and failed authorization clear the signal without moving t
   await expect(page).toHaveURL(/#\/agents(?:\?|$)/);
 });
 
+test("an unanswered Begin expires after 15 seconds and cannot navigate late", async ({
+  page,
+}) => {
+  await openChat(page);
+  await page.clock.install();
+  await emit(page);
+  await page.clock.runFor(700);
+  await expect.poll(() => actions(page)).toEqual(["begin"]);
+  await expect(page.getByTestId("app-control-badge")).toBeVisible();
+  await page.clock.runFor(15_000);
+  await expect(page.getByTestId("app-control-badge")).toHaveCount(0);
+  await expect.poll(() => actions(page)).toContain("failed");
+  await release(page);
+  await expect(page).toHaveURL(/#\/agents(?:\?|$)/);
+  expect(await actions(page)).not.toContain("complete");
+});
+
 test("unauthorized requests and ordinary settings review never illuminate the app", async ({
   page,
 }) => {

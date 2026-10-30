@@ -461,6 +461,10 @@ for (const shell of [true, false]) {
 test("WP-20: with the flag off the app is the base's, Reduce Motion on and off", async ({
   page,
 }) => {
+  // Both builds seed message times from Date.now(). A minute boundary between
+  // captures must not turn identical layouts into different timestamp pixels.
+  // setFixedTime leaves animation timers running for the motion comparisons.
+  await page.clock.setFixedTime(new Date("2026-10-29T18:00:00Z"));
   const shots: Record<string, Record<string, unknown>> = {};
   for (const [name, hash, reduce] of [
     ["agents", "/agents", false],

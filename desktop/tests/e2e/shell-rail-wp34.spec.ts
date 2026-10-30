@@ -615,18 +615,22 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
     rail.locator("[data-home-kind='room'] .luca-rail-row-add"),
   ).toHaveCount(0);
 
-  // ── faces (Decided 6) ──
+  // ── faces (Decided 6, then WP-41's fingerprints and AgentMark fallback) ──
   const faces = await rail.evaluate((node) =>
     Object.fromEntries(
       [...node.querySelectorAll<HTMLElement>("[data-home-kind]")].map((row) => {
         const face = row.querySelector<HTMLElement>(".luca-rail-face");
         const svg = face?.querySelector("svg");
-        const box = svg?.getBoundingClientRect();
+        const fingerprint = face?.querySelector<HTMLElement>(
+          "[data-agent-fingerprint]",
+        );
+        const box = (fingerprint ?? svg)?.getBoundingClientRect();
         return [
           row.dataset.homeKind,
           {
             face: face?.dataset.face,
             agentMark: svg?.hasAttribute("data-agent-mark") ?? false,
+            fingerprint: fingerprint?.dataset.variant ?? null,
             icon: svg?.getAttribute("class") ?? "",
             size: box ? `${box.width}x${box.height}` : null,
           },
@@ -635,9 +639,10 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
     ),
   );
   measure("faces", faces);
-  expect(faces.luca.agentMark).toBe(true);
-  expect(faces.agent.agentMark).toBe(true);
-  expect(faces.agent.size).toBe("17x17");
+  for (const mind of [faces.luca, faces.agent]) {
+    expect(mind.fingerprint === "rail" || mind.agentMark).toBe(true);
+    expect(mind.size).toBe("18x18");
+  }
   expect(faces.app.face).toBe("app");
   expect(faces.room.icon).toContain("lucide-hash");
   if (faces.project) expect(faces.project.icon).toContain("lucide-folder");

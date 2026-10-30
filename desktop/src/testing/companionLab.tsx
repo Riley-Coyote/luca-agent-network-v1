@@ -54,6 +54,8 @@ function briefFor(design: CompanionExperienceDesign, preset: string, scene: Comp
 }
 
 export function CompanionExperienceLab() {
+  const variationNameId = React.useId();
+  const manualCopyId = React.useId();
   const [initial] = React.useState(readStorage);
   const [design, setDesign] = React.useState(initial.value.design);
   const [variants, setVariants] = React.useState(initial.value.variants);
@@ -145,7 +147,7 @@ export function CompanionExperienceLab() {
             {compactViewport ? <p className="leading-5 text-muted-foreground">22rem viewport at 1:1. Reading measure is clamped to the available width, not scaled.</p> : null}
             {scene === "carried" ? <LabSelect label="Sample resident decision" value={shown.own} onChange={(value) => act({ type: "own", disposition: value as typeof shown.own })} options={[{ value: "pursue", label: "Pursue" }, { value: "defer", label: "Defer" }, { value: "decline", label: "Decline" }]} /> : null}
             <div className="space-y-2 border-t border-border/45 pt-4">
-              <label className="block space-y-2"><span>Save a direction</span><Input aria-label="Variation name" value={variationName} maxLength={80} placeholder="Name this direction" onChange={(event) => setVariationName(event.target.value)} /></label>
+              <label htmlFor={variationNameId} className="block space-y-2"><span>Save a direction</span><Input id={variationNameId} aria-label="Variation name" value={variationName} maxLength={80} placeholder="Name this direction" onChange={(event) => setVariationName(event.target.value)} /></label>
               <Button size="sm" variant="outline" disabled={!variationName.trim() || !storageWritable} onClick={saveVariation}>Save variation</Button>
               {variants.map((variation) => <div key={variation.id} className="flex items-center gap-1">
                 <Button size="sm" variant="ghost" className="min-w-0 flex-1 justify-start overflow-hidden text-ellipsis" onClick={() => { const next = normalizeDesign(variation.design); setDesign(next); changeScene(variation.scene); persist(next, variants); }}>{variation.name}</Button>
@@ -162,7 +164,7 @@ export function CompanionExperienceLab() {
             <CompanionExperienceControls state={shown} design={design} onAction={act} onOpenCreation={() => setSampleNoteOpen(true)} onReviewHistory={(sourceId) => { setPendingSource(sourceId); setHistoryOpen(true); }} />
           </div>
         </div>
-        {controlsVisible ? <details className="border-t border-border/45 pt-4"><summary className="cursor-pointer text-xs font-medium">Live design brief</summary><p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{brief}</p><Button size="sm" variant="ghost" className="mt-3" onClick={() => void copyBrief()}>{copied ? <Check aria-hidden /> : <Copy aria-hidden />}{copied ? "Copied" : "Copy brief"}</Button>{manualCopy ? <label className="mt-3 block space-y-2 text-xs">Clipboard unavailable · select and copy below<Textarea value={brief} readOnly rows={10} /></label> : null}</details> : null}
+        {controlsVisible ? <details className="border-t border-border/45 pt-4"><summary className="cursor-pointer text-xs font-medium">Live design brief</summary><p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{brief}</p><Button size="sm" variant="ghost" className="mt-3" onClick={() => void copyBrief()}>{copied ? <Check aria-hidden /> : <Copy aria-hidden />}{copied ? "Copied" : "Copy brief"}</Button>{manualCopy ? <label htmlFor={manualCopyId} className="mt-3 block space-y-2 text-xs">Clipboard unavailable · select and copy below<Textarea id={manualCopyId} value={brief} readOnly rows={10} /></label> : null}</details> : null}
       </DialogContent>
     </Dialog>
     <Dialog open={sampleNoteOpen} onOpenChange={setSampleNoteOpen}><DialogContent><DialogHeader><DialogTitle>A note on the small study</DialogTitle><DialogDescription>Sample authored creation · not a real native execution or Library record.</DialogDescription></DialogHeader><div className="space-y-4 text-sm leading-6"><p>The useful constraint is a clear first choice. Let everything else arrive when it becomes relevant.</p><p>Keep source access visible, but keep the work itself calm. A quiet note can wait on the shelf without becoming a message.</p><p className="text-xs text-muted-foreground">Sample receipt: local Library preservation · two source references · no publication.</p></div><Button variant="outline" onClick={() => setSampleNoteOpen(false)}>Close sample note</Button></DialogContent></Dialog>

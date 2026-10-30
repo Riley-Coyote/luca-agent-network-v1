@@ -214,6 +214,18 @@ async function holdCompanion(page: Page, requestId: string) {
     };
     if (state.__wp29Held) return;
     state.__wp29Held = true;
+    // This geometry fixture deliberately holds Begin until Stop. Screenshots
+    // can take longer than the real 15-second lease on a busy Mac. Extend only
+    // that one fixture timer; companion-app-control.spec.ts checks the real
+    // timeout separately. Restore setTimeout as soon as it is scheduled.
+    const schedule = window.setTimeout.bind(window);
+    window.setTimeout = ((handler, delay, ...args) => {
+      if (delay === 15_000) {
+        window.setTimeout = schedule;
+        return schedule(handler, 120_000, ...args);
+      }
+      return schedule(handler, delay, ...args);
+    }) as typeof window.setTimeout;
     const invoke = state.__TAURI_INTERNALS__.invoke;
     state.__TAURI_INTERNALS__.invoke = async (command, args, options) => {
       if (command !== "resolve_polyphonic_app_control")
@@ -732,7 +744,23 @@ for (const [width, height] of [
       await page.waitForTimeout(350);
       const each = await read();
       if (i === 6) await shot(page, `days-back-${width}`);
-      if (each.top <= 1) break;
+      if (each.top <= 1) {
+        // Reaching the current page's top is not the end of history. Wait for
+        // the asynchronous prepend (which preserves the visible row), or for
+        // the oldest seeded day, before deciding that the backward pass ended.
+        await expect
+          .poll(
+            async () => {
+              const settled = await stop(page);
+              return Boolean(
+                settled && (settled.top > 1 || settled.tag === "d4"),
+              );
+            },
+            { timeout: 10_000 },
+          )
+          .toBe(true);
+        if ((await read()).top <= 1) break;
+      }
     }
     await shot(page, `days-top-${width}`);
     for (let i = 0; i < 80; i++) {

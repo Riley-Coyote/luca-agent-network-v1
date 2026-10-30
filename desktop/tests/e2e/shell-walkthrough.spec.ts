@@ -494,13 +494,18 @@ for (const mode of ["dark", "light"] as Mode[]) {
     });
     const { answered, frames } = await readFrames(page);
     const line = page.getByTestId("mind-notebook-empty");
-    const text = await line.innerText();
+    // WP-40 adds a title above the explanatory line, and replaces the old
+    // toolbar/boxed plate with Notebook tabs and unshaded content.
+    await expect(line.locator(".luca-mind-empty-title")).toHaveText(
+      "Nothing in their days yet",
+    );
+    const text = await line.locator(".luca-mind-help").innerText();
     const box = await page.evaluate(() => {
       const plate = document.querySelector(
         '[data-testid="mind-notebook-empty"]',
       );
-      const toolbar = document.querySelector(".luca-mind-toolbar");
-      const words = plate?.querySelector("p");
+      const toolbar = document.querySelector(".luca-mind-subtabs");
+      const words = plate?.querySelector(".luca-mind-help");
       const style = words ? getComputedStyle(words) : null;
       return {
         plate: plate?.getBoundingClientRect().toJSON(),
@@ -555,11 +560,12 @@ for (const mode of ["dark", "light"] as Mode[]) {
     expect(before.filter((frame) => frame.line)).toHaveLength(0);
     for (const moment of moments) expect(moment.line).toBe(false);
     expect(firstLine && firstLine.at >= lastSource).toBe(true);
-    // Under the toolbar, on a plate.
+    // Under the Notebook tabs, directly on the shared page (WP-40).
     expect(
       box.plate && box.toolbar && box.plate.top >= box.toolbar.bottom,
     ).toBe(true);
-    expect(box.plateFill).not.toBe("rgba(0, 0, 0, 0)");
+    expect(box.plateFill).toBe("rgba(0, 0, 0, 0)");
+    expect(box.words?.fontSize).toBe("13px");
   });
 }
 

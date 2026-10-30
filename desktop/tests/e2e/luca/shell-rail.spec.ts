@@ -1425,6 +1425,10 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     // Clicking the tile and one Escape, as before.
     await page.getByTestId("open-search").click();
     await expect(page.getByTestId("search-results")).toBeVisible();
+    // Opening is deferred to a frame. Visibility alone can precede the input
+    // receiving focus, just as in the keyboard-open cases above.
+    await expect(page.getByTestId("search-dialog-input")).toBeFocused();
+    await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("search-results")).toBeHidden();
     fixes.search_escape = runs;
@@ -1552,7 +1556,9 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     // The viewport starts at the card's top, so the first row runs under
     // the card's edge instead of being cut 6 inside it.
     expect(scrolled?.scrollerTop).toBe(scrolled?.cardTop);
-    expect(scrolled?.firstRowTop).toBe((scrolled?.cardTop ?? 0) + 6 - 18);
+    // WP-40 added 6 above the heading as well as the scroller's 6. The
+    // heading must move by the scroll distance, without a new clipping lip.
+    expect(scrolled?.firstRowTop).toBe((rest?.firstRowTop ?? 0) - 18);
     await waitForAnimations(page);
     const scrolledPath = `${SHOTS}/42-rail-top-scrolled-800.png`;
     await page.screenshot({

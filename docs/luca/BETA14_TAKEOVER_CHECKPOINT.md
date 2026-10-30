@@ -202,3 +202,58 @@ Riley: "so i do want to hand off to codex to complete beta 14. i just want you t
 have already started. so dont factore in all the final tests and checks". Claude finishes only the pieces in flight
 (WP-39 fingerprints, WP-41 wiring, the solid composer) with light checks, then hands the line to Codex for the final
 checks, packaging and the test app. A fresh hand-off note follows when those pieces are in.
+
+## Integrated acceptance — October 29, 2026 (Codex)
+
+Riley authorized finishing the combined candidate autonomously. The completed
+Claude handoff is `a5280a1af` on this checkout/branch. Every approved UI piece is
+already integrated; Mnemos and new designs stay out. Nothing is pushed or published.
+
+### Checked and repaired
+
+- Two full shell runs completed. First: 418 passed, 9 failed, 7 intentional
+  skips and 4 serial cases not run. Second: 428 passed, 6 failed, 4 optional
+  skips. Every failure now passes in a focused rerun; this is **not** a claim
+  that a third full run was all green.
+- Repairs are test expectations/fixtures, not changes to the approved UI:
+  WP-40 Notebook/head spacing, WP-41 fingerprints, the one-card glass shadow
+  and selection mark, a timestamp crossing a minute boundary, asynchronous
+  history prepend, and waiting for Search focus before Escape. Search passed
+  ten repetitions; integrated glass passed 5/5; top-edge/history passed 8/8.
+- The geometry fixture extends its held Begin timer only. A separate new
+  app-control test proves the real 15-second expiry rejects late navigation.
+- Companion control/settings, mini chat and image attachment browser checks:
+  **28/28**. These mock native IPC; they do not prove a live provider roundtrip.
+- Fresh frontend: **4,425/4,425** units, typecheck, text-size guard and both
+  shell-default variants of the e2e build passed. Lint has no errors (14
+  existing warnings and 1 info); all 9 changed specs pass Biome. Companion lab
+  labels now explicitly associate with their inputs, fixing two lint errors.
+- Candidate lifecycle fixtures **20/20**, helper staging **2/2**, storage
+  safety **7/7**, and release-ref contract passed. Fixture release tags exist
+  only inside disposable test repositories.
+- Four remaining suite skips are optional historical/study comparisons and a
+  requested-only settings census. No active product acceptance test was skipped
+  to conceal a failure. Logged sandboxed-fixture storage errors and one aborted
+  view transition remain visible in the report; no zero-console-error claim.
+- Release notes now cover the actual rail, projects, fingerprints, solid
+  composer, mini chat and existing consent-based companion/delegation features.
+
+### Evidence, storage and remaining work
+
+- Logs/reports/scripts: `/private/tmp/polyphonic-beta14-final.XaaXLN`.
+  Review `shell-integrated-2-report.json`, `shell-repaired-2-report.json`,
+  `shell-glass-final-report.json` and `shell-search-repeat-report.json` together.
+- Completed screenshots (including first-pass shots) were checksum-verified
+  into LaCie cold storage before their internal copies were removed. Reports
+  remain internal. Receipts live in
+  `~/Documents/Polyphonic-Candidates/archive-receipts/`; approximately 2 GiB of
+  completed test pictures plus 0.8 GiB of old release packages were recovered.
+  No active cache, profile, source or installed app was deleted.
+- One shared Rust cache remains. Free space is about 22 GiB. Native/release
+  jobs use the real 20 GiB reserve and an owned-process-group guard that stops
+  only our job if space drops below it. Claude's iPhone jobs remain untouched.
+- **Native tests and the rebuilt artifacts are still pending at this commit.**
+  The running Rail Glass app is still `8ba79cf6f`. Preserve its stopped profile
+  and matching bundle before rebuilding. Production static artifact must never
+  be launched on Riley's account; final walkthrough is the isolated Rail Glass
+  candidate. No notarization, updater signing, tag, push or publication.
