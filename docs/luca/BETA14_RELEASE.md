@@ -795,3 +795,265 @@ part of this. Today beside proposed, as Riley saw them: `design-lab/agents-pages
 Every `AgentMark` call site that knows which agent it shows becomes `<AgentFingerprint residentKey …>`. That includes
 the rail's Luca and agent rows (`rail`, with `working` from the agent's state) and the agent's page head (`large`,
 64 px). Sites that mean "agents" in general keep `AgentMark`. A small package, briefed when both have landed.
+
+## WP-42 · Each agent's page is their place; Settings is yours (2026-10-30, Claude's design; Riley's call)
+
+**Why.** Riley, after walking through the rail-glass candidate (his recording, 2026-10-29 23:59): "the entire
+experience of navigating the agents page, agent settings, basically everything related to each individual agent is
+just kind of a mess. its spread out in a very odd way, it isnt intuitive, reaching the compaion settings is buried deep
+within one of the tabs/pages, and theres a good amount of formatting issues." Astra proposed five tabs. Claude proposed
+two places and built them as a study. Riley chose it: "1000x better than it was ... lets keep going with your two
+places." Then, refining it with him:
+- "we originally intended for each agent to have a place of their own ... the place where their autonomous activity
+  lives, things they make or do on their own, where their work and creations might live";
+- "not feel overwhelming ... super clean in terms of what is what and where each section starts and ends";
+- of Settings: "i liked how it felt familiar like chatgpt".
+
+One sentence holds it: **their page is theirs (what they write, make and do); Settings is yours (everything you
+decide).** This replaces WP-40's three tabs and its all-open Settings. WP-40's type steps and lines stay.
+
+**The study** (approved for its paths and its look):
+- `~/Documents/Repositories/.codex-workspaces/luca-agent-network-v1-canonical/design-lab/agent-pages-study.html`. Open
+  it over http; the `shell-lab` launch config serves that folder on :4790.
+- Its source is beside it in `agent-pages-study-src/`; its pictures are in `agent-pages-study-shots/` (01–14).
+- Its "lived-in" content (the made things, the journal, Luca's introduction) is invented for the study and never
+  ships.
+- Its Luca documents, settings rows and log lines are real, read from a local test profile, and never enter the repo.
+- Where its numbers differ from the app's tokens, the app's tokens win.
+
+**Base.**
+- Repo `~/Documents/Repositories/luca-agent-network-v1`.
+- Worktree `~/Documents/Repositories/.claude-worktrees/wp42-agent-place`, branch `claude/wp42-agent-place`, off
+  `claude/native-rail-glass` @ 3147123aa. This brief is its first commit, and you are its only writer.
+- Never build in `luca-beta14-polish`: it holds Astra's uncommitted agent-space study. Don't touch
+  `desktop/src/testing/agentSpaceStudy/`.
+- Port **4352**.
+- Symlink `desktop/node_modules` from `luca-beta14-polish`, and never commit the link.
+
+**Files in scope:**
+- `desktop/src/features/agents/space/` (`MindSpace`, `MindNotebook`, `MindSettings`, `mindSection`, `mindStream`) and
+  new siblings there;
+- `desktop/src/app/shell/shell-mind-space.css`;
+- the agents route's search (`desktop/src/app/routes/agents.tsx`) and what reads it;
+- the Agents place rail rows (`desktop/src/app/shell/placeRails/`);
+- the app Settings pane that takes the agents' appearance choice;
+- the specs: update `desktop/tests/e2e/shell-agents-pages.spec.ts` (cite WP-42) and add `shell-agent-place.spec.ts`
+  to the smoke project.
+
+**Untouched:** the classic layout (flag off), `shared/ui/fingerprint/`, `shared/ui/AgentMark.tsx`, the relay,
+Mnemos, and the release files.
+
+**Facts the build rests on** (checked 2026-10-30 against 3147123aa):
+- **The page today.** `MindSpace.tsx` draws the head and three tabs (`MIND_TABS`: notebook, self, settings) beside the
+  "At a glance" aside (`MindAside`).
+- **Settings today.**
+  - It is `SettingsSection` (in `features/agents/ui/AgentLibraryWorkspace.tsx`), laid out by `MindSettings.tsx` as
+    ten open sections: runtime, wakes, workspace, read, permissions, identity, character, rooms, health, companion.
+  - Its "Instructions" row shows `managedAgent.systemPrompt`. For Luca that is the soul text, so the same words appear
+    twice.
+  - "Runtime configuration" is `AgentConfigPanel advancedMode="flat"`. For Claude Code agents it lists the whole of
+    `~/.claude/settings.json`, which every Claude Code agent shares: about 30–40 rows.
+  - The companion is `CompanionSettingsSection`, reached by a button at the very end of Settings.
+  - The character picker (`CharacterAppearancePicker`, Sphere or Glyph) says it applies "across your agents".
+- **The data.**
+  - `mindStream.ts` already gives every entry a kind: journal and memory entries, things made (artifacts, drawn by
+    `MadeThumb`), and own or for-you (`forYouOrOwn`).
+  - The Place (introduction, exploring, selected work, "Let {name} edit this place") is `features/agents/place/`
+    (`useResidentPlace`).
+  - Nothing yet records when you last looked at an agent's page.
+- **Ways in name a Settings row:** `?at=read|runtime|permissions` (`parseMindSettingsAt`), plus the old `section` and
+  `tab` values (`mindSectionOf`, `mindSettingsAtOfTab`).
+- **Tokens:** `shared/styles/globals/conversation-shell.css` (`--mn-*`), `app/shell/shell-mind-space.css` (a mind's
+  hairlines, edges and type steps), and the label style `.type-eyebrow`.
+
+**Decided.**
+
+*Navigation*
+1. **Two places per agent.** Picking an agent in the rail always opens **their page**. **Settings** is one button in
+   their header. There are no tabs.
+2. **Everything else is a page that slides in, in the same frame.**
+   - These pages are: a document, a thing they made, everything they made, and each Settings pane.
+   - Each has a back link at the top left that names where you came from ("‹ Luca", "‹ Settings", "‹ Made").
+   - The title bar's back and forward arrows walk the same history. Esc and ⌘[ go back; ⌘] goes forward.
+   - On arrival, focus moves to the page's title.
+   - The push is a 22 px slide with a fade (340 ms, `cubic-bezier(.2,.85,.25,1)`). With reduced motion it's a 120 ms
+     fade.
+3. **The URL says where you are**, in the agents route's search. A page survives a reload, and every old way in still
+   lands on its new home:
+   - `at=read` lands on Can read, `at=runtime` on Harness, `at=permissions` on Permissions;
+   - the old `section` and `tab` values land on their new homes.
+
+*Their page (their place): one header, then three sections built alike*
+4. **The header.**
+   - Their fingerprint (72) and their name (26/600).
+   - **One status line** (13, muted) saying what they're doing: Resting, Off, Talking with …, Working in …, or
+     "On their own · {what} · {time}". The breathing dot shows whenever they're live. If the data can't tell their own
+     work from yours, say so; don't guess.
+   - A companion that's resting adds "· Keeping up with Codex and Claude Code". That part is a quiet link to
+     Settings › Keeps up with.
+   - The harness line under it (12, faint).
+   - On the right: **Talk** (the solid ink button) and **Settings** (the thin-border button, with the gear).
+5. **What sits under the header.** When they ask you something, the asks box (today's `PlaceAskRow`s in one thin
+   border) sits right under it. When something's wrong (`lastError` or `needsRestart`), one bordered notice with
+   Restart or Retry sits there instead. Nothing else is boxed above the sections.
+6. **Their words come next.**
+   - The Place introduction at 16 px in ink, to 60ch.
+   - Then "Exploring" as a `.type-eyebrow` label, with their line.
+   - With no introduction: "{name} hasn't written an introduction yet. Write one or let {name} write it."
+7. **Three sections, each built the same way:** a hairline (ink 0.09), the title (17/600) on the left, its one
+   control on the right, then its content. They sit 36 px apart.
+   - **Made by {name}.**
+     - Four even tiles, each with its picture, title and one line:
+       - the picture on the plate (ink 0.04, an inset 1 px ring at 0.1, radius 8, 16:10);
+       - the title (13/500, two lines at most);
+       - one line under it, such as "Pinned · Yesterday", "On their own · Oct 27" or "For you · Oct 26".
+     - Their Selected work comes first, as "Pinned".
+     - "See all N ›" opens Made: every piece, three across, filtered All · On their own · For you.
+     - A piece opens to its own page:
+       - the large picture;
+       - "{name} made this on their own (or for you) · when · kind";
+       - their note on it, and where it came from;
+       - Open, and Show in Library.
+   - **Notebook,** with chips (`.luca-mind-filter`) on the right: Journal n · Pages n · Notes n.
+     - Journal entries are rows: the title (14/500), two lines of the entry, and the date on the right.
+     - Pages are the documents they write: Who I'm becoming, What I know about {you}, and Lessons. Each row opens a
+       reading page.
+     - Notes are the continuity notes.
+     - It opens on Journal if there are entries, otherwise on Pages.
+   - **Days,** with chips: All · On their own · With you.
+     - "Where {name} left off" (the saved handoff's opener) comes first.
+     - Then the three latest days, each under a `.type-eyebrow` day label. An entry shows its glyph, its words,
+       "On their own" or "With you", and the time.
+     - An entry about something made opens that piece. A conversation opens its room.
+     - "Earlier days ›" shows the rest.
+8. **New since your last visit.**
+   - Keep one "last looked" time per agent, community-scoped. Reset any module-level store in `resetCommunityState`.
+   - Anything newer than it gets a 6 px ink dot: a piece, a journal entry, or a day entry.
+   - The agent's row in the Agents rail gets the same dot, before its state note.
+   - Opening their page records the visit. The dots stay for that visit and are gone the next time.
+9. **A new agent with nothing yet** has no words and nothing made, written or done. It gets one bordered box in place
+   of the three sections:
+   - "{name}'s place is empty for now", with one line on what will live there;
+   - **Give {name} time of their own**, which turns on their "While you're away";
+   - "or start a conversation".
+
+*Settings (yours): the look Riley chose, filled panels and plain titles*
+10. **The page.**
+    - At the top: "‹ {name}", their small fingerprint and "Settings" (24/600).
+    - Under it, one line: "Everything you decide about {name}. Their page is theirs: what they make, write and do
+      lives there."
+    - **Groups are filled panels:** `--mn-plate` with a hairline edge, radius 10.
+    - Each group has a plain title above it (13/600, sentence case).
+    - **Rows** are at least 44 px: the label (13), a help line (11.5, faint), the value on the right (13, muted), and a
+      chevron. A row with a switch or a select carries it inline.
+    - A group may have a footnote line under it.
+    - Use the app's own switch and select, unchanged. No colour but the inks.
+11. **The groups, in order.** A row marked (pane) opens a pane.
+    - **Who {name} is.**
+      - Soul, Convictions and Instructions, each opening its editor. The value is when it was last edited.
+      - A Hermes or OpenClaw agent shows "Instructions · Managed by {runtime}", with no editor.
+      - Footnote: "You write these. {name} reads them each time they start."
+    - **Their page.**
+      - "Let {name} arrange it": a switch. On, they may write their introduction, say what they're exploring, and pin
+        something they made.
+      - Their words (pane): the Place editor, with introduction, exploring and selected work.
+    - **Companion,** for agents with companion settings.
+      - Keeps up with (pane).
+      - Noticing: a switch that pauses their awareness.
+      - While you're away: a switch.
+      - Footnote: "Only new and changed sessions are followed; old history isn't brought in."
+      - An agent without the companion's awareness gets **On their own** instead, holding only "While you're away".
+    - **How {name} runs.**
+      - Model: the inline select (`ResidentModelMenu`), with "Changing it restarts {name}".
+      - Harness (pane).
+      - Permissions (pane); the value is their access level.
+      - Works in (pane); the value is the folder, or "No folder set".
+      - Can read (pane); the value is what Brain shares.
+      - Wakes with the app, and Restarts on their own after a change: both switches.
+      - Answers; the value is "Only you".
+    - **Advanced.**
+      - {Harness} settings (pane); the value is "N values".
+      - Files (pane): the other files in their folder, with New file.
+      - Network identity (pane): the public key with Copy, custody, definition, kind and authority.
+      - Logs: today's `LogsSheet`.
+    - Last, **Restart {name}** and **Stop {name}** (or Start) as two quiet buttons.
+12. **The panes** are pages. Each has "‹ Settings", a title, and a line saying what it decides.
+    - **The document editors** (Soul, Convictions, Instructions): today's editor at reading width, with Discard and
+      Save.
+      - If you leave with unsaved changes, the page stays and says "Save or discard your changes first."
+      - The note under it: "{name} reads this each time they start. After you save, they restart with it once they're
+        idle."
+    - **Keeps up with:** today's companion settings, laid out as two groups.
+      - "Following": Codex work and Claude Code work, each with its status, a switch and Review access.
+      - "Also available": A file, Browser activity and App activity, each with Add.
+      - Then "Use a different profile folder" as a disclosure, and the footnote on what isn't connected.
+    - **Permissions:** today's `MindPermissions`.
+      - The two choices as cards, and "Use the household default".
+      - Remembered permissions, each with Forget.
+      - Canvas tools, and Manage MCP access.
+    - **Harness:** the runtime, the program, the version or profile, and Thinking (from {harness}'s own settings), with
+      Recheck and Advanced… (the edit dialog).
+    - **Works in:** the folder they start in and their documents folder, with today's actions.
+    - **Can read:** `BrainMindAccess`, with Open Brain.
+    - **{Harness} settings:** `AgentConfigPanel`.
+      - Read-only and searchable.
+      - Grouped: model and thinking, plugins, plugin sources, look and feel, everything else.
+      - It opens with "These belong to {Harness}, not to {name}: every agent that runs on {Harness} shares them."
+13. **Shown once.** No text appears twice. If the runtime's system prompt is built from the documents, Settings
+    doesn't show it. If it's an agent's only instructions (one with no folder), it is the Instructions row.
+14. **Sphere or Glyph** applies to every agent, so it moves to the app's Settings, in the pane that holds the app's
+    look.
+
+*The look of their page (the app's own, not the study's)*
+15. **Their page speaks `shell-mind-space.css`'s language exactly:** ink and its alphas, hairlines and thin edges, the
+    type steps, `.type-eyebrow`, the solid Talk button and the breathing dot. No other colour and no gradients
+    anywhere; measure it.
+
+**Capability map (required).** Map every control and every piece of information on today's agent space to its home
+after, or mark it LOST. That covers the head, the three tabs, the aside, and every Settings section and button.
+Nothing may be lost. The seeds:
+- At a glance → the header's lines and Settings' row values.
+- Rooms ("Where {name} talks") → Talk and the Days entries.
+- Health → the header notice.
+- Stop, Restart, Start → the Settings footer.
+- Open logs → Advanced › Logs.
+- Recheck and Advanced… → Harness.
+- Character → the app's Settings.
+- The companion settings dialog → Settings › Companion and Keeps up with.
+- Place and Edit place → their words, and Settings › Their page.
+- Self's documents → Settings › Who {name} is (the ones you write) and Notebook › Pages (the ones they write).
+- More files → Advanced › Files.
+
+**Rules.**
+- No invented content. Every word comes from the data `MindSpace` reads today, and an empty part says what it will
+  hold.
+- Text is rem. Use tokens, not raw values.
+- Five states on every control. Honour reduced motion.
+- The classic layout stays identical, by hash against the base.
+- Do your own exact-edit recon first, and write your plan to the scratchpad.
+- Touch only the files in scope. Commit on `claude/wp42-agent-place` with explicit paths.
+- Never stash, merge, push or rebase. Stop only your own processes, by PID.
+- The rules in "For every agent", at the top of this file, apply.
+
+**Proof** (Playwright, the mock bridge, the real component tree; 1440 × 900 and 800 × 500, by night and by day):
+- Their page for Luca with a full stream: the top, then Notebook and Days.
+- The asking state, and the working-on-their-own state.
+- A made piece's page, and Made.
+- One new agent's empty place.
+- Settings in full, then Keeps up with, Permissions, the Soul editor (with the unsaved-change stop), and Claude Code
+  settings searched for "plugin".
+- The rail's dot appearing for new work and clearing after a visit.
+- Back, forward, Esc, ⌘[ and ⌘] through three levels.
+- Each `at=` way in landing on its pane.
+- Each picture beside the matching study picture (01–14).
+- The capability map.
+- Flag off, by hash against the base.
+
+**Checks JSON keys:**
+- structure: `two_places`, `no_tabs`, `header_one_status`, `sections_same_pattern`;
+- their page: `made_tiles`, `made_all_filters`, `notebook_chips`, `days_filters`, `left_off_first`, `new_marks_items`,
+  `new_mark_rail`, `empty_place`;
+- Settings: `settings_groups_order`, `settings_panels_measured` (fill, edge, title size), `panes_open`,
+  `unsaved_guard`, `shown_once`, `appearance_moved`;
+- navigation: `history_three_levels`, `keyboard`, `deep_links`, `reload_keeps_place`;
+- look and safety: `no_stray_colour`, `capability_map`, `classic_identical`, `unit_tests`, `playwright`, `gates`.
