@@ -590,7 +590,7 @@ test("WP-43: two places, no tabs; the old tab words land on their homes", async 
   ] as const) {
     await page.goto(`/#/agents?profile=${LUCA}&section=${section}`);
     await expect(page.getByTestId(testId)).toBeVisible({ timeout: 20_000 });
-    expect(await hashOf(page)).not.toContain("section=");
+    await expect.poll(() => hashOf(page)).not.toContain("section=");
   }
 });
 
