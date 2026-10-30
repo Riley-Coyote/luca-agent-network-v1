@@ -38,6 +38,12 @@
   width: 52px;
 }
 
+/* Their dendrite at 72 (WP-42), centred on the column: its box reaches 10
+ * past the column on every side, so by day its black well clears the name. */
+.luca-mind-mark > .luca-agent-dendrite {
+  margin: -10px;
+}
+
 /* At 72 the body draws 52 across, its centre 9 right of and 12 below the
  * box's (WP-13's 7 and 9 at 55, scaled); brought back onto the column. */
 .luca-mind-mark > .agent-identity-specimen {
@@ -1051,11 +1057,18 @@ li.luca-mind-doc[data-quiet] :is(.luca-mind-doc-title, .luca-mind-excerpt) {
 }
 
 /* ── their page ────────────────────────────────────────────────── */
-/* Their fingerprint at 72, on a 72 column (Decided 4), so it never
- * reaches into their name. */
+/* Their dendrite at 72, on a 72 column (Decided 4), so it never reaches
+ * into their name. */
 .luca-mind[data-mind-page] .luca-mind-mark {
   height: 72px;
   width: 72px;
+}
+
+/* Their dendrite fills that column square (WP-43 merge decision): no
+ * negative margin, so by day its well sits in its column and the header's
+ * 16 gap keeps it clear of the name. */
+.luca-mind[data-mind-page] .luca-mind-mark > .luca-agent-dendrite {
+  margin: 0;
 }
 
 .luca-mind-head-actions {

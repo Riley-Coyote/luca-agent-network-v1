@@ -31,7 +31,7 @@ import type {
 } from "@/app/shell/placeRails/placePicks";
 import type { SettingsSection } from "@/features/settings/ui/SettingsPanels";
 import { AgentMark } from "@/shared/ui/AgentMark";
-import { AgentFingerprint } from "@/shared/ui/fingerprint/AgentFingerprint";
+import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
 import { HarnessLogo, harnessIdFromRuntimeId } from "@/shared/ui/HarnessLogo";
 
 /**
@@ -102,7 +102,7 @@ export type RailFaceKind = "agent" | "app" | "icon";
 /**
  * A place's rail row's face (BETA14_RELEASE.md WP-40, Decided 2), as the
  * lab's rails draw them (shell-lab-rail `6049f9246`, content.ts): a mind
- * wears the agent mark (WP-41 turns it into their fingerprint); a connected
+ * wears the agent mark (WP-42 turns it into their dendrite); a connected
  * app its maker's mark; everything else a line drawing. Brain's two views
  * have no row in the lab: Connections wears the joined points, Activity the
  * pulse the lab gives "What they read".
@@ -116,15 +116,11 @@ export function placeRowFace(
     face: <Icon />,
   });
   if (rowId.startsWith("mind:") || rowId.startsWith("record:")) {
-    // Each mind wears its own fingerprint (WP-41); one not yet keyed keeps the agent mark.
+    // Each mind wears its own dendrite (WP-42); one not yet keyed keeps the agent mark.
     const key = rowId.slice(rowId.indexOf(":") + 1);
     return {
       kind: "agent",
-      face: key ? (
-        <AgentFingerprint residentKey={key} size={18} variant="rail" />
-      ) : (
-        <AgentMark />
-      ),
+      face: key ? <AgentDendrite residentKey={key} size={18} /> : <AgentMark />,
     };
   }
   if (rowId === "luca" || rowId.startsWith("persona:"))

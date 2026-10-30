@@ -49,7 +49,7 @@ import type {
   RespondToMode,
 } from "@/shared/api/types";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
-import { AgentFingerprint } from "@/shared/ui/fingerprint/AgentFingerprint";
+import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
 import { Switch } from "@/shared/ui/switch";
 import {
   awayOn,
@@ -385,11 +385,7 @@ function SettingsRoot({
         lede={`Everything you decide about ${name}. Their page is theirs: what they make, write and do lives there.`}
         mark={
           resident.pubkey ? (
-            <AgentFingerprint
-              residentKey={resident.pubkey}
-              size={28}
-              variant="large"
-            />
+            <AgentDendrite residentKey={resident.pubkey} size={28} />
           ) : null
         }
         onBack={onBack}

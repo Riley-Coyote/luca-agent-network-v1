@@ -1,5 +1,4 @@
 import * as React from "react";
-import { ResidentFingerprintKinds } from "@/features/luca/residents/ResidentFingerprintKinds";
 import { CircleAlert, RefreshCw } from "lucide-react";
 import {
   consumePendingSnapshotImport,
@@ -411,66 +410,64 @@ export function AgentsView({
               }
             >
               {shellFrame ? (
-                <ResidentFingerprintKinds>
-                  <MindSpace
-                    channels={
-                      selectedResident.pubkey
-                        ? (agents.channelsByPubkey[
-                            normalizePubkey(selectedResident.pubkey)
-                          ] ?? [])
-                        : []
+                <MindSpace
+                  channels={
+                    selectedResident.pubkey
+                      ? (agents.channelsByPubkey[
+                          normalizePubkey(selectedResident.pubkey)
+                        ] ?? [])
+                      : []
+                  }
+                  actionErrorMessage={agents.actionErrorMessage}
+                  actionNoticeMessage={agents.actionNoticeMessage}
+                  isActionPending={isActionPending}
+                  managedAgent={selectedManagedAgent}
+                  onEdit={() => {
+                    if (selectedManagedAgent) {
+                      setInstanceToEdit(selectedManagedAgent);
+                    } else if (selectedPersona) {
+                      personas.openEdit(selectedPersona);
                     }
-                    actionErrorMessage={agents.actionErrorMessage}
-                    actionNoticeMessage={agents.actionNoticeMessage}
-                    isActionPending={isActionPending}
-                    managedAgent={selectedManagedAgent}
-                    onEdit={() => {
-                      if (selectedManagedAgent) {
-                        setInstanceToEdit(selectedManagedAgent);
-                      } else if (selectedPersona) {
-                        personas.openEdit(selectedPersona);
-                      }
-                    }}
-                    onMessage={() => {
-                      if (!selectedManagedAgent) return;
-                      void openDmMutation
-                        .mutateAsync({ pubkeys: [selectedManagedAgent.pubkey] })
-                        .then((dm) => goChannel(dm.id));
-                    }}
-                    onOpenChannel={(channelId) => {
-                      void goChannel(channelId);
-                    }}
-                    onPage={(next, options) => onMindPage?.(next, options)}
-                    page={mindPage}
-                    onStart={() => {
-                      if (selectedManagedAgent) {
-                        void agents.handleStart(selectedManagedAgent.pubkey);
-                      } else if (selectedPersona) {
-                        void agents.handleStartPersona(selectedPersona);
-                      }
-                    }}
-                    onStop={() => {
-                      if (selectedManagedAgent) {
-                        void agents.handleStop(selectedManagedAgent.pubkey);
-                      }
-                    }}
-                    onRestart={() => {
-                      if (selectedManagedAgent) {
-                        void agents.handleRestart(selectedManagedAgent.pubkey);
-                      }
-                    }}
-                    onToggleStartOnLaunch={(enabled) => {
-                      if (selectedManagedAgent) {
-                        void agents.handleToggleStartOnAppLaunch(
-                          selectedManagedAgent.pubkey,
-                          enabled,
-                        );
-                      }
-                    }}
-                    persona={selectedPersona}
-                    resident={selectedResident}
-                  />
-                </ResidentFingerprintKinds>
+                  }}
+                  onMessage={() => {
+                    if (!selectedManagedAgent) return;
+                    void openDmMutation
+                      .mutateAsync({ pubkeys: [selectedManagedAgent.pubkey] })
+                      .then((dm) => goChannel(dm.id));
+                  }}
+                  onOpenChannel={(channelId) => {
+                    void goChannel(channelId);
+                  }}
+                  onPage={(next, options) => onMindPage?.(next, options)}
+                  page={mindPage}
+                  onStart={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleStart(selectedManagedAgent.pubkey);
+                    } else if (selectedPersona) {
+                      void agents.handleStartPersona(selectedPersona);
+                    }
+                  }}
+                  onStop={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleStop(selectedManagedAgent.pubkey);
+                    }
+                  }}
+                  onRestart={() => {
+                    if (selectedManagedAgent) {
+                      void agents.handleRestart(selectedManagedAgent.pubkey);
+                    }
+                  }}
+                  onToggleStartOnLaunch={(enabled) => {
+                    if (selectedManagedAgent) {
+                      void agents.handleToggleStartOnAppLaunch(
+                        selectedManagedAgent.pubkey,
+                        enabled,
+                      );
+                    }
+                  }}
+                  persona={selectedPersona}
+                  resident={selectedResident}
+                />
               ) : (
                 <AgentLibraryWorkspace
                   channels={

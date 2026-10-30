@@ -28,7 +28,7 @@ import {
   type ResidentNotebookDetail,
 } from "@/shared/api/tauriNotebook";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
-import { AgentFingerprint } from "@/shared/ui/fingerprint/AgentFingerprint";
+import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
 import {
   awayOn,
   followedWork,
@@ -783,10 +783,9 @@ function MindHeader({
     <header className="luca-mind-head" data-testid="mind-head">
       <span aria-hidden={!resident.pubkey} className="luca-mind-mark">
         {resident.pubkey ? (
-          <AgentFingerprint
+          <AgentDendrite
             residentKey={resident.pubkey}
             size={MARK_SIZE}
-            variant="large"
             working={state === "working"}
           />
         ) : (

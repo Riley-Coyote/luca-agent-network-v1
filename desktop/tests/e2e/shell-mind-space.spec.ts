@@ -1102,8 +1102,8 @@ test("a mind not on this Mac: the same space, its parts with no data hide", asyn
   measure("native", { asks, native, ownWords: own });
 });
 
-// WP-40 keeps the 52 column; WP-41 uses the existing 72 mark box for a fingerprint.
-test("the head's fingerprint draws at 72 on a 52 column", async ({ page }) => {
+// WP-40 keeps the 52 column; WP-42 draws the agent's dendrite in the existing 72 mark box.
+test("the head's dendrite draws at 72 on a 52 column", async ({ page }) => {
   await boot(page);
   await openLuca(page);
   // Opening Their days scrolls that tab into view. Bring the head back
@@ -1139,6 +1139,67 @@ test("the head's fingerprint draws at 72 on a 52 column", async ({ page }) => {
     path: `${SHOTS}/mark.png`,
   });
   measure("mark", column);
+});
+
+/** Each dendrite on the page: its canvas width, how many of its pixels are lit, and a sum of its picture. */
+function sampleDendrites(page: Page, selector: string) {
+  return page.locator(selector).evaluateAll((canvases) =>
+    canvases.map((node) => {
+      const canvas = node as HTMLCanvasElement;
+      const data =
+        canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height)
+          .data ?? [];
+      let lit = 0;
+      let sum = 0;
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] > 40) lit++;
+        sum += data[i] * ((i % 997) + 1) + data[i - 1];
+      }
+      return { width: canvas.width, lit, sum };
+    }),
+  );
+}
+
+// WP-42: each agent wears its own dendrite, alive at rest, at the screen's own
+// resolution, and exactly still under Reduce Motion.
+test("each agent wears its own living dendrite", async ({ page }) => {
+  await boot(page);
+  await openLuca(page);
+  await page.locator(".luca-mind-head").scrollIntoViewIfNeeded();
+  const rail = "[data-testid='place-rail-agents'] canvas[data-agent-dendrite]";
+  await expect(page.locator(rail).first()).toBeVisible();
+  const dpr = await page.evaluate(() => window.devicePixelRatio);
+  const first = await sampleDendrites(page, rail);
+  expect(first.length).toBeGreaterThanOrEqual(3);
+  for (const mark of first) {
+    expect(mark.width).toBe(Math.round(18 * dpr));
+    expect(mark.lit).toBeGreaterThan(8);
+  }
+  expect(new Set(first.map((mark) => mark.sum)).size).toBe(first.length);
+  await page.waitForTimeout(1500);
+  const later = await sampleDendrites(page, rail);
+  expect(later.some((mark, i) => mark.sum !== first[i].sum)).toBe(true);
+  const head = await sampleDendrites(
+    page,
+    ".luca-mind-mark canvas[data-agent-dendrite]",
+  );
+  expect(head).toHaveLength(1);
+  expect(head[0].width).toBe(Math.round(72 * dpr));
+  expect(head[0].lit).toBeGreaterThan(40);
+  await page.screenshot({ path: `${SHOTS}/dendrites.png` });
+  measure("dendrites", { dpr, first, head });
+});
+
+test("under Reduce Motion each dendrite holds still", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await boot(page);
+  await openLuca(page);
+  const all = "canvas[data-agent-dendrite]";
+  await expect(page.locator(all).first()).toBeVisible();
+  const first = await sampleDendrites(page, all);
+  for (const mark of first) expect(mark.lit).toBeGreaterThan(8);
+  await page.waitForTimeout(1500);
+  expect(await sampleDendrites(page, all)).toEqual(first);
 });
 
 test("the keyboard through the tabs and the filters", async ({ page }) => {
