@@ -293,3 +293,15 @@ export function groupMindDays(
   }
   return days;
 }
+
+/**
+ * The other minds in a room, as a Days talk entry names them (WP-43, Riley's
+ * call on Works with): "A and B", "A, B and C", "A, B and 2 others".
+ */
+export function namesInRoom(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0] ?? "";
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`;
+}

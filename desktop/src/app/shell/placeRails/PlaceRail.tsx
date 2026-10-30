@@ -105,7 +105,7 @@ function PlaceRailBody({
   });
 
   const choose = (id: string) => {
-    // Picking a mind always opens their page (WP-42, Decided 1): the same
+    // Picking a mind always opens their page (WP-43, Decided 1): the same
     // mind again, from a page over theirs, still goes home.
     const overTheirPage =
       place === "agents" &&

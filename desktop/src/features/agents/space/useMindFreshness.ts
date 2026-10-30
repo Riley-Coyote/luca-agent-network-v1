@@ -21,7 +21,7 @@ const ACTIVE_ARTIFACTS = {
 
 /**
  * Which minds have something new since you last looked (BETA14_RELEASE.md
- * WP-42, Decided 8), for the dot on their rail row: a piece they made, or
+ * WP-43, Decided 8), for the dot on their rail row: a piece they made, or
  * a journal page or note they kept, after your last visit. Read from the
  * Library and each local notebook; the relay's signed record is read only
  * on their page, so a day entry alone marks their page, not the rail.

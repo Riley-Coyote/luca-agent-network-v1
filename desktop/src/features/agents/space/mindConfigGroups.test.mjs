@@ -8,7 +8,7 @@ import {
   groupConfigRows,
 } from "./mindConfigGroups.ts";
 
-test("WP-42: a harness's settings fall into five groups", () => {
+test("WP-43: a harness's settings fall into five groups", () => {
   assert.equal(configGroupOf("model"), "model");
   assert.equal(configGroupOf("alwaysThinkingEnabled"), "model");
   assert.equal(configGroupOf("effortLevel"), "model");
@@ -31,7 +31,7 @@ test("WP-42: a harness's settings fall into five groups", () => {
   assert.equal(configGroupOf("cleanupPeriodDays"), "everything");
 });
 
-test("WP-42: a plugin row is its own name, on or off", () => {
+test("WP-43: a plugin row is its own name, on or off", () => {
   assert.deepEqual(
     configRowOf("enabledPlugins.playwright@claude-plugins-official", "true"),
     {
@@ -48,7 +48,7 @@ test("WP-42: a plugin row is its own name, on or off", () => {
   });
 });
 
-test("WP-42: search reads the key, the name and the value", () => {
+test("WP-43: search reads the key, the name and the value", () => {
   const row = configRowOf("enabledPlugins.plugin-dev@official", "true");
   assert.equal(configRowMatches(row, "PLUGIN"), true);
   assert.equal(configRowMatches(row, "on"), true);
@@ -56,7 +56,7 @@ test("WP-42: search reads the key, the name and the value", () => {
   assert.equal(configRowMatches(row, "  "), true);
 });
 
-test("WP-42: groups keep their order and drop when empty", () => {
+test("WP-43: groups keep their order and drop when empty", () => {
   const rows = [
     configRowOf("cleanupPeriodDays", "36500"),
     configRowOf("enabledPlugins.a@b", "true"),

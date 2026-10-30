@@ -19,7 +19,7 @@ function memoryStorage() {
   };
 }
 
-test("WP-42: a visit is kept per agent, under the community", () => {
+test("WP-43: a visit is kept per agent, under the community", () => {
   resetMindVisits();
   const store = memoryStorage();
   assert.equal(lastVisitOf("one", "AA", store), null);
@@ -31,7 +31,7 @@ test("WP-42: a visit is kept per agent, under the community", () => {
   });
 });
 
-test("WP-42: the community switch clears the module's memory, not the record", () => {
+test("WP-43: the community switch clears the module's memory, not the record", () => {
   resetMindVisits();
   const store = memoryStorage();
   recordVisit("one", "aa", 5, store);
@@ -48,7 +48,7 @@ test("WP-42: the community switch clears the module's memory, not the record", (
   assert.equal(lastVisitOf("one", "aa", store), 5);
 });
 
-test("WP-42: a record that can't be read marks nothing new", () => {
+test("WP-43: a record that can't be read marks nothing new", () => {
   resetMindVisits();
   const store = memoryStorage();
   store.setItem("luca-mind-visits-v1:bad", "{not json");
@@ -57,7 +57,7 @@ test("WP-42: a record that can't be read marks nothing new", () => {
   assert.equal(lastVisitOf("odd", "aa", store), null);
 });
 
-test("WP-42: new is after the last visit; never visited is never new", () => {
+test("WP-43: new is after the last visit; never visited is never new", () => {
   assert.equal(isNewSince(10, 5), true);
   assert.equal(isNewSince(5, 5), false);
   assert.equal(isNewSince(4, 5), false);

@@ -231,3 +231,18 @@ test("an empty Notebook says what it holds", () => {
     "Atlas's days will gather here: what they do for you, their own work, their journal.",
   );
 });
+
+test("WP-43: a talk entry names the other minds in its room", async () => {
+  const { namesInRoom } = await import("./mindStream.ts");
+  assert.equal(namesInRoom([]), "");
+  assert.equal(namesInRoom(["Fifty"]), "Fifty");
+  assert.equal(namesInRoom(["Fifty", "Trinity"]), "Fifty and Trinity");
+  assert.equal(
+    namesInRoom(["Fifty", "Trinity", "ziggy"]),
+    "Fifty, Trinity and ziggy",
+  );
+  assert.equal(
+    namesInRoom(["Fifty", "Trinity", "ziggy", "Atlas"]),
+    "Fifty, Trinity and 2 others",
+  );
+});

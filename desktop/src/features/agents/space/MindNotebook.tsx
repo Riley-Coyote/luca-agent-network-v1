@@ -25,6 +25,7 @@ import {
   useResidentDocumentQuery,
   useResidentDocumentsQuery,
 } from "@/features/agents/documents/useResidentDocuments";
+import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { useArtifactLibrary } from "@/features/artifacts/hooks";
 import { ProposalAsk } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
@@ -74,6 +75,7 @@ import {
   firstLine,
   groupMindDays,
   type MindEntry,
+  namesInRoom,
   type StreamArtifact,
 } from "./mindStream";
 import { isNewSince } from "./mindVisits";
@@ -841,6 +843,7 @@ export function MindDaysSection({
   name,
   onOpenItem,
   onOpenPiece,
+  pubkey,
   since,
 }: {
   days: ReturnType<typeof useMindEntries>;
@@ -848,11 +851,40 @@ export function MindDaysSection({
   name: string;
   onOpenItem: (itemId: string) => void;
   onOpenPiece: (artifactId: string) => void;
+  /** Whose days these are, so a room's other minds leave them out. */
+  pubkey: string | null;
   since: number | null;
 }) {
   const [filter, setFilter] = React.useState<DaysFilter>("all");
   const [earlier, setEarlier] = React.useState(false);
   const { goChannel } = useAppNavigation();
+  // Who else was in a room (Riley's call on Works with): the other minds
+  // among its members, by the names the app gives them.
+  const channels = useChannelsQuery();
+  const agents = useManagedAgentsQuery();
+  const othersIn = React.useMemo(() => {
+    const self = pubkey ? normalizePubkey(pubkey) : null;
+    const minds = new Map(
+      (agents.data ?? []).map((agent) => [
+        normalizePubkey(agent.pubkey),
+        agent.name,
+      ]),
+    );
+    return new Map(
+      (channels.data ?? []).map((channel) => [
+        channel.id,
+        [
+          ...new Set(
+            [...channel.memberPubkeys, ...channel.participantPubkeys].map(
+              normalizePubkey,
+            ),
+          ),
+        ]
+          .filter((key) => key !== self && minds.has(key))
+          .map((key) => minds.get(key) as string),
+      ]),
+    );
+  }, [agents.data, channels.data, pubkey]);
   // Their continuity notes live in Notebook › Notes, so they aren't said
   // again here; what they keep in their own memory (the relay's) is.
   const done = stream.entries.filter((entry) => !entry.id.startsWith("note:"));
@@ -924,6 +956,11 @@ export function MindDaysSection({
                 entry={entry}
                 fresh={isNewSince(entry.at, since)}
                 key={entry.id}
+                others={
+                  entry.id.startsWith("talk:") && entry.channelId
+                    ? (othersIn.get(entry.channelId) ?? [])
+                    : []
+                }
                 onOpen={
                   entry.made
                     ? () => onOpenPiece((entry.made as StreamArtifact).id)
@@ -970,13 +1007,22 @@ function DayRow({
   entry,
   fresh,
   onOpen,
+  others,
 }: {
   entry: MindEntry;
   fresh: boolean;
   onOpen?: () => void;
+  /** The other minds in the room a talk entry happened in: plain words,
+   *  since the whole row is one button. */
+  others: readonly string[];
 }) {
   const Glyph = KIND_GLYPH[entry.kind];
-  const who = withYou(entry) ? "With you" : "On their own";
+  const who = [
+    withYou(entry) ? "With you" : "On their own",
+    others.length > 0 ? `with ${namesInRoom(others)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const body = (
     <>
       <span aria-hidden className="luca-mind-glyph">

@@ -9,17 +9,20 @@ import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 
 /**
- * WP-42 (docs/luca/BETA14_RELEASE.md, "Each agent's page is their place;
+ * WP-43 (docs/luca/BETA14_RELEASE.md, "Each agent's page is their place;
  * Settings is yours"): two places per agent, the pages that slide in over
  * their page, the address that keeps where you are, and the dot that says
  * new. The real component tree with the mock bridge; every word on the
  * pages comes from the seeded backend below, the same data `MindSpace`
- * reads. Screenshots and measures land in WP42_SHOTS.
+ * reads. Screenshots and measures land in WP43_SHOTS.
  */
 
-const SHOTS = process.env.WP42_SHOTS ?? "test-results/shell-agent-place";
+const SHOTS = process.env.WP43_SHOTS ?? "test-results/shell-agent-place";
 const LUCA = "a".repeat(64);
 const ATLAS = "b".repeat(64);
+/** A member of the mock's #general (its PROFILE_ONLY_AGENT_PUBKEY). */
+const FIFTY =
+  "8f83d6b7f3d74f7d933ae3a54dd8c6cc85c7f98e531c16e5a827b953441a8d67";
 const DM = "f48efb06-0c93-5025-aac9-2e646bb6bfa8";
 /** A conversation the owner isn't in: work there is their own. */
 const ELSEWHERE = "0f0f0f0f-0000-4000-8000-00000000e15e";
@@ -485,7 +488,10 @@ async function boot(
     hash = "/agents",
     light = false,
     runtimeTask = false,
+    alsoAgents = [],
   }: {
+    /** More minds on this Mac, by name and key. */
+    alsoAgents?: Array<{ name: string; pubkey: string }>;
     asking?: boolean;
     companion?: boolean;
     hash?: string;
@@ -529,6 +535,7 @@ async function boot(
         personaId: "persona-atlas",
         status: "running",
       },
+      ...alsoAgents.map((agent) => ({ ...agent, status: "running" as const })),
     ],
     personas: [
       {
@@ -681,7 +688,12 @@ function readColours(page: Page) {
       });
     };
     for (const element of root.querySelectorAll<HTMLElement>("*")) {
-      if (element.closest(".agent-identity-specimen, img")) continue;
+      // The mark (WP-42's dendrite, its well by day) is measured by its own
+      // spec; pictures are their own pixels.
+      if (
+        element.closest(".agent-identity-specimen, .luca-agent-dendrite, img")
+      )
+        continue;
       if (element.getClientRects().length === 0) continue;
       seen += 1;
       const css = getComputedStyle(element);
@@ -1305,6 +1317,117 @@ test("Sphere or Glyph lives in the app's Settings, Appearance", async ({
     timeout: 20_000,
   });
   await expect(page.getByTestId("chat-mark-style-sphere")).toBeVisible();
+});
+
+for (const light of [false, true]) {
+  test(`the header wears the dendrite, clear of the name, by ${light ? "day" : "night"}`, async ({
+    page,
+  }) => {
+    await boot(page, { light });
+    await openMind(page, LUCA);
+    const mark = page.locator('[data-testid="mind-head"] .luca-agent-dendrite');
+    await expect(mark).toBeVisible({ timeout: 20_000 });
+    const head = await page.evaluate(() => {
+      const well = document
+        .querySelector('[data-testid="mind-head"] .luca-agent-dendrite')
+        ?.getBoundingClientRect();
+      const column = document
+        .querySelector('[data-testid="mind-head"] .luca-mind-mark')
+        ?.getBoundingClientRect();
+      const name = document
+        .querySelector('[data-testid="mind-head"] .luca-mind-name')
+        ?.getBoundingClientRect();
+      const css = document.querySelector(
+        '[data-testid="mind-head"] .luca-agent-dendrite',
+      );
+      return {
+        well: well && { x: well.x, w: well.width, h: well.height },
+        column: column && { x: column.x, w: column.width },
+        nameX: name?.x,
+        clearance:
+          well && name ? Math.round((name.x - well.right) * 100) / 100 : null,
+        wellFill: css ? getComputedStyle(css).backgroundColor : null,
+        margin: css ? getComputedStyle(css).margin : null,
+      };
+    });
+    measure(`head-mark-${light ? "day" : "night"}`, head);
+    expect(head.well?.w).toBe(72);
+    expect(head.column?.w).toBe(72);
+    expect(head.margin).toBe("0px");
+    expect(head.clearance ?? -1).toBeGreaterThanOrEqual(16);
+    await shot(page, `21-header-dendrite-1440-${light ? "day" : "night"}`);
+  });
+}
+
+test("the title bar says where you are", async ({ page }) => {
+  await boot(page);
+  await openMind(page, LUCA);
+  const lip = page.getByTestId("shell-lip-name");
+  await expect(lip).toHaveText("Luca");
+  const said: Record<string, string> = {};
+  await page.getByTestId("mind-open-settings").click();
+  await expect(lip).toHaveText("Luca · Settings");
+  said.settings = (await lip.textContent()) ?? "";
+  await shot(page, "18-settings-title-bar-1440-night");
+  await page.getByTestId("mind-row-permissions").click();
+  await expect(lip).toHaveText("Luca · Permissions");
+  said.permissions = (await lip.textContent()) ?? "";
+  await shot(page, "19-pane-title-bar-1440-night");
+  await page.getByTestId("mind-back").click();
+  await page.getByTestId("mind-row-soul").click();
+  await expect(lip).toHaveText("Luca · Soul");
+  said.soul = (await lip.textContent()) ?? "";
+  await page.getByTestId("mind-back").click();
+  await page.getByTestId("mind-back").click();
+  await expect(lip).toHaveText("Luca");
+  await page.getByTestId("mind-made-tile").first().click();
+  await expect(lip).toHaveText("Luca · Tide pools at night");
+  said.piece = (await lip.textContent()) ?? "";
+  await page.getByTestId("mind-back").click();
+  await expect(lip).toHaveText("Luca");
+  measure("title-bar", said);
+});
+
+test("a Days talk entry names the other minds in its room", async ({
+  page,
+}) => {
+  // Fifty lives on this Mac and is a member of the mock's #general. The mock
+  // relay lives in the page: Luca's talk there is seeded first, in Chats,
+  // and their page is opened after it, without a reload.
+  await boot(page, {
+    alsoAgents: [{ name: "Fifty", pubkey: FIFTY }],
+    hash: "/",
+  });
+  await expect(page.getByTestId("chat-list")).toBeVisible({ timeout: 20_000 });
+  await page.evaluate((luca) => {
+    (
+      window as unknown as {
+        __BUZZ_E2E_EMIT_MOCK_MESSAGE__: (input: {
+          channelName: string;
+          content: string;
+          pubkey: string;
+        }) => unknown;
+      }
+    ).__BUZZ_E2E_EMIT_MOCK_MESSAGE__({
+      channelName: "general",
+      content: "The release notes are up.",
+      pubkey: luca,
+    });
+  }, LUCA);
+  await page.getByTestId("open-agents-view").click();
+  await openMind(page, LUCA);
+  const entry = page
+    .getByTestId("mind-days")
+    .getByTestId("mind-entry")
+    .filter({ hasText: "Talked in general" });
+  await expect(entry).toHaveCount(1, { timeout: 20_000 });
+  await expect(entry).toContainText("With you · with Fifty");
+  // Plain words: the row is one button, with nothing to press inside it.
+  await expect(entry.locator("button")).toHaveCount(1);
+  await expect(entry.locator("a")).toHaveCount(0);
+  await entry.scrollIntoViewIfNeeded();
+  measure("days-with-minds", { text: await entry.textContent() });
+  await shot(page, "20-days-with-other-minds-1440-night");
 });
 
 test.afterAll(() => {

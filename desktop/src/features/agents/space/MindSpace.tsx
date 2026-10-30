@@ -61,6 +61,7 @@ import {
   type MindPage,
 } from "./mindSection";
 import { MindSettingsPage } from "./MindSettings";
+import { setMindPageTitle } from "./mindPageTitle";
 import { lastVisitOf, recordVisit } from "./mindVisits";
 
 /** The specimen's box, for the lab's 52 body (WP-40): it draws its body at
@@ -85,7 +86,7 @@ type Actions = {
 };
 
 /**
- * A mind's two places (BETA14_RELEASE.md WP-42): their page is theirs (what
+ * A mind's two places (BETA14_RELEASE.md WP-43): their page is theirs (what
  * they write, make and do); Settings is yours (everything you decide).
  * Everything else is a page that slides in over their page, in the same
  * frame, with a back link naming where you came from; the address holds
@@ -205,6 +206,32 @@ function MindFrame({
     if (arrived.current) titleRef.current?.focus({ preventScroll: true });
     arrived.current = true;
   }, [depth, word]);
+
+  // The title bar says where you are (BETA14_RELEASE.md WP-43, the title
+  // bar): "{name}" on their page, "{name} · {this page's title}" on a page
+  // pushed from it, read from the title this page draws, as it arrives.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `word` names the page; a new one is read afresh.
+  React.useEffect(() => {
+    if (!pubkey || page.kind === "place") {
+      setMindPageTitle(null);
+      return;
+    }
+    const read = () => {
+      const text = titleRef.current?.textContent?.trim();
+      setMindPageTitle(text ? { pubkey, title: text } : null);
+    };
+    read();
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const observer = new MutationObserver(read);
+    observer.observe(scroller, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [page.kind, pubkey, word]);
+  React.useEffect(() => () => setMindPageTitle(null), []);
 
   return (
     <div
@@ -457,6 +484,7 @@ function MindPlace({
             onOpenPiece={(artifactId) =>
               onGo({ kind: "piece", artifactId, from: "place" })
             }
+            pubkey={pubkey}
             since={since}
           />
         </div>

@@ -565,13 +565,13 @@ for (const light of [false, true]) {
 }
 
 /*
- * WP-42 (BETA14_RELEASE.md, "Each agent's page is their place; Settings is
+ * WP-43 (BETA14_RELEASE.md, "Each agent's page is their place; Settings is
  * yours") replaced WP-40's Notebook · Self · Settings tabs and its all-open
  * Settings with two places. Their page, Settings, its panes and the ways in
  * are proved in shell-agent-place.spec.ts; here, what WP-40 asserted about
  * the tabs is asserted about the two places in their stead.
  */
-test("WP-42: two places, no tabs; the old tab words land on their homes", async ({
+test("WP-43: two places, no tabs; the old tab words land on their homes", async ({
   page,
 }) => {
   await boot(page);
@@ -594,7 +594,7 @@ test("WP-42: two places, no tabs; the old tab words land on their homes", async 
   }
 });
 
-test("WP-42: an agent's long instructions are shown once, inside Settings", async ({
+test("WP-43: an agent's long instructions are shown once, inside Settings", async ({
   page,
 }) => {
   const longPrompt = `Warm, exact, and unhurried. ${"Follow the release checklist. ".repeat(40)}`;
@@ -604,7 +604,7 @@ test("WP-42: an agent's long instructions are shown once, inside Settings", asyn
   await expect(settings).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("mind-row-instructions")).toBeVisible();
   // The folder's documents are what Luca reads, so the runtime's prompt
-  // built from them isn't shown again (WP-42, Decided 13).
+  // built from them isn't shown again (WP-43, Decided 13).
   expect(await settings.textContent()).not.toContain(
     "Follow the release checklist.",
   );
@@ -621,7 +621,7 @@ test("flag off: the classic agents page and the rail match the base", async ({
 }) => {
   const hashes: Record<string, Record<string, string>> = {};
   const colors: Record<string, number> = {};
-  // With one port to serve on (WP-42), the base and this build are shot in
+  // With one port to serve on (WP-43), the base and this build are shot in
   // two runs: FLAG_OFF_PHASE=base against the base build, then
   // FLAG_OFF_PHASE=here against this one, which compares the two.
   const phase = process.env.FLAG_OFF_PHASE;

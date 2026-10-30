@@ -1,6 +1,6 @@
 /**
  * A harness's own settings, as Settings › Advanced › {Harness} settings
- * shows them (BETA14_RELEASE.md WP-42, Decided 12): read-only, searchable,
+ * shows them (BETA14_RELEASE.md WP-43, Decided 12): read-only, searchable,
  * and grouped so thirty-odd rows read as five short lists. Every value is
  * the harness's own; nothing here is written. Pure, so it is tested without
  * React.

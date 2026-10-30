@@ -2,7 +2,7 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 /**
- * The parts every page of a mind is built from (BETA14_RELEASE.md WP-42):
+ * The parts every page of a mind is built from (BETA14_RELEASE.md WP-43):
  * a page's head (its back link, its title, the line saying what it
  * decides), Settings' filled panels with plain titles and rows of at least
  * 44, a section's hairline head, and the small ink dot that says new.

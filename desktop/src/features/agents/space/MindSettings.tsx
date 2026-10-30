@@ -144,7 +144,7 @@ function paneHead(
 }
 
 /**
- * Settings (BETA14_RELEASE.md WP-42, Decided 10–13): everything you decide
+ * Settings (BETA14_RELEASE.md WP-43, Decided 10–13): everything you decide
  * about a mind, in the look Riley chose (filled panels, plain titles, rows
  * of at least 44), and its panes, each a page of its own. Nothing is said
  * twice; their page is theirs.

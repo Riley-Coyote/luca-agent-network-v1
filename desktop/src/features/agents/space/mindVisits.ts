@@ -1,5 +1,5 @@
 /**
- * When you last looked at each mind's page (BETA14_RELEASE.md WP-42,
+ * When you last looked at each mind's page (BETA14_RELEASE.md WP-43,
  * Decided 8): one time per agent, under the community, so anything they
  * made, wrote or did since can wear a small dot, here and on their rail row.
  *

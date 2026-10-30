@@ -7,6 +7,7 @@ import type { AppView } from "@/app/AppShell.helpers";
 import type { RailPlace } from "@/app/shell/placeRails/placePicks";
 import { appPathOf } from "@/app/shell/placeRails/appTask";
 import { shellFramePageName } from "@/app/shell/shellFrame";
+import { useMindPageTitle } from "@/features/agents/space/mindPageTitle";
 import { useAllRuntimeTasks } from "@/features/capabilities/useAllRuntimeTasks";
 import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
 import { runtimeRailFamilyFromRuntimeId } from "@/features/runtime-sessions/runtimeRailPreferences";
@@ -36,7 +37,19 @@ function PickName({ fallback, place }: { fallback: string; place: RailPlace }) {
   const { sections } = PLACE_RAIL_HOOKS[place]();
   const { pick } = usePlacePick(place);
   const picked = pickedRow(sections, pick);
+  // A page pushed over a mind's own page: "Luca · Settings" (WP-43).
+  const pushed = useMindPageTitle(
+    place === "agents" && pick?.startsWith("mind:") ? pick.slice(5) : null,
+  );
   if (!picked) return <>{fallback}</>;
+  if (pushed)
+    return (
+      <>
+        {picked.row.title}
+        <span className="luca-lip-sep">{" · "}</span>
+        <span data-testid="shell-lip-page">{pushed}</span>
+      </>
+    );
   // A skill runtime reads under its section, as a session under its home:
   // "Skills / Claude Code" (SHELL_SPEC.md, "Tabs"). So does a pick whose name
   // alone could be another's (WP-19): "Made / All" beside "Skills / All", and

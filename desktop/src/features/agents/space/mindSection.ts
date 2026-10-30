@@ -1,5 +1,5 @@
 /**
- * Where you are with a mind (BETA14_RELEASE.md WP-42, Decided 1–3): their
+ * Where you are with a mind (BETA14_RELEASE.md WP-43, Decided 1–3): their
  * page, or a page that slid in over it, in the agents route's `page` word.
  * Pure, so the address's words are tested without React.
  *

@@ -21,7 +21,7 @@ type AgentsRouteSearch = {
   group?: string;
   /**
    * Under the shell: the page that slid in over a mind's own page
-   * (BETA14_RELEASE.md WP-42, Decided 3): Settings or one of its panes,
+   * (BETA14_RELEASE.md WP-43, Decided 3): Settings or one of its panes,
    * Made, a piece, a page they write. None is their page.
    */
   page?: string;
@@ -34,11 +34,11 @@ type AgentsRouteSearch = {
    * A way in that names one of a mind's Settings panes (WP-26, Decided 4):
    * What they can read (`/brain`), their harness (an agent showing its
    * runtime), or their permissions (an agent asking for access). Under the
-   * shell it is read once onto `page` (WP-42, Decided 3).
+   * shell it is read once onto `page` (WP-43, Decided 3).
    */
   at?: MindSettingsAt;
   /** The classic page's section; under the shell an old way in, read once
-   *  onto `page` (WP-42, Decided 3). */
+   *  onto `page` (WP-43, Decided 3). */
   section?: "place" | "documents" | "notebook" | "self" | "settings";
 };
 

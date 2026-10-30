@@ -31,7 +31,7 @@ test("Settings > Agents' old tabs land on the row that holds them", () => {
   assert.equal(mindSettingsAtOfTab(null), undefined);
 });
 
-test("WP-42: every page survives the address, both ways", () => {
+test("WP-43: every page survives the address, both ways", () => {
   const pages = [
     { kind: "place" },
     { kind: "place", notebook: "pages" },
@@ -48,14 +48,14 @@ test("WP-42: every page survives the address, both ways", () => {
   assert.equal(mindPageWord({ kind: "place" }), null);
 });
 
-test("WP-42: a word the page can't name is their page", () => {
+test("WP-43: a word the page can't name is their page", () => {
   assert.deepEqual(parseMindPage("settings/nope"), { kind: "settings" });
   assert.deepEqual(parseMindPage("page/soul"), { kind: "place" });
   assert.deepEqual(parseMindPage("elsewhere"), { kind: "place" });
   assert.deepEqual(parseMindPage(7), { kind: "place" });
 });
 
-test("WP-42: a page's back link names where you came from", () => {
+test("WP-43: a page's back link names where you came from", () => {
   const name = "Luca";
   assert.equal(mindBackLabel({ kind: "settings" }, name), "Luca");
   assert.equal(
@@ -81,7 +81,7 @@ test("WP-42: a page's back link names where you came from", () => {
   assert.equal(mindPageDepth({ kind: "place" }), 0);
 });
 
-test("WP-42: every old way in lands on its new home", () => {
+test("WP-43: every old way in lands on its new home", () => {
   assert.deepEqual(mindPageOfLegacy({ at: "read" }), {
     kind: "pane",
     pane: "read",

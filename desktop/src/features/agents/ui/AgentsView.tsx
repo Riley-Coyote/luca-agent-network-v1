@@ -82,7 +82,7 @@ export function AgentsView({
   addRequest?: "agent" | "group" | null;
   /** Under the shell: the group picked in the rail. */
   groupId?: string | null;
-  /** Under the shell: their page, or the page slid in over it (WP-42). */
+  /** Under the shell: their page, or the page slid in over it (WP-43). */
   mindPage?: MindPage;
   onAddConsumed?: () => void;
   onMindPage?: (page: MindPage, options?: { replace?: boolean }) => void;

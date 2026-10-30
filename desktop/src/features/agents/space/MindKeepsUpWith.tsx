@@ -56,7 +56,7 @@ const OFF: SourceChoices = {
 };
 
 /**
- * Keeps up with (BETA14_RELEASE.md WP-42, Decided 12): today's companion
+ * Keeps up with (BETA14_RELEASE.md WP-43, Decided 12): today's companion
  * settings as two groups. Following: Codex and Claude Code work, each with
  * its status, a switch and Review access. Also available: a file, browser
  * activity and app activity. Then the profile folder for a custom install,

@@ -46,7 +46,7 @@ export type PlaceRailRow = {
   note?: string;
   /** The place's own first row, set apart (Luca, in Agents). */
   main?: boolean;
-  /** Something new since you last looked at this mind's page (WP-42,
+  /** Something new since you last looked at this mind's page (WP-43,
    *  Decided 8): the small ink dot before the state. */
   fresh?: boolean;
 };
@@ -80,7 +80,7 @@ function useAgentsRail(): PlaceRail {
   // Each mind's one state (WP-18, Decided 2): its live turn, its runtime
   // tasks, its live side conversations and its errors.
   const signals = useMindSignals();
-  // Who has something new since you last looked (WP-42, Decided 8).
+  // Who has something new since you last looked (WP-43, Decided 8).
   const fresh = useMindFreshness();
   const ready =
     agentsQuery.data !== undefined &&

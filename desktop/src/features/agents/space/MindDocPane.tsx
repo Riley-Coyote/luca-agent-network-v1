@@ -21,7 +21,7 @@ import type { ManagedAgent } from "@/shared/api/types";
 import { MindPageHead } from "./MindPageKit";
 
 /**
- * A document, as a page (BETA14_RELEASE.md WP-42, Decided 12): today's
+ * A document, as a page (BETA14_RELEASE.md WP-43, Decided 12): today's
  * editor at reading width, with Discard and Save. With unsaved changes the
  * page stays put, whatever tries to leave it (the back link, the title
  * bar's arrows, Esc, ⌘[, the rail), and says so.

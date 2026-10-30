@@ -69,7 +69,7 @@ export function AgentsScreen() {
   const section = sectionFromSearch(currentLocationSection, values.profileTab);
   const shellFrame = useShellFrameEnabled();
   // Under the shell a mind has their page and the pages that slide in over
-  // it, in the address's `page` (BETA14_RELEASE.md WP-42, Decided 3). Every
+  // it, in the address's `page` (BETA14_RELEASE.md WP-43, Decided 3). Every
   // old way in (`at`, the old `section` and `profileTab`) is read once onto
   // its new home, in place, so a reload keeps the page.
   const mindPage = React.useMemo(
