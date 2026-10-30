@@ -19,19 +19,26 @@ type AgentsRouteSearch = {
   /** Under the shell, the group picked in the rail. A connected app's card
    *  moved to Chats, under Apps (WP-34). */
   group?: string;
+  /**
+   * Under the shell: the page that slid in over a mind's own page
+   * (BETA14_RELEASE.md WP-42, Decided 3): Settings or one of its panes,
+   * Made, a piece, a page they write. None is their page.
+   */
+  page?: string;
   profile?: string;
   profilePersona?: string;
   profileTab?: ProfilePanelTab;
   profileView?: ProfilePanelView;
   review?: "native";
   /**
-   * Under the shell: the row of a mind's Settings a way in names, opened, in
-   * view and lit (WP-26, Decided 4): What they can read (`/brain`), their
-   * connected app and model (an agent showing its runtime), or their
-   * permissions (an agent asking for access).
+   * A way in that names one of a mind's Settings panes (WP-26, Decided 4):
+   * What they can read (`/brain`), their harness (an agent showing its
+   * runtime), or their permissions (an agent asking for access). Under the
+   * shell it is read once onto `page` (WP-42, Decided 3).
    */
   at?: MindSettingsAt;
-  /** A mind's tab. Under the shell: notebook, self or settings (WP-13). */
+  /** The classic page's section; under the shell an old way in, read once
+   *  onto `page` (WP-42, Decided 3). */
   section?: "place" | "documents" | "notebook" | "self" | "settings";
 };
 
@@ -55,6 +62,7 @@ function validateAgentsSearch(
       search.add === "agent" || search.add === "group" ? search.add : undefined,
     at: parseMindSettingsAt(search.at),
     group: nonEmptyString(search.group),
+    page: nonEmptyString(search.page),
     profile: nonEmptyString(search.profile),
     profilePersona: nonEmptyString(search.profilePersona),
     profileTab: parseProfilePanelTab(search.profileTab) ?? undefined,

@@ -78,6 +78,8 @@ export type MindEntry = {
   /** The notebook item this entry opens, when it is one. */
   notebookItemId?: string;
   made?: StreamArtifact;
+  /** The conversation it happened in, when it was one: its room opens. */
+  channelId?: string | null;
 };
 
 export type MindDay = { key: string; label: string; entries: MindEntry[] };
@@ -235,6 +237,7 @@ export function buildMindEntries(input: MindStreamInput): MindEntry[] {
       kind: forYouOrOwn(record.channelId, input.memberChannelIds),
       at,
       text: record.object ? `${record.verb}: ${record.object}` : record.verb,
+      channelId: record.channelId,
     });
   }
   for (const [key, group] of talk) {
@@ -247,6 +250,7 @@ export function buildMindEntries(input: MindStreamInput): MindEntry[] {
       kind: forYouOrOwn(group.channelId, input.memberChannelIds),
       at: group.at,
       text: `${where} · ${group.count} ${group.count === 1 ? "message" : "messages"}`,
+      channelId: group.channelId,
     });
   }
 

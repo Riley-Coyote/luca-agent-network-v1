@@ -1,9 +1,8 @@
 import * as React from "react";
-import { CircleAlert, Play } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
+import { CircleAlert, Play, RotateCcw, Settings } from "lucide-react";
 
 import "@/app/shell/shell-mind-space.css";
-import { PLACE_RAIL_HOOKS } from "@/app/shell/placeRails/usePlaceRails";
-import { ResidentDocumentsSection } from "@/features/agents/documents/ResidentDocumentsSection";
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
 import {
   mindStateLabel,
@@ -11,211 +10,243 @@ import {
 } from "@/features/agents/lib/useMindState";
 import { useRunningRuntimeTask } from "@/features/capabilities/useAllRuntimeTasks";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { useCommunities } from "@/features/communities/useCommunities";
 import {
   namesAsList,
   runtimeLabel,
 } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
-import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
-import { normalizePubkey } from "@/shared/lib/pubkey";
-import { AgentMark } from "@/shared/ui/AgentMark";
-import { AgentFingerprint } from "@/shared/ui/fingerprint/AgentFingerprint";
-import {
-  LogsSheet,
-  SettingsSection,
-} from "@/features/agents/ui/AgentLibraryWorkspace";
+import { ResidentNotebookDetailView } from "@/features/profile/ui/notebook/ResidentNotebookDetailView";
+import { LogsSheet } from "@/features/agents/ui/AgentLibraryWorkspace";
 import {
   residentSourceLabel,
   type ResidentSummaryViewModel,
 } from "@/features/agents/ui/agentLibraryViewModel";
-import { MindNotebook } from "./MindNotebook";
-import { usePermissionsValue, useWhatTheyCanRead } from "./MindSettings";
-import type { MindSection, MindSettingsAt } from "./mindSection";
+import { setCompanionWork } from "@/shared/api/companion";
+import {
+  getResidentNotebookItem,
+  type ResidentNotebookDetail,
+} from "@/shared/api/tauriNotebook";
+import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
+import { AgentFingerprint } from "@/shared/ui/fingerprint/AgentFingerprint";
+import {
+  awayOn,
+  followedWork,
+  hasAwareness,
+  isNoticing,
+  namesAnd,
+  useCompanionOperate,
+  useMindCompanion,
+} from "./mindCompanion";
+import {
+  MindMadePage,
+  MindMadeSection,
+  MindPiecePage,
+  pinnedFirst,
+} from "./MindMade";
+import {
+  MindAsks,
+  MindDaysSection,
+  MindNotebookSection,
+  useMadeBy,
+  useMindEntries,
+  useResidentNotebookStream,
+} from "./MindNotebook";
+import { MindPlaceProvider, useMindPlace } from "./mindPlaceContext";
+import {
+  mindBackLabel,
+  mindPageDepth,
+  mindPageParent,
+  mindPageWord,
+  type MindPage,
+} from "./mindSection";
+import { MindSettingsPage } from "./MindSettings";
+import { lastVisitOf, recordVisit } from "./mindVisits";
 
-/** The specimen's box, for the lab's 52 body (BETA14_RELEASE.md WP-40): it
- *  draws its body at 29 of 40 of its box. */
+/** The specimen's box, for the lab's 52 body (WP-40): it draws its body at
+ *  29 of 40 of its box. */
 const MARK_SIZE = 72;
 
-const MIND_TABS: { id: MindSection; label: string }[] = [
-  { id: "notebook", label: "Notebook" },
-  { id: "self", label: "Self" },
-  { id: "settings", label: "Settings" },
-];
-
-/**
- * A mind's own space (NAVIGATION.md, "A mind's own space"; SHELL_BUILD.md
- * WP-13): where you raise them. Their mark, their name, what they're doing
- * now and Talk; then Notebook (their days), Self (who they are) and Settings
- * (how they run). The same space for every mind: a part a mind has no data
- * for hides.
- */
-export function MindSpace({
-  actionErrorMessage,
-  actionNoticeMessage,
-  channels,
-  focusAt,
-  isActionPending,
-  managedAgent,
-  onEdit,
-  onMessage,
-  onOpenChannel,
-  onFocusAtConsumed,
-  onRestart,
-  onSectionChange,
-  onStart,
-  onStop,
-  onToggleStartOnLaunch,
-  persona,
-  resident,
-  section,
-}: {
+type Actions = {
   actionErrorMessage: string | null;
   actionNoticeMessage: string | null;
   channels: Array<{ id: string; name: string }>;
-  /** Open on What they can read (`/brain`'s landing). */
-  focusAt: MindSettingsAt | null;
   isActionPending: boolean;
   managedAgent: ManagedAgent | null;
   onEdit: () => void;
   onMessage: () => void;
   onOpenChannel: (channelId: string) => void;
-  onFocusAtConsumed: () => void;
   onRestart: () => void;
-  onSectionChange: (section: MindSection) => void;
   onStart: () => void;
   onStop: () => void;
   onToggleStartOnLaunch: (enabled: boolean) => void;
   persona: AgentPersona | null;
   resident: ResidentSummaryViewModel;
-  section: MindSection;
+};
+
+/**
+ * A mind's two places (BETA14_RELEASE.md WP-42): their page is theirs (what
+ * they write, make and do); Settings is yours (everything you decide).
+ * Everything else is a page that slides in over their page, in the same
+ * frame, with a back link naming where you came from; the address holds
+ * where you are, so the title bar's arrows, Esc, ⌘[ and ⌘] walk it.
+ */
+export function MindSpace({
+  onPage,
+  page,
+  ...props
+}: Actions & {
+  onPage: (page: MindPage, options?: { replace?: boolean }) => void;
+  page: MindPage;
 }) {
-  const [logsOpen, setLogsOpen] = React.useState(false);
-  const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  return (
+    <MindPlaceProvider
+      residentPubkey={
+        props.managedAgent?.backend.type === "local"
+          ? props.managedAgent.pubkey
+          : null
+      }
+    >
+      <MindFrame onPage={onPage} page={page} {...props} />
+    </MindPlaceProvider>
+  );
+}
+
+function MindFrame({
+  onPage,
+  page,
+  ...props
+}: Actions & {
+  onPage: (page: MindPage, options?: { replace?: boolean }) => void;
+  page: MindPage;
+}) {
+  const { managedAgent, resident } = props;
   const name = resident.displayName;
+  const router = useRouter();
+  const [logsOpen, setLogsOpen] = React.useState(false);
+  const word = mindPageWord(page) ?? "";
+  const pubkey = resident.pubkey;
+
+  // New since your last visit (Decided 8): the time you last looked is read
+  // once, as this visit begins; the visit itself is kept at once, so the
+  // rail's dot goes while this page's dots stay until the next visit.
+  const { activeCommunity } = useCommunities();
+  const scope = activeCommunity?.id ?? null;
+  const [since, setSince] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (!scope || !pubkey) return;
+    setSince(lastVisitOf(scope, pubkey));
+    recordVisit(scope, pubkey);
+  }, [pubkey, scope]);
+
+  // Which pages were pushed from their parent in this visit: the back link
+  // then walks the same history the title bar's arrows walk; a page reached
+  // straight from the address goes to its parent in place.
+  const pushed = React.useRef(new Map<string, string>());
+  const go = React.useCallback(
+    (next: MindPage) => {
+      const nextWord = mindPageWord(next) ?? "";
+      pushed.current.set(nextWord, word);
+      onPage(next);
+    },
+    [onPage, word],
+  );
+  const back = React.useCallback(() => {
+    const parent = mindPageParent(page);
+    if (!parent) return;
+    const parentWord = mindPageWord(parent) ?? "";
+    if (pushed.current.get(word) === parentWord) router.history.back();
+    else onPage(parent, { replace: true });
+  }, [onPage, page, router.history, word]);
+
+  // Esc goes back, as ⌘[ does (the app's own keys walk the history); never
+  // while a dialog, a menu or a sheet holds the key.
+  const backOnEscape = React.useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (mindPageDepth(page) === 0) return;
+    if (
+      document.querySelector(
+        '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]',
+      )
+    )
+      return;
+    event.preventDefault();
+    back();
+  });
+  React.useEffect(() => {
+    const listener = (event: KeyboardEvent) => backOnEscape(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+
+  // The push (Decided 2): deeper slides in from the right, shallower from
+  // the left; on arrival the page's title takes focus, and the scroll comes
+  // back to where it was on a page you return to.
+  const depth = mindPageDepth(page);
+  const lastDepth = React.useRef(depth);
+  const direction =
+    depth > lastDepth.current
+      ? "forward"
+      : depth < lastDepth.current
+        ? "back"
+        : "none";
+  const titleRef = React.useRef<HTMLHeadingElement | null>(null);
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
+  const scrolls = React.useRef(new Map<string, number>());
+  const arrived = React.useRef(false);
+  const lastWord = React.useRef(word);
+  React.useLayoutEffect(() => {
+    lastDepth.current = depth;
+    const scroller = scrollerRef.current;
+    if (lastWord.current !== word && scroller) {
+      scroller.scrollTop = scrolls.current.get(word) ?? 0;
+    }
+    lastWord.current = word;
+    if (arrived.current) titleRef.current?.focus({ preventScroll: true });
+    arrived.current = true;
+  }, [depth, word]);
 
   return (
-    <div className="luca-place-page luca-mind" data-testid="mind-space">
+    <div
+      className="luca-place-page luca-mind"
+      data-mind-page={page.kind}
+      data-testid="mind-space"
+      onScroll={(event) =>
+        scrolls.current.set(word, event.currentTarget.scrollTop)
+      }
+      ref={scrollerRef}
+    >
       <div className="luca-place-page-axis">
-        <MindHead
-          isActionPending={isActionPending}
-          managedAgent={managedAgent}
-          onMessage={onMessage}
-          onStart={onStart}
-          resident={resident}
-        />
-        <div
-          aria-label={`${name}'s space`}
-          className="luca-mind-tabs"
-          role="tablist"
-        >
-          {MIND_TABS.map((each, index) => (
-            <button
-              aria-controls={`mind-panel-${each.id}`}
-              aria-selected={section === each.id}
-              className="luca-mind-tab"
-              data-selected={section === each.id ? "true" : undefined}
-              data-testid={`mind-tab-${each.id}`}
-              id={`mind-tab-${each.id}`}
-              key={each.id}
-              onClick={() => onSectionChange(each.id)}
-              onKeyDown={(event) => {
-                const last = MIND_TABS.length - 1;
-                const next =
-                  event.key === "ArrowRight"
-                    ? index === last
-                      ? 0
-                      : index + 1
-                    : event.key === "ArrowLeft"
-                      ? index === 0
-                        ? last
-                        : index - 1
-                      : event.key === "Home"
-                        ? 0
-                        : event.key === "End"
-                          ? last
-                          : null;
-                if (next === null) return;
-                event.preventDefault();
-                const tab = MIND_TABS[next];
-                if (!tab) return;
-                onSectionChange(tab.id);
-                tabRefs.current[next]?.focus();
-              }}
-              ref={(element) => {
-                tabRefs.current[index] = element;
-              }}
-              role="tab"
-              tabIndex={section === each.id ? 0 : -1}
-              type="button"
-            >
-              {each.label}
-            </button>
-          ))}
-        </div>
-        <div className="luca-mind-columns">
-          <div
-            aria-labelledby={`mind-tab-${section}`}
-            className="luca-mind-body"
-            id={`mind-panel-${section}`}
-            role="tabpanel"
-          >
-            {actionErrorMessage ? (
-              <div className="luca-mind-alert" role="alert">
-                <CircleAlert aria-hidden />
-                <span>{actionErrorMessage}</span>
-              </div>
-            ) : actionNoticeMessage ? (
-              <p className="luca-mind-quiet" role="status">
-                {actionNoticeMessage}
-              </p>
-            ) : null}
-            {section === "notebook" ? (
-              <MindNotebook
-                key={resident.pubkey ?? resident.residentId}
-                managedAgent={managedAgent}
-                resident={resident}
-              />
-            ) : section === "self" ? (
-              managedAgent ? (
-                <ResidentDocumentsSection
-                  intro={`Who ${name} is. Most of this grows from talking.`}
-                  agent={managedAgent}
-                  onRestart={onRestart}
-                  residentName={name}
-                  variant="space"
-                />
-              ) : (
-                <p className="luca-mind-intro">
-                  {name} doesn't have a folder yet. Their documents — soul,
-                  convictions, self-model, user model, lessons, instructions —
-                  are laid down when the resident is set up
-                  {persona?.systemPrompt
-                    ? ", starting from this definition's instructions"
-                    : ""}
-                  .
-                </p>
-              )
-            ) : (
-              <SettingsSection
-                channels={channels}
-                focusAt={focusAt}
-                isActionPending={isActionPending}
-                layout="space"
-                managedAgent={managedAgent}
-                onEdit={onEdit}
-                onOpenChannel={onOpenChannel}
-                onOpenLogs={() => setLogsOpen(true)}
-                onFocusAtConsumed={onFocusAtConsumed}
-                onRestart={onRestart}
-                onStart={onStart}
-                onStop={onStop}
-                onToggleStartOnLaunch={onToggleStartOnLaunch}
-                persona={persona}
-                resident={resident}
-              />
-            )}
-          </div>
-          <MindAside managedAgent={managedAgent} resident={resident} />
+        <div className="luca-mind-push" data-dir={direction} key={word}>
+          {page.kind === "place" ? (
+            <MindPlace
+              {...props}
+              notebookOnPages={page.notebook === "pages"}
+              onGo={go}
+              since={since}
+              titleRef={titleRef}
+            />
+          ) : page.kind === "made" || page.kind === "piece" ? (
+            <MindMadePages
+              back={back}
+              backLabel={mindBackLabel(page, name) ?? name}
+              go={go}
+              page={page}
+              resident={resident}
+              since={since}
+              titleRef={titleRef}
+            />
+          ) : (
+            <MindSettingsPage
+              {...props}
+              backLabel={mindBackLabel(page, name) ?? name}
+              onBack={back}
+              onGo={go}
+              onOpenLogs={() => setLogsOpen(true)}
+              page={page}
+              titleRef={titleRef}
+            />
+          )}
         </div>
       </div>
       {managedAgent ? (
@@ -229,159 +260,454 @@ export function MindSpace({
   );
 }
 
-/**
- * Beside all three tabs (BETA14_RELEASE.md WP-33, Decided 8): how they run
- * at a glance, from what the app holds about them, and who they work with,
- * from the side conversations they share. A fact the app doesn't hold is
- * left out.
- */
-function MindAside({
-  managedAgent,
+/** Made and a piece read the same list as their page's tiles. */
+function MindMadePages({
+  back,
+  backLabel,
+  go,
+  page,
   resident,
+  since,
+  titleRef,
 }: {
-  managedAgent: ManagedAgent | null;
+  back: () => void;
+  backLabel: string;
+  go: (page: MindPage) => void;
+  page: Extract<MindPage, { kind: "made" | "piece" }>;
   resident: ResidentSummaryViewModel;
+  since: number | null;
+  titleRef: React.Ref<HTMLHeadingElement>;
 }) {
-  const reads = useWhatTheyCanRead(Boolean(resident.pubkey));
-  const permissions = usePermissionsValue(managedAgent?.pubkey ?? null);
-  const workspace = managedAgent?.nativeRuntimeBinding?.defaultWorkspace;
-  const facts = [
-    {
-      label: "Runs on",
-      value: [
-        residentSourceLabel(resident),
-        managedAgent || resident.modelLabel
-          ? (resident.modelLabel ?? "Default model")
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    },
-    {
-      label: "Wakes",
-      value: managedAgent
-        ? managedAgent.startOnAppLaunch
-          ? "With the app"
-          : "When started"
-        : "",
-    },
-    { label: "Works in", value: workspace ?? "" },
-    { label: "Reads", value: reads },
-    { label: "Permissions", value: managedAgent ? permissions : "" },
-  ].filter((fact) => fact.value.length > 0);
-
-  // Who they work with: every other mind in a side conversation they share,
-  // in the order the feed holds them (newest first), with the state the
-  // Agents rail gives each.
-  const side = useSideConversations();
-  const { sections } = PLACE_RAIL_HOOKS.agents();
-  const minds = React.useMemo(
-    () =>
-      new Map(
-        sections
-          .flatMap((each) => each.rows)
-          .filter((row) => row.id.startsWith("mind:"))
-          .map((row) => [row.id.slice(5), row]),
-      ),
-    [sections],
-  );
-  const key = resident.pubkey ? normalizePubkey(resident.pubkey) : null;
-  const withThem = React.useMemo(() => {
-    if (!key) return [];
-    const seen: string[] = [];
-    for (const item of side.items) {
-      if (item.kind !== "exchange") continue;
-      const people = [item.openedBy, ...item.members].map(normalizePubkey);
-      if (!people.includes(key)) continue;
-      for (const other of people)
-        if (other !== key && minds.has(other) && !seen.includes(other))
-          seen.push(other);
-    }
-    return seen;
-  }, [key, minds, side.items]);
-
-  if (facts.length === 0 && withThem.length === 0) return null;
+  const made = useMadeBy(resident.pubkey);
+  const place = useMindPlace()?.place ?? null;
+  if (page.kind === "made")
+    return (
+      <MindMadePage
+        name={resident.displayName}
+        onBack={back}
+        onOpenPiece={(artifactId) =>
+          go({ kind: "piece", artifactId, from: "made" })
+        }
+        pieces={made.pieces}
+        place={place}
+        since={since}
+        titleRef={titleRef}
+      />
+    );
+  const ordered = pinnedFirst(made.pieces, place);
+  const found = ordered.find(({ piece }) => piece.id === page.artifactId);
+  if (!found && !made.settled) return null;
   return (
-    <aside
-      aria-label="At a glance"
-      className="luca-mind-aside"
-      data-testid="mind-aside"
-    >
-      {facts.length > 0 ? (
-        <section aria-label="At a glance" className="luca-mind-aside-part">
-          <h2 className="type-eyebrow luca-mind-eyebrow">At a glance</h2>
-          <dl className="luca-mind-facts" data-testid="mind-at-a-glance">
-            {facts.map((fact) => (
-              <div
-                className="luca-mind-fact"
-                data-fact={fact.label}
-                key={fact.label}
-              >
-                <dt>{fact.label}</dt>
-                <dd title={fact.value}>{fact.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      ) : null}
-      {withThem.length > 0 ? (
-        <section aria-label="Works with" className="luca-mind-aside-part">
-          <h2 className="type-eyebrow luca-mind-eyebrow">
-            Works with
-            <span className="luca-mind-count">{withThem.length}</span>
-          </h2>
-          <ul className="luca-mind-facts" data-testid="mind-works-with">
-            {withThem.map((pubkey) => {
-              const row = minds.get(pubkey);
-              return (
-                <li className="luca-mind-fact luca-mind-with" key={pubkey}>
-                  <span aria-hidden className="luca-mind-with-face">
-                    <AgentMark />
-                  </span>
-                  <span className="luca-mind-with-name">
-                    {row?.title ?? side.nameOf(pubkey)}
-                  </span>
-                  {row?.note ? (
-                    <span className="luca-mind-date">{row.note}</span>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ) : null}
-    </aside>
+    <MindPiecePage
+      backLabel={backLabel}
+      name={resident.displayName}
+      onBack={back}
+      piece={found?.piece ?? null}
+      pinned={Boolean(found?.pinned)}
+      residentPubkey={resident.pubkey}
+      titleRef={titleRef}
+    />
   );
 }
 
-/** The head (Decided 1): their mark as the app draws a resident elsewhere,
- *  their name, one line of what they're doing now, and Talk. */
-function MindHead({
+/**
+ * Their page (Decided 4–9): one header, what they ask you or what's wrong,
+ * their words, then Made, Notebook and Days, built alike. A new mind with
+ * nothing yet gets one box in place of the three.
+ */
+function MindPlace({
+  notebookOnPages,
+  onGo,
+  since,
+  titleRef,
+  ...props
+}: Actions & {
+  notebookOnPages: boolean;
+  onGo: (page: MindPage) => void;
+  since: number | null;
+  titleRef: React.Ref<HTMLHeadingElement>;
+}) {
+  const { managedAgent, resident } = props;
+  const name = resident.displayName;
+  const pubkey = resident.pubkey;
+  const notebook = useResidentNotebookStream(managedAgent?.pubkey ?? null);
+  const made = useMadeBy(pubkey);
+  const days = useMindEntries({
+    made,
+    notebook,
+    pubkey,
+    readMemory: Boolean(managedAgent),
+  });
+  const placeState = useMindPlace();
+  const place = placeState?.place ?? null;
+  const [detail, setDetail] = React.useState<ResidentNotebookDetail | null>(
+    null,
+  );
+  const [openError, setOpenError] = React.useState<string | null>(null);
+
+  const openItem = async (itemId: string) => {
+    if (!managedAgent) return;
+    setOpenError(null);
+    try {
+      const next = await getResidentNotebookItem(managedAgent.pubkey, itemId);
+      if (next.item) setDetail(next);
+      else setOpenError("That notebook item is no longer available.");
+    } catch (cause) {
+      setOpenError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const intro = place?.content.introduction.trim() ?? "";
+  const exploring = place?.content.exploration.trim() ?? "";
+  const written = notebook.items.some((item) => item.status === "active");
+  const nothingYet =
+    days.settled &&
+    (!placeState || !placeState.loading) &&
+    !intro &&
+    !exploring &&
+    !place?.content.selectedWork &&
+    made.pieces.length === 0 &&
+    !written &&
+    days.entries.length === 0;
+
+  const header = <MindHeader {...props} onGo={onGo} titleRef={titleRef} />;
+
+  if (detail?.item && managedAgent)
+    return (
+      <>
+        {header}
+        <div className="luca-mind-detail">
+          <ResidentNotebookDetailView
+            detail={detail}
+            onBack={() => setDetail(null)}
+            onChanged={async (next) => {
+              setDetail(next.item ? next : null);
+              await notebook.refresh();
+            }}
+            residentPubkey={managedAgent.pubkey}
+            voice={{ residentName: name }}
+          />
+        </div>
+      </>
+    );
+
+  return (
+    <div data-testid="mind-place">
+      {header}
+      <MindUnder {...props} />
+      {props.actionErrorMessage ? (
+        <div className="luca-mind-alert" role="alert">
+          <CircleAlert aria-hidden />
+          <span>{props.actionErrorMessage}</span>
+        </div>
+      ) : props.actionNoticeMessage ? (
+        <p className="luca-mind-quiet" role="status">
+          {props.actionNoticeMessage}
+        </p>
+      ) : null}
+      {placeState ? (
+        <MindWords
+          editing={Boolean(place?.residentEditingEnabled)}
+          exploring={exploring}
+          intro={intro}
+          name={name}
+          onLetThem={() => void placeState.toggleEditing()}
+          onWrite={() => onGo({ kind: "pane", pane: "words" })}
+          ready={Boolean(place)}
+        />
+      ) : null}
+      {openError ? (
+        <p className="luca-mind-error" role="alert">
+          {openError}
+        </p>
+      ) : null}
+      {nothingYet ? (
+        <MindEmptyPlace
+          managedAgent={managedAgent}
+          name={name}
+          onMessage={props.onMessage}
+        />
+      ) : (
+        <div className="luca-mind-parts">
+          <MindMadeSection
+            name={name}
+            onOpenAll={() => onGo({ kind: "made" })}
+            onOpenPiece={(artifactId) =>
+              onGo({ kind: "piece", artifactId, from: "place" })
+            }
+            pieces={made.pieces}
+            place={place}
+            settled={made.settled}
+            since={since}
+          />
+          <MindNotebookSection
+            managedAgent={managedAgent}
+            name={name}
+            notebook={notebook}
+            onOpenItem={(itemId) => void openItem(itemId)}
+            onOpenReading={(doc) => onGo({ kind: "reading", doc })}
+            openOnPages={notebookOnPages}
+            since={since}
+          />
+          <MindDaysSection
+            days={days}
+            managedAgent={managedAgent}
+            name={name}
+            onOpenItem={(itemId) => void openItem(itemId)}
+            onOpenPiece={(artifactId) =>
+              onGo({ kind: "piece", artifactId, from: "place" })
+            }
+            since={since}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Their words (Decided 6): the introduction in ink, then what they're
+ *  exploring; with none, the line that says how one gets written. */
+function MindWords({
+  editing,
+  exploring,
+  intro,
+  name,
+  onLetThem,
+  onWrite,
+  ready,
+}: {
+  editing: boolean;
+  exploring: string;
+  intro: string;
+  name: string;
+  onLetThem: () => void;
+  onWrite: () => void;
+  ready: boolean;
+}) {
+  if (!ready) return null;
+  return (
+    <div className="luca-mind-words" data-testid="mind-words">
+      {intro ? (
+        <p
+          className="luca-mind-intro-text"
+          data-testid="resident-place-introduction"
+        >
+          {intro}
+        </p>
+      ) : (
+        <p className="luca-mind-help" data-testid="mind-no-intro">
+          {name} hasn't written an introduction yet.{" "}
+          <button className="luca-mind-inline" onClick={onWrite} type="button">
+            Write one
+          </button>
+          {editing ? (
+            "."
+          ) : (
+            <>
+              {" or "}
+              <button
+                className="luca-mind-inline"
+                data-testid="mind-let-them-write"
+                onClick={onLetThem}
+                type="button"
+              >
+                let {name} write it
+              </button>
+              .
+            </>
+          )}
+        </p>
+      )}
+      {exploring ? (
+        <p
+          className="luca-mind-exploring"
+          data-testid="resident-place-exploration"
+        >
+          <span className="type-eyebrow luca-mind-eyebrow">Exploring</span>
+          <span>{exploring}</span>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A new mind with nothing yet (Decided 9): one box in place of the three
+ *  sections, and two ways to begin. */
+function MindEmptyPlace({
+  managedAgent,
+  name,
+  onMessage,
+}: {
+  managedAgent: ManagedAgent | null;
+  name: string;
+  onMessage: () => void;
+}) {
+  const companion = useMindCompanion(managedAgent?.pubkey ?? null);
+  const { error, operate, pending } = useCompanionOperate(
+    managedAgent?.pubkey ?? null,
+  );
+  const [reviewing, setReviewing] = React.useState(false);
+  const loaded = companion.data;
+  const canAway = Boolean(loaded?.work.nativeChannelAvailable);
+  return (
+    <div
+      className="luca-mind-box luca-mind-empty-place"
+      data-testid="mind-empty-place"
+    >
+      <p className="luca-mind-empty-title">{name}'s place is empty for now</p>
+      <p className="luca-mind-help">
+        What {name} makes, writes and does will live here: things they make on
+        their own or for you, their journal, and their days.
+      </p>
+      {reviewing && loaded ? (
+        <div className="luca-mind-consent" data-testid="mind-away-review">
+          <p className="luca-mind-help">
+            Allow bounded local creations and private inquiries? Work may use
+            your existing harness allowance. There is no required output quota.
+          </p>
+          <div className="luca-mind-actions">
+            <button
+              className="luca-mind-button"
+              disabled={pending || !canAway}
+              onClick={() =>
+                void operate((resident, data) =>
+                  setCompanionWork(resident, data.work, true, false),
+                ).then(() => setReviewing(false))
+              }
+              type="button"
+            >
+              Allow background work
+            </button>
+            <button
+              className="luca-mind-inline"
+              onClick={() => setReviewing(false)}
+              type="button"
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="luca-mind-actions">
+          {managedAgent && loaded && !awayOn(loaded) ? (
+            <button
+              className="luca-mind-button"
+              data-testid="mind-give-time"
+              disabled={pending || !canAway}
+              onClick={() => setReviewing(true)}
+              title={
+                canAway ? undefined : `Start ${name} before giving them time.`
+              }
+              type="button"
+            >
+              Give {name} time of their own
+            </button>
+          ) : null}
+          <button
+            className="luca-mind-inline"
+            data-testid="mind-start-conversation"
+            disabled={!managedAgent}
+            onClick={onMessage}
+            type="button"
+          >
+            {managedAgent && loaded && !awayOn(loaded)
+              ? "or start a conversation"
+              : "Start a conversation"}
+          </button>
+        </div>
+      )}
+      {managedAgent && loaded && !canAway && !awayOn(loaded) ? (
+        <p className="luca-mind-meta">
+          Start {name} before giving them time of their own.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="luca-mind-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Under the header (Decided 5): their asks in one thin border, and when
+ *  something's wrong, one notice with Restart or Retry. */
+function MindUnder({ managedAgent, onRestart, onStart, resident }: Actions) {
+  const name = resident.displayName;
+  const isRunning =
+    managedAgent?.status === "running" || managedAgent?.status === "deployed";
+  const wrong = managedAgent?.lastError || managedAgent?.needsRestart;
+  const restartFirst =
+    managedAgent?.needsRestart &&
+    managedAgent.backend.type === "local" &&
+    isRunning;
+  return (
+    <>
+      {resident.pubkey ? (
+        <MindAsks name={name} residentPubkey={resident.pubkey} />
+      ) : null}
+      {wrong ? (
+        <div
+          className="luca-mind-box luca-mind-notice"
+          data-testid="mind-notice"
+          role="alert"
+        >
+          <CircleAlert aria-hidden />
+          <span className="luca-mind-notice-words">
+            {managedAgent?.lastError ??
+              `A change waits for ${name} to restart.`}
+          </span>
+          <button
+            className="luca-mind-button"
+            onClick={restartFirst ? onRestart : onStart}
+            type="button"
+          >
+            <RotateCcw aria-hidden />
+            {restartFirst ? "Restart" : "Retry"}
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** "12 min", "2 h": how long something has run. */
+function runningFor(startedAt: string, now: number = Date.now()): string {
+  const at = Date.parse(startedAt);
+  if (Number.isNaN(at)) return "";
+  const minutes = Math.max(1, Math.round((now - at) / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.round(minutes / 60)} h`;
+}
+
+/**
+ * The header (Decided 4): their fingerprint and name; one status line of
+ * what they're doing, with the breathing dot while they're live; a
+ * companion at rest adds what it keeps up with; the harness under it; Talk
+ * and Settings at the right.
+ */
+function MindHeader({
   isActionPending,
   managedAgent,
+  onGo,
   onMessage,
   onStart,
   resident,
-}: {
-  isActionPending: boolean;
-  managedAgent: ManagedAgent | null;
-  onMessage: () => void;
-  onStart: () => void;
-  resident: ResidentSummaryViewModel;
+  titleRef,
+}: Actions & {
+  onGo: (page: MindPage) => void;
+  titleRef: React.Ref<HTMLHeadingElement>;
 }) {
   const agentWorking = useAgentWorking(resident.pubkey);
   const channelsQuery = useChannelsQuery();
-  // A task they run with Claude Code or Codex is work too (WP-09b, Decided
-  // 2): the line says so, as Now's row does.
   const task = useRunningRuntimeTask(resident.pubkey);
-  // Their one state (WP-18, Decided 2), as the Agents rail, their profile
-  // card and Now say it; the line says what it is about.
   const state = useMindState(resident.pubkey, {
     availability: resident.availability,
     lastError: managedAgent?.lastError,
     waking: Boolean(managedAgent?.waking),
   });
   const side = useSideConversations();
+  const companion = useMindCompanion(managedAgent?.pubkey ?? null);
   const key = resident.pubkey?.toLowerCase() ?? null;
   const talk =
     state === "talking" && key
@@ -393,20 +719,34 @@ function MindHead({
         ) ?? null)
       : null;
   const now = React.useMemo(() => {
+    const members = new Set(
+      (channelsQuery.data ?? [])
+        .filter((channel) => channel.isMember)
+        .map((channel) => channel.id),
+    );
+    // Their own work is work in a room you aren't in: the one rule the
+    // stream tells their own from yours by (mindStream.forYouOrOwn).
+    const theirOwn = (conversationId: string | null | undefined) =>
+      Boolean(conversationId) && !members.has(conversationId as string);
     if (state === "working") {
       if (agentWorking.working && agentWorking.channels.length > 0) {
-        if (agentWorking.channels.length > 1)
-          return `Working in ${agentWorking.channels.length} conversations`;
-        const channelId = agentWorking.channels[0]?.channelId;
-        const channel = channelsQuery.data?.find(
-          (each) => each.id === channelId,
-        );
-        return channel
+        const ids = agentWorking.channels.map((each) => each.channelId);
+        const own = ids.every((id) => theirOwn(id));
+        if (ids.length > 1)
+          return `${own ? "On their own · " : ""}Working in ${ids.length} conversations`;
+        const channel = channelsQuery.data?.find((each) => each.id === ids[0]);
+        const where = channel
           ? `Working in ${channel.name}`
           : "Working in one conversation";
+        return own ? `On their own · ${where}` : where;
       }
-      if (task)
+      if (task) {
+        if (theirOwn(task.conversationId))
+          return ["On their own", task.summary, runningFor(task.startedAt)]
+            .filter(Boolean)
+            .join(" · ");
         return `Working with ${runtimeLabel(task.runtimeFamily)} · ${task.summary}`;
+      }
     }
     if (talk && talk.kind === "exchange" && key) {
       const others = [talk.openedBy, ...talk.members]
@@ -421,7 +761,15 @@ function MindHead({
     return mindStateLabel(state);
   }, [agentWorking, channelsQuery.data, key, side, state, talk, task]);
 
-  // What runs them, in a breath (the lab's head): their app and model.
+  // A companion at rest says what it keeps up with: a quiet way to
+  // Settings › Keeps up with.
+  const followed = followedWork(companion.data);
+  const keepingUp =
+    state === "resting" &&
+    hasAwareness(companion.data) &&
+    isNoticing(companion.data) &&
+    followed.length > 0;
+
   const runs = [
     residentSourceLabel(resident),
     managedAgent || resident.modelLabel
@@ -433,9 +781,6 @@ function MindHead({
 
   return (
     <header className="luca-mind-head" data-testid="mind-head">
-      {/* The specimen draws its body inside its box with room for its
-          light; sized so the body itself is the study's 40, on a 40
-          column (WP-13 review, item 5). */}
       <span aria-hidden={!resident.pubkey} className="luca-mind-mark">
         {resident.pubkey ? (
           <AgentFingerprint
@@ -445,26 +790,45 @@ function MindHead({
             working={state === "working"}
           />
         ) : (
-          // The roster's mark for one not yet set up.
           <span className="luca-mind-initial">
             {resident.displayName.slice(0, 1).toUpperCase()}
           </span>
         )}
       </span>
       <div className="luca-mind-who">
-        <h1 className="luca-mind-name">{resident.displayName}</h1>
+        <h1
+          className="luca-mind-name"
+          data-testid="mind-page-title"
+          ref={titleRef}
+          tabIndex={-1}
+        >
+          {resident.displayName}
+        </h1>
         <p
           className="luca-mind-now"
           data-live={
-            // Both are live, so both breathe (WP-21, 2), as Side
-            // conversations' live dot does.
             state === "working" || state === "talking" ? "true" : undefined
           }
           data-mind-state={state}
           data-testid="mind-now"
           data-working={state === "working" ? "true" : undefined}
         >
-          {now}
+          <span>{now}</span>
+          {keepingUp ? (
+            <>
+              <span aria-hidden className="luca-mind-sep">
+                ·
+              </span>
+              <button
+                className="luca-mind-quietlink"
+                data-testid="mind-keeping-up"
+                onClick={() => onGo({ kind: "pane", pane: "keeps" })}
+                type="button"
+              >
+                Keeping up with {namesAnd(followed)}
+              </button>
+            </>
+          ) : null}
         </p>
         {runs ? (
           <p className="luca-mind-runs" data-testid="mind-runs">
@@ -472,26 +836,37 @@ function MindHead({
           </p>
         ) : null}
       </div>
-      {managedAgent ? (
+      <div className="luca-mind-head-actions">
+        {managedAgent ? (
+          <button
+            className="luca-mind-talk"
+            data-testid="mind-talk"
+            disabled={isActionPending}
+            onClick={onMessage}
+            type="button"
+          >
+            Talk
+          </button>
+        ) : (
+          <button
+            className="luca-mind-talk"
+            disabled={isActionPending}
+            onClick={onStart}
+            type="button"
+          >
+            <Play aria-hidden /> Set up
+          </button>
+        )}
         <button
-          className="luca-mind-talk"
-          data-testid="mind-talk"
-          disabled={isActionPending}
-          onClick={onMessage}
+          className="luca-mind-button"
+          data-testid="mind-open-settings"
+          onClick={() => onGo({ kind: "settings" })}
           type="button"
         >
-          Talk
+          <Settings aria-hidden />
+          Settings
         </button>
-      ) : (
-        <button
-          className="luca-mind-talk"
-          disabled={isActionPending}
-          onClick={onStart}
-          type="button"
-        >
-          <Play aria-hidden /> Set up
-        </button>
-      )}
+      </div>
     </header>
   );
 }

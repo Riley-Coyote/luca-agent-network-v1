@@ -5,9 +5,10 @@ import { useRouter } from "@tanstack/react-router";
 
 import { useKeepPickInAddress } from "@/app/shell/placeRails/usePlaceRails";
 import {
-  mindSectionOf,
-  parseMindSettingsAt,
-  type MindSection,
+  mindPageOfLegacy,
+  mindPageWord,
+  parseMindPage,
+  type MindPage,
 } from "@/features/agents/space/mindSection";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
@@ -22,6 +23,7 @@ const AGENT_LIBRARY_SEARCH_KEYS = [
   "add",
   "at",
   "group",
+  "page",
   "profile",
   "profilePersona",
   "profileTab",
@@ -66,29 +68,39 @@ export function AgentsScreen() {
   );
   const section = sectionFromSearch(currentLocationSection, values.profileTab);
   const shellFrame = useShellFrameEnabled();
-  // Under the shell a mind's space has three tabs (WP-13, Decided 2), the
-  // tab in the address; today's values read onto them.
-  const mindSection = mindSectionOf(
-    currentLocationSection ??
-      (values.profileTab === "continuity" || values.profileTab === "memories"
-        ? "notebook"
-        : values.profileTab === "runtime"
-          ? "settings"
-          : null),
+  // Under the shell a mind has their page and the pages that slide in over
+  // it, in the address's `page` (BETA14_RELEASE.md WP-42, Decided 3). Every
+  // old way in (`at`, the old `section` and `profileTab`) is read once onto
+  // its new home, in place, so a reload keeps the page.
+  const mindPage = React.useMemo(
+    () => parseMindPage(values.page),
+    [values.page],
   );
-  const changeMindSection = React.useCallback(
-    (next: MindSection) => {
-      applyPatch({
+  const legacyPage = shellFrame
+    ? mindPageOfLegacy({
+        at: values.at,
+        profileTab: values.profileTab,
+        section: currentLocationSection,
+      })
+    : null;
+  const legacyWord = legacyPage ? (mindPageWord(legacyPage) ?? "") : null;
+  React.useEffect(() => {
+    if (legacyWord === null) return;
+    applyPatch(
+      {
         at: null,
+        page: legacyWord || null,
         profileTab: null,
         profileView: null,
-        section: next,
-      });
+        section: null,
+      },
+      { replace: true },
+    );
+  }, [applyPatch, legacyWord]);
+  const changeMindPage = React.useCallback(
+    (next: MindPage, options?: { replace?: boolean }) => {
+      applyPatch({ page: mindPageWord(next) }, options);
     },
-    [applyPatch],
-  );
-  const consumeFocusAt = React.useCallback(
-    () => applyPatch({ at: null }, { replace: true }),
     [applyPatch],
   );
 
@@ -98,6 +110,7 @@ export function AgentsScreen() {
         values.profile?.toLowerCase() === pubkey.toLowerCase();
       applyPatch({
         at: null,
+        page: null,
         profile: pubkey,
         profilePersona: null,
         profileTab: null,
@@ -161,11 +174,9 @@ export function AgentsScreen() {
               : null
           }
           groupId={shellFrame ? values.group : null}
-          focusAt={shellFrame ? (parseMindSettingsAt(values.at) ?? null) : null}
-          mindSection={mindSection}
+          mindPage={mindPage}
           onAddConsumed={consumeAdd}
-          onMindSectionChange={changeMindSection}
-          onFocusAtConsumed={consumeFocusAt}
+          onMindPage={changeMindPage}
           onClearSelection={clearSelection}
           onReviewNativeConsumed={() => applyPatch({ review: null })}
           onSectionChange={changeSection}

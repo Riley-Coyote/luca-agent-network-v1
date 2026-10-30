@@ -27,6 +27,7 @@ import {
 } from "@/features/agents/lib/useMindState";
 import { buildResidentLibrary } from "@/features/agents/ui/agentLibraryViewModel";
 import { useCommunities } from "@/features/communities/useCommunities";
+import { useMindFreshness } from "@/features/agents/space/useMindFreshness";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
@@ -45,6 +46,9 @@ export type PlaceRailRow = {
   note?: string;
   /** The place's own first row, set apart (Luca, in Agents). */
   main?: boolean;
+  /** Something new since you last looked at this mind's page (WP-42,
+   *  Decided 8): the small ink dot before the state. */
+  fresh?: boolean;
 };
 
 export type PlaceRailAdd = "add-agent" | "new-group" | "import";
@@ -76,6 +80,8 @@ function useAgentsRail(): PlaceRail {
   // Each mind's one state (WP-18, Decided 2): its live turn, its runtime
   // tasks, its live side conversations and its errors.
   const signals = useMindSignals();
+  // Who has something new since you last looked (WP-42, Decided 8).
+  const fresh = useMindFreshness();
   const ready =
     agentsQuery.data !== undefined &&
     personasQuery.data !== undefined &&
@@ -105,6 +111,7 @@ function useAgentsRail(): PlaceRail {
     const lucaResident = library.find((resident) => isLuca(resident.pubkey));
     const lucaRow: PlaceRailRow = lucaResident
       ? {
+          fresh: fresh.has(normalizePubkey(lucaResident.pubkey ?? "")),
           id: `mind:${normalizePubkey(lucaResident.pubkey ?? "")}`,
           main: true,
           note: stateOf(lucaResident),
@@ -114,6 +121,9 @@ function useAgentsRail(): PlaceRail {
     const others = library
       .filter((resident) => !isLuca(resident.pubkey))
       .map((resident) => ({
+        fresh: resident.pubkey
+          ? fresh.has(normalizePubkey(resident.pubkey))
+          : false,
         id: resident.pubkey
           ? `mind:${normalizePubkey(resident.pubkey)}`
           : `persona:${resident.personaId ?? resident.residentId}`,
@@ -141,7 +151,14 @@ function useAgentsRail(): PlaceRail {
       title: "Groups",
     });
     return sections;
-  }, [agentsQuery.data, luca, personasQuery.data, signals, teamsQuery.data]);
+  }, [
+    agentsQuery.data,
+    fresh,
+    luca,
+    personasQuery.data,
+    signals,
+    teamsQuery.data,
+  ]);
   return { ready, sections };
 }
 
