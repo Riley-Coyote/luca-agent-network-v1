@@ -861,6 +861,29 @@ function WordsPane({ name }: { name: string }) {
     state.changeContent(content);
   const selected = place.selectedWork;
   const conflict = state.conflict || place.revision !== draft.expectedRevision;
+  const written = place.author
+    ? [
+        place.author.kind === "resident"
+          ? `Written by ${name}`
+          : "Written by you",
+        place.updatedAt
+          ? new Intl.DateTimeFormat(undefined, {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            }).format(
+              new Date(
+                place.updatedAt < 10_000_000_000
+                  ? place.updatedAt * 1000
+                  : place.updatedAt,
+              ),
+            )
+          : null,
+        `revision ${place.revision}`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
   return (
     <form
       className="luca-mind-words-form"
@@ -870,6 +893,11 @@ function WordsPane({ name }: { name: string }) {
         void state.save();
       }}
     >
+      {written ? (
+        <p className="luca-mind-meta" data-testid="resident-place-author">
+          {written}
+        </p>
+      ) : null}
       <MindGroup title="Introduction">
         <textarea
           aria-label="Introduction"
@@ -1083,6 +1111,8 @@ function HarnessPane({ managedAgent, onEdit, resident }: SettingsProps) {
 
 /** Works in: the folder they start in and their documents folder. */
 function WorksPane({ managedAgent }: { managedAgent: ManagedAgent | null }) {
+  const documents = useResidentDocumentsQuery(managedAgent?.pubkey ?? null);
+  const native = documents.data?.source === "native" ? documents.data : null;
   return (
     <MindGroup title="Folders">
       <MindRow
@@ -1094,6 +1124,13 @@ function WorksPane({ managedAgent }: { managedAgent: ManagedAgent | null }) {
           </span>
         }
       />
+      {native ? (
+        <MindRow
+          help={`${native.nativeRuntime ?? "Their runtime"} keeps these files itself; edits go straight to them.`}
+          label="Their runtime's files"
+          value={<span className="luca-mind-mono">{native.dir}</span>}
+        />
+      ) : null}
       {managedAgent?.documentsDir ? (
         <MindRow
           label="Documents"

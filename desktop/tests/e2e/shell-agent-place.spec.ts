@@ -807,8 +807,6 @@ for (const light of [false, true]) {
         if (notebook) element.scrollTop = notebook.offsetTop - 40;
       });
       await shot(page, `02-their-page-lower-${tag}`);
-      if (size.w === 1440 && !light)
-        await shot(page, "01-their-page-full-1440-night", true);
     });
   }
 }
@@ -928,8 +926,10 @@ test("asking, and working on their own", async ({ page }) => {
   });
 });
 
-test("a made piece's page, and Made with its filters", async ({ page }) => {
-  for (const light of [false, true]) {
+for (const light of [false, true]) {
+  test(`a made piece's page, and Made with its filters, by ${light ? "day" : "night"}`, async ({
+    page,
+  }) => {
     await boot(page, { light });
     await openMind(page, LUCA);
     await page.getByTestId("mind-made-tile").first().click();
@@ -969,11 +969,13 @@ test("a made piece's page, and Made with its filters", async ({ page }) => {
     await grid.first().click();
     await expect(page.getByTestId("mind-back")).toHaveText("Made");
     measure(`made-${light ? "day" : "night"}`, { columns });
-  }
-});
+  });
+}
 
-test("a new agent's empty place", async ({ page }) => {
-  for (const light of [false, true]) {
+for (const light of [false, true]) {
+  test(`a new agent's empty place, by ${light ? "day" : "night"}`, async ({
+    page,
+  }) => {
     await boot(page, { light });
     await openMind(page, ATLAS);
     const empty = page.getByTestId("mind-empty-place");
@@ -985,8 +987,8 @@ test("a new agent's empty place", async ({ page }) => {
     await expect(page.locator(".luca-mind-part")).toHaveCount(0);
     await expect(page.getByTestId("mind-start-conversation")).toBeVisible();
     await shot(page, `12-new-agent-empty-1440-${light ? "day" : "night"}`);
-  }
-});
+  });
+}
 
 /** Settings' groups, panels and titles, measured. */
 function readSettings(page: Page) {
@@ -1025,8 +1027,10 @@ function readSettings(page: Page) {
   });
 }
 
-test("Settings in full, then its panes", async ({ page }) => {
-  for (const light of [false, true]) {
+for (const light of [false, true]) {
+  test(`Settings in full, then its panes, by ${light ? "day" : "night"}`, async ({
+    page,
+  }) => {
     const time = light ? "day" : "night";
     await boot(page, { light });
     await openMind(page, LUCA);
@@ -1062,8 +1066,18 @@ test("Settings in full, then its panes", async ({ page }) => {
     expect(read.text).not.toContain("Glyph");
     expect((read.text ?? "").match(/Warm, exact, and unhurried/g)).toBeNull();
     await shot(page, `07-settings-1440-${time}`);
-    await shot(page, `07-settings-full-1440-${time}`, true);
+    await page.getByTestId("mind-space").evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await shot(page, `07-settings-lower-1440-${time}`);
+    await page.getByTestId("mind-space").evaluate((element) => {
+      element.scrollTop = 0;
+    });
 
+    const settingsColours = await readColours(page);
+    measure(`settings-colours-${time}`, settingsColours);
+    expect(settingsColours.stray).toEqual([]);
+    expect(settingsColours.gradients).toEqual([]);
     await page.getByTestId("mind-row-keeps").click();
     await expect(page.getByTestId("mind-keeps-up-with")).toBeVisible();
     await expect(page.getByTestId("mind-back")).toHaveText("Settings");
@@ -1079,6 +1093,9 @@ test("Settings in full, then its panes", async ({ page }) => {
     await page.getByTestId("mind-row-permissions").click();
     await expect(page.getByTestId("mind-pane-permissions")).toBeVisible();
     await expect(page.getByTestId("mind-access")).toBeVisible();
+    const paneColours = await readColours(page);
+    measure(`permissions-colours-${time}`, paneColours);
+    expect(paneColours.gradients).toEqual([]);
     await shot(page, `09-permissions-1440-${time}`);
     await page.getByTestId("mind-back").click();
 
@@ -1112,12 +1129,14 @@ test("Settings in full, then its panes", async ({ page }) => {
     await page.getByTestId("resident-document-discard").click();
     await page.getByTestId("mind-back").click();
     await expect(page.getByTestId("agent-settings")).toBeVisible();
-  }
-});
+  });
+}
 
-test("at 800 × 500: Settings and a pane still read", async ({ page }) => {
-  await page.setViewportSize({ width: 800, height: 500 });
-  for (const light of [false, true]) {
+for (const light of [false, true]) {
+  test(`at 800 × 500: Settings and a pane still read, by ${light ? "day" : "night"}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 500 });
     await boot(page, { light, hash: `/agents?profile=${LUCA}&page=settings` });
     await expect(page.getByTestId("agent-settings")).toBeVisible({
       timeout: 20_000,
@@ -1130,8 +1149,8 @@ test("at 800 × 500: Settings and a pane still read", async ({ page }) => {
     await shot(page, `07-settings-800-${light ? "day" : "night"}`);
     await page.getByTestId("mind-row-keeps").click();
     await shot(page, `08-keeps-up-with-800-${light ? "day" : "night"}`);
-  }
-});
+  });
+}
 
 test("the rail's dot: new work since your last visit, gone after it", async ({
   page,
@@ -1170,6 +1189,10 @@ test("the rail's dot: new work since your last visit, gone after it", async ({
   await expect(dot).toBeVisible({ timeout: 20_000 });
   await shot(page, "16-rail-dot-before-visit-1440-night");
   const box = await dot.boundingBox();
+  const dotFill = await dot.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  expect(dotFill).not.toBe("rgba(0, 0, 0, 0)");
   await page
     .getByTestId(`place-row-mind:${LUCA}`)
     .locator(".luca-rail-row-hit")
@@ -1186,7 +1209,7 @@ test("the rail's dot: new work since your last visit, gone after it", async ({
   });
   await page.waitForTimeout(800);
   const after = await page.getByTestId("mind-new").count();
-  measure("new-marks", { marked, dot: box, afterNextVisit: after });
+  measure("new-marks", { marked, dot: box, dotFill, afterNextVisit: after });
   expect(marked).toBeGreaterThan(0);
   expect(after).toBe(0);
 });
@@ -1285,5 +1308,5 @@ test("Sphere or Glyph lives in the app's Settings, Appearance", async ({
 });
 
 test.afterAll(() => {
-  measure("console", { errors });
+  measure(`console-${test.info().parallelIndex}`, { errors });
 });

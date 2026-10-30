@@ -1073,8 +1073,31 @@ li.luca-mind-doc[data-quiet] :is(.luca-mind-doc-title, .luca-mind-excerpt) {
   outline: none;
 }
 
+/* One status line (Decided 4): it never wraps; a long one ends in an
+ * ellipsis, its whole text in its title. */
+.luca-mind-now {
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .luca-mind-now > span:first-child {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Beside a companion's link the state is one short word: it keeps it,
+ * and the link gives way. */
+.luca-mind-now > span:first-child:not(:only-child) {
+  flex: none;
+}
+
+.luca-mind-now > .luca-mind-quietlink {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .luca-mind-sep {
@@ -1107,6 +1130,15 @@ li.luca-mind-doc[data-quiet] :is(.luca-mind-doc-title, .luca-mind-excerpt) {
   text-underline-offset: 3px;
   transition: text-decoration-color 120ms;
   white-space: nowrap;
+}
+
+.luca-mind-actions .luca-mind-inline,
+.luca-mind-help .luca-mind-inline {
+  font-size: inherit;
+}
+
+.luca-mind-actions .luca-mind-inline {
+  font-size: 0.8125rem;
 }
 
 .luca-mind-inline:hover:not(:disabled) {
@@ -1286,7 +1318,7 @@ li.luca-mind-doc[data-quiet] :is(.luca-mind-doc-title, .luca-mind-excerpt) {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-@container (max-width: 560px) {
+@container (max-width: 440px) {
   .luca-mind-tiles,
   .luca-mind-tiles-three {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1807,6 +1839,11 @@ button.luca-mind-prow:hover {
   outline: none;
 }
 
+/* The platform's own clear button is a blue cross: not one of our inks. */
+.luca-mind-search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
 .luca-mind-config-file {
   margin: -14px 0 14px;
 }
@@ -1850,7 +1887,7 @@ button.luca-mind-prow:hover {
 }
 
 /* At a narrow window the header's buttons go under the name. */
-@container (max-width: 560px) {
+@container (max-width: 440px) {
   .luca-mind-head {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -1888,6 +1925,7 @@ button.luca-mind-prow:hover {
 
 /* The same dot on their Agents rail row, just before its state. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-new {
+  background: hsl(var(--mn-ink));
   margin: 0 0 0 auto;
   pointer-events: none;
   position: relative;

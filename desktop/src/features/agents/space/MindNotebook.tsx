@@ -825,7 +825,8 @@ function NotebookItems({
 
 type DaysFilter = "all" | "own" | "you";
 
-/** Who an entry was for: with you, or on their own (their journal is). */
+/** Who an entry was for: with you, or on their own (their journal and
+ *  what they keep are). */
 const withYou = (entry: MindEntry) => entry.kind === "you";
 
 /**
@@ -852,7 +853,9 @@ export function MindDaysSection({
   const [filter, setFilter] = React.useState<DaysFilter>("all");
   const [earlier, setEarlier] = React.useState(false);
   const { goChannel } = useAppNavigation();
-  const done = stream.entries.filter((entry) => entry.kind !== "memory");
+  // Their continuity notes live in Notebook › Notes, so they aren't said
+  // again here; what they keep in their own memory (the relay's) is.
+  const done = stream.entries.filter((entry) => !entry.id.startsWith("note:"));
   const shown = done.filter((entry) =>
     filter === "all"
       ? true
@@ -954,6 +957,15 @@ export function MindDaysSection({
   );
 }
 
+/** A day entry's words: what they made and wrote, said as what happened;
+ *  the rest is the record's own line. */
+function dayWords(entry: MindEntry): string {
+  if (entry.made) return `Made “${entry.made.title}”`;
+  if (entry.kind === "journal")
+    return `Wrote in their journal: “${entry.text}”`;
+  return entry.text;
+}
+
 function DayRow({
   entry,
   fresh,
@@ -973,7 +985,7 @@ function DayRow({
       <span className="luca-mind-entry-words">
         <span className="luca-mind-entry-title">
           {fresh ? <NewDot /> : null}
-          {entry.text}
+          {dayWords(entry)}
         </span>
         <span className="luca-mind-meta">{who}</span>
       </span>

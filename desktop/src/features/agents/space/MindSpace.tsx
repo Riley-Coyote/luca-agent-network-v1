@@ -813,7 +813,7 @@ function MindHeader({
           data-testid="mind-now"
           data-working={state === "working" ? "true" : undefined}
         >
-          <span>{now}</span>
+          <span title={now}>{now}</span>
           {keepingUp ? (
             <>
               <span aria-hidden className="luca-mind-sep">
@@ -822,6 +822,7 @@ function MindHeader({
               <button
                 className="luca-mind-quietlink"
                 data-testid="mind-keeping-up"
+                title={`Keeping up with ${namesAnd(followed)}`}
                 onClick={() => onGo({ kind: "pane", pane: "keeps" })}
                 type="button"
               >
