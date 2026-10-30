@@ -1398,17 +1398,21 @@ function MindPermissions({
           Set up {resident.displayName} before giving them machine access.
         </p>
       )}
-      <MindGroup
-        footnote={`MCP access never grants tool approval. Every protected action still uses ${appName}'s own permission flow. Private continuity jobs never receive MCP tools.`}
-        title="Tools"
-      >
+      <MindGroup title="Tools">
         <MindRow
+          capabilityState={canvas.state}
           help={canvas.detail ?? `${harness} and the Canvas`}
           label="Canvas tools"
           testId="agent-artifact-mcp-capability"
           value={canvas.value}
         />
         <MindRow
+          help={`MCP access never grants tool approval. Every protected action still uses ${appName}'s own permission flow.`}
+          label="Boundary"
+          value="Fail closed"
+        />
+        <MindRow
+          help="Private continuity jobs never receive MCP tools."
           label="Continuity"
           value={
             managedAgent

@@ -76,11 +76,14 @@ export function AgentsScreen() {
     () => parseMindPage(values.page),
     [values.page],
   );
+  // Read from one snapshot of the router's search, so a way in that names
+  // both an old section and its `at` is read as a whole (the window's own
+  // hash can run a render ahead of the router's).
   const legacyPage = shellFrame
     ? mindPageOfLegacy({
         at: values.at,
         profileTab: values.profileTab,
-        section: currentLocationSection,
+        section: values.section,
       })
     : null;
   const legacyWord = legacyPage ? (mindPageWord(legacyPage) ?? "") : null;

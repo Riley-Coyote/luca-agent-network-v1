@@ -92,6 +92,7 @@ export function MindGroup({
  * when it carries its control inline.
  */
 export function MindRow({
+  capabilityState,
   control,
   help,
   label,
@@ -99,6 +100,8 @@ export function MindRow({
   testId,
   value,
 }: {
+  /** A capability's state, as today's rows mark it (`data-capability-state`). */
+  capabilityState?: string;
   control?: React.ReactNode;
   help?: React.ReactNode;
   label: React.ReactNode;
@@ -136,7 +139,11 @@ export function MindRow({
       </button>
     );
   return (
-    <div className="luca-mind-prow" data-testid={testId}>
+    <div
+      className="luca-mind-prow"
+      data-capability-state={capabilityState}
+      data-testid={testId}
+    >
       {words}
       {end}
       {control ? (

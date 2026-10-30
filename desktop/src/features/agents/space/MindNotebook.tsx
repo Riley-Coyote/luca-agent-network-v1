@@ -74,6 +74,7 @@ import {
   entryTime,
   firstLine,
   groupMindDays,
+  MIND_KIND_LABEL,
   type MindEntry,
   namesInRoom,
   type StreamArtifact,
@@ -1025,8 +1026,12 @@ function DayRow({
     .join(" · ");
   const body = (
     <>
-      <span aria-hidden className="luca-mind-glyph">
-        <Glyph />
+      <span
+        aria-label={MIND_KIND_LABEL[entry.kind]}
+        className="luca-mind-glyph"
+        role="img"
+      >
+        <Glyph aria-hidden />
       </span>
       <span className="luca-mind-entry-words">
         <span className="luca-mind-entry-title">
