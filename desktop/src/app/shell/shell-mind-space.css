@@ -1209,6 +1209,14 @@ li.luca-mind-doc[data-quiet] :is(.luca-mind-doc-title, .luca-mind-excerpt) {
   padding: 0 10px 2px;
 }
 
+/* The ask rows keep Needs you's own plate type; the box is the border. */
+.luca-mind .luca-mind-asks > .luca-place-plate {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
 .luca-mind-notice {
   align-items: center;
   display: flex;

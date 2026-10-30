@@ -41,8 +41,24 @@ export function pinnedFirst(
     place?.selectedWork?.availability === "available"
       ? place.selectedWork.artifactId
       : null;
+  // The pinned piece is always theirs to show, even when the Library's
+  // list hasn't reached it yet: drawn from the place's own record of it.
+  const selected = place?.selectedWork;
   const pinned = pinnedId
-    ? pieces.find((piece) => piece.id === pinnedId)
+    ? (pieces.find((piece) => piece.id === pinnedId) ??
+      (selected
+        ? {
+            at: 0,
+            conversationId: selected.conversationId,
+            createdAt: "",
+            currentVersion: selected.version,
+            id: selected.artifactId,
+            kind: selected.kind,
+            own: true,
+            summary: null,
+            title: selected.title,
+          }
+        : undefined))
     : undefined;
   return [
     ...(pinned ? [{ piece: pinned, pinned: true }] : []),
@@ -63,9 +79,12 @@ function Tile({
   onOpen: () => void;
   piece: MadePiece;
 }) {
+  const lineId = React.useId();
   return (
     <li>
       <button
+        aria-describedby={lineId}
+        aria-label={`Open ${piece.title}`}
         className="luca-mind-tile"
         data-new={fresh ? "true" : undefined}
         data-testid="mind-made-tile"
@@ -83,7 +102,9 @@ function Tile({
           {fresh ? <NewDot /> : null}
           <span>{piece.title}</span>
         </span>
-        <span className="luca-mind-tile-line">{line}</span>
+        <span className="luca-mind-tile-line" id={lineId}>
+          {line}
+        </span>
       </button>
     </li>
   );
@@ -108,18 +129,19 @@ export function MindMadeSection({
   settled: boolean;
   since: number | null;
 }) {
-  const ordered = pinnedFirst(pieces, place).slice(0, 4);
+  const all = pinnedFirst(pieces, place);
+  const ordered = all.slice(0, 4);
   return (
     <MindSection
       control={
-        pieces.length > 0 ? (
+        all.length > 0 ? (
           <button
             className="luca-mind-link"
             data-testid="mind-made-all"
             onClick={onOpenAll}
             type="button"
           >
-            See all {pieces.length} <ChevronRight aria-hidden />
+            See all {all.length} <ChevronRight aria-hidden />
           </button>
         ) : null
       }

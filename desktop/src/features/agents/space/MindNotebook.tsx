@@ -407,7 +407,11 @@ export function MindAsks({
           <span className="luca-mind-count">{keys.length}</span>
         ) : null}
       </p>
-      <ul className="luca-ask-list" onFocus={onFocus} ref={listRef}>
+      <ul
+        className="luca-ask-list luca-place-plate"
+        onFocus={onFocus}
+        ref={listRef}
+      >
         {permissions.map((pending) => (
           <PermissionAsk
             common={common(
