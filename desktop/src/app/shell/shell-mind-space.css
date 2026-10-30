@@ -1063,6 +1063,9 @@ li.luca-mind-doc[data-quiet] :is(.luca-mind-doc-title, .luca-mind-excerpt) {
   align-content: start;
   display: grid;
   gap: 10px;
+  /* A runtime's long config value must truncate inside this column, not
+   * expand the implicit grid track across the adjacent At a glance panel. */
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
 }
 

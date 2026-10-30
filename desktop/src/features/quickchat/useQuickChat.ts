@@ -400,8 +400,17 @@ export function useQuickChat({
         owner,
         selectedPubkey,
         relaySelfPubkey,
+        primaryPubkey,
       ),
-    [history.data, streams, channel, owner, selectedPubkey, relaySelfPubkey],
+    [
+      history.data,
+      streams,
+      channel,
+      owner,
+      selectedPubkey,
+      relaySelfPubkey,
+      primaryPubkey,
+    ],
   );
   const send = async () => {
     if (

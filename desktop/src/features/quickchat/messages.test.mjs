@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { projectQuickChatMessages } from "./messages.ts";
+import { FIRST_MEETING_MARKER } from "../luca/canonicalLucaResident.ts";
 const relaySecret = new Uint8Array(32).fill(1);
 const relay = getPublicKey(relaySecret);
 const owner = "a".repeat(64),
@@ -99,5 +100,66 @@ test("Stop controls stay out of history without hiding resident text", () => {
   assert.deepEqual(
     rows.map((row) => row.role),
     ["assistant"],
+  );
+});
+
+test("canonical first meeting hides its trigger and choice metadata, not ordinary code", () => {
+  const prose = "What would you like to work on?";
+  const content = `${prose}\n\`\`\`polyphonic-choices\n{"options":["Think together","Build something"]}\n\`\`\``;
+  const trigger = {
+    ...latest,
+    id: "meet",
+    created_at: 10,
+    pending: false,
+    content: "Meet Luca",
+    tags: [["client", FIRST_MEETING_MARKER]],
+  };
+  const reply = {
+    ...latest,
+    id: "greeting",
+    created_at: 20,
+    pending: false,
+    pubkey: resident,
+    content,
+  };
+  const events = [trigger, reply];
+  const projected = projectQuickChatMessages(
+    events,
+    [],
+    null,
+    owner,
+    resident,
+    relay,
+    resident,
+  );
+  assert.deepEqual(
+    projected.map((row) => row.text),
+    [prose],
+  );
+  const ordinary = projectQuickChatMessages(
+    events,
+    [],
+    null,
+    owner,
+    resident,
+    relay,
+    "c".repeat(64),
+  );
+  assert.deepEqual(
+    ordinary.map((row) => row.text),
+    ["Meet Luca", content],
+  );
+  const streaming = projectQuickChatMessages(
+    [trigger],
+    [{ ...stream, publicText: `${prose}\n\`\`\`polyphonic-choices\n{` }],
+    null,
+    owner,
+    resident,
+    relay,
+    resident,
+  );
+  assert.deepEqual(
+    streaming.map((row) => row.text),
+    [prose],
   );
 });

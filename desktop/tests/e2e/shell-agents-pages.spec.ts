@@ -207,7 +207,7 @@ function seedData() {
   };
 }
 
-type Seed = ReturnType<typeof seedData>;
+type Seed = ReturnType<typeof seedData> & { systemPrompt?: string };
 
 /** The mock's invoke, with Luca's place, notebook, handoff, piece and ask
  *  layered over it; every other mind's are empty. */
@@ -282,6 +282,36 @@ async function seedInvoke(page: Page, seed: Seed) {
               };
           }
           if (!real) throw new Error(`mock invoke not ready: ${command}`);
+          if (command === "get_agent_config_surface" && seed.systemPrompt) {
+            const surface = (await real(command, payload, options)) as Record<
+              string,
+              unknown
+            >;
+            return {
+              ...surface,
+              advanced: [
+                {
+                  key: "working_directory",
+                  label: "Working directory",
+                  value: `/Users/example/Documents/Projects/${"project".repeat(32)}`,
+                  origin: "envVar",
+                  schemaType: { type: "string" },
+                  writeVia: { type: "readOnly" },
+                },
+              ],
+            };
+          }
+          if (command === "list_managed_agents" && seed.systemPrompt) {
+            const agents = (await real(command, payload, options)) as Record<
+              string,
+              unknown
+            >[];
+            return agents.map((agent) =>
+              agent.pubkey === seed.luca
+                ? { ...agent, system_prompt: seed.systemPrompt }
+                : agent,
+            );
+          }
           return real(command, payload, options);
         },
     });
@@ -305,7 +335,14 @@ async function boot(
     light = false,
     origin = "",
     shell = true,
-  }: { hash?: string; light?: boolean; origin?: string; shell?: boolean } = {},
+    systemPrompt,
+  }: {
+    hash?: string;
+    light?: boolean;
+    origin?: string;
+    shell?: boolean;
+    systemPrompt?: string;
+  } = {},
 ) {
   page.on("pageerror", (error) => errors.push(`pageerror ${error.message}`));
   page.on("console", (message) => {
@@ -325,7 +362,7 @@ async function boot(
     },
     { key: FEATURE_OVERRIDES_STORAGE_KEY, light, shell },
   );
-  await seedInvoke(page, seedData());
+  await seedInvoke(page, { ...seedData(), systemPrompt });
   await installMockBridge(page, {
     managedAgents: [
       {
@@ -774,6 +811,62 @@ test("Self and Settings: rows that open, every section open", async ({
   await page.mouse.wheel(0, 900);
   hashes["settings-lower"] = await shot(page, "settings-lower-1440");
   measure("self-settings", { docs, hashes, sections, selfType, settingsType });
+});
+
+test("long agent instructions stay inside Settings beside At a glance", async ({
+  page,
+}) => {
+  const instructions = [
+    "Help the owner follow their projects, ask before changing permissions, and keep their work private.",
+    `/Users/example/Documents/Projects/${"project".repeat(32)}/notes.md`,
+    "Use the selected runtime and report blockers clearly. ".repeat(30),
+  ].join("\n\n");
+  await boot(page, { systemPrompt: instructions });
+  await openMind(page, LUCA, "settings");
+  await expect(page.getByTestId("mind-setting-instructions")).toContainText(
+    instructions,
+  );
+
+  for (const width of [1440, 1280, 1000, 800]) {
+    await page.setViewportSize({ width, height: 900 });
+    await waitForAnimations(page);
+    const bounds = await page
+      .getByTestId("mind-setting-runtime")
+      .evaluate((row) => {
+        const body = row.querySelector<HTMLElement>(".luca-mind-setting-body");
+        if (!body) throw new Error("Settings body missing");
+        const rect = body.getBoundingClientRect();
+        const instructions = body.querySelector<HTMLElement>(
+          '[data-testid="mind-setting-instructions"]',
+        );
+        if (!instructions) throw new Error("Instructions missing");
+        return {
+          bodyWidth: rect.width,
+          bodyOverflow: body.scrollWidth - body.clientWidth,
+          instructionsOverflow:
+            instructions.scrollWidth - instructions.clientWidth,
+          outside: Array.from(body.children)
+            .filter(
+              (child) => child.getBoundingClientRect().right > rect.right + 1,
+            )
+            .map((child) => child.getAttribute("data-testid") ?? child.tagName),
+        };
+      });
+    measure(`settings-long-${width}`, bounds);
+    await shot(page, `settings-long-${width}`);
+    expect(bounds.bodyWidth).toBeGreaterThan(150);
+    expect(bounds.outside, `${width}px: children stay in their column`).toEqual(
+      [],
+    );
+    expect(
+      bounds.bodyOverflow,
+      `${width}px: no horizontal overflow`,
+    ).toBeLessThanOrEqual(1);
+    expect(
+      bounds.instructionsOverflow,
+      `${width}px: long paths wrap`,
+    ).toBeLessThanOrEqual(1);
+  }
 });
 
 test("an agent with little in it: each empty part says what it will hold", async ({

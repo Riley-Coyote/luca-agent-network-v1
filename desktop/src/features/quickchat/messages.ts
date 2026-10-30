@@ -1,4 +1,8 @@
 import { formatTimelineMessages } from "@/features/messages/lib/formatTimelineMessages";
+import {
+  firstMeetingPresentation,
+  visibleFirstMeetingProse,
+} from "@/features/luca/firstMeetingChoices";
 import type { ManagedPresentationRow } from "@/features/messages/managedPresentationTypes";
 import type { Channel, RelayEvent } from "@/shared/api/types";
 import {
@@ -15,10 +19,11 @@ export function projectQuickChatMessages(
   owner: string,
   resident: string | null,
   relaySelfPubkey?: string | null,
+  canonicalLucaPubkey?: string | null,
 ): QuickChatMessage[] {
   const normalizedOwner = owner.toLowerCase();
   const normalizedResident = resident?.toLowerCase();
-  const rows = formatTimelineMessages(
+  const timeline = formatTimelineMessages(
     events,
     channel,
     owner,
@@ -28,13 +33,20 @@ export function projectQuickChatMessages(
     undefined,
     undefined,
     relaySelfPubkey,
-  )
+  );
+  const firstMeeting =
+    normalizedResident &&
+    normalizedResident === canonicalLucaPubkey?.toLowerCase()
+      ? firstMeetingPresentation(timeline, owner, normalizedResident)
+      : null;
+  const rows = timeline
     .filter(
       (row) =>
         (row.kind === KIND_STREAM_MESSAGE ||
           row.kind === KIND_STREAM_MESSAGE_V2) &&
         (row.pubkey === normalizedOwner || row.pubkey === normalizedResident) &&
-        !(row.pubkey === normalizedOwner && row.body.trim() === "!cancel"),
+        !(row.pubkey === normalizedOwner && row.body.trim() === "!cancel") &&
+        row.id !== firstMeeting?.triggerId,
     )
     .map((row) => ({
       id: row.id,
@@ -42,7 +54,9 @@ export function projectQuickChatMessages(
         row.pubkey === normalizedOwner
           ? ("owner" as const)
           : ("assistant" as const),
-      text: row.body,
+      text: firstMeeting?.responseIds.has(row.id)
+        ? visibleFirstMeetingProse(row.body, Boolean(row.pending))
+        : row.body,
       pending: row.pending,
       at: row.createdAt * 1000,
     }));
@@ -57,7 +71,9 @@ export function projectQuickChatMessages(
     rows.push({
       id: `${stream.dispatchReceiptId}:${stream.sessionEpoch}`,
       role: "assistant",
-      text: stream.publicText,
+      text: firstMeeting?.triggerId
+        ? visibleFirstMeetingProse(stream.publicText, true)
+        : stream.publicText,
       pending: stream.phase !== "failed" && stream.phase !== "cancelled",
       at: stream.anchorAt,
     });

@@ -61,9 +61,16 @@ test("a dedicated conversation sends without navigating the main pane", async ({
 test("Quick Chat remains keyboard-interactive inside a modal focus scope", async ({
   page,
 }) => {
-  await page.getByTestId("open-new-conversation").click();
-  // The shared create-agent dialog is a real Radix modal in the mock app.
-  await page.getByRole("button", { name: "New agent", exact: true }).click();
+  // Both layouts lead to the same modal focus boundary. The shipped shell
+  // opens it from Agents, rather than the retired New conversation rail row.
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  if (await page.getByTestId("open-new-conversation").isVisible()) {
+    await page.getByTestId("open-new-conversation").click();
+    await page.getByRole("button", { name: "New agent", exact: true }).click();
+  } else {
+    await page.getByTestId("open-agents-view").click();
+    await page.getByTestId("place-add-add-agent").click();
+  }
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByTestId("quickchat-launcher").click();
   const input = page.getByTestId("quickchat-input");
