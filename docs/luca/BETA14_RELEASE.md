@@ -795,3 +795,29 @@ part of this. Today beside proposed, as Riley saw them: `design-lab/agents-pages
 Every `AgentMark` call site that knows which agent it shows becomes `<AgentFingerprint residentKey …>`. That includes
 the rail's Luca and agent rows (`rail`, with `working` from the agent's state) and the agent's page head (`large`,
 64 px). Sites that mean "agents" in general keep `AgentMark`. A small package, briefed when both have landed.
+
+## WP-42 · Each agent grows its own dendrite (2026-10-30, Riley's call)
+
+Riley, seeing the fingerprints in the app: "i hate them … i want something that feels more like it lives in the
+family with the sandpile, the dendrite, our voice mode visualizers". After three rounds of live studies
+(shell-lab-rail, `design-lab/agent-marks/family`), his pick: "i actually like the original grown best. i think it just
+need to be higher resolution. it looks kinda fuzzy right now".
+
+**Decided.**
+1. Each agent's mark is its own dendrite: particles that wander in and stick (diffusion-limited aggregation), grown
+   once from the same seed the fingerprint used (FNV-1a of `residentGlyphSeed`, Luca's fixed) and kept. The app grows
+   the lab's trees number for number (`tree.test.mjs`).
+2. Drawn on whole-pixel dots in the dot engine's own ramp: a violet trunk, hot tips. Light runs from the seed to the
+   tips on an uneven clock, often while the agent works, and loose grains drift round it without sticking, so the
+   tree never changes. Exactly still under Reduce Motion.
+3. Sharpened from the study, his "higher resolution": each screen draws at its own resolution (to 3x); 18 in a row,
+   72 at a page's head with a finer lattice there; the glow stays on the lattice, never a blur.
+4. By day the mark sits in a small black well (shell-rail.css); at a page's head the 72 box is centred on the 52
+   column so the well clears the name (shell-mind-space.css).
+5. The fingerprint is gone: `shared/ui/fingerprint/`, its kinds provider, its lab and `shell-fingerprint.spec.ts`.
+   The props stay as they were (`residentKey`, `size`, `working`), so WP-41's wiring is unchanged.
+
+**Proof.** `shared/ui/dendrite/tree.test.mjs` (6); `shell-mind-space.spec.ts` "each agent wears its own living
+dendrite" and "under Reduce Motion each dendrite holds still"; the head and rail face checks in
+`shell-mind-space.spec.ts` and `shell-rail-wp34.spec.ts`. Serve the e2e build with a threaded server: the config's
+single-threaded one drops connections under load (`ERR_CONNECTION_RESET`) and the app never boots.

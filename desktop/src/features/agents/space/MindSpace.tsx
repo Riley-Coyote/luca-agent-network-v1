@@ -19,7 +19,7 @@ import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { AgentMark } from "@/shared/ui/AgentMark";
-import { AgentFingerprint } from "@/shared/ui/fingerprint/AgentFingerprint";
+import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
 import {
   LogsSheet,
   SettingsSection,
@@ -438,10 +438,9 @@ function MindHead({
           column (WP-13 review, item 5). */}
       <span aria-hidden={!resident.pubkey} className="luca-mind-mark">
         {resident.pubkey ? (
-          <AgentFingerprint
+          <AgentDendrite
             residentKey={resident.pubkey}
             size={MARK_SIZE}
-            variant="large"
             working={state === "working"}
           />
         ) : (

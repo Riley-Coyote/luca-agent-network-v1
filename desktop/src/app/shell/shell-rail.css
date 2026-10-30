@@ -595,3 +595,10 @@
     transition: none;
   }
 }
+
+/* An agent's mark is light, and light needs the dark: by day it sits in a
+ * small black well, in a row and at a page's head alike (WP-42). */
+:root:not(.dark) .luca-agent-dendrite {
+  background: #050506;
+  border-radius: 999px;
+}
