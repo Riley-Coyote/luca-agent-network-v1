@@ -257,3 +257,22 @@ already integrated; Mnemos and new designs stay out. Nothing is pushed or publis
   and matching bundle before rebuilding. Production static artifact must never
   be launched on Riley's account; final walkthrough is the isolated Rail Glass
   candidate. No notarization, updater signing, tag, push or publication.
+
+### Native acceptance follow-up
+
+- Frozen frontend/test checkpoint: `ecd399adc`. Fresh desktop library tests
+  passed **2,926/2,926**, with 18 environment-specific ignored tests.
+- The shared cache initially reused an older build-script executable referring
+  to the removed `PolyphonicComposer.swift`. Current source has no such input.
+  Refreshing tracked Rust input timestamps (no content changes, no cache
+  deletion) rebuilt the correct script and the native library successfully.
+- Relay tests must use `BUZZ_TEST_BACKEND=sqlite` for desktop acceptance. The
+  first command accidentally used the PostgreSQL default and was stopped after
+  repeated connection failures. The SQLite run passed 776, failed 4, ignored 10.
+- Those four HTTP rejection-attribution fixtures unnecessarily used Redis
+  admission and returned 503 before reaching the code under test. Their shared
+  fixture now uses the same permissive admission backend as desktop startup.
+  Production admission/replay behavior and the separate fail-closed tests are
+  unchanged. The corrected relay suite must pass before packaging.
+- Riley freed another 13 GiB; approximately 35 GiB is now available. The
+  20 GiB guard and single-cache rules still apply.

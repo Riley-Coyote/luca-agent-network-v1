@@ -3598,11 +3598,10 @@ mod tests {
     // discriminating: removing either bridge call site causes the corresponding
     // test to fail.
     //
-    // Why `#[ignore = "requires Postgres"]`: submit_event calls bind_community
-    // (needs a real communities row) and enforce_http_admission (needs Redis).
-    // Both services run locally in dev.  The admission check succeeds for a
-    // freshly generated pubkey (first request, far below quota), so no Redis
-    // seeding is required beyond the default local instance.
+    // The shared harness provisions a real community on the selected database.
+    // Admission uses the desktop's in-process permissive backend here: these
+    // tests measure HTTP rejection attribution, not Redis availability. Rate
+    // limits and fail-closed admission have their own tests in admission.rs.
     //
     // Why `#[test]` + manual runtime instead of `#[tokio::test]`:
     // metrics::with_local_recorder stores the recorder in a thread-local.  An
@@ -3637,7 +3636,11 @@ mod tests {
                 config.require_auth_token = false;
                 config.require_relay_membership = false;
             },
-            |state| state.nip98_replay = Arc::new(AlwaysFreshReplayGuard),
+            |state| {
+                state.nip98_replay = Arc::new(AlwaysFreshReplayGuard);
+                state.admission_rate_limiter =
+                    Arc::new(buzz_pubsub::AdmissionRateLimiter::permissive());
+            },
         )
         .await
     }
@@ -3813,8 +3816,8 @@ mod tests {
     // appears per authed request, pinning the W1 single-terminal-log invariant
     // and the E1 no-double-log rule.
     //
-    // Infrastructure: same `#[ignore = "requires Postgres"]` + current_thread
-    // runtime discipline as the HTTP-counter tests above.
+    // Infrastructure: the same isolated admission and current_thread runtime
+    // discipline as the HTTP-counter tests above.
     // ──────────────────────────────────────────────────────────────────────────
 
     /// Shared buffer that collects all bytes written by the tracing fmt layer.
