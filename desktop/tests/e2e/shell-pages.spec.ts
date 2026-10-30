@@ -804,7 +804,7 @@ function hashOf(page: Page) {
   return page.evaluate(() => decodeURIComponent(window.location.hash));
 }
 
-async function openLuca(page: Page, tab?: string) {
+async function openLuca(page: Page) {
   await expect(page.getByTestId("place-rail-agents")).toBeVisible({
     timeout: 20_000,
   });
@@ -820,10 +820,9 @@ async function openLuca(page: Page, tab?: string) {
   await expect(page.getByTestId("mind-space")).toBeVisible({
     timeout: 20_000,
   });
-  if (tab) await page.getByTestId(`mind-tab-${tab}`).click();
-  // The stream is the Notebook's Their days now (BETA14_RELEASE.md WP-40,
-  // Decided 3).
-  else await page.getByTestId("mind-view-days").click();
+  // Their days are their page's Days section (BETA14_RELEASE.md WP-43,
+  // Decided 7): always there, no tab to open.
+  await expect(page.getByTestId("mind-days")).toBeVisible({ timeout: 20_000 });
 }
 
 const hashes: Record<string, string> = {};
@@ -911,7 +910,12 @@ for (const mode of ["dark", "light"] as const) {
     });
   });
 
-  test(`Luca's Notebook (${mode}, 1440 x 900): threads, glyphs, At a glance`, async ({
+  // WP-43 retired At a glance and its Works with list (Riley's call: a Days
+  // talk entry names the other minds in its room, shell-agent-place.spec.ts
+  // "a Days talk entry names the other minds in its room"); the page is one
+  // axis, its sections built alike ("their page: one header, one status,
+  // three sections built alike"). The glyphs keep their names here.
+  test(`Luca's page (${mode}, 1440 x 900): glyphs and sections`, async ({
     page,
   }) => {
     await boot(page, { mode });
@@ -920,15 +924,9 @@ for (const mode of ["dark", "light"] as const) {
     await expect(page.getByTestId("mind-entry").first()).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByTestId("mind-works-with")).toBeVisible({
-      timeout: 20_000,
-    });
     await page.waitForTimeout(800);
     const name = `notebook-${mode}-1440`;
     hashes[name] = await shot(page, name);
-    // WP-40 retired the space's threads and plates for the lab's
-    // structure: hairlines between rows, labels, one thin border for what
-    // belongs together (shell-agents-pages.spec.ts measures it).
     const layout = await page.evaluate(() => {
       const box = (selector: string) => {
         const element = document.querySelector(selector);
@@ -951,54 +949,37 @@ for (const mode of ["dark", "light"] as const) {
         lucide: face.querySelector("svg")?.getAttribute("class"),
       }));
       const filters = [
-        ...document.querySelectorAll<HTMLElement>(".luca-mind-filter"),
-      ].map((filter) => ({
-        glyph: filter.querySelector("svg")?.getAttribute("class") ?? null,
-        text: filter.textContent,
-      }));
-      const facts = [
-        ...document.querySelectorAll<HTMLElement>(".luca-mind-fact"),
-      ].map((fact) => [
-        fact.querySelector("dt")?.textContent,
-        fact.querySelector("dd")?.textContent,
-      ]);
-      const worksWith = [
         ...document.querySelectorAll<HTMLElement>(
-          "[data-testid='mind-works-with'] .luca-mind-with",
+          "[data-testid='mind-days'] .luca-mind-filter",
         ),
-      ].map((row) => ({
-        agentMark: Boolean(row.querySelector("[data-agent-mark]")),
-        note: row.querySelector(".luca-mind-date")?.textContent,
-        title: row.querySelector(".luca-mind-with-name")?.textContent,
-      }));
+      ].map((filter) => filter.textContent);
       const asksMark = [
         ...document.querySelectorAll<HTMLElement>(
           "[data-testid='mind-asks'] .luca-ask",
         ),
       ].map((ask) => Boolean(ask.querySelector("[data-agent-mark]")));
+      const sections = [
+        ...document.querySelectorAll<HTMLElement>(".luca-mind-part"),
+      ].map((part) => part.getAttribute("data-testid"));
       return {
         aside: box("[data-testid='mind-aside']"),
         asksMark,
         axis: box(".luca-mind > .luca-place-page-axis"),
-        body: box(".luca-mind-body"),
-        facts,
         filters,
         glyphs,
-        worksWith,
+        sections,
       };
     });
-    // The lab's columns (WP-40): At a glance 220 wide, 40 from the body.
-    expect(layout.aside?.w).toBe(220);
-    expect(layout.axis?.w).toBe(908);
-    expect(
-      Math.round(
-        (layout.aside?.x ?? 0) -
-          ((layout.body?.x ?? 0) + (layout.body?.w ?? 0)),
-      ),
-    ).toBe(40);
-    expect(layout.worksWith[0]?.title).toBe("Atlas");
-    expect(layout.worksWith[0]?.agentMark).toBe(true);
+    expect(layout.aside).toBeNull();
+    expect(layout.sections).toEqual([
+      "mind-made",
+      "mind-notebook",
+      "mind-days",
+    ]);
+    expect(layout.filters).toEqual(["All", "On their own", "With you"]);
+    expect(layout.glyphs.length).toBeGreaterThan(0);
     for (const glyph of layout.glyphs) expect(glyph.label).toBeTruthy();
+    for (const mark of layout.asksMark) expect(mark).toBe(true);
     const step = await plateStep(page, name, ".luca-mind-day .luca-mind-rows");
     measure(`notebook-${mode}-1440`, {
       labels: await readLabels(page),
@@ -1009,62 +990,19 @@ for (const mode of ["dark", "light"] as const) {
   });
 }
 
-test("Luca's Notebook at 1100 x 760: At a glance stacks under the body", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1100, height: 760 });
-  await boot(page);
-  await seedRecords(page);
-  await openLuca(page);
-  await expect(page.getByTestId("mind-entry").first()).toBeVisible({
-    timeout: 20_000,
-  });
-  await expect(page.getByTestId("mind-aside")).toBeVisible();
-  const layout = await page.evaluate(() => {
-    const rect = (selector: string) =>
-      document.querySelector(selector)?.getBoundingClientRect() ?? null;
-    const aside = rect("[data-testid='mind-aside']");
-    const body = rect(".luca-mind-body");
-    const axis = rect(".luca-mind > .luca-place-page-axis");
-    const page = document.querySelector(".luca-mind") as HTMLElement | null;
-    const pad = page ? getComputedStyle(page) : null;
-    return {
-      asideTopMinusBodyBottom:
-        aside && body ? Math.round(aside.top - body.bottom) : null,
-      asideW: aside ? Math.round(aside.width) : null,
-      axisW: axis ? Math.round(axis.width) : null,
-      bodyW: body ? Math.round(body.width) : null,
-      containerW:
-        page && pad
-          ? Math.round(
-              page.clientWidth -
-                Number.parseFloat(pad.paddingLeft) -
-                Number.parseFloat(pad.paddingRight),
-            )
-          : null,
-      sameLeft: aside && body ? Math.round(aside.left - body.left) : null,
-    };
-  });
-  expect(layout.containerW).toBeLessThan(940);
-  expect(layout.asideTopMinusBodyBottom).toBeGreaterThanOrEqual(0);
-  expect(layout.sameLeft).toBe(0);
-  expect(layout.asideW).toBe(layout.bodyW);
-  hashes["notebook-dark-1100"] = await shot(page, "notebook-dark-1100");
-  await page.getByTestId("mind-aside").scrollIntoViewIfNeeded();
-  hashes["notebook-dark-1100-aside"] = await shot(
-    page,
-    "notebook-dark-1100-aside",
-  );
-  measure("notebook-dark-1100", layout);
-});
+// WP-43 retired At a glance, so nothing stacks under the body at 1100: the
+// narrow page is shell-agent-place.spec.ts "their page for Luca, 800×500".
 
 for (const mode of ["dark", "light"] as const) {
-  test(`Luca's Self and Settings (${mode}): each on a plate`, async ({
+  // WP-43: Self's documents are Notebook › Pages (the ones they write) and
+  // Settings › Who {name} is (the ones you write).
+  test(`Luca's Pages and Settings (${mode}): rows, then panels`, async ({
     page,
   }) => {
     await boot(page, { mode });
-    await openLuca(page, "self");
-    await expect(page.getByTestId("mind-self")).toBeVisible({
+    await openLuca(page);
+    await page.getByTestId("mind-view-pages").click();
+    await expect(page.getByTestId("mind-pages")).toBeVisible({
       timeout: 20_000,
     });
     await page.waitForTimeout(500);
@@ -1073,9 +1011,9 @@ for (const mode of ["dark", "light"] as const) {
     const selfStep = await plateStep(
       page,
       `self-${mode}`,
-      "[data-testid='mind-self']",
+      "[data-testid='mind-pages']",
     );
-    await page.getByTestId("mind-tab-settings").click();
+    await page.getByTestId("mind-open-settings").click();
     await expect(page.getByTestId("agent-settings")).toBeVisible({
       timeout: 20_000,
     });
@@ -1087,9 +1025,10 @@ for (const mode of ["dark", "light"] as const) {
       `mind-settings-${mode}`,
       "[data-testid='agent-settings']",
     );
-    // WP-40: Self's documents are rows between hairlines, not a plate
-    // (measured after Settings, so read from the shot's own pass).
-    expect(self.plates.some((each) => each.testid === "mind-self")).toBe(false);
+    // The pages they write are rows between hairlines, not a plate.
+    expect(self.plates.some((each) => each.testid === "mind-pages")).toBe(
+      false,
+    );
     measure(`self-settings-${mode}`, {
       self,
       selfStep,

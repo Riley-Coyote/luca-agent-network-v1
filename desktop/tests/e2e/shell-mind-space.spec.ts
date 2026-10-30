@@ -11,8 +11,9 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 /**
  * WP-13, a mind's own space (docs/luca/rail-system/SHELL_BUILD.md;
  * NAVIGATION.md, "A mind's own space"): under `shell-frame` a mind's card in
- * Agents is their space, Notebook · Self · Settings, Brain is What they can
- * read inside Settings, and an agent's profile card is a short summary.
+ * Agents is their space, and an agent's profile card is a short summary.
+ * WP-43 made it two places, their page and Settings (no tabs), with Brain's
+ * access in Settings › Can read; the tests below follow it there.
  * Screenshots land in WP13_SHOTS; measurements in WP13_SHOTS/measures. The
  * base build is read for the flag-off comparison at WP13_BASE_URL.
  */
@@ -628,7 +629,7 @@ async function pickMind(page: Page, pubkey: string) {
     .click();
 }
 
-async function openLuca(page: Page, tab?: string) {
+async function openLuca(page: Page) {
   // Agents opens on Luca: pick only if the address names someone else, and
   // let the pick land before a tab is chosen.
   await expect(page.getByTestId("place-rail-agents")).toBeVisible({
@@ -643,10 +644,9 @@ async function openLuca(page: Page, tab?: string) {
   await expect(page.getByTestId("mind-space")).toBeVisible({
     timeout: 20_000,
   });
-  if (tab) await page.getByTestId(`mind-tab-${tab}`).click();
-  // The stream is the Notebook's Their days now, beside its continuity
-  // notes and journal pages (BETA14_RELEASE.md WP-40, Decided 3).
-  else await page.getByTestId("mind-view-days").click();
+  // Their days are their page's Days section (BETA14_RELEASE.md WP-43,
+  // Decided 7): always there, no tab to open.
+  await expect(page.getByTestId("mind-days")).toBeVisible({ timeout: 20_000 });
 }
 
 /** Bounding box and type of the first match of each selector. */
@@ -695,6 +695,7 @@ test("Luca's space: the head, Notebook, its stream and its filters", async ({
   await expect(page.getByTestId("mind-entry").first()).toBeVisible({
     timeout: 20_000,
   });
+  // What they made: its pictures, now the Made section's tiles (WP-43).
   await expect(
     page.getByTestId("mind-made").locator("img").first(),
   ).toBeVisible({ timeout: 20_000 });
@@ -705,18 +706,13 @@ test("Luca's space: the head, Notebook, its stream and its filters", async ({
   const entries = await page.getByTestId("mind-entry").evaluateAll((rows) =>
     rows.map((row) => ({
       kind: row.getAttribute("data-kind"),
-      label: row.querySelector(".luca-mind-kind")?.textContent,
-      text: row.querySelector(".luca-mind-entry p")?.textContent,
+      label: row.querySelector(".luca-mind-meta")?.textContent,
+      text: row.querySelector(".luca-mind-entry-title")?.textContent,
       time: row.querySelector("time")?.textContent,
-      made: Boolean(row.querySelector("[data-testid='mind-made']")),
-      picture: Boolean(row.querySelector(".luca-mind-thumb img")),
-      annotations: [...row.querySelectorAll(".luca-mind-annotation")].map(
-        (each) => each.textContent,
-      ),
     })),
   );
   const days = await page
-    .locator(".luca-mind-day > h2")
+    .locator(".luca-mind-day > h3")
     .evaluateAll((items) => items.map((each) => each.textContent));
   measure("stream", { days, entries });
 
@@ -726,47 +722,49 @@ test("Luca's space: the head, Notebook, its stream and its filters", async ({
       ".luca-place-page-axis",
       ".luca-mind-head",
       ".luca-mind-head .agent-identity-specimen",
-      ".luca-mind-who .luca-place-page-name",
+      ".luca-mind-name",
       ".luca-mind-now",
       ".luca-mind-talk",
-      ".luca-mind-tabs",
-      ".luca-mind-tab[data-selected]",
-      ".luca-mind-words blockquote",
-      ".luca-mind-words figcaption",
-      ".luca-mind-piece .luca-mind-thumb",
+      "[data-testid='mind-open-settings']",
+      ".luca-mind-intro-text",
+      ".luca-mind-exploring",
       "[data-testid='mind-asks'] li.luca-ask",
-      ".luca-mind-filter[data-selected]",
-      ".luca-mind-filter:not([data-selected])",
-      ".luca-mind-day > h2",
+      ".luca-mind-tile .luca-mind-plate",
+      "[data-testid='mind-days'] .luca-mind-filter[data-selected]",
+      "[data-testid='mind-days'] .luca-mind-filter:not([data-selected])",
+      ".luca-mind-day > h3",
       ".luca-mind-day li",
-      ".luca-mind-kind",
-      ".luca-mind-entry p",
+      ".luca-mind-day .luca-mind-entry-title",
+      ".luca-mind-day .luca-mind-meta",
       ".luca-mind-day time",
-      ".luca-mind-made",
-      ".luca-mind-made .luca-mind-thumb",
     ]),
   );
 
+  // Days' filters (WP-43, Decided 7): All · On their own · With you, each
+  // showing only what it names.
   const filters = await page
+    .getByTestId("mind-days")
     .locator(".luca-mind-filter")
     .evaluateAll((items) => items.map((each) => each.textContent));
+  expect(filters).toEqual(["All", "On their own", "With you"]);
   const perFilter: Record<string, unknown> = {};
-  for (const id of ["you", "own", "journal", "memory", "all"]) {
+  for (const id of ["own", "you", "all"]) {
     const button = page.getByTestId(`mind-filter-${id}`);
-    if ((await button.count()) === 0) {
-      perFilter[id] = "hidden";
-      continue;
-    }
     await button.click();
     await expect(button).toHaveAttribute("aria-pressed", "true");
-    perFilter[id] = await page
+    const kinds = await page
+      .getByTestId("mind-days")
       .getByTestId("mind-entry")
       .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-kind")));
+    perFilter[id] = kinds;
+    if (id === "own") expect(kinds.every((kind) => kind !== "you")).toBe(true);
+    if (id === "you") expect(kinds.every((kind) => kind === "you")).toBe(true);
+    expect(kinds.length).toBeGreaterThan(0);
     if (id !== "all") {
       await page
-        .locator(".luca-mind-filters")
+        .getByTestId("mind-days")
         .evaluate((each) => each.scrollIntoView({ block: "start" }));
-      hashes[`notebook-${id}`] = await shot(page, `notebook-${id}`);
+      hashes[`days-${id}`] = await shot(page, `days-${id}`);
     }
   }
   measure("filters", { filters, perFilter });
@@ -850,29 +848,32 @@ test("asks are the shared ask row, answered in place; notebook actions stay reac
   const journalPage = await shot(page, "journal-page");
   await page.getByRole("button", { name: "Back to notebook" }).click();
   await expect(page.getByTestId("mind-notebook")).toBeVisible();
-  // New page sits at the end of the Journal pages tab's bar, and the saved
-  // handoff is its own opener (WP-40, Decided 3).
+  // A new journal page is asked for under Notebook › Journal, at the end of
+  // its entries (WP-43, Decided 7, in place of the Journal tab's bar).
   await page.getByTestId("mind-view-journal").click();
-  const row = await page.locator(".luca-mind-subbar").evaluate((bar) => {
-    const box = bar.getBoundingClientRect();
-    return [...bar.querySelectorAll<HTMLElement>(".luca-mind-button")].map(
-      (each) => {
-        const b = each.getBoundingClientRect();
-        return {
-          text: each.textContent?.trim(),
-          fromRight: Math.round(box.right - b.right),
-          top: Math.round(b.top),
-          bottom: Math.round(b.bottom),
-        };
-      },
-    );
+  const row = await page.getByTestId("mind-new-page").evaluate((link) => {
+    const list = link
+      .closest("[data-testid='mind-notebook']")
+      ?.querySelector("[data-testid='mind-journal']")
+      ?.getBoundingClientRect();
+    const box = link.getBoundingClientRect();
+    return {
+      text: link.textContent?.trim(),
+      belowEntries: list ? Math.round(box.top - list.bottom) : null,
+    };
   });
-  await page.getByRole("button", { name: "New page" }).click();
+  expect(row.text).toBe("Ask Luca for a journal page");
+  expect(row.belowEntries ?? -1).toBeGreaterThanOrEqual(0);
+  await page.getByTestId("mind-new-page").click();
   await expect(page.getByText("New journal page")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Ask Luca" })).toBeInViewport({
+  await expect(
+    page.getByRole("button", { name: "Ask Luca", exact: true }),
+  ).toBeInViewport({
     timeout: 5_000,
   });
-  const askName = await page.getByRole("button", { name: "Ask Luca" }).count();
+  const askName = await page
+    .getByRole("button", { name: "Ask Luca", exact: true })
+    .count();
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.getByTestId("mind-handoff-toggle").click();
   await expect(page.getByTestId("mind-handoff")).toBeVisible();
@@ -890,122 +891,99 @@ test("asks are the shared ask row, answered in place; notebook actions stay reac
   });
 });
 
+// WP-43: Self's documents moved to Settings › Who {name} is (the ones you
+// write) and Notebook › Pages (the ones they write); every Settings section
+// is a row whose pane opens; What they can read is Settings › Can read.
 test("Self and Settings: who they are; how they run", async ({ page }) => {
   await boot(page);
-  await openLuca(page, "self");
-  await expect.poll(() => hashOf(page)).toContain("section=self");
-  await expect(page.getByTestId("mind-self")).toBeVisible();
-  await expect(page.getByTestId("resident-document-soul-line")).toHaveAttribute(
-    "data-written",
-    "true",
+  await page.goto(`/#/agents?profile=${LUCA}&section=self`);
+  // The old `section=self` lands on Notebook › Pages.
+  await expect.poll(() => hashOf(page)).toContain("page=notebook/pages");
+  const pages = page.getByTestId("mind-pages");
+  await expect(pages).toBeVisible({ timeout: 20_000 });
+  const rows = await pages.locator("li").evaluateAll((items) =>
+    items.map((item) => ({
+      title: item.querySelector(".luca-mind-entry-title")?.textContent,
+      line: item.querySelector(".luca-mind-two-lines")?.textContent,
+      changed: item.querySelector(".luca-mind-date")?.textContent,
+      height: Math.round(item.getBoundingClientRect().height),
+    })),
   );
-  const rows = await page
-    .getByTestId("mind-self")
-    .locator("li")
-    .evaluateAll((items) =>
-      items.map((item) => ({
-        title: item.querySelector(".luca-mind-doc-title")?.firstChild
-          ?.textContent,
-        line: item.querySelector(".luca-mind-excerpt")?.textContent,
-        written:
-          item
-            .querySelector(".luca-mind-excerpt")
-            ?.getAttribute("data-written") === "true",
-        who: item.querySelector(".luca-mind-writer")?.textContent,
-        height: Math.round(item.getBoundingClientRect().height),
-      })),
-    );
-  const quiet = await page.locator(".luca-mind-intro").first().textContent();
-  const folderPath = await page
-    .getByTestId("mind-space")
-    .getByText(/^residents\//)
-    .count();
-  const eyebrow = await page
-    .getByTestId("resident-extra-files")
-    .locator("h2")
-    .evaluate((h) => getComputedStyle(h).fontFamily.split(",")[0]);
+  expect(rows.map((row) => row.title)).toEqual([
+    "Who I'm becoming",
+    expect.stringMatching(/^What I know about /),
+    "Lessons",
+  ]);
   const self = await shot(page, "self");
-  await page.getByTestId("resident-document-soul").click();
-  const back = page.getByRole("button", { name: "Self", exact: true });
-  await expect(back).toBeVisible();
+  await page.getByTestId("mind-open-settings").click();
+  await expect.poll(() => hashOf(page)).toContain("page=settings");
+  await expect(page.getByTestId("mind-row-wakes")).toBeVisible();
+  // The soul is written: its row says when, not "Not written yet".
+  await expect(page.getByTestId("mind-row-soul")).not.toContainText(
+    "Not written yet",
+  );
+  await page.getByTestId("mind-row-soul").click();
+  const back = page.getByTestId("mind-back");
+  await expect(back).toHaveText("Settings");
   await back.click();
-  await expect(page.getByTestId("mind-self")).toBeVisible();
-  measure("self", { eyebrow, folderPath, quiet, rows, self });
+  await expect(page.getByTestId("agent-settings")).toBeVisible();
+  measure("self", { rows, self });
 
-  await page.getByTestId("mind-tab-settings").click();
-  await expect.poll(() => hashOf(page)).toContain("section=settings");
-  await expect(page.getByTestId("mind-setting-wakes")).toBeVisible();
   await page.waitForTimeout(800);
   const settingRows = await page
     .getByTestId("agent-settings")
-    .locator(":scope > li")
-    .evaluateAll((items) =>
-      items.map((item) => {
-        // Every section open, its question the title (WP-40, Decided 3).
-        const title = item.querySelector<HTMLElement>(
-          ".luca-mind-setting-title",
+    .locator(".luca-mind-group")
+    .evaluateAll((groups) =>
+      groups.map((group) => {
+        const title = group.querySelector<HTMLElement>(
+          ".luca-mind-group-title",
         );
-        const value = item.querySelector<HTMLElement>(".luca-mind-help");
         return {
           title: title?.textContent,
           titleSize: title ? getComputedStyle(title).fontSize : null,
-          value: value?.textContent,
-          valueSize: value ? getComputedStyle(value).fontSize : null,
-          open: Boolean(item.querySelector(".luca-mind-setting-body")),
-          height: Math.round(item.getBoundingClientRect().height),
+          rows: group.querySelectorAll(".luca-mind-prow").length,
+          height: Math.round(group.getBoundingClientRect().height),
         };
       }),
     );
-  const smallCaps = await page
-    .getByTestId("agent-settings")
-    .evaluate(
-      (list) =>
-        [...list.querySelectorAll<HTMLElement>("*")].filter(
-          (each) =>
-            getComputedStyle(each).textTransform === "uppercase" &&
-            each.textContent?.trim(),
-        ).length,
-    );
-  const helpClosed = await page
-    .getByText("Starts when Polyphonic opens", { exact: false })
-    .count();
+  expect(settingRows.map((group) => group.title)).toEqual([
+    "Who Luca is",
+    "Their page",
+    "Companion",
+    "How Luca runs",
+    "Advanced",
+  ]);
+  for (const group of settingRows) {
+    expect(group.titleSize).toBe("13px");
+    expect(group.rows).toBeGreaterThan(0);
+  }
   const settings = await shot(page, "settings");
-  const helpOpen = await page
-    .getByText("Starts when Polyphonic opens", { exact: false })
-    .count();
-  const wakesOpen = await shot(page, "settings-wakes-open");
-  // WP-38 (BETA14_RELEASE.md, Decided 3): the row is this mind's own access,
+  // WP-38 (BETA14_RELEASE.md, Decided 3): the pane is this mind's own access,
   // source by source, with Open Brain; Brain's body is Brain's place alone.
-  await expect(page.getByTestId("mind-brain-access")).toBeVisible();
+  await page.getByTestId("mind-what-they-can-read").click();
+  const pane = page.getByTestId("mind-pane-read");
+  await expect(pane).toBeVisible();
+  await expect(pane.getByTestId("mind-brain-access")).toBeVisible();
   await expect(
-    page.getByTestId("mind-brain-source-connected-repository-luca"),
+    pane.getByTestId("mind-brain-source-connected-repository-luca"),
   ).toBeVisible({ timeout: 20_000 });
-  await page
-    .getByTestId("mind-what-they-can-read")
-    .evaluate((each) => each.scrollIntoView({ block: "start" }));
   const read = await shot(page, "what-they-can-read");
-  const brain = await page
-    .getByTestId("mind-what-they-can-read")
-    .evaluate((row) => ({
-      sources: row.querySelectorAll("[data-testid^='mind-brain-source-']")
-        .length,
-      cards: row.querySelectorAll("[data-testid^='brain-card-']").length,
-      tabStrip: row.querySelectorAll("[role=tablist]").length,
-      openBrain: Boolean(row.querySelector("[data-testid='mind-open-brain']")),
-    }));
+  const brain = await pane.evaluate((row) => ({
+    sources: row.querySelectorAll("[data-testid^='mind-brain-source-']").length,
+    cards: row.querySelectorAll("[data-testid^='brain-card-']").length,
+    tabStrip: row.querySelectorAll("[role=tablist]").length,
+    openBrain: Boolean(row.querySelector("[data-testid='mind-open-brain']")),
+  }));
   expect(brain.sources).toBeGreaterThan(0);
   expect(brain.cards).toBe(0);
   expect(brain.openBrain).toBe(true);
   measure("settings", {
     brain,
-    helpClosed,
-    helpOpen,
-    hashes: { read, settings, wakesOpen },
+    hashes: { read, settings },
     scan: await page
       .getByRole("button", { name: "Scan for Brain sources" })
       .isVisible(),
     settingRows,
-    smallCaps,
   });
 });
 
@@ -1102,12 +1080,13 @@ test("a mind not on this Mac: the same space, its parts with no data hide", asyn
   measure("native", { asks, native, ownWords: own });
 });
 
-// WP-40 keeps the 52 column; WP-42 draws the agent's dendrite in the existing 72 mark box.
-test("the head's dendrite draws at 72 on a 52 column", async ({ page }) => {
+// WP-42 draws the agent's dendrite in the 72 mark box; WP-43's header gives
+// it a 72 column, square, with no negative margin (the merge's decision).
+test("the head's dendrite draws at 72 on a 72 column", async ({ page }) => {
   await boot(page);
   await openLuca(page);
-  // Opening Their days scrolls that tab into view. Bring the head back
-  // before measuring and cropping it; a negative clip is not a UI defect.
+  // Bring the head into view before measuring and cropping it; a negative
+  // clip is not a UI defect.
   await page.locator(".luca-mind-head").scrollIntoViewIfNeeded();
   await waitForAnimations(page);
   const column = await page.locator(".luca-mind-mark").evaluate((box) => {
@@ -1126,8 +1105,10 @@ test("the head's dendrite draws at 72 on a 52 column", async ({ page }) => {
       box: [Math.round(outer.x), Math.round(outer.y)],
     };
   });
-  expect(column.column).toEqual([52, 52]);
+  expect(column.column).toEqual([72, 72]);
   expect(column.specimen).toEqual([72, 72]);
+  // The name stands the header's 16 gap clear of the mark.
+  expect(column.nameX).toBe(88);
   await page.mouse.move(0, 0);
   await page.screenshot({
     clip: {
@@ -1202,23 +1183,12 @@ test("under Reduce Motion each dendrite holds still", async ({ page }) => {
   expect(await sampleDendrites(page, all)).toEqual(first);
 });
 
-test("the keyboard through the tabs and the filters", async ({ page }) => {
+// The tabs are retired (WP-43, Decided 1); walking pages by keyboard is
+// shell-agent-place.spec.ts, "back, forward, Esc, ⌘[ and ⌘] through three
+// levels". The filters keep their keys here.
+test("the keyboard through the Days filters", async ({ page }) => {
   await boot(page);
   await openLuca(page);
-  await page.getByTestId("mind-tab-notebook").focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByTestId("mind-tab-self")).toBeFocused();
-  await expect.poll(() => hashOf(page)).toContain("section=self");
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByTestId("mind-tab-settings")).toBeFocused();
-  await page.keyboard.press("Home");
-  await expect(page.getByTestId("mind-tab-notebook")).toBeFocused();
-  await page.keyboard.press("End");
-  await expect(page.getByTestId("mind-tab-settings")).toBeFocused();
-  await expect.poll(() => hashOf(page)).toContain("section=settings");
-  await page.keyboard.press("Home");
-  await expect(page.getByTestId("mind-tab-notebook")).toBeFocused();
-  await page.getByTestId("mind-view-days").click();
   await expect(page.getByTestId("mind-filter-all")).toBeVisible({
     timeout: 20_000,
   });
@@ -1227,14 +1197,18 @@ test("the keyboard through the tabs and the filters", async ({ page }) => {
   const next = await page.evaluate(
     () => document.activeElement?.getAttribute("data-testid") ?? null,
   );
+  expect(next).toBe("mind-filter-own");
   await page.keyboard.press("Enter");
   const pressed = await page
+    .getByTestId("mind-days")
     .locator(".luca-mind-filter[aria-pressed='true']")
     .getAttribute("data-testid");
+  expect(pressed).toBe("mind-filter-own");
   const focusRing = await page.evaluate(() => {
     const element = document.activeElement as HTMLElement | null;
     return element ? getComputedStyle(element).outlineStyle : null;
   });
+  expect(focusRing).toBe("solid");
   measure("keyboard", { focusRing, next, pressed });
 });
 
@@ -1251,7 +1225,9 @@ test("at 800 × 500 the space still reads", async ({ page }) => {
     const page = document.querySelector(".luca-mind") as HTMLElement | null;
     return page ? page.scrollWidth - page.clientWidth : null;
   });
-  await page.getByTestId("mind-tab-settings").click();
+  expect(overflow).toBeLessThanOrEqual(0);
+  await page.getByTestId("mind-open-settings").click();
+  await expect(page.getByTestId("agent-settings")).toBeVisible();
   const settingsSmall = await shot(page, "settings-800");
   measure("small", { overflow, settingsSmall, small });
 });
