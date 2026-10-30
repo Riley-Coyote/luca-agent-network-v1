@@ -3639,7 +3639,7 @@ mod tests {
             |state| {
                 state.nip98_replay = Arc::new(AlwaysFreshReplayGuard);
                 state.admission_rate_limiter =
-                    Arc::new(buzz_pubsub::AdmissionRateLimiter::permissive());
+                    Arc::new(buzz_pubsub::rate_limiter::AdmissionRateLimiter::permissive());
             },
         )
         .await
