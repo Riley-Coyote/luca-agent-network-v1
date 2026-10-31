@@ -366,11 +366,30 @@ function addLabel(home: Home) {
   return `New session with ${home.name}`;
 }
 
-export function ShellStudy() {
-  const [choice, setChoice] = React.useState(readChoice);
+export function ShellStudy({
+  agentSpace,
+  conversationStudy,
+}: {
+  conversationStudy?: React.ReactNode;
+  agentSpace?: (
+    id: string,
+    name: string,
+    onTalk: () => void,
+  ) => React.ReactNode;
+} = {}) {
+  const [choice, setChoice] = React.useState(() =>
+    agentSpace || conversationStudy
+      ? { ...DEFAULT_CHOICE, panel: false, rail: window.innerWidth >= 900 }
+      : readChoice(),
+  );
   const [homes, setHomes] = React.useState<Home[]>(HOMES);
   const [nav, dispatch] = React.useReducer(navigate, {
-    stack: [{ place: "conversations", open: { home: "luca", session: null } }],
+    stack: [
+      {
+        place: agentSpace ? "agents" : "conversations",
+        open: { home: "luca", session: null },
+      },
+    ],
     index: 0,
   });
   // Every home shows its latest conversations from the start (NAVIGATION.md),
@@ -408,12 +427,13 @@ export function ShellStudy() {
   const placeCard = listPlace && pick ? cardFor(listPlace, pick) : null;
 
   React.useEffect(() => {
+    if (agentSpace || conversationStudy) return;
     try {
       localStorage.setItem(SHELL_STUDY_KEY, JSON.stringify(choice));
     } catch {
       // The look still applies; it just won't be there after a reload.
     }
-  }, [choice]);
+  }, [choice, agentSpace, conversationStudy]);
 
   // The mode is the app's own palette, Paper or the house dark, applied the
   // way Settings applies it; and the lab's window takes the same appearance,
@@ -728,6 +748,7 @@ export function ShellStudy() {
   return (
     <div
       className="shell"
+      data-agent-study={agentSpace ? "true" : undefined}
       data-cards={choice.cards}
       data-direction={directionOf(choice.frame)}
       data-mode={choice.mode}
@@ -946,12 +967,21 @@ export function ShellStudy() {
       </nav>
 
       <main
-        aria-label="Conversation"
+        aria-label={listPlace === "agents" ? "Agent space" : "Conversation"}
         className="shell-card"
         data-luca-card={oneCard ? undefined : true}
         ref={cardRef}
       >
-        {listPlace === "agents" && pick && MIND_SPACES[pick] ? (
+        {agentSpace && listPlace === "agents" && pick && MIND_SPACES[pick] ? (
+          agentSpace(pick, placeCard?.title ?? pick, () => {
+            const home = homes.find((each) => each.id === pick);
+            if (home)
+              dispatch({
+                type: "go",
+                view: { place: "conversations", open: mainOf(home) },
+              });
+          })
+        ) : listPlace === "agents" && pick && MIND_SPACES[pick] ? (
           <MindSpaceCard
             id={pick}
             key={pick}
@@ -976,6 +1006,8 @@ export function ShellStudy() {
             card={placeCard}
             key={`${place}:${pick}`}
           />
+        ) : conversationStudy ? (
+          conversationStudy
         ) : (
           <Conversation
             key={keyOf(open)}
@@ -984,7 +1016,19 @@ export function ShellStudy() {
             to={openHome.name}
           />
         )}
-        <LabPanel choice={choice} choose={choose} native={native} note={note} />
+        {!agentSpace && !conversationStudy && (
+          <LabPanel
+            choice={choice}
+            choose={choose}
+            native={native}
+            note={note}
+          />
+        )}
+        {agentSpace && note && (
+          <div className="as-shell-note" role="status">
+            {note}
+          </div>
+        )}
       </main>
 
       {searching ? (

@@ -1,0 +1,853 @@
+/* Isolated material study. Never imported by the production entrypoint.
+ *
+ * One idea: a temporary surface rises out of the composer's shadow into the
+ * light, asks one clear thing, and leaves a line in the conversation. Light
+ * comes from above. A card catches it on its top edge and falls back into
+ * shade where it tucks behind the composer, so the composer always reads as
+ * in front and the card never looks cut off. Every colour is the app's own
+ * ink over the app's own surface, so the cards follow the theme. */
+.ts-study {
+  --ts-ink: hsl(var(--mn-ink));
+  --ts-muted: hsl(var(--mn-ink-muted));
+  --ts-faint: hsl(var(--mn-ink-faint));
+  --ts-surface: hsl(var(--mn-surface));
+  /* How much light a card catches at its top, as a share of the ink. */
+  --ts-light: calc(var(--ts-shade) * 0.36%);
+  --ts-pad: 20px;
+  --ts-radius: 20px;
+  --ts-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  color: var(--ts-ink);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  user-select: text;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  container-type: inline-size;
+}
+.ts-study[data-compact="true"] {
+  --ts-pad: 16px;
+  --ts-radius: 18px;
+}
+.ts-study button:not(.ts-production-composer *) {
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 120ms ease-out;
+}
+.ts-study button:disabled:not(.ts-production-composer *) {
+  cursor: default;
+}
+.ts-study button:focus-visible:not(.ts-production-composer *),
+.ts-study input:focus-visible,
+.ts-study textarea:focus-visible {
+  outline: 2px solid hsl(var(--mn-ink) / 0.6);
+  outline-offset: 2px;
+}
+.ts-study button:active:not(:disabled, .ts-production-composer *) {
+  transform: scale(0.97);
+}
+.ts-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Lab chrome: the scenario switcher above the conversation. */
+.ts-study-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 19px 26px 9px;
+  flex-shrink: 0;
+  color: var(--ts-muted);
+  font-size: 0.75rem;
+}
+.ts-prototype {
+  color: var(--ts-faint);
+  margin-left: 10px;
+}
+.ts-tools-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 9px;
+  border-radius: 7px;
+}
+.ts-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 0 24px 11px;
+  flex-shrink: 0;
+}
+.ts-scenes {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.ts-scenes button {
+  min-height: 32px;
+  padding: 5px 11px;
+  color: var(--ts-faint);
+  border-radius: 7px;
+  font-size: 0.75rem;
+}
+.ts-scenes button[aria-pressed="true"] {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: var(--ts-ink);
+}
+.ts-scenes .ts-replay {
+  margin-left: 4px;
+  padding: 8px;
+}
+
+/* The conversation, standing in for the real one. */
+.ts-transcript {
+  min-height: 95px;
+  flex: 1;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.ts-reading {
+  width: min(var(--mn-reading-measure), calc(100% - 40px));
+  margin: 0 auto;
+  padding: 24px 4px 28px;
+}
+.ts-day {
+  color: var(--ts-faint);
+  font-size: 0.6875rem;
+  text-align: center;
+  margin-bottom: 28px;
+}
+.ts-message {
+  margin: 0 0 26px;
+}
+.ts-message:last-of-type {
+  margin-bottom: 18px;
+}
+.ts-author {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+  color: var(--ts-muted);
+}
+.ts-message p {
+  font-size: var(--mn-text-chat, 1rem);
+  line-height: 1.65;
+  max-width: 620px;
+  margin: 0;
+  color: var(--ts-ink);
+}
+.ts-user-message {
+  width: fit-content;
+  max-width: 90%;
+  margin: 26px 0 28px auto;
+  padding: 11px 17px;
+  background: var(--mn-plate-strong);
+  border-radius: 18px 18px 6px 18px;
+  font-size: var(--mn-text-chat, 1rem);
+}
+.ts-user-message small {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--ts-faint);
+  margin-top: 6px;
+}
+/* What a decision leaves: one quiet line where it happened. */
+.ts-record {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ts-faint);
+  text-wrap: balance;
+}
+
+.ts-bottom {
+  width: 100%;
+  flex-shrink: 0;
+  margin: 0 auto;
+  padding-bottom: 15px;
+}
+.ts-dock {
+  position: relative;
+  isolation: isolate;
+}
+.ts-production-composer {
+  position: relative;
+  z-index: 2;
+}
+.ts-preview-caption {
+  display: block;
+  color: var(--ts-faint);
+  font-size: 0.6875rem;
+  text-align: center;
+  margin-top: -2px;
+  opacity: 0.75;
+}
+
+/* The slot is the window a card rises through: it grows from nothing at the
+ * composer's top edge, and the composer covers its lowest --ts-tuck. */
+.ts-card-slot {
+  box-sizing: border-box;
+  width: min(var(--mn-reading-measure), calc(100% - 40px));
+  margin-inline: auto;
+  /* One pixel of room on top, so the dark seam outside the edge shows. */
+  padding: 1px var(--ts-inset) 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+/* Flat, like the rest of the conversation. Light is only an edge: one fine
+ * line all round, a touch brighter along the top where a real edge would
+ * catch the room's light. No glow, no shading, nothing that blurs.
+ * Tone says what's in front: the composer is the lightest thing here, so a
+ * card behind it is always darker than it. */
+.ts-sheet {
+  --ts-fill: color-mix(
+    in srgb,
+    var(--ts-ink) calc(var(--ts-light) * 0.3),
+    var(--ts-surface)
+  );
+  --ts-edge: hsl(var(--mn-ink) / 0.075);
+  --ts-edge-top: hsl(var(--mn-ink) / 0.05);
+  position: relative;
+  border-radius: var(--ts-radius) var(--ts-radius) 0 0;
+  padding: 15px var(--ts-pad) calc(16px + var(--ts-tuck));
+  background: var(--mn-card-finish), var(--ts-fill);
+  box-shadow:
+    inset 0 0.5px 0 var(--ts-edge-top),
+    inset 0 0 0 0.5px var(--ts-edge);
+}
+/* Ink: black, with only that edge to show where it is. */
+.ts-study[data-material="ink"] .ts-sheet {
+  --ts-fill: hsl(var(--mn-floor));
+  --ts-edge: hsl(var(--mn-ink) / 0.09);
+  --ts-edge-top: hsl(var(--mn-ink) / 0.06);
+}
+/* Blue light: only an ask, the one thing you can act on, has its edge in the
+ * signal blue. Notices stay neutral. */
+.ts-study[data-signal="true"] .ts-sheet[data-kind="ask"] {
+  --ts-edge: hsl(var(--mn-signal) / 0.36);
+  --ts-edge-top: hsl(var(--mn-signal) / 0.14);
+}
+.ts-sheet h2 {
+  margin: 0;
+  color: var(--ts-ink);
+}
+
+/* Depth, at the edge only and never blurred: the lit lip is two hairlines
+ * (the outer one brighter) just inside the top, so the edge reads as having a
+ * profile, and a dark seam just outside separates it from the page. A thin
+ * sheet of black glass shows its thickness this way. */
+.ts-study[data-depth="true"] .ts-sheet {
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.85),
+    inset 0 1px 0 var(--ts-edge-top),
+    inset 0 0.5px 0 var(--ts-edge-top),
+    inset 0 0 0 0.5px var(--ts-edge);
+}
+/* An ask: the question, why, how far it reaches, and the choices. */
+.ts-ask-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 24px;
+}
+.ts-ask-head h2 {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.006em;
+  text-wrap: balance;
+}
+.ts-ask-summary {
+  margin: 3px 0 0;
+  max-width: 62ch;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--ts-muted);
+  text-wrap: pretty;
+}
+.ts-ask-scope {
+  margin: 9px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ts-faint);
+}
+.ts-ask-scope span + span::before {
+  content: "·";
+  margin: 0 0.5em;
+}
+.ts-ask-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+.ts-ask-choices {
+  display: flex;
+  gap: 8px;
+}
+.ts-details {
+  overflow: hidden;
+}
+
+/* A hidden ask sinks behind the composer until only its question shows. */
+.ts-sheet[data-folded] {
+  cursor: pointer;
+}
+.ts-sheet[data-folded] .ts-ask-head h2 {
+  color: var(--ts-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-wrap: nowrap;
+}
+.ts-waiting {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.75rem;
+  color: var(--ts-faint);
+  white-space: nowrap;
+}
+.ts-waiting::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ts-muted);
+  animation: ts-breathe 2.8s ease-in-out infinite;
+}
+@keyframes ts-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Recessed wells inside a card: details and the exact command. Lit from
+ * above, so a recess is dark at its top lip and catches light at its foot. */
+.ts-well {
+  margin-top: 12px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: hsl(var(--mn-ink) / 0.035);
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.06);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--ts-muted);
+}
+.ts-well p {
+  margin: 0 0 7px;
+}
+.ts-well p:last-child {
+  margin-bottom: 0;
+}
+.ts-well dl {
+  margin: 10px 0 0;
+}
+.ts-well dl div {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 10px;
+  margin-top: 5px;
+}
+.ts-well dt {
+  color: var(--ts-faint);
+}
+.ts-well dd {
+  margin: 0;
+}
+.ts-code {
+  max-height: 124px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  color: hsl(var(--mn-ink) / 0.86);
+}
+
+/* A notice or a problem: what happened on the left, what to do on the right. */
+.ts-note {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-block: 1px;
+}
+.ts-note-text {
+  flex: 1;
+  min-width: 0;
+}
+.ts-note h2 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.004em;
+}
+.ts-note p {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--ts-muted);
+}
+.ts-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Controls. Capsules like the composer; the one main action is the light
+ * one, every other is solid and quiet. Light catches each top edge. */
+.ts-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.003em;
+  color: var(--ts-ink);
+  background: color-mix(in srgb, var(--ts-ink) 9%, var(--ts-surface));
+}
+.ts-button--primary {
+  color: hsl(var(--primary-foreground));
+  background: color-mix(in srgb, var(--ts-ink) 72%, white);
+}
+.ts-button[data-busy] {
+  color: var(--ts-muted);
+}
+.ts-button[data-busy]::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ts-breathe 1.1s ease-in-out infinite;
+}
+.ts-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin: -2px -8px -2px 0;
+  border-radius: 999px;
+  color: var(--ts-faint);
+}
+.ts-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  margin-left: -9px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--ts-muted);
+}
+.ts-text-button svg {
+  transition: transform 220ms var(--ts-ease);
+}
+.ts-text-button[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.ts-study[data-material="ink"] .ts-button:not(.ts-button--primary) {
+  background: hsl(var(--mn-ink) / 0.09);
+}
+.ts-study[data-signal="true"] .ts-waiting::before {
+  background: hsl(var(--mn-signal));
+}
+.ts-study[data-signal="true"]
+  button:focus-visible:not(.ts-production-composer *) {
+  outline-color: hsl(var(--mn-signal));
+}
+
+/* The confirmation scenario's way in: a quiet line above the composer. */
+.ts-confirm-invite {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(var(--mn-reading-measure), calc(100% - 40px));
+  margin: 0 auto 10px;
+  padding-inline: calc(var(--ts-inset) + 2px) var(--ts-inset);
+  font-size: 0.75rem;
+  color: var(--ts-faint);
+}
+.ts-confirm-invite .ts-text-button {
+  margin: 0 -9px 0 auto;
+}
+
+/* A decision that changes standing access gets the whole window's attention. */
+.ts-dialog {
+  box-sizing: border-box;
+  width: min(400px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  margin: auto;
+  padding: 22px 22px 16px;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 22px;
+  color: var(--ts-ink);
+  background:
+    var(--mn-card-finish),
+    color-mix(in srgb, var(--ts-ink) 6%, var(--ts-surface));
+  box-shadow:
+    inset 0 0.5px 0 hsl(var(--mn-ink) / 0.06),
+    inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.09),
+    0 24px 64px -20px rgb(0 0 0 / 0.6);
+}
+.ts-study[data-material="ink"] .ts-dialog {
+  background: var(--mn-card-finish), hsl(var(--mn-floor));
+}
+.ts-dialog::backdrop {
+  background: rgb(0 0 0 / 0.42);
+  backdrop-filter: blur(2px);
+}
+.ts-dialog[open] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 180ms ease-out,
+    transform 260ms var(--ts-ease);
+}
+@starting-style {
+  .ts-dialog[open] {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+}
+.ts-dialog h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+}
+.ts-dialog > p {
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--ts-muted);
+  text-wrap: pretty;
+}
+.ts-dialog > .ts-dialog-fact {
+  margin-top: 12px;
+  font-size: 0.75rem;
+  color: var(--ts-faint);
+}
+.ts-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+}
+.ts-dialog-caption {
+  display: block;
+  margin-top: 14px;
+  text-align: right;
+  font-size: 0.6875rem;
+  color: var(--ts-faint);
+  opacity: 0.7;
+}
+
+/* Depth on the controls, wells and dialog: the same crisp lip. */
+.ts-study[data-depth="true"] .ts-button {
+  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.11);
+}
+.ts-study[data-depth="true"] .ts-button--primary {
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.55),
+    0 0 0 0.5px rgb(0 0 0 / 0.5);
+}
+/* A well is a recess: its top lip in shadow, its foot catching the light. */
+.ts-study[data-depth="true"] .ts-well {
+  box-shadow:
+    inset 0 0.5px 0 rgb(0 0 0 / 0.7),
+    inset 0 -0.5px 0 hsl(var(--mn-ink) / 0.07),
+    inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.05);
+}
+.ts-study[data-depth="true"] .ts-dialog {
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.85),
+    inset 0 1px 0 hsl(var(--mn-ink) / 0.05),
+    inset 0 0.5px 0 hsl(var(--mn-ink) / 0.06),
+    inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.09),
+    0 24px 64px -20px rgb(0 0 0 / 0.6);
+}
+
+/* The honest solid fallback: one flat tone, no grain. */
+.ts-study[data-opaque="true"] .ts-sheet {
+  background: var(--ts-fill);
+}
+
+/* Lab design tools (unchanged in role). */
+.ts-tools {
+  position: absolute;
+  z-index: 50;
+  top: 53px;
+  right: 18px;
+  width: min(322px, calc(100% - 32px));
+  max-height: calc(100% - 70px);
+  overflow: auto;
+  background: color-mix(in srgb, var(--ts-ink) 7%, var(--ts-surface));
+  color: var(--ts-ink);
+  border-radius: 15px;
+  padding: 18px;
+  box-shadow:
+    inset 0 0.5px 0 hsl(var(--mn-ink) / 0.14),
+    0 0 0 0.5px rgb(0 0 0 / 0.5),
+    0 12px 50px rgb(0 0 0 / 0.6);
+  font-size: 0.75rem;
+  scrollbar-width: thin;
+}
+.ts-tools header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.ts-tools header strong {
+  font-size: 0.875rem;
+  font-weight: 550;
+}
+.ts-tools small {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--ts-faint);
+}
+.ts-tools header > button {
+  padding: 3px;
+  border-radius: 4px;
+}
+.ts-tools-note {
+  color: var(--ts-faint);
+  margin: 12px 0 16px;
+  font-size: 0.6875rem;
+  line-height: 1.55;
+}
+.ts-tools legend,
+.ts-tools h3 {
+  margin: 18px 0 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.ts-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 20px;
+}
+.ts-presets button {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: hsl(var(--mn-ink) / 0.03);
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.08);
+}
+.ts-presets button[aria-pressed="true"] {
+  background: hsl(var(--mn-ink) / 0.08);
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.25);
+}
+.ts-tools > label:not(.ts-check) {
+  display: block;
+  margin-top: 16px;
+}
+.ts-tools output {
+  float: right;
+  color: var(--ts-faint);
+}
+.ts-tools input[type="range"] {
+  display: block;
+  width: 100%;
+  margin: 10px 0;
+  accent-color: var(--ts-ink);
+}
+.ts-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+}
+.ts-check input {
+  accent-color: var(--ts-ink);
+}
+.ts-save {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+.ts-save input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.14);
+  background: rgb(0 0 0 / 0.2);
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+.ts-save button,
+.ts-tool-actions button {
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: hsl(var(--mn-ink) / 0.05);
+}
+.ts-saved {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+}
+.ts-saved button:first-child {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.ts-tool-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 18px;
+}
+.ts-tool-actions > button:first-child {
+  flex: 1;
+}
+.ts-tools textarea {
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.2);
+  border-radius: 6px;
+  background: rgb(0 0 0 / 0.3);
+  font-size: 0.75rem;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ts-scenes button:hover:not([aria-pressed="true"]),
+  .ts-tools button:hover:not(:disabled),
+  .ts-tools-toggle:hover {
+    background-color: hsl(var(--mn-ink) / 0.05);
+  }
+  .ts-button:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--ts-ink) 14%, var(--ts-surface));
+  }
+  .ts-study[data-material="ink"] .ts-button:not(.ts-button--primary):hover {
+    background-color: hsl(var(--mn-ink) / 0.14);
+  }
+  .ts-button--primary:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--ts-ink) 56%, white);
+  }
+  .ts-icon:hover,
+  .ts-text-button:hover {
+    color: var(--ts-ink);
+    background-color: hsl(var(--mn-ink) / 0.07);
+  }
+  .ts-sheet[data-folded]:hover .ts-ask-head h2 {
+    color: var(--ts-ink);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ts-study button:not(.ts-production-composer *),
+  .ts-text-button svg,
+  .ts-dialog[open] {
+    transition: none;
+  }
+  .ts-waiting::before,
+  .ts-button[data-busy]::before {
+    animation: none;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ts-sheet {
+    background: var(--ts-fill);
+  }
+  .ts-dialog::backdrop {
+    backdrop-filter: none;
+    background: rgb(0 0 0 / 0.6);
+  }
+}
+@container (max-width: 560px) {
+  .ts-study-bar {
+    padding: 12px 14px 8px;
+  }
+  .ts-prototype {
+    display: none;
+  }
+  .ts-controls {
+    padding: 0 10px 8px;
+  }
+  .ts-scenes {
+    gap: 0;
+  }
+  .ts-scenes button {
+    padding: 5px 8px;
+  }
+  .ts-reading {
+    padding-top: 15px;
+  }
+  .ts-study {
+    --ts-pad: 16px;
+  }
+  .ts-card-slot {
+    padding-inline: min(var(--ts-inset), 14px);
+  }
+  /* Too narrow for one row: the choices take a row of their own and share it,
+   * wrapping again (the light one last, full width) before anything clips. */
+  .ts-ask-actions {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .ts-ask-choices {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+  .ts-ask-choices .ts-button {
+    flex: 1 1 auto;
+    padding-inline: 12px;
+  }
+  .ts-well dl div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+@media (max-height: 700px) {
+  .ts-reading {
+    padding-top: 10px;
+  }
+  .ts-day {
+    margin-bottom: 16px;
+  }
+}

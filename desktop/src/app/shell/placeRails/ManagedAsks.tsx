@@ -132,10 +132,13 @@ export function useAskFocusHandoff(
 export function PermissionAsk({
   common,
   pending,
+  surface = false,
   summary,
 }: {
   common: AskCommon;
   pending: PendingManagedPermission;
+  /** Conversation-only presentation; the authority and wire values stay shared. */
+  surface?: boolean;
   summary: string;
 }) {
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -195,11 +198,20 @@ export function PermissionAsk({
     : offer.projectLabel
       ? `In ${offer.projectLabel}`
       : "Outside your projects";
+  // Keep keyboard order the same as visual order. One-time permission is the
+  // primary choice, never a remembered grant. Page rows retain their layout.
+  const presentedAnswers = surface
+    ? [...answers].sort(
+        (a, b) => Number(a.key === "once") - Number(b.key === "once"),
+      )
+    : answers;
   return (
     <PlaceAskRow
       {...common}
-      answers={answers.map((each) => (
+      data-permission-surface={surface ? "" : undefined}
+      answers={presentedAnswers.map((each) => (
         <PlaceQuietButton
+          data-permission-choice={each.key}
           data-testid={`needs-you-permission-${each.key}`}
           disabled={busy !== null}
           key={each.key}
@@ -207,7 +219,11 @@ export function PermissionAsk({
         >
           {busy === each.key && each.key !== "deny"
             ? busyLabel(each.key)
-            : each.label}
+            : surface && each.key === "once"
+              ? "Allow once"
+              : surface && each.key === "always"
+                ? "Always here"
+                : each.label}
         </PlaceQuietButton>
       ))}
       extra={
@@ -237,7 +253,7 @@ export function PermissionAsk({
           </div>
         ) : null
       }
-      summary={summary}
+      summary={surface && whereLine ? `${summary} · ${whereLine}` : summary}
       title={title}
     />
   );

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ShieldCheck, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
+import "@/shared/styles/globals/temporary-surfaces.css";
 
 import {
   getResidentCapabilitySettings,
@@ -205,7 +206,7 @@ export function AccessLevelPicker({
           ))}
         </fieldset>
         <AlertDialog onOpenChange={setConfirmOpen} open={confirmOpen}>
-          <AlertDialogContent>
+          <AlertDialogContent className="luca-temporary-confirmation">
             <AlertDialogHeader>
               <AlertDialogTitle>
                 Turn on &quot;Don&apos;t ask me&quot;?
@@ -220,6 +221,7 @@ export function AccessLevelPicker({
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
+                className="luca-temporary-confirmation__allow"
                 onClick={() => {
                   setConfirmOpen(false);
                   onChange("full");
@@ -270,7 +272,7 @@ export function AccessLevelPicker({
         ))}
       </fieldset>
       <AlertDialog onOpenChange={setConfirmOpen} open={confirmOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="luca-temporary-confirmation">
           <AlertDialogHeader>
             <AlertDialogTitle>
               Turn on &quot;Don&apos;t ask me&quot;?
@@ -285,6 +287,7 @@ export function AccessLevelPicker({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              className="luca-temporary-confirmation__allow"
               onClick={() => {
                 setConfirmOpen(false);
                 onChange("full");

@@ -821,3 +821,37 @@ need to be higher resolution. it looks kinda fuzzy right now".
 dendrite" and "under Reduce Motion each dendrite holds still"; the head and rail face checks in
 `shell-mind-space.spec.ts` and `shell-rail-wp34.spec.ts`. Serve the e2e build with a threaded server: the config's
 single-threaded one drops connections under load (`ERR_CONNECTION_RESET`) and the app never boots.
+
+## Temporary surfaces · Ink integration (2026-10-30, local review)
+
+Riley selected Claude's `claude/temp-surfaces` study at `ca2a0e25e`: Ink with edge depth,
+blue light off. This integration changes temporary surfaces, **not the composer**.
+
+- Conversation asks now have a flat Ink sheet with crisp hairline edges. Its empty foot
+  reaches behind the existing composer, including when presence marks or reply context
+  occupy the space above the input. Text and controls are never tucked out of reach.
+- Permission choices are Deny, Always here **only when offered**, and Allow once as the
+  primary choice. Actual scope and exact action details remain available; no safety
+  summary is inferred from command text. The authority, wire values, and grant rules are
+  unchanged. Activity and agent-page ask rows keep their current layout and labels.
+- Hide or Escape folds the sheet to the actual question and Waiting count. Hidden controls
+  are inaccessible; reopening restores focus to Hide, and answering the last ask returns
+  focus to the composer. Existing expiry/resolution announcements are retained.
+- The native-agent discovery notice and standing-access confirmation use the same neutral
+  material. The notice stays in its original transcript location, requires Luca's canonical
+  signer, and keeps its review action. Broad access still requires a separate confirmation
+  with Cancel initially focused. No access is changed by closing or cancelling it.
+- Classic layout remains untouched. Reduced Motion removes the sheet-edge entrance;
+  reduced transparency keeps the solid surface without grain. No native glass masks or
+  Ghost code changed. This is an honest web surface, not simulated desktop transparency.
+
+**Proof:** 46 focused unit checks; six `luca/temporary-surfaces.spec.ts` browser checks;
+eight `shell-room-asks.spec.ts` checks covering both themes, short windows, long forms,
+running work and every decision's wire call. Typecheck, frontend E2E build, served lab
+build, scoped Biome, px-text and diff checks pass. One existing browser assertion was
+updated deliberately: the folded lip now names the question rather than “Needs you · Show”.
+
+**Not yet release proof:** no new native candidate, native activation walkthrough, installer,
+notarization or publication in this pass. Disk remained below the native-build reserve.
+Claude's redesigned agent pages (WP-43) remain a separate handoff. The broader browser
+suite's previously recorded baseline failures are not claimed fixed by these focused checks.

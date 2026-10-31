@@ -19,8 +19,14 @@
 
 import { RailStudy, RAIL_STUDY_KEY } from "@/testing/railStudy";
 import { ShellStudy, SHELL_STUDY_KEY } from "@/testing/shellStudy/ShellStudy";
+import {
+  AgentSpaceStudy,
+  AGENT_SPACE_KEY,
+} from "@/testing/agentSpaceStudy/AgentSpaceStudy";
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { TemporarySurfacesStudy } from "@/testing/temporarySurfacesStudy/TemporarySurfacesStudy";
+import { TEMPORARY_SURFACES_KEY } from "@/testing/temporarySurfacesStudy/design";
 
 import { App } from "@/app/App";
 import { PERSONAL_HOME_TENANCY_ID } from "@/app/personalHomeTenancy";
@@ -83,7 +89,15 @@ const COMPANION_CONTROL_STUDY =
   "companion-control";
 /** `?experience=shell`: the shell study (places, the rail, the lip and the
  *  glass) in place of the app; docs/luca/rail-system/SHELL_STUDY.md. */
+const AGENT_SPACE_STUDY =
+  new URLSearchParams(window.location.search).get("experience") ===
+  "agent-space";
+const TEMPORARY_SURFACES_STUDY =
+  new URLSearchParams(window.location.search).get("experience") ===
+  "temporary-surfaces";
 const SHELL_STUDY =
+  TEMPORARY_SURFACES_STUDY ||
+  AGENT_SPACE_STUDY ||
   new URLSearchParams(window.location.search).get("experience") === "shell";
 /** `?dm=first` opens Luca's conversation before its first message, and
  *  `?dm=open` opens it as the scene left it. Without it the lab opens a room. */
@@ -120,7 +134,20 @@ function seedStorage() {
   const railStudy = store.getItem(RAIL_STUDY_KEY);
   const railRecovery = store.getItem(`${RAIL_STUDY_KEY}.recovery`);
   const shellStudy = store.getItem(SHELL_STUDY_KEY);
+  const agentStudy = store.getItem(AGENT_SPACE_KEY);
+  const temporaryStudy = store.getItem(TEMPORARY_SURFACES_KEY);
+  const oldTemporaryStudy = store.getItem(
+    "ui-design-lab.polyphonic.temporary-surfaces.v1",
+  );
   store.clear();
+  if (oldTemporaryStudy !== null)
+    store.setItem(
+      "ui-design-lab.polyphonic.temporary-surfaces.v1",
+      oldTemporaryStudy,
+    );
+  if (temporaryStudy !== null)
+    store.setItem(TEMPORARY_SURFACES_KEY, temporaryStudy);
+  if (agentStudy !== null) store.setItem(AGENT_SPACE_KEY, agentStudy);
   if (shellStudy !== null) store.setItem(SHELL_STUDY_KEY, shellStudy);
   if (railStudy !== null) store.setItem(RAIL_STUDY_KEY, railStudy);
   if (railRecovery !== null)
@@ -438,7 +465,29 @@ function renderApp() {
               <EmojiBurstProvider>
                 <PoofBurstProvider>
                   <UpdaterProvider>
-                    {SHELL_STUDY ? <ShellStudy /> : <App />}
+                    {SHELL_STUDY ? (
+                      <ShellStudy
+                        conversationStudy={
+                          TEMPORARY_SURFACES_STUDY ? (
+                            <TemporarySurfacesStudy />
+                          ) : undefined
+                        }
+                        agentSpace={
+                          AGENT_SPACE_STUDY
+                            ? (id, name, onTalk) => (
+                                <AgentSpaceStudy
+                                  key={id}
+                                  id={id}
+                                  name={name}
+                                  onTalk={onTalk}
+                                />
+                              )
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <App />
+                    )}
                     {new URLSearchParams(window.location.search).get(
                       "experience",
                     ) === "inline-sessions" ? (

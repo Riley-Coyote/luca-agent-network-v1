@@ -431,7 +431,10 @@ for (const [width, height] of [
         expect(rest.stack.height).toBeLessThanOrEqual(
           rest.conversation * 0.4 + 1,
         );
-      expect(folded?.label?.toLowerCase()).toBe("needs you · 3 · show");
+      // Approved temporary surfaces: the waiting lip names the actual ask,
+      // instead of making the owner reopen it just to remember the question.
+      expect(folded?.label).toContain(PERMISSION.request.title);
+      expect(folded?.label).toContain("Waiting · 3");
       expect(shown?.labels.map((each) => each.toLowerCase())).toEqual([
         "needs you",
       ]);

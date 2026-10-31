@@ -1,4 +1,5 @@
 import * as React from "react";
+import "@/shared/styles/globals/temporary-surfaces.css";
 
 import {
   ROOM_STACK_EDGE_FADE,
@@ -22,13 +23,14 @@ const FORM_SELECTOR =
  * composer's overlay, so the timeline's measured padding ends above it and
  * the newest message stays in view as it comes, goes and grows.
  *
- * - Every item is a flat row on the card, as Needs you draws it; one label,
+ * - Asks sit on the approved Ink sheet tucked behind the unchanged composer;
+ *   the same authority-backed rows and actions still serve every page. One label,
  *   "Needs you" while it holds asks, "Current work" while it holds only work
  *   (shown only when the work rows are there; conversationAgentActivityShelf
  *   .css).
  * - At rest it takes at most 40% of the conversation and scrolls inside;
  *   where that can't hold one whole ask, or while one exchange is focused
- *   (`held`), it folds to one line, "Needs you · 2 · Show". Shown again
+ *   (`held`), it folds to the first ask's title and a Waiting count. Shown again
  *   where 40% can't hold an ask, it takes just its label and that one ask.
  * - While a form is open it may take the whole height above the message box,
  *   and the form is brought into view.
@@ -58,6 +60,11 @@ export function ConversationRoomStack({
   const stackRef = React.useRef<HTMLElement>(null);
   const headRef = React.useRef<HTMLDivElement>(null);
   const bodyRef = React.useRef<HTMLDivElement>(null);
+  const toggleRef = React.useRef<HTMLButtonElement>(null);
+  const restoreToggle = React.useRef(false);
+  const focusedControl = React.useRef<HTMLElement | null>(null);
+  const bodyId = React.useId();
+  const [firstTitle, setFirstTitle] = React.useState("");
   const [mode, setMode] = React.useState<RoomStackMode>("rest");
   const [modeFor, setModeFor] = React.useState(resetKey);
   if (modeFor !== resetKey) {
@@ -92,6 +99,12 @@ export function ConversationRoomStack({
       );
       const sectionBox = section.getBoundingClientRect();
       const stackBox = stack.getBoundingClientRect();
+      // Presence marks or a reply context can sit above the input. Extend
+      // only the sheet's empty foot through that gap, without moving either.
+      stack.style.setProperty(
+        "--luca-temporary-tuck",
+        `${Math.max(18, (composer?.getBoundingClientRect().top ?? stackBox.bottom) - stackBox.bottom + 18)}px`,
+      );
       const next = roomStackReach({
         above: stackBox.top - parent.getBoundingClientRect().top,
         conversation:
@@ -113,6 +126,9 @@ export function ConversationRoomStack({
       );
       if (row && row.offsetParent !== null) setFirstAsk(row.offsetHeight);
       else if (askCount === 0) setFirstAsk(0);
+      setFirstTitle(
+        row?.querySelector(".luca-place-row-title")?.textContent ?? "",
+      );
       setFormOpen(Boolean(stack.querySelector(FORM_SELECTOR)));
       edges();
     };
@@ -132,6 +148,8 @@ export function ConversationRoomStack({
     for (const each of [section, stack, parent]) resize.observe(each);
     const composer = section.querySelector('[data-testid="message-composer"]');
     if (composer) resize.observe(composer);
+    const composerPlane = composer?.closest("[data-luca-reading-plane]");
+    if (composerPlane) resize.observe(composerPlane);
     const mutations = new MutationObserver(measure);
     mutations.observe(stack, { childList: true, subtree: true });
     const body = bodyRef.current;
@@ -160,7 +178,38 @@ export function ConversationRoomStack({
     return () => window.cancelAnimationFrame(frame);
   }, [folded, formOpen]);
 
+  React.useLayoutEffect(() => {
+    if (restoreToggle.current) {
+      restoreToggle.current = false;
+      toggleRef.current?.focus({ preventScroll: true });
+    }
+  });
+
+  // An answered ask disappears. Do not strand keyboard focus on the page,
+  // or steal it if the owner already moved elsewhere while it was sending.
+  React.useLayoutEffect(() => {
+    const focused = focusedControl.current;
+    if (!focused || focused.isConnected) return;
+    focusedControl.current = null;
+    if (document.activeElement !== document.body) return;
+    const next =
+      askCount > 0
+        ? bodyRef.current?.querySelector<HTMLElement>(
+            ".luca-ask button:not(:disabled), .luca-ask input:not(:disabled)",
+          )
+        : null;
+    const composer = stackRef.current
+      ?.closest('[data-testid="channel-drop-zone"]')
+      ?.querySelector<HTMLElement>(
+        '[data-testid="message-composer"] [contenteditable="true"]',
+      );
+    (folded ? toggleRef.current : (next ?? composer))?.focus({
+      preventScroll: true,
+    });
+  }, [askCount, folded]);
+
   const show = () => {
+    restoreToggle.current = true;
     setMode("shown");
     onShow();
   };
@@ -170,10 +219,27 @@ export function ConversationRoomStack({
       aria-label={askCount > 0 ? "Needs you" : "Current work"}
       className="luca-measure pointer-events-auto luca-room-stack"
       data-folded={folded ? "" : undefined}
+      data-has-asks={askCount > 0 ? "" : undefined}
       data-fit={fit ? "" : undefined}
       data-testid="room-stack"
       data-whole={whole ? "" : undefined}
       ref={stackRef}
+      onFocusCapture={(event) => {
+        focusedControl.current = event.target;
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.key !== "Escape" ||
+          event.defaultPrevented ||
+          folded ||
+          askCount === 0
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        restoreToggle.current = true;
+        setMode("hidden");
+      }}
       style={
         reach
           ? ({
@@ -192,13 +258,20 @@ export function ConversationRoomStack({
         {folded ? (
           <button
             aria-expanded={false}
+            aria-controls={bodyId}
+            aria-label={`Needs you · ${askCount} · Show${firstTitle ? `: ${firstTitle}` : ""}`}
             className="luca-room-stack__fold"
             data-testid="pending-held"
             onClick={show}
+            ref={toggleRef}
             type="button"
           >
-            <span className="type-eyebrow">Needs you · {askCount} · </span>
-            <span className="luca-room-stack__fold-show">Show</span>
+            <span className="luca-room-stack__fold-title">
+              {firstTitle || "Needs you"}
+            </span>
+            <span className="luca-room-stack__fold-show">
+              Waiting{askCount > 1 ? ` · ${askCount}` : ""}
+            </span>
           </button>
         ) : (
           <>
@@ -208,9 +281,14 @@ export function ConversationRoomStack({
             {askCount > 0 ? (
               <button
                 aria-expanded
+                aria-controls={bodyId}
                 className="luca-room-stack__hide"
                 data-testid="room-stack-hide"
-                onClick={() => setMode("hidden")}
+                onClick={() => {
+                  restoreToggle.current = true;
+                  setMode("hidden");
+                }}
+                ref={toggleRef}
                 type="button"
               >
                 Hide
@@ -219,7 +297,12 @@ export function ConversationRoomStack({
           </>
         )}
       </div>
-      <div className="luca-room-stack__body" hidden={folded} ref={bodyRef}>
+      <div
+        className="luca-room-stack__body"
+        hidden={folded}
+        id={bodyId}
+        ref={bodyRef}
+      >
         {askCount > 0 ? (
           <ul className="luca-ask-list luca-room-stack__asks">{asks}</ul>
         ) : null}

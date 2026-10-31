@@ -1,4 +1,5 @@
 import { UsersRound } from "lucide-react";
+import "@/shared/styles/globals/temporary-surfaces.css";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { canonicalLucaResidentPubkey } from "@/features/luca/canonicalLucaResident";
@@ -31,7 +32,7 @@ export function NativeAgentNoticeCard({
 
   return (
     <Attachment
-      className="mt-2 max-w-[min(100%,32rem)] shadow-none"
+      className="luca-temporary-notice mt-2 max-w-[min(100%,32rem)] shadow-none"
       data-testid="native-agent-notice"
       size="sm"
     >

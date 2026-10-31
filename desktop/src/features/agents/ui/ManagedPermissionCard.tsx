@@ -118,6 +118,7 @@ export function ManagedPermissionCard({
           "data-testid": "managed-permission-card",
         }}
         pending={pending}
+        surface={bare}
         summary={summary ?? "Asks you"}
       />
     );

@@ -1,0 +1,233 @@
+/* Riley's selected temporary-surfaces study: Ink, with crisp edge depth.
+ * No composer overrides, wallpaper simulation, coloured light or gradients.
+ * Scoped to the new shell; classic UI and page-level ask rows stay unchanged. */
+:root[data-luca-frame]
+  :is(
+    .luca-room-stack[data-has-asks],
+    .luca-temporary-notice,
+    .luca-temporary-confirmation
+  ) {
+  --temporary-edge:
+    0 0 0 0.5px rgb(0 0 0 / 0.85), inset 0 1px 0 hsl(var(--mn-ink) / 0.05),
+    inset 0 0.5px 0 hsl(var(--mn-ink) / 0.06),
+    inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.09);
+  color: hsl(var(--mn-ink));
+}
+
+/* The sheet's unoccupied foot extends behind the existing composer. Only
+ * paint overlaps: no text or controls are hidden by the composer's edge. */
+:root[data-luca-frame] .luca-room-stack[data-has-asks] {
+  position: relative;
+  isolation: isolate;
+  padding-top: 10px;
+}
+:root[data-luca-frame] .luca-room-stack[data-has-asks]::before {
+  content: "";
+  position: absolute;
+  inset: 0 24px calc(-1 * var(--luca-temporary-tuck, 18px));
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 20px 20px 0 0;
+  background: var(--mn-card-finish), hsl(var(--mn-floor));
+  box-shadow: var(--temporary-edge);
+  animation: temporary-sheet-rise 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+:root[data-luca-frame] .luca-room-stack[data-has-asks] .luca-room-stack__head {
+  padding-inline: 44px;
+  padding-bottom: 4px;
+}
+:root[data-luca-frame] .luca-room-stack[data-has-asks] .luca-room-stack__asks {
+  padding-inline: 44px;
+}
+:root[data-luca-frame] .luca-room-stack__asks > .luca-ask + .luca-ask {
+  border-top: 0.5px solid hsl(var(--mn-ink) / 0.08);
+}
+:root[data-luca-frame] .luca-room-stack__asks .luca-place-row-title {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+:root[data-luca-frame] .luca-room-stack__asks .luca-place-row-summary {
+  white-space: normal;
+  line-height: 1.45;
+}
+:root[data-luca-frame] .luca-room-stack__fold {
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 5px 10px;
+  min-width: 0;
+}
+:root[data-luca-frame] .luca-room-stack__fold-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  color: hsl(var(--mn-ink-muted));
+}
+:root[data-luca-frame] .luca-room-stack__fold-show {
+  flex: none;
+}
+
+/* One-time approval is visually primary, with the exact same wire decision.
+ * Details remain before the choices in DOM and keyboard order. */
+:root[data-luca-frame]
+  .luca-room-stack
+  [data-permission-surface]
+  .luca-ask-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 14px;
+}
+:root[data-luca-frame]
+  .luca-room-stack
+  [data-permission-surface]
+  .luca-place-row-what {
+  grid-column: 1 / -1;
+}
+:root[data-luca-frame]
+  .luca-room-stack
+  [data-permission-surface]
+  .luca-ask-extra {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: center;
+  margin: 0;
+}
+:root[data-luca-frame]
+  .luca-room-stack
+  [data-permission-surface]
+  .luca-ask-answers {
+  grid-column: 2;
+  grid-row: 2;
+  justify-content: flex-end;
+  gap: 8px;
+}
+:root[data-luca-frame] .luca-room-stack .luca-quiet-button,
+:root[data-luca-frame] .luca-temporary-notice button,
+:root[data-luca-frame] .luca-temporary-confirmation button {
+  border: 0;
+  border-radius: 999px;
+  min-height: 30px;
+  height: auto;
+  padding: 6px 14px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
+  color: hsl(var(--mn-ink));
+  background: hsl(var(--mn-ink) / 0.09);
+  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.11);
+}
+:root[data-luca-frame] .luca-room-stack [data-permission-choice="once"],
+:root[data-luca-frame]
+  .luca-temporary-confirmation
+  .luca-temporary-confirmation__allow {
+  color: hsl(var(--mn-floor));
+  background: hsl(var(--mn-ink));
+}
+:root[data-luca-frame] .luca-room-stack .luca-quiet-button:hover:not(:disabled),
+:root[data-luca-frame] .luca-temporary-notice button:hover,
+:root[data-luca-frame] .luca-temporary-confirmation button:hover {
+  filter: brightness(1.12);
+}
+:root[data-luca-frame] .luca-room-stack .luca-ask-details {
+  padding: 11px 14px;
+  border-radius: 12px;
+  background: hsl(var(--mn-ink) / 0.035);
+  box-shadow:
+    inset 0 0.5px 0 rgb(0 0 0 / 0.7),
+    inset 0 -0.5px 0 hsl(var(--mn-ink) / 0.07);
+}
+:root[data-luca-frame] .luca-room-stack .luca-ask-preview pre {
+  max-height: 160px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* Notices retain their original transcript location and authorization. */
+:root[data-luca-frame] .luca-temporary-notice {
+  padding: 14px 18px;
+  gap: 12px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--mn-card-finish), hsl(var(--mn-floor));
+  box-shadow: var(--temporary-edge);
+  flex-wrap: wrap;
+}
+:root[data-luca-frame] .luca-temporary-notice [data-slot="attachment-media"] {
+  background: transparent;
+  width: 24px;
+  height: 24px;
+}
+:root[data-luca-frame] .luca-temporary-notice [data-slot="attachment-content"] {
+  min-width: min(100%, 12rem);
+}
+:root[data-luca-frame]
+  .luca-temporary-notice
+  :is([data-slot="attachment-title"], [data-slot="attachment-description"]) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+:root[data-luca-frame] .luca-temporary-notice [data-slot="attachment-actions"] {
+  margin-left: auto;
+}
+:root[data-luca-frame] .luca-temporary-confirmation {
+  background: var(--mn-card-finish), hsl(var(--mn-floor));
+  border: 0;
+  border-radius: 22px;
+  padding: 22px;
+  box-shadow:
+    var(--temporary-edge),
+    0 24px 64px -20px rgb(0 0 0 / 0.6);
+}
+:root[data-luca-frame] .luca-temporary-confirmation h2 {
+  font-size: 1.0625rem;
+}
+
+@keyframes temporary-sheet-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-frame] .luca-room-stack[data-has-asks]::before {
+    animation: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-luca-frame]
+    :is(.luca-temporary-notice, .luca-temporary-confirmation),
+  :root[data-luca-frame] .luca-room-stack[data-has-asks]::before {
+    background-image: none;
+  }
+}
+@media (max-width: 600px) {
+  :root[data-luca-frame] .luca-room-stack[data-has-asks]::before {
+    inset-inline: 8px;
+  }
+  :root[data-luca-frame]
+    .luca-room-stack[data-has-asks]
+    :is(.luca-room-stack__head, .luca-room-stack__asks) {
+    padding-inline: 24px;
+  }
+  :root[data-luca-frame]
+    .luca-room-stack
+    [data-permission-surface]
+    .luca-ask-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-luca-frame]
+    .luca-room-stack
+    [data-permission-surface]
+    .luca-ask-answers {
+    grid-column: 1;
+    grid-row: 3;
+  }
+}

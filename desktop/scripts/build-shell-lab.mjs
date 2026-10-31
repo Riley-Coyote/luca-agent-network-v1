@@ -60,6 +60,13 @@ const emittedHtmlPath = path.join(
   OUT_DIR,
   path.relative(DESKTOP, TEMPLATE).replaceAll(path.sep, "/"),
 );
+// The living fingerprint uses a separate worker. A loopback-served preview
+// can use that worker normally; the default portable export still enforces
+// its strict single-file contract below.
+if (process.argv.includes("--served")) {
+  console.log(`Serve ${OUT_DIR}\nEntry: /scripts/shell-lab.template.html`);
+  process.exit(0);
+}
 const emittedHtml = fs.readFileSync(emittedHtmlPath, "utf8");
 
 const scriptMatch = emittedHtml.match(
