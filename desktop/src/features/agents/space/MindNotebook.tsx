@@ -76,7 +76,7 @@ import {
   groupMindDays,
   MIND_KIND_LABEL,
   type MindEntry,
-  namesInRoom,
+  dayWhoLine,
   type StreamArtifact,
 } from "./mindStream";
 import { isNewSince } from "./mindVisits";
@@ -1022,12 +1022,7 @@ function DayRow({
   others: readonly string[];
 }) {
   const Glyph = KIND_GLYPH[entry.kind];
-  const who = [
-    withYou(entry) ? "With you" : "On their own",
-    others.length > 0 ? `with ${namesInRoom(others)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const who = dayWhoLine(withYou(entry), others);
   const body = (
     <>
       <span

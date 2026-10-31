@@ -124,3 +124,43 @@ export function namesAnd(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
+
+/**
+ * Why a mind can or can't take time of their own now, in the header's own
+ * words (a stopped mind's header says Off), and what fixes it (WP-43,
+ * round 3). "Available" is the companion's
+ * private channel to their harness (`nativeChannelAvailable`): it exists
+ * only while their harness is running and offers it.
+ */
+export type AwayReason =
+  | { kind: "ready" }
+  | { kind: "setup"; text: string; action: string }
+  | { kind: "stopped"; text: string; action: string }
+  | { kind: "unsupported"; text: string };
+
+export function awayReason(input: {
+  name: string;
+  harness: string;
+  managed: boolean;
+  running: boolean;
+  channelAvailable: boolean;
+}): AwayReason {
+  const { name, harness } = input;
+  if (!input.managed)
+    return {
+      kind: "setup",
+      text: `${name} isn't set up on this Mac yet.`,
+      action: `Set up ${name}`,
+    };
+  if (input.channelAvailable) return { kind: "ready" };
+  if (!input.running)
+    return {
+      kind: "stopped",
+      text: `${name} is off. Start them to give them time of their own.`,
+      action: `Start ${name}`,
+    };
+  return {
+    kind: "unsupported",
+    text: `${harness} can't take time of their own yet.`,
+  };
+}

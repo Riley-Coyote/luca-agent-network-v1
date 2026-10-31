@@ -452,11 +452,11 @@ export function AgentsView({
                       void agents.handleStop(selectedManagedAgent.pubkey);
                     }
                   }}
-                  onRestart={() => {
-                    if (selectedManagedAgent) {
-                      void agents.handleRestart(selectedManagedAgent.pubkey);
-                    }
-                  }}
+                  onRestart={() =>
+                    selectedManagedAgent
+                      ? agents.handleRestart(selectedManagedAgent.pubkey)
+                      : undefined
+                  }
                   onToggleStartOnLaunch={(enabled) => {
                     if (selectedManagedAgent) {
                       void agents.handleToggleStartOnAppLaunch(

@@ -1086,31 +1086,17 @@ li.luca-mind-doc[data-quiet] :is(.luca-mind-doc-title, .luca-mind-excerpt) {
   outline: none;
 }
 
-/* One status line (Decided 4): it never wraps; a long one ends in an
- * ellipsis, its whole text in its title. */
+/* One status line (Decided 4): no sentence is ever cut; where the column
+ * is narrow it wraps under the name, a companion's part on its own line
+ * if it must (WP-43, round 3). */
 .luca-mind-now {
+  flex-wrap: wrap;
   min-width: 0;
-  white-space: nowrap;
+  row-gap: 2px;
 }
 
 .luca-mind-now > span:first-child {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Beside a companion's link the state is one short word: it keeps it,
- * and the link gives way. */
-.luca-mind-now > span:first-child:not(:only-child) {
-  flex: none;
-}
-
-.luca-mind-now > .luca-mind-quietlink {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .luca-mind-sep {
@@ -1635,13 +1621,11 @@ button.luca-mind-prow:hover {
 
 .luca-mind-prow-value {
   color: var(--mind-muted);
-  flex: none;
+  flex: 0 1 auto;
   font-size: 0.8125rem;
   max-width: 46%;
-  overflow: hidden;
+  overflow-wrap: anywhere;
   text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .luca-mind-prow-chevron {
@@ -1788,14 +1772,11 @@ button.luca-mind-prow:hover {
   color: hsl(var(--destructive));
 }
 
-/* The page stays: one plain line says why. */
-.luca-mind-stop {
-  border: 1px solid var(--mind-edge-hover);
-  border-radius: 8px;
+/* Leaving with unsaved changes: the row under the editor asks. */
+.luca-mind-leave {
   color: var(--mind-ink);
   font-size: 0.8125rem;
-  margin: 12px 0 0;
-  padding: 9px 12px;
+  margin: 0;
 }
 
 .luca-mind-reading {

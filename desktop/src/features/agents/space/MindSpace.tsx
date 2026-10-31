@@ -3,6 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 import { CircleAlert, Play, RotateCcw, Settings } from "lucide-react";
 
 import "@/app/shell/shell-mind-space.css";
+import { takeHistoryStep } from "@/app/navigation/leaveGuard";
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
 import {
   mindStateLabel,
@@ -18,10 +19,7 @@ import {
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 import { ResidentNotebookDetailView } from "@/features/profile/ui/notebook/ResidentNotebookDetailView";
 import { LogsSheet } from "@/features/agents/ui/AgentLibraryWorkspace";
-import {
-  residentSourceLabel,
-  type ResidentSummaryViewModel,
-} from "@/features/agents/ui/agentLibraryViewModel";
+import type { ResidentSummaryViewModel } from "@/features/agents/ui/agentLibraryViewModel";
 import { setCompanionWork } from "@/shared/api/companion";
 import {
   getResidentNotebookItem,
@@ -31,6 +29,7 @@ import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
 import {
   awayOn,
+  awayReason,
   followedWork,
   hasAwareness,
   isNoticing,
@@ -53,6 +52,7 @@ import {
   useResidentNotebookStream,
 } from "./MindNotebook";
 import { MindPlaceProvider, useMindPlace } from "./mindPlaceContext";
+import { harnessLabel } from "./mindRunsOn";
 import {
   mindBackLabel,
   mindPageDepth,
@@ -77,7 +77,10 @@ type Actions = {
   onEdit: () => void;
   onMessage: () => void;
   onOpenChannel: (channelId: string) => void;
-  onRestart: () => void;
+  /** Restarts them; the page shows it pending until it settles. */
+  onRestart: () => Promise<unknown> | undefined;
+  /** Their restart is under way (WP-43, round 3). */
+  restarting?: boolean;
   onStart: () => void;
   onStop: () => void;
   onToggleStartOnLaunch: (enabled: boolean) => void;
@@ -125,6 +128,19 @@ function MindFrame({
   const name = resident.displayName;
   const router = useRouter();
   const [logsOpen, setLogsOpen] = React.useState(false);
+  // A restart shows while it's under way, wherever you started it: the
+  // button says so and the status line too, then both settle.
+  const [restarting, setRestarting] = React.useState(false);
+  const runRestart = props.onRestart;
+  const onRestart = React.useCallback(async () => {
+    setRestarting(true);
+    try {
+      await runRestart();
+    } finally {
+      setRestarting(false);
+    }
+  }, [runRestart]);
+  const actions = { ...props, onRestart, restarting };
   const word = mindPageWord(page) ?? "";
   const pubkey = resident.pubkey;
 
@@ -156,7 +172,8 @@ function MindFrame({
     const parent = mindPageParent(page);
     if (!parent) return;
     const parentWord = mindPageWord(parent) ?? "";
-    if (pushed.current.get(word) === parentWord) router.history.back();
+    if (pushed.current.get(word) === parentWord)
+      takeHistoryStep((options) => router.history.back(options));
     else onPage(parent, { replace: true });
   }, [onPage, page, router.history, word]);
 
@@ -247,8 +264,8 @@ function MindFrame({
         <div className="luca-mind-push" data-dir={direction} key={word}>
           {page.kind === "place" ? (
             <MindPlace
-              {...props}
-              notebookOnPages={page.notebook === "pages"}
+              {...actions}
+              notebook={page.notebook ?? null}
               onGo={go}
               since={since}
               titleRef={titleRef}
@@ -265,7 +282,7 @@ function MindFrame({
             />
           ) : (
             <MindSettingsPage
-              {...props}
+              {...actions}
               backLabel={mindBackLabel(page, name) ?? name}
               onBack={back}
               onGo={go}
@@ -343,13 +360,15 @@ function MindMadePages({
  * nothing yet gets one box in place of the three.
  */
 function MindPlace({
-  notebookOnPages,
+  notebook: notebookAt,
   onGo,
   since,
   titleRef,
   ...props
 }: Actions & {
-  notebookOnPages: boolean;
+  /** A way in that names their Notebook: brought into view, on Pages when
+   *  it says so. */
+  notebook: "open" | "pages" | null;
   onGo: (page: MindPage) => void;
   since: number | null;
   titleRef: React.Ref<HTMLHeadingElement>;
@@ -384,12 +403,22 @@ function MindPlace({
     }
   };
 
+  // Brought into view once it is drawn.
+  const notebookSeen = React.useRef(false);
+  React.useEffect(() => {
+    if (!notebookAt || notebookSeen.current) return;
+    const section = document.querySelector('[data-testid="mind-notebook"]');
+    if (!section) return;
+    notebookSeen.current = true;
+    section.scrollIntoView({ block: "start" });
+  });
+
   const intro = place?.content.introduction.trim() ?? "";
   const exploring = place?.content.exploration.trim() ?? "";
   const written = notebook.items.some((item) => item.status === "active");
   const nothingYet =
     days.settled &&
-    (!placeState || !placeState.loading) &&
+    !placeState?.loading &&
     !intro &&
     !exploring &&
     !place?.content.selectedWork &&
@@ -450,9 +479,11 @@ function MindPlace({
       ) : null}
       {nothingYet ? (
         <MindEmptyPlace
+          harness={harnessLabel(resident)}
           managedAgent={managedAgent}
           name={name}
           onMessage={props.onMessage}
+          onStart={props.onStart}
         />
       ) : (
         <div className="luca-mind-parts">
@@ -473,7 +504,7 @@ function MindPlace({
             notebook={notebook}
             onOpenItem={(itemId) => void openItem(itemId)}
             onOpenReading={(doc) => onGo({ kind: "reading", doc })}
-            openOnPages={notebookOnPages}
+            openOnPages={notebookAt === "pages"}
             since={since}
           />
           <MindDaysSection
@@ -562,13 +593,17 @@ function MindWords({
 /** A new mind with nothing yet (Decided 9): one box in place of the three
  *  sections, and two ways to begin. */
 function MindEmptyPlace({
+  harness,
   managedAgent,
   name,
   onMessage,
+  onStart,
 }: {
+  harness: string;
   managedAgent: ManagedAgent | null;
   name: string;
   onMessage: () => void;
+  onStart: () => void;
 }) {
   const companion = useMindCompanion(managedAgent?.pubkey ?? null);
   const { error, operate, pending } = useCompanionOperate(
@@ -576,7 +611,18 @@ function MindEmptyPlace({
   );
   const [reviewing, setReviewing] = React.useState(false);
   const loaded = companion.data;
-  const canAway = Boolean(loaded?.work.nativeChannelAvailable);
+  const already = Boolean(loaded && awayOn(loaded));
+  // The real reason, in the header's words, and the fix beside it (WP-43,
+  // round 3): when it can't be used it isn't the main action.
+  const reason = awayReason({
+    channelAvailable: Boolean(loaded?.work.nativeChannelAvailable),
+    harness,
+    managed: Boolean(managedAgent),
+    name,
+    running:
+      managedAgent?.status === "running" || managedAgent?.status === "deployed",
+  });
+  const giveTime = !already && reason.kind === "ready" && Boolean(loaded);
   return (
     <div
       className="luca-mind-box luca-mind-empty-place"
@@ -596,7 +642,7 @@ function MindEmptyPlace({
           <div className="luca-mind-actions">
             <button
               className="luca-mind-button"
-              disabled={pending || !canAway}
+              disabled={pending}
               onClick={() =>
                 void operate((resident, data) =>
                   setCompanionWork(resident, data.work, true, false),
@@ -615,40 +661,74 @@ function MindEmptyPlace({
             </button>
           </div>
         </div>
-      ) : (
+      ) : giveTime ? (
         <div className="luca-mind-actions">
-          {managedAgent && loaded && !awayOn(loaded) ? (
-            <button
-              className="luca-mind-button"
-              data-testid="mind-give-time"
-              disabled={pending || !canAway}
-              onClick={() => setReviewing(true)}
-              title={
-                canAway ? undefined : `Start ${name} before giving them time.`
-              }
-              type="button"
-            >
-              Give {name} time of their own
-            </button>
-          ) : null}
+          <button
+            className="luca-mind-button"
+            data-testid="mind-give-time"
+            disabled={pending}
+            onClick={() => setReviewing(true)}
+            type="button"
+          >
+            Give {name} time of their own
+          </button>
           <button
             className="luca-mind-inline"
             data-testid="mind-start-conversation"
-            disabled={!managedAgent}
             onClick={onMessage}
             type="button"
           >
-            {managedAgent && loaded && !awayOn(loaded)
-              ? "or start a conversation"
-              : "Start a conversation"}
+            or start a conversation
           </button>
         </div>
+      ) : (
+        <>
+          <div className="luca-mind-actions">
+            {managedAgent ? (
+              <button
+                className="luca-mind-button"
+                data-testid="mind-start-conversation"
+                onClick={onMessage}
+                type="button"
+              >
+                Start a conversation
+              </button>
+            ) : null}
+            {reason.kind === "setup" ? (
+              <button
+                className="luca-mind-button"
+                data-testid="mind-away-fix"
+                onClick={onStart}
+                type="button"
+              >
+                {reason.action}
+              </button>
+            ) : null}
+          </div>
+          {!already && reason.kind !== "ready" ? (
+            <p
+              className="luca-mind-meta luca-mind-away-reason"
+              data-reason={reason.kind}
+              data-testid="mind-away-reason"
+            >
+              Time of their own: {reason.text}
+              {reason.kind === "stopped" ? (
+                <>
+                  {" "}
+                  <button
+                    className="luca-mind-inline"
+                    data-testid="mind-away-fix"
+                    onClick={onStart}
+                    type="button"
+                  >
+                    {reason.action}
+                  </button>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+        </>
       )}
-      {managedAgent && loaded && !canAway && !awayOn(loaded) ? (
-        <p className="luca-mind-meta">
-          Start {name} before giving them time of their own.
-        </p>
-      ) : null}
       {error ? (
         <p className="luca-mind-error" role="alert">
           {error}
@@ -721,6 +801,7 @@ function MindHeader({
   onMessage,
   onStart,
   resident,
+  restarting,
   titleRef,
 }: Actions & {
   onGo: (page: MindPage) => void;
@@ -788,6 +869,7 @@ function MindHeader({
     }
     return mindStateLabel(state);
   }, [agentWorking, channelsQuery.data, key, side, state, talk, task]);
+  const shown = restarting ? `Restarting ${resident.displayName}…` : now;
 
   // A companion at rest says what it keeps up with: a quiet way to
   // Settings › Keeps up with.
@@ -799,7 +881,7 @@ function MindHeader({
     followed.length > 0;
 
   const runs = [
-    residentSourceLabel(resident),
+    harnessLabel(resident),
     managedAgent || resident.modelLabel
       ? (resident.modelLabel ?? "Default model")
       : null,
@@ -834,14 +916,16 @@ function MindHeader({
         <p
           className="luca-mind-now"
           data-live={
-            state === "working" || state === "talking" ? "true" : undefined
+            restarting || state === "working" || state === "talking"
+              ? "true"
+              : undefined
           }
           data-mind-state={state}
           data-testid="mind-now"
           data-working={state === "working" ? "true" : undefined}
         >
-          <span title={now}>{now}</span>
-          {keepingUp ? (
+          <span>{shown}</span>
+          {keepingUp && !restarting ? (
             <>
               <span aria-hidden className="luca-mind-sep">
                 ·

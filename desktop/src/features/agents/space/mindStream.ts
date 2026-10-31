@@ -305,3 +305,13 @@ export function namesInRoom(names: readonly string[]): string {
   if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
   return `${names[0]}, ${names[1]} and ${names.length - 2} others`;
 }
+
+/** A Days entry's second line: with you or on their own, then, for a talk
+ *  in a room, the other minds who were there (WP-43). */
+export function dayWhoLine(
+  withYou: boolean,
+  others: readonly string[],
+): string {
+  const who = withYou ? "With you" : "On their own";
+  return others.length > 0 ? `${who} · with ${namesInRoom(others)}` : who;
+}

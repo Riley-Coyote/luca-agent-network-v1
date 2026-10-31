@@ -246,3 +246,22 @@ test("WP-43: a talk entry names the other minds in its room", async () => {
     "Fifty, Trinity and 2 others",
   );
 });
+
+test("WP-43: a Days entry's second line, with 0, 1, 2, 3 and 4+ other minds", async () => {
+  const { dayWhoLine } = await import("./mindStream.ts");
+  assert.equal(dayWhoLine(true, []), "With you");
+  assert.equal(dayWhoLine(false, []), "On their own");
+  assert.equal(dayWhoLine(true, ["Fifty"]), "With you · with Fifty");
+  assert.equal(
+    dayWhoLine(false, ["Fifty", "Trinity"]),
+    "On their own · with Fifty and Trinity",
+  );
+  assert.equal(
+    dayWhoLine(false, ["Fifty", "Trinity", "ziggy"]),
+    "On their own · with Fifty, Trinity and ziggy",
+  );
+  assert.equal(
+    dayWhoLine(true, ["Fifty", "Trinity", "ziggy", "Atlas", "Kestrel"]),
+    "With you · with Fifty, Trinity and 3 others",
+  );
+});

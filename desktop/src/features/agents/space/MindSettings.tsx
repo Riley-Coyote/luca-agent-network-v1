@@ -29,7 +29,6 @@ import { artifactMcpCapabilityPresentation } from "@/features/agents/lib/artifac
 import { ResidentModelMenu } from "@/features/agents/ui/ResidentModelMenu";
 import {
   agentConfigurationViewModel,
-  residentSourceLabel,
   type ResidentSummaryViewModel,
 } from "@/features/agents/ui/agentLibraryViewModel";
 import { BrainMindAccess } from "@/features/luca/brain/BrainMindAccess";
@@ -53,6 +52,7 @@ import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
 import { Switch } from "@/shared/ui/switch";
 import {
   awayOn,
+  awayReason,
   followedWork,
   hasAwareness,
   isNoticing,
@@ -64,7 +64,11 @@ import { MindDocPane } from "./MindDocPane";
 import { MindKeepsUpWith } from "./MindKeepsUpWith";
 import { MindGroup, MindPageHead, MindRow } from "./MindPageKit";
 import { useMindPlace } from "./mindPlaceContext";
-import { agentOriginDescription, authorityLabel } from "./mindRunsOn";
+import {
+  agentOriginDescription,
+  authorityLabel,
+  harnessLabel,
+} from "./mindRunsOn";
 import type { MindPage, MindPane } from "./mindSection";
 
 type SettingsProps = {
@@ -76,7 +80,8 @@ type SettingsProps = {
   onEdit: () => void;
   onGo: (page: MindPage) => void;
   onOpenLogs: () => void;
-  onRestart: () => void;
+  onRestart: () => Promise<unknown> | undefined;
+  restarting?: boolean;
   onStart: () => void;
   onStop: () => void;
   onToggleStartOnLaunch: (enabled: boolean) => void;
@@ -152,8 +157,9 @@ function paneHead(
 export function MindSettingsPage(props: SettingsProps) {
   const { managedAgent, page, resident } = props;
   const name = resident.displayName;
-  const surface = useAgentConfigSurface(managedAgent?.pubkey ?? null);
-  const harness = surface.data?.runtimeLabel ?? residentSourceLabel(resident);
+  // One value for what runs them, the header's (WP-43, round 3): the config
+  // surface's own label is never a second name.
+  const harness = harnessLabel(resident);
   const documents = useResidentDocumentsQuery(managedAgent?.pubkey ?? null);
   const nativeRuntime =
     documents.data?.source === "native"
@@ -327,6 +333,7 @@ function SettingsRoot({
   onToggleStartOnLaunch,
   persona,
   resident,
+  restarting = false,
   titleRef,
 }: SettingsProps & { harness: string }) {
   const name = resident.displayName;
@@ -424,7 +431,11 @@ function SettingsRoot({
                 label="Instructions"
                 onOpen={() => onGo({ kind: "pane", pane: "instructions" })}
                 testId="mind-row-instructions"
-                value={docValue("instructions")}
+                value={
+                  docOf("instructions")?.exists === false
+                    ? "Not set"
+                    : docValue("instructions")
+                }
               />
             )}
           </>
@@ -435,14 +446,22 @@ function SettingsRoot({
             onOpen={() => onGo({ kind: "pane", pane: "instructions" })}
             testId="mind-row-instructions"
           />
+        ) : documents.isPending && managedAgent ? (
+          <p className="luca-mind-help luca-mind-panel-note">{"\u00a0"}</p>
         ) : (
-          <p className="luca-mind-help luca-mind-panel-note">
-            {managedAgent
-              ? documents.isError
-                ? "Couldn't read their folder."
-                : " "
-              : `${name} doesn't have a folder yet. Their documents are laid down when they're set up.`}
-          </p>
+          // No folder and no instructions: the row says so, and opens the
+          // page where they're written (Advanced…).
+          <MindRow
+            help={
+              managedAgent && documents.isError
+                ? "Couldn't read their folder. You can still write their instructions."
+                : `${name} doesn't have a folder yet; their other documents are laid down when they're set up.`
+            }
+            label="Instructions"
+            onOpen={() => onGo({ kind: "pane", pane: "instructions" })}
+            testId="mind-row-instructions"
+            value="Not set"
+          />
         )}
       </MindGroup>
 
@@ -520,23 +539,29 @@ function SettingsRoot({
             testId="mind-row-noticing"
           />
           <AwayRow
+            harness={harness}
             loaded={loaded}
             name={name}
             onReview={setReviewAway}
+            onStart={onStart}
             operate={operate}
             pending={pending}
             reviewing={reviewAway}
+            running={isRunning}
           />
         </MindGroup>
       ) : managedAgent && loaded ? (
         <MindGroup testId="mind-group-own" title="On their own">
           <AwayRow
+            harness={harness}
             loaded={loaded}
             name={name}
             onReview={setReviewAway}
+            onStart={onStart}
             operate={operate}
             pending={pending}
             reviewing={reviewAway}
+            running={isRunning}
           />
         </MindGroup>
       ) : null}
@@ -678,21 +703,24 @@ function SettingsRoot({
       <div className="luca-mind-settings-foot">
         {managedAgent ? (
           <>
-            {isRunning && managedAgent.backend.type === "local" ? (
+            {restarting ||
+            (isRunning && managedAgent.backend.type === "local") ? (
               <button
+                aria-live="polite"
                 className="luca-mind-button"
                 data-testid="mind-restart"
-                disabled={isActionPending}
-                onClick={onRestart}
+                disabled={isActionPending || restarting}
+                onClick={() => void onRestart()}
                 type="button"
               >
-                <RotateCcw aria-hidden /> Restart {name}
+                <RotateCcw aria-hidden />
+                {restarting ? `Restarting ${name}…` : `Restart ${name}`}
               </button>
             ) : null}
             <button
               className="luca-mind-button"
               data-testid="mind-stop-start"
-              disabled={isActionPending}
+              disabled={isActionPending || restarting}
               onClick={isRunning ? onStop : onStart}
               type="button"
             >
@@ -718,22 +746,36 @@ function SettingsRoot({
 /** While you're away (Decided 11): a switch; turning it on asks today's
  *  question first. */
 function AwayRow({
+  harness,
   loaded,
   name,
   onReview,
+  onStart,
   operate,
   pending,
   reviewing,
+  running,
 }: {
+  harness: string;
   loaded: NonNullable<ReturnType<typeof useMindCompanion>["data"]>;
   name: string;
   onReview: (value: boolean) => void;
+  onStart: () => void;
   operate: ReturnType<typeof useCompanionOperate>["operate"];
   pending: boolean;
   reviewing: boolean;
+  running: boolean;
 }) {
   const on = awayOn(loaded);
-  const available = loaded.work.nativeChannelAvailable;
+  // The same reason the empty place gives, and its fix (WP-43, round 3).
+  const reason = awayReason({
+    channelAvailable: loaded.work.nativeChannelAvailable,
+    harness,
+    managed: true,
+    name,
+    running,
+  });
+  const available = reason.kind === "ready";
   return (
     <>
       <MindRow
@@ -753,9 +795,26 @@ function AwayRow({
           />
         }
         help={
-          !on && !available
-            ? `Start ${name} before giving them time of their own.`
-            : `Small pursuits of their own. What they make stays on their page.`
+          !on && reason.kind !== "ready" ? (
+            <span data-reason={reason.kind} data-testid="mind-away-reason">
+              {reason.text}
+              {reason.kind === "stopped" ? (
+                <>
+                  {" "}
+                  <button
+                    className="luca-mind-inline"
+                    data-testid="mind-away-fix"
+                    onClick={onStart}
+                    type="button"
+                  >
+                    {reason.action}
+                  </button>
+                </>
+              ) : null}
+            </span>
+          ) : (
+            "Small pursuits of their own. What they make stays on their page."
+          )
         }
         label="While you're away"
         testId="mind-row-away"
@@ -817,7 +876,7 @@ function InstructionsPane({ managedAgent, onEdit, persona }: SettingsProps) {
     <>
       <div className="luca-mind-panel luca-mind-reading">
         <p className="luca-mind-reading-text">
-          {text || "No instructions set."}
+          {text || "No instructions set. Write them with Advanced…"}
         </p>
       </div>
       <div className="luca-mind-actions">
@@ -1049,7 +1108,7 @@ function HarnessPane({ managedAgent, onEdit, resident }: SettingsProps) {
   return (
     <>
       <MindGroup title="What runs them">
-        <MindRow label="Runtime" value={residentSourceLabel(resident)} />
+        <MindRow label="Runtime" value={harnessLabel(resident)} />
         {binding?.executablePath || managedAgent?.agentCommand ? (
           <MindRow
             label="Program"
@@ -1073,7 +1132,7 @@ function HarnessPane({ managedAgent, onEdit, resident }: SettingsProps) {
         ) : null}
         {thinking ? (
           <MindRow
-            help={`From ${surface.data?.runtimeLabel ?? "the harness"}'s own settings`}
+            help={`From ${harnessLabel(resident)}'s own settings`}
             label="Thinking"
             value={thinking}
           />
