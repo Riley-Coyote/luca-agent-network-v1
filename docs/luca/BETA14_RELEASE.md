@@ -1112,3 +1112,19 @@ Nothing may be lost. The seeds:
   - **Restart** reads "Restarting {name}…", disabled, and the status line says so, until it settles.
   - **No cut sentences:** the status line wraps under the name.
   - **Instructions not set** say "Not set" and open where they're written.
+- *Round 4 (the re-walk of round 3):*
+  - **The browser's own step forward** with unsaved changes is held the same way as the app's steps: heard before
+    the router hears it (a capture listener added before the router is made) and stepped straight back, so while the
+    row asks, and after Keep editing or Esc, the address, the title bar and a reload all stay on the page. The
+    browser's step back stays with the router's blocker, which restores it rightly.
+  - **Fresh moves start at the top.** A page opened by a link, a drawer row, a rail row or a button starts scrolled
+    to the top; only a step back or forward comes back to where that page was, kept per history entry
+    (`features/agents/space/mindScroll.ts`). The router keeps one scroll for every agent page (its key is the path),
+    so the page places itself after the router has.
+  - **The breathing dot** is held to its sentence's first word and never sits alone on a line.
+  - **Small ones:** after a drawer jump focus lands on the page's heading; the drawer's runtime line names the
+    harness as the page does ("Claude Code"); mid-restart the footer keeps "Stop {name}", held, never "Start"; an
+    old address word with no new home (`profileTab=channels`) is dropped too, so no old parameter lingers.
+  - **Empty-place lines,** said once and the same in Settings › Companion › While you're away: "{Harness} can't take
+    time of their own yet."; "{name} is off, so they can't take time of their own." [Start {name}]; "{name} is off and
+    isn't set up on this Mac yet." [Set up {name}].
