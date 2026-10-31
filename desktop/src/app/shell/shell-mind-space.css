@@ -98,14 +98,20 @@
   margin-top: 2px;
 }
 
-/* Live, working or talking: the breathing dot (WP-21, 2). */
-.luca-mind-now[data-live]::before {
+/* Live, working or talking: the breathing dot (WP-21, 2), held to the
+ * sentence's first word so it travels with it (WP-43, round 4). */
+.luca-mind-lead {
+  white-space: nowrap;
+}
+
+.luca-mind-dot {
   animation: luca-mind-breathe 2.4s ease-in-out infinite;
   background: hsl(var(--mn-ink));
   border-radius: 50%;
-  content: "";
-  flex: none;
+  display: inline-block;
   height: 6px;
+  margin-right: 7px;
+  vertical-align: 0.1em;
   width: 6px;
 }
 
@@ -1917,7 +1923,7 @@ button.luca-mind-prow:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .luca-mind-now[data-live]::before {
+  .luca-mind-dot {
     animation: none;
     opacity: 1;
   }

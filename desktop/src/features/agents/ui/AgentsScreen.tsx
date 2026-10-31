@@ -86,7 +86,16 @@ export function AgentsScreen() {
         section: values.section,
       })
     : null;
-  const legacyWord = legacyPage ? (mindPageWord(legacyPage) ?? "") : null;
+  // An old word with no new home (profileTab=channels) is dropped all the
+  // same, so old parameters never linger in the address (WP-43, round 4).
+  const holdsOld = Boolean(
+    values.at || values.profileTab || values.profileView || values.section,
+  );
+  const legacyWord = legacyPage
+    ? (mindPageWord(legacyPage) ?? "")
+    : shellFrame && holdsOld
+      ? (values.page ?? "")
+      : null;
   React.useEffect(() => {
     if (legacyWord === null) return;
     applyPatch(

@@ -717,6 +717,8 @@ function SettingsRoot({
                 {restarting ? `Restarting ${name}…` : `Restart ${name}`}
               </button>
             ) : null}
+            {/* Mid-restart it stays "Stop", held: never "Start" while
+                the restart is under way (WP-43, round 4). */}
             <button
               className="luca-mind-button"
               data-testid="mind-stop-start"
@@ -724,8 +726,12 @@ function SettingsRoot({
               onClick={isRunning ? onStop : onStart}
               type="button"
             >
-              {isRunning ? <Square aria-hidden /> : <Play aria-hidden />}
-              {isRunning ? `Stop ${name}` : `Start ${name}`}
+              {isRunning || restarting ? (
+                <Square aria-hidden />
+              ) : (
+                <Play aria-hidden />
+              )}
+              {isRunning || restarting ? `Stop ${name}` : `Start ${name}`}
             </button>
           </>
         ) : (

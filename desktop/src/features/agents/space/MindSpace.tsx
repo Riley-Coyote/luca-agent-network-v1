@@ -62,6 +62,7 @@ import {
 } from "./mindSection";
 import { MindSettingsPage } from "./MindSettings";
 import { setMindPageTitle } from "./mindPageTitle";
+import { arrivedByStep, useArrivalPlacement } from "./mindScroll";
 import { lastVisitOf, recordVisit } from "./mindVisits";
 
 /** The specimen's box, for the lab's 52 body (WP-40): it draws its body at
@@ -210,19 +211,17 @@ function MindFrame({
         : "none";
   const titleRef = React.useRef<HTMLHeadingElement | null>(null);
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
-  const scrolls = React.useRef(new Map<string, number>());
   const arrived = React.useRef(false);
-  const lastWord = React.useRef(word);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `word` names the page; each new one's title takes focus.
   React.useLayoutEffect(() => {
     lastDepth.current = depth;
-    const scroller = scrollerRef.current;
-    if (lastWord.current !== word && scroller) {
-      scroller.scrollTop = scrolls.current.get(word) ?? 0;
-    }
-    lastWord.current = word;
     if (arrived.current) titleRef.current?.focus({ preventScroll: true });
     arrived.current = true;
   }, [depth, word]);
+
+  // Fresh moves start at the top, steps come back to where the page was,
+  // and a fresh arrival's title takes focus (mindScroll.ts, round 4).
+  const rememberHere = useArrivalPlacement(scrollerRef, titleRef);
 
   // The title bar says where you are (BETA14_RELEASE.md WP-43, the title
   // bar): "{name}" on their page, "{name} · {this page's title}" on a page
@@ -255,9 +254,7 @@ function MindFrame({
       className="luca-place-page luca-mind"
       data-mind-page={page.kind}
       data-testid="mind-space"
-      onScroll={(event) =>
-        scrolls.current.set(word, event.currentTarget.scrollTop)
-      }
+      onScroll={(event) => rememberHere(event.currentTarget.scrollTop)}
       ref={scrollerRef}
     >
       <div className="luca-place-page-axis">
@@ -407,6 +404,11 @@ function MindPlace({
   const notebookSeen = React.useRef(false);
   React.useEffect(() => {
     if (!notebookAt || notebookSeen.current) return;
+    // A step back to it comes back to where it was instead.
+    if (arrivedByStep()) {
+      notebookSeen.current = true;
+      return;
+    }
     const section = document.querySelector('[data-testid="mind-notebook"]');
     if (!section) return;
     notebookSeen.current = true;
@@ -711,7 +713,7 @@ function MindEmptyPlace({
               data-reason={reason.kind}
               data-testid="mind-away-reason"
             >
-              Time of their own: {reason.text}
+              {reason.text}
               {reason.kind === "stopped" ? (
                 <>
                   {" "}
@@ -870,6 +872,10 @@ function MindHeader({
     return mindStateLabel(state);
   }, [agentWorking, channelsQuery.data, key, side, state, talk, task]);
   const shown = restarting ? `Restarting ${resident.displayName}…` : now;
+  const live = restarting || state === "working" || state === "talking";
+  const space = shown.indexOf(" ");
+  const firstWord = space < 0 ? shown : shown.slice(0, space);
+  const restWords = space < 0 ? "" : shown.slice(space);
 
   // A companion at rest says what it keeps up with: a quiet way to
   // Settings › Keeps up with.
@@ -915,16 +921,24 @@ function MindHeader({
         </h1>
         <p
           className="luca-mind-now"
-          data-live={
-            restarting || state === "working" || state === "talking"
-              ? "true"
-              : undefined
-          }
+          data-live={live ? "true" : undefined}
           data-mind-state={state}
           data-testid="mind-now"
           data-working={state === "working" ? "true" : undefined}
         >
-          <span>{shown}</span>
+          <span>
+            {live ? (
+              // The breathing dot travels with its sentence, held to the
+              // first word so it is never alone on a line (WP-43, round 4).
+              <span className="luca-mind-lead">
+                <span aria-hidden className="luca-mind-dot" />
+                {firstWord}
+              </span>
+            ) : (
+              firstWord
+            )}
+            {restWords}
+          </span>
           {keepingUp && !restarting ? (
             <>
               <span aria-hidden className="luca-mind-sep">

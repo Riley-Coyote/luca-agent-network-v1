@@ -149,14 +149,14 @@ export function awayReason(input: {
   if (!input.managed)
     return {
       kind: "setup",
-      text: `${name} isn't set up on this Mac yet.`,
+      text: `${name} is off and isn't set up on this Mac yet.`,
       action: `Set up ${name}`,
     };
   if (input.channelAvailable) return { kind: "ready" };
   if (!input.running)
     return {
       kind: "stopped",
-      text: `${name} is off. Start them to give them time of their own.`,
+      text: `${name} is off, so they can't take time of their own.`,
       action: `Start ${name}`,
     };
   return {

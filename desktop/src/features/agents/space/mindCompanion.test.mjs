@@ -15,7 +15,7 @@ test("WP-43: not set up says so, and offers Set up", () => {
     }),
     {
       kind: "setup",
-      text: "Atlas isn't set up on this Mac yet.",
+      text: "Atlas is off and isn't set up on this Mac yet.",
       action: "Set up Atlas",
     },
   );
@@ -31,7 +31,7 @@ test("WP-43: a mind that's off is started first", () => {
     }),
     {
       kind: "stopped",
-      text: "Atlas is off. Start them to give them time of their own.",
+      text: "Atlas is off, so they can't take time of their own.",
       action: "Start Atlas",
     },
   );

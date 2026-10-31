@@ -5,7 +5,10 @@ import {
   mindStateLabel,
   useMindState,
 } from "@/features/agents/lib/useMindState";
-import { managedAgentSummary } from "@/features/agents/ui/agentLibraryViewModel";
+import {
+  managedAgentSummary,
+  residentSourceLabel,
+} from "@/features/agents/ui/agentLibraryViewModel";
 import { ResidentModelMenu } from "@/features/agents/ui/ResidentModelMenu";
 import { useResidentModelChoice } from "@/features/agents/ui/useResidentModelChoice";
 import {
@@ -70,6 +73,11 @@ export function ResidentDrawer({
     waking: Boolean(agent.waking),
   });
   const stateLabel = shellFrame ? mindStateLabel(mindWord) : presentation.label;
+  // Under the shell, the harness by the name their page and Settings use
+  // (WP-43, round 4): "Claude Code", never the command that starts it.
+  const runtimeLabel = shellFrame
+    ? residentSourceLabel(managedAgentSummary(agent))
+    : model.runtimeLabel;
   const role =
     agent.personaId === CANONICAL_LUCA_PERSONA_ID
       ? LUCA_INTRO_ROLE
@@ -121,12 +129,12 @@ export function ResidentDrawer({
             data-testid="resident-drawer-state"
           >
             <span className="text-ink-muted">{stateLabel}</span>
-            {model.runtimeLabel ? (
+            {runtimeLabel ? (
               <>
                 <span aria-hidden className="text-ink-ghost">
                   ·
                 </span>
-                <span>{model.runtimeLabel}</span>
+                <span>{runtimeLabel}</span>
               </>
             ) : null}
           </p>
