@@ -1099,6 +1099,18 @@ li.luca-mind-doc[data-quiet] :is(.luca-mind-doc-title, .luca-mind-excerpt) {
   min-width: 0;
 }
 
+/* Where the column is narrow, the companion's part takes its own line,
+ * whole, with no dot left hanging at the end of the first. */
+@container (max-width: 640px) {
+  .luca-mind-now > .luca-mind-sep {
+    display: none;
+  }
+
+  .luca-mind-now > .luca-mind-quietlink {
+    flex-basis: 100%;
+  }
+}
+
 .luca-mind-sep {
   color: var(--mind-faint);
 }
