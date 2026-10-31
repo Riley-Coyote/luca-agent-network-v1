@@ -33,3 +33,11 @@ export function authorityLabel(
     ? `Native-managed binding · ${appName}-managed overlays`
     : `${appName}-managed`;
 }
+
+/**
+ * What runs a mind, said one way everywhere on their pages: the header, the
+ * Settings row, the Harness pane and "{Harness} settings" (WP-43, round 3).
+ */
+export function harnessLabel(resident: ResidentSummaryViewModel): string {
+  return residentSourceLabel(resident);
+}

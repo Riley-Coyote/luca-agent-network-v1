@@ -893,16 +893,20 @@ test("5 and 6: the chosen piece's name; the tiles fade on 120", async ({
 }) => {
   await boot(page, { hash: "/agents", place: true });
   await openLuca(page);
-  const piece = page.getByTestId("resident-place-selected-work");
+  // The chosen piece is their page's first Made tile, Pinned (WP-43,
+  // Decided 7); its name is read on its button.
+  const piece = page.getByTestId("mind-made-tile").first();
   await expect(piece).toBeVisible({ timeout: 20_000 });
+  await expect(piece).toContainText("Pinned");
   const thumb = {
     aria_label: await piece.getAttribute("aria-label"),
     by_role: await page
       .getByRole("button", { name: "Open Tide pools at night", exact: true })
       .count(),
   };
-  // The first Tab stop after the tabs is the piece: its name read there.
-  await page.getByTestId("mind-tab-notebook").focus();
+  // The first Tab stop after Made's See all is the piece: its name read
+  // there (the tabs are retired, WP-43).
+  await page.getByTestId("mind-made-all").focus();
   await page.keyboard.press("Tab");
   const focused = await page.evaluate(() => ({
     testid: document.activeElement?.getAttribute("data-testid"),
@@ -910,7 +914,7 @@ test("5 and 6: the chosen piece's name; the tiles fade on 120", async ({
   }));
   record("thumb_name", {
     thumb,
-    first_tab_after_tabs: focused,
+    first_tab_after_see_all: focused,
     ok: thumb.aria_label === "Open Tide pools at night" && thumb.by_role === 1,
   });
   expect.soft(thumb.by_role, "thumb_name").toBe(1);

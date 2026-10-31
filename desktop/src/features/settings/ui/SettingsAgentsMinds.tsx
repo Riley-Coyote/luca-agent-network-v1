@@ -15,6 +15,8 @@ import {
 } from "@/features/agents/hooks";
 import { getPersonaLibraryState } from "@/features/agents/lib/catalog";
 import {
+  mindPageOfLegacy,
+  mindPageWord,
   mindSettingsAtOfTab,
   type MindSettingsAt,
 } from "@/features/agents/space/mindSection";
@@ -103,10 +105,15 @@ export function SettingsAgentsMinds() {
         : `persona:${resident.personaId ?? resident.residentId}`;
       void navigate({
         to: "/agents",
+        // Straight to the page itself (WP-43): Settings, or the pane the
+        // old tab named.
         search: {
           ...searchForPick("agents", {}, id),
-          section: "settings",
-          ...(at ? { at } : {}),
+          page: mindPageWord(
+            at
+              ? (mindPageOfLegacy({ at }) ?? { kind: "settings" })
+              : { kind: "settings" },
+          ),
         },
         replace,
       } as never);

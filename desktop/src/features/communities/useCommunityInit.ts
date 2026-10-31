@@ -21,6 +21,8 @@ import {
 } from "@/features/agents/activeAgentTurnsStore";
 import { resetAgentWorkingSignal } from "@/features/agents/agentWorkingSignal";
 import { resetAgentObserverStore } from "@/features/agents/observerRelayStore";
+import { resetMindPageTitle } from "@/features/agents/space/mindPageTitle";
+import { resetMindVisits } from "@/features/agents/space/mindVisits";
 import { resetExchangeStore } from "@/features/exchange/exchangeStore";
 import { resetOpenSide } from "@/features/exchange/openSide";
 import { resetPaneState } from "@/features/panes/paneState";
@@ -69,6 +71,8 @@ function resetCommunityState(): void {
   resetBackgroundTasks();
   resetAgentColumnStore();
   resetShellStatus();
+  resetMindVisits();
+  resetMindPageTitle();
 }
 
 type CommunityInitResult =

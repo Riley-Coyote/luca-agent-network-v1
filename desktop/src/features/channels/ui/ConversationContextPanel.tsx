@@ -329,9 +329,32 @@ export function ConversationContextPanel({
         >
           <ResidentDrawer
             agent={activeResident.agent}
-            onOpenAgent={(section) =>
-              goAgent(activeResident.agent.pubkey, { section })
-            }
+            onOpenAgent={(target) => {
+              const agent = activeResident.agent;
+              if (!shellFrame) {
+                // The classic page's own sections, unchanged.
+                const section =
+                  target === "page" || target === "instructions"
+                    ? "documents"
+                    : target;
+                void goAgent(agent.pubkey, { section });
+                return;
+              }
+              // Under the shell, each link's real home (WP-43, round 3):
+              // their page at the top; their instructions where they live
+              // (a native runtime's are named in Settings, the rest open
+              // the Instructions row's own page); Notebook; Settings.
+              void goAgent(agent.pubkey, {
+                page:
+                  target === "page"
+                    ? { kind: "place" }
+                    : target === "notebook"
+                      ? { kind: "place", notebook: "open" }
+                      : target === "settings" || agent.nativeRuntimeBinding
+                        ? { kind: "settings" }
+                        : { kind: "pane", pane: "instructions" },
+              });
+            }}
             persona={activeResident.persona}
             presentation={activeResidentPresentation}
           />

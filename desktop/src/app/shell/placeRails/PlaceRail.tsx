@@ -44,6 +44,8 @@ export const PLACE_ROUTE: Record<
 /** Words a new pick in Agents starts without: the open tab, a profile
  *  panel's view, a request already answered. */
 const AGENTS_CLEARED = [
+  "at",
+  "page",
   "profileTab",
   "profileView",
   "review",
@@ -103,7 +105,16 @@ function PlaceRailBody({
   });
 
   const choose = (id: string) => {
-    if (id === pick && pathname === PLACE_ROUTE[place]) {
+    // Picking a mind always opens their page (WP-43, Decided 1): the same
+    // mind again, from a page over theirs, still goes home.
+    const overTheirPage =
+      place === "agents" &&
+      Boolean(
+        new URLSearchParams(window.location.hash.split("?", 2)[1] ?? "").get(
+          "page",
+        ),
+      );
+    if (id === pick && pathname === PLACE_ROUTE[place] && !overTheirPage) {
       onPicked?.();
       return;
     }
@@ -240,7 +251,9 @@ function Row({
     >
       <button
         aria-current={picked ? "page" : undefined}
-        aria-label={row.note ? `${row.title}, ${row.note}` : row.title}
+        aria-label={[row.title, row.fresh ? "new" : null, row.note]
+          .filter(Boolean)
+          .join(", ")}
         className="luca-rail-row-hit"
         data-rail-focus="home"
         onClick={() => onPick(row.id)}
@@ -255,6 +268,13 @@ function Row({
       <span aria-hidden className="luca-rail-row-name text-sm">
         {row.title}
       </span>
+      {row.fresh ? (
+        <span
+          aria-hidden
+          className="luca-mind-newdot luca-rail-new"
+          data-testid={`place-row-new-${row.id}`}
+        />
+      ) : null}
       {row.note ? (
         <span aria-hidden className="luca-rail-note text-2xs">
           {row.note}

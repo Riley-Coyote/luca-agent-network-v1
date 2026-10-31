@@ -335,16 +335,15 @@ test("d1: the rail's words, and a row opens the mind's Settings", async ({
   await page.goto("/#/settings?section=agents");
   await page.getByTestId(`settings-mind-${ATLAS}`).locator("button").click();
   await expect(page.getByTestId("mind-space")).toBeVisible();
-  await expect(page.getByTestId("mind-tab-settings")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  const url = page.url();
-  const head = await page.getByTestId("mind-head").innerText();
+  // Their Settings is its own page now (WP-43): its title, back to them.
+  await expect(page.getByTestId("mind-settings-title")).toHaveText("Settings");
+  await expect(page.getByTestId("mind-back")).toHaveText("Atlas");
+  const url = decodeURIComponent(page.url());
+  const head = await page.getByTestId("agent-settings").innerText();
   const hash = await shot(page, "d1-row-opens-atlas-settings");
   measure("d1", { agree, rail: minds_, url, head, hash });
   expect(url).toContain(`profile=${ATLAS}`);
-  expect(url).toContain("section=settings");
+  expect(url).toContain("page=settings");
   for (const each of agree) expect(each.settings).toBe(each.rail);
   await context.close();
 });
@@ -411,22 +410,25 @@ for (const mode of ["dark", "light"] as const) {
           .__BUZZ_E2E_COMMANDS__ ?? []),
       ]);
 
-    // Every section is open (BETA14_RELEASE.md WP-40, Decided 3): nothing
-    // to open before its controls are used.
-    // Connected app and model: instructions, runtime configuration, Recheck.
-    const instructions = page.getByTestId("mind-setting-instructions");
-    // The mock seeds no managed instructions: the detail's own words for
-    // that, now in the row.
-    await expect(instructions).toContainText(
-      "No Polyphonic-managed instructions set.",
-    );
+    // Every control is one row or one pane away (BETA14_RELEASE.md WP-43,
+    // Decided 11 and 12).
+    // Instructions: Atlas has a folder, so its Instructions row is its own
+    // instructions.md (Decided 13, shown once); none written says "Not set"
+    // (WP-43, round 3).
+    const instructions = page.getByTestId("mind-row-instructions");
+    await expect(instructions).toContainText("Not set");
     used.instructions = await instructions.innerText();
-    const config = page.getByTestId("mind-setting-runtime-config");
-    await expect(config).toBeVisible();
-    await expect(config.getByText("Loading config…")).toHaveCount(0, {
+    // Runtime configuration: Advanced › {Harness} settings.
+    await page.getByTestId("mind-row-config").click();
+    const config = page.getByTestId("mind-config");
+    await expect(config).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/^Loading .* settings…$/)).toHaveCount(0, {
       timeout: 10_000,
     });
     used.runtimeConfig = (await config.innerText()).slice(0, 400);
+    await page.getByTestId("mind-back").click();
+    // Recheck: the Harness pane.
+    await page.getByTestId("mind-row-harness").click();
     const before = (await commands()).filter(
       (each) => each === "list_managed_agents",
     ).length;
@@ -439,30 +441,35 @@ for (const mode of ["dark", "light"] as const) {
       )
       .toBeGreaterThan(before);
     used.recheck = { before, after: (await commands()).length };
-    await page.getByTestId("mind-setting-runtime").scrollIntoViewIfNeeded();
     const runtimeHash = await shot(page, `d4-runtime-${mode}`);
+    await page.getByTestId("mind-back").click();
 
     // Permissions: Canvas tools, boundary, continuity, Manage MCP access.
+    await page.getByTestId("mind-row-permissions").click();
     const canvas = page.getByTestId("agent-artifact-mcp-capability");
     await expect(canvas).toBeVisible();
     used.canvas = {
       text: await canvas.innerText(),
       state: await canvas.getAttribute("data-capability-state"),
     };
-    const permissions = page.getByTestId("mind-setting-permissions");
+    expect(used.canvas.state).toBeTruthy();
+    const permissions = page.getByTestId("mind-pane-permissions");
     await expect(permissions.getByText("Fail closed")).toBeVisible();
     await expect(
       permissions.getByText("Private continuity jobs never receive MCP tools."),
     ).toBeVisible();
     await expect(page.getByTestId("resident-access-control")).toBeVisible();
-    await permissions.scrollIntoViewIfNeeded();
     const permissionsHash = await shot(page, `d4-permissions-${mode}`);
+    await page.getByTestId("mind-back").click();
 
-    // Identity: kind and authority.
-    const identity = page.getByTestId("mind-setting-identity");
+    // Identity: kind and authority, in Advanced › Network identity.
+    await page.getByTestId("mind-row-identity").click();
+    const identity = page.getByTestId("mind-pane-identity");
     await expect(identity.getByText("Kind")).toBeVisible();
     await expect(identity.getByText("Authority")).toBeVisible();
     used.identity = await identity.innerText();
+    await page.getByTestId("mind-back").click();
+    await expect(page.getByTestId("agent-settings")).toBeVisible();
 
     // Wakes with the app and its restart switch (already there) still work.
     await page.getByRole("switch", { name: "Wakes with the app" }).click();
@@ -478,6 +485,7 @@ for (const mode of ["dark", "light"] as const) {
       .toBe(true);
     used.switches = true;
 
+    await page.getByTestId("mind-row-permissions").click();
     await page.getByTestId("mind-setting-manage-mcp").click();
     await expect(page).toHaveURL(/section=connections/);
     used.manageMcp = page.url();
@@ -501,14 +509,14 @@ test("d4: an agent's request for its runtime lands in its own Settings", async (
   await expect(page.getByTestId("mind-space")).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByTestId("mind-tab-settings")).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
-  const url = page.url();
+  // Its runtime is Settings › Harness now (WP-43, Decided 3).
+  await expect(page.getByTestId("mind-pane-harness")).toBeVisible();
+  await expect(page.getByTestId("mind-back")).toHaveText("Settings");
+  const url = decodeURIComponent(page.url());
   const hash = await shot(page, "d4-way-in-800");
   measure("d4-way-in", { url, hash });
   expect(url).toContain(`profile=${ATLAS}`);
+  expect(url).toContain("page=settings/harness");
   await context.close();
 });
 
@@ -517,6 +525,14 @@ test("flag off: Settings > Agents the same as the base build", async ({
   browser,
 }) => {
   const result: Record<string, unknown> = {};
+  // With one port to serve on (WP-43), the base and this build are shot in
+  // two runs: FLAG_OFF_PHASE=base against the base build (twice, to prove it
+  // steady), then FLAG_OFF_PHASE=here against this one, which compares.
+  const phase = process.env.FLAG_OFF_PHASE;
+  const prior: Record<string, { base: string; baseAgain: string }> =
+    phase === "here"
+      ? JSON.parse(readFileSync(`${SHOTS}/measures/flag_off-base.json`, "utf8"))
+      : {};
   for (const [name, hash] of [
     ["agents", "/settings?section=agents"],
     [
@@ -530,7 +546,17 @@ test("flag off: Settings > Agents the same as the base build", async ({
   ] as const) {
     const hashes: string[] = [];
     const colours: number[] = [];
-    for (const [index, origin] of ["", BASE_URL, BASE_URL].entries()) {
+    const runs = (
+      [
+        ["here", ""],
+        ["base", BASE_URL],
+        ["base-again", BASE_URL],
+      ] as const
+    ).filter(
+      ([label]) =>
+        !phase || (phase === "here" ? label === "here" : label !== "here"),
+    );
+    for (const [label, origin] of runs) {
       const context = await browser.newContext({
         deviceScaleFactor: 2,
         viewport:
@@ -556,19 +582,34 @@ test("flag off: Settings > Agents the same as the base build", async ({
             node.setAttribute("data-flagoff-mask", "");
         }
       });
-      const label = ["here", "base", "base-again"][index];
       hashes.push(await shot(page, `flagoff-${name}-${label}`, true));
       colours.push(await page.evaluate(() => document.body.innerText.length));
       await context.close();
     }
+    if (phase === "base") {
+      result[name] = {
+        base: hashes[0],
+        baseAgain: hashes[1],
+        baseStable: hashes[0] === hashes[1],
+        textLength: colours,
+      };
+      continue;
+    }
+    const here = hashes[0];
+    const base = phase === "here" ? prior[name]?.base : hashes[1];
+    const baseAgain = phase === "here" ? prior[name]?.baseAgain : hashes[2];
     result[name] = {
-      here: hashes[0],
-      base: hashes[1],
-      baseAgain: hashes[2],
-      same: hashes[0] === hashes[1],
-      baseStable: hashes[1] === hashes[2],
+      here,
+      base,
+      baseAgain,
+      same: here === base,
+      baseStable: base === baseAgain,
       textLength: colours,
     };
+  }
+  if (phase === "base") {
+    measure("flag_off-base", result);
+    return;
   }
   measure("flag_off", result);
   for (const each of Object.values(result) as { same: boolean }[])

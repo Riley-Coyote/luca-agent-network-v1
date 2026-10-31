@@ -533,29 +533,30 @@ test("an agent's brain-review request opens Brain with its Connections in front"
   expect(commands).not.toContain("connect_connected_brain_source");
 });
 
-test("a mind's read row is that mind's own access, with Open Brain to the place", async ({
+// WP-43: What they can read is Settings › Can read, a pane of its own; a way
+// in that names it (`at=read`) lands on it, back to Settings.
+test("a mind's Can read pane is that mind's own access, with Open Brain to the place", async ({
   page,
 }) => {
   await boot(page, {
     hash: `/agents?profile=${LUCA}&section=settings&at=read`,
   });
-  const row = page.getByTestId("mind-what-they-can-read");
-  // Every section is open now; the one a way in names is lit (WP-40).
-  await expect(row).toHaveAttribute("data-lit", "true", { timeout: 20_000 });
+  const row = page.getByTestId("mind-pane-read");
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("mind-back")).toHaveText("Settings");
+  expect(
+    await page.evaluate(() => decodeURIComponent(location.hash)),
+  ).toContain("page=settings/read");
   await expect(page.getByTestId("mind-brain-access")).toBeVisible();
   await expect(
     page.getByTestId("mind-brain-source-connected-repository-luca"),
   ).toBeVisible({ timeout: 20_000 });
   const read = (pubkey: string) =>
-    page.getByTestId("mind-what-they-can-read").evaluate(
+    page.getByTestId("mind-pane-read").evaluate(
       (li, pubkey) => ({
         pubkey,
-        title: li.querySelector(".luca-mind-setting-title")?.textContent,
-        // The section is always open (WP-40); its summary is At a
-        // glance's Reads.
-        value: li.ownerDocument.querySelector(
-          "[data-testid='mind-at-a-glance'] [data-fact='Reads'] dd",
-        )?.textContent,
+        title: li.querySelector(".luca-mind-title")?.textContent,
+        lede: li.querySelector(".luca-mind-lede")?.textContent,
         everything: li.querySelector(
           "[data-testid='mind-brain-access-everything']",
         )?.textContent,
@@ -580,6 +581,14 @@ test("a mind's read row is that mind's own access, with Open Brain to the place"
   const luca = await read(LUCA);
   await row.evaluate((each) => each.scrollIntoView({ block: "start" }));
   const lucaShot = await shot(page, "b-luca-what-luca-can-read");
+  // Its summary is the Settings row's value, one step back.
+  await page.getByTestId("mind-back").click();
+  const value = await page
+    .getByTestId("mind-what-they-can-read")
+    .locator(".luca-mind-prow-value")
+    .textContent();
+  await page.getByTestId("mind-what-they-can-read").click();
+  await expect(page.getByTestId("mind-pane-read")).toBeVisible();
 
   // Exclude Luca from the repository, then restore: the row's own control.
   await page
@@ -603,9 +612,8 @@ test("a mind's read row is that mind's own access, with Open Brain to the place"
   await page.evaluate((atlas) => {
     window.location.hash = `#/agents?profile=${atlas}&section=settings&at=read`;
   }, ATLAS);
-  await expect(page.getByTestId("mind-what-they-can-read")).toHaveAttribute(
-    "data-lit",
-    "true",
+  await expect(page.getByTestId("mind-pane-read")).toContainText(
+    "What Brain has connected that Atlas may read.",
     { timeout: 20_000 },
   );
   await expect(
@@ -630,12 +638,14 @@ test("a mind's read row is that mind's own access, with Open Brain to the place"
     excluded,
     luca,
     lucaShot,
+    value,
     opened,
     restored,
   });
 
-  expect(luca.title).toBe("What Luca can read");
-  expect(luca.value).toBe("1 repository · 1 file");
+  expect(luca.title).toBe("Can read");
+  expect(luca.lede).toBe("What Brain has connected that Luca may read.");
+  expect(value).toBe("1 repository · 1 file");
   expect(luca.everything).toBe("Luca reads everything Brain connects.");
   expect(luca.sources.map((each) => [each.id, each.state])).toEqual([
     ["mind-brain-source-connected-repository-luca", "active"],
@@ -646,7 +656,8 @@ test("a mind's read row is that mind's own access, with Open Brain to the place"
   expect(luca.openBrain).toBe(true);
   expect(excluded.everything).toBeUndefined();
   expect(restored.everything).toBe("Luca reads everything Brain connects.");
-  expect(atlas.title).toBe("What Atlas can read");
+  expect(atlas.title).toBe("Can read");
+  expect(atlas.lede).toBe("What Brain has connected that Atlas may read.");
   expect(atlas.everything).toBeUndefined();
   expect(atlas.sources.map((each) => [each.state, each.controls])).toEqual([
     ["stale", ["Reconfirm resident"]],

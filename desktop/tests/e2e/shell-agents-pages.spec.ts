@@ -427,7 +427,7 @@ function hashOf(page: Page) {
   return page.evaluate(() => decodeURIComponent(window.location.hash));
 }
 
-async function openMind(page: Page, pubkey: string, tab?: string) {
+async function openMind(page: Page, pubkey: string) {
   await expect(page.getByTestId("place-rail-agents")).toBeVisible({
     timeout: 20_000,
   });
@@ -443,7 +443,6 @@ async function openMind(page: Page, pubkey: string, tab?: string) {
   await expect(page.getByTestId("mind-space")).toBeVisible({
     timeout: 20_000,
   });
-  if (tab) await page.getByTestId(`mind-tab-${tab}`).click();
 }
 
 /** Every rail head and row face in view, measured. */
@@ -565,375 +564,57 @@ for (const light of [false, true]) {
   });
 }
 
-/** Type and lines, measured where they are drawn. */
-function readPage(page: Page) {
-  return page.evaluate(() => {
-    const style = (selector: string) => {
-      const element = document.querySelector<HTMLElement>(selector);
-      if (!element) return null;
-      const css = getComputedStyle(element);
-      return {
-        size: css.fontSize,
-        weight: css.fontWeight,
-        family: css.fontFamily.split(",")[0].replaceAll('"', ""),
-        transform: css.textTransform,
-        color: css.color,
-      };
-    };
-    const border = (selector: string, side: "Top" | "Bottom" | "all") => {
-      const element = document.querySelector<HTMLElement>(selector);
-      if (!element) return null;
-      const css = getComputedStyle(element);
-      return side === "all"
-        ? `${css.borderTopWidth} ${css.borderTopColor}`
-        : css[`border${side}Color` as "borderTopColor"];
-    };
-    return {
-      name: style(".luca-mind-name"),
-      section: style(".luca-mind-h2"),
-      settingTitle: style(".luca-mind-setting-title"),
-      row: style(
-        ".luca-mind-row-title, .luca-mind-entry-text, .luca-mind-doc-title",
-      ),
-      help: style(".luca-mind-help, .luca-mind-intro"),
-      detail: style(".luca-mind-meta"),
-      label: style(".luca-mind-eyebrow"),
-      rules: {
-        section: border(
-          ".luca-mind-section, .luca-mind-setting + .luca-mind-setting",
-          "Top",
-        ),
-        soft: border(
-          ".luca-mind-field + .luca-mind-field, .luca-mind-rows > li + li",
-          "Top",
-        ),
-        edge: border(".luca-mind-box, .luca-mind-button", "all"),
-      },
-    };
-  });
-}
-
-test("Luca's Notebook: place, asks, the handoff, notes, journal and days", async ({
+/*
+ * WP-43 (BETA14_RELEASE.md, "Each agent's page is their place; Settings is
+ * yours") replaced WP-40's Notebook · Self · Settings tabs and its all-open
+ * Settings with two places. Their page, Settings, its panes and the ways in
+ * are proved in shell-agent-place.spec.ts; here, what WP-40 asserted about
+ * the tabs is asserted about the two places in their stead.
+ */
+test("WP-43: two places, no tabs; the old tab words land on their homes", async ({
   page,
 }) => {
   await boot(page);
   await openMind(page, LUCA);
-  const hashes: Record<string, string> = {};
-  const place = page.getByTestId("resident-place");
-  await expect(place.getByRole("heading", { name: "Place" })).toBeVisible();
-  await expect(page.getByTestId("resident-place-author")).toContainText(
-    "Written by Luca",
-  );
-  await expect(page.getByTestId("resident-place-author")).toContainText(
-    "revision 3",
-  );
-  await expect(page.getByTestId("resident-place-edit")).toHaveText(
-    /Edit place/,
-  );
-  for (const label of ["Introduction", "Exploring", "Selected work"])
-    await expect(place.locator("dt", { hasText: label })).toBeVisible();
-  await expect(
-    page.getByTestId("resident-place-selected-work").locator("img"),
-  ).toBeVisible({ timeout: 20_000 });
-  await expect(
-    place.getByRole("switch", { name: "Let Luca edit this place" }),
-  ).toBeVisible();
-  const asks = page.getByTestId("mind-asks");
-  await expect(asks.getByRole("heading", { name: /Asks you/ })).toContainText(
-    "1",
-  );
-  const asksBox = await asks.locator(".luca-mind-box").evaluate((box) => {
-    const css = getComputedStyle(box);
-    return {
-      border: `${css.borderTopWidth} ${css.borderTopStyle}`,
-      radius: css.borderRadius,
-      background: css.backgroundColor,
-    };
-  });
-  expect(asksBox.border).toBe("1px solid");
-  const type = await readPage(page);
-  hashes.notebook = await shot(page, "notebook-1440");
-
-  // The handoff: closed, then open.
-  const toggle = page.getByTestId("mind-handoff-toggle");
-  await expect(page.getByTestId("mind-handoff-line")).toContainText(
-    "revision 4",
-  );
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(toggle).toContainText("Show");
-  // The asks above it, the handoff closed under them.
-  await asks.evaluate((each) => each.scrollIntoView({ block: "start" }));
-  hashes["handoff-closed"] = await shot(page, "notebook-handoff-closed-1440");
-  const chevronClosed = await toggle
-    .locator(".luca-mind-opener-end svg")
-    .evaluate((svg) => getComputedStyle(svg).transform);
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  const parts = page.getByTestId("mind-handoff-parts");
-  for (const label of ["Summary", "Unresolved", "Commitments"])
-    await expect(parts.locator("dt", { hasText: label })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Correct handoff" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("switch", { name: "Enable handoff continuity" }),
-  ).toBeVisible();
-  await toggle.evaluate((each) =>
-    each.closest("section")?.scrollIntoView({ block: "start" }),
-  );
-  await page.waitForTimeout(250);
-  const chevronOpen = await toggle
-    .locator(".luca-mind-opener-end svg")
-    .evaluate((svg) => getComputedStyle(svg).transform);
-  hashes["handoff-open"] = await shot(page, "notebook-handoff-open-1440");
-  await toggle.click();
-
-  // The tabs: notes, journal, their days.
-  const notes = page.getByTestId("mind-notes");
-  await expect(page.getByTestId("mind-view-notes")).toContainText("3");
-  await expect(page.getByTestId("mind-view-journal")).toContainText("2");
-  await expect(notes.locator("li")).toHaveCount(3);
-  const noteRows = await notes.locator("li").evaluateAll((items) =>
-    items.map((li) => ({
-      kind: li.querySelector(".luca-mind-eyebrow")?.textContent,
-      words: li.querySelector(".luca-mind-entry-text")?.textContent,
-      meta: li.querySelector(".luca-mind-meta")?.textContent,
-      date: li.querySelector("time")?.textContent,
-    })),
-  );
-  expect(noteRows[0]?.kind).toBe("Explicit preference");
-  expect(noteRows[1]?.meta).toBe(
-    "Written by you · pinned · revision 2 · 2 sources",
-  );
-  await page
-    .getByTestId("mind-view-notes")
-    .evaluate((each) =>
-      each.closest("section")?.scrollIntoView({ block: "start" }),
-    );
-  // A note that opens shows it under the pointer.
-  await notes.locator("button").first().hover();
-  hashes.notes = await shot(page, "notebook-notes-1440");
-  await page.getByTestId("mind-view-journal").click();
-  await expect(page.getByTestId("mind-journal").locator("li")).toHaveCount(2);
-  await expect(page.getByTestId("mind-new-page")).toBeVisible();
-  hashes.journal = await shot(page, "notebook-journal-1440");
-  await page.getByTestId("mind-view-days").click();
-  await expect(page.getByTestId("mind-entry").first()).toBeVisible({
-    timeout: 20_000,
-  });
-  hashes.days = await shot(page, "notebook-days-1440");
-  // An entry still opens to be read and corrected.
-  await page.getByTestId("mind-view-notes").click();
-  await notes.locator("button").first().click();
-  await expect(
-    page.getByText("You read long drafts after lunch"),
-  ).toBeVisible();
-  measure("notebook", {
-    asksBox,
-    chevron: { closed: chevronClosed, open: chevronOpen },
-    hashes,
-    noteRows,
-    type,
-  });
-  expect(chevronOpen).not.toBe(chevronClosed);
-});
-
-test("Self and Settings: rows that open, every section open", async ({
-  page,
-}) => {
-  await boot(page);
-  await openMind(page, LUCA, "self");
-  const self = page.getByTestId("mind-self");
-  await expect(self.locator("> li")).toHaveCount(6);
-  const docs = await self.locator("> li").evaluateAll((items) =>
-    items.map((li) => ({
-      title: li.querySelector(".luca-mind-doc-title")?.firstChild?.textContent,
-      file: li.querySelector(".luca-mind-file")?.textContent,
-      line: li.querySelector(".luca-mind-excerpt")?.textContent,
-      who: li.querySelector(".luca-mind-writer")?.textContent,
-      chevron: Boolean(li.querySelector(".luca-mind-chevron")),
-    })),
-  );
-  expect(docs[0]).toMatchObject({ title: "Soul", file: "soul.md" });
-  expect(docs.every((doc) => doc.chevron)).toBe(true);
-  expect(docs.some((doc) => doc.line === "Not written yet")).toBe(true);
-  await expect(page.getByTestId("resident-extra-files")).toContainText(
-    "More files",
-  );
-  await expect(page.getByTestId("resident-new-file")).toBeVisible();
-  const selfType = await readPage(page);
-  const hashes: Record<string, string> = {};
-  hashes.self = await shot(page, "self-1440");
-
-  await page.getByTestId("mind-tab-settings").click();
-  const settings = page.getByTestId("agent-settings");
-  await expect(settings).toBeVisible();
-  await page.waitForTimeout(600);
-  const sections = await settings.locator("> li").evaluateAll((items) =>
-    items.map((li) => {
-      const label = li.querySelector<HTMLElement>(".luca-mind-setting-label");
-      const body = li.querySelector<HTMLElement>(".luca-mind-setting-body");
-      return {
-        label: li.querySelector(".luca-mind-eyebrow")?.textContent,
-        title: li.querySelector(".luca-mind-setting-title")?.textContent,
-        titleSize: li.querySelector(".luca-mind-setting-title")
-          ? getComputedStyle(
-              li.querySelector(".luca-mind-setting-title") as Element,
-            ).fontSize
-          : null,
-        bodyVisible: Boolean(body && body.getBoundingClientRect().height > 0),
-        twoColumns:
-          label && body
-            ? body.getBoundingClientRect().left >
-              label.getBoundingClientRect().right
-            : false,
-        hidden: li.querySelectorAll("[aria-expanded='false']").length,
-      };
-    }),
-  );
-  expect(sections.length).toBeGreaterThan(5);
-  for (const section of sections) {
-    expect(section.bodyVisible, section.title ?? "").toBe(true);
-    expect(section.twoColumns, section.title ?? "").toBe(true);
-    expect(section.titleSize).toBe("17px");
-  }
-  expect(sections[0]?.title).toBe("What runs Luca");
-  expect(sections[1]?.title).toBe("When Luca runs");
-  await expect(page.getByTestId("agent-settings-model")).toBeVisible();
-  await expect(
-    page.getByRole("switch", { name: "Wakes with the app" }),
-  ).toBeVisible();
-  await expect(page.getByTestId("mind-open-brain")).toBeVisible({
-    timeout: 20_000,
-  });
-  const settingsType = await readPage(page);
-  hashes.settings = await shot(page, "settings-1440");
-  await page.mouse.wheel(0, 900);
-  hashes["settings-lower"] = await shot(page, "settings-lower-1440");
-  measure("self-settings", { docs, hashes, sections, selfType, settingsType });
-});
-
-test("long agent instructions stay inside Settings beside At a glance", async ({
-  page,
-}) => {
-  const instructions = [
-    "Help the owner follow their projects, ask before changing permissions, and keep their work private.",
-    `/Users/example/Documents/Projects/${"project".repeat(32)}/notes.md`,
-    "Use the selected runtime and report blockers clearly. ".repeat(30),
-  ].join("\n\n");
-  await boot(page, { systemPrompt: instructions });
-  await openMind(page, LUCA, "settings");
-  await expect(page.getByTestId("mind-setting-instructions")).toContainText(
-    instructions,
-  );
-
-  for (const width of [1440, 1280, 1000, 800]) {
-    await page.setViewportSize({ width, height: 900 });
-    await waitForAnimations(page);
-    const bounds = await page
-      .getByTestId("mind-setting-runtime")
-      .evaluate((row) => {
-        const body = row.querySelector<HTMLElement>(".luca-mind-setting-body");
-        if (!body) throw new Error("Settings body missing");
-        const rect = body.getBoundingClientRect();
-        const instructions = body.querySelector<HTMLElement>(
-          '[data-testid="mind-setting-instructions"]',
-        );
-        if (!instructions) throw new Error("Instructions missing");
-        return {
-          bodyWidth: rect.width,
-          bodyOverflow: body.scrollWidth - body.clientWidth,
-          instructionsOverflow:
-            instructions.scrollWidth - instructions.clientWidth,
-          outside: Array.from(body.children)
-            .filter(
-              (child) => child.getBoundingClientRect().right > rect.right + 1,
-            )
-            .map((child) => child.getAttribute("data-testid") ?? child.tagName),
-        };
-      });
-    measure(`settings-long-${width}`, bounds);
-    await shot(page, `settings-long-${width}`);
-    expect(bounds.bodyWidth).toBeGreaterThan(150);
-    expect(bounds.outside, `${width}px: children stay in their column`).toEqual(
-      [],
-    );
-    expect(
-      bounds.bodyOverflow,
-      `${width}px: no horizontal overflow`,
-    ).toBeLessThanOrEqual(1);
-    expect(
-      bounds.instructionsOverflow,
-      `${width}px: long paths wrap`,
-    ).toBeLessThanOrEqual(1);
-  }
-});
-
-test("an agent with little in it: each empty part says what it will hold", async ({
-  page,
-}) => {
-  await boot(page);
-  await openMind(page, ATLAS);
-  await expect(page.getByTestId("mind-asks-empty")).toContainText(
-    "Nothing waiting on you",
-  );
-  await expect(page.getByTestId("mind-handoff-line")).toContainText(
-    "Nothing saved yet",
-  );
-  await expect(page.getByTestId("mind-notes-empty")).toContainText(
-    "No continuity notes yet",
-  );
-  const hashes: Record<string, string> = {};
-  hashes.empty = await shot(page, "empty-atlas-notebook-1440");
-  await page.getByTestId("mind-view-journal").click();
-  await expect(page.getByTestId("mind-journal-empty")).toContainText(
-    "No journal pages yet",
-  );
-  await page.getByTestId("mind-view-days").click();
-  await expect(page.getByTestId("mind-notebook-empty")).toBeVisible({
-    timeout: 20_000,
-  });
-  hashes.days = await shot(page, "empty-atlas-days-1440");
-  await page.getByTestId("mind-tab-self").click();
-  await expect(page.getByTestId("mind-self")).toBeVisible();
-  hashes.self = await shot(page, "empty-atlas-self-1440");
-  measure("empty", { hashes });
-});
-
-test("at 800 × 500 the pages still read", async ({ page }) => {
-  await page.setViewportSize({ width: 800, height: 500 });
-  await boot(page);
-  await openMind(page, LUCA);
-  await expect(page.getByTestId("resident-place")).toBeVisible();
-  const hashes: Record<string, string> = {};
-  hashes.notebook = await shot(page, "notebook-800");
-  await page.getByTestId("mind-handoff-toggle").click();
-  await page
-    .getByTestId("mind-handoff-toggle")
-    .evaluate((each) =>
-      each.closest("section")?.scrollIntoView({ block: "start" }),
-    );
-  hashes.handoff = await shot(page, "notebook-handoff-open-800");
-  await page.getByTestId("mind-handoff-toggle").click();
-  await page
-    .getByTestId("mind-view-notes")
-    .evaluate((each) =>
-      each.closest("section")?.scrollIntoView({ block: "start" }),
-    );
-  hashes.notes = await shot(page, "notebook-notes-800");
-  await page.getByTestId("mind-tab-self").click();
-  await expect(page.getByTestId("mind-self")).toBeVisible();
-  hashes.self = await shot(page, "self-800");
-  await page.getByTestId("mind-tab-settings").click();
+  await expect(page.getByRole("tablist")).toHaveCount(0);
+  await expect(page.getByTestId("mind-place")).toBeVisible();
+  await page.getByTestId("mind-open-settings").click();
   await expect(page.getByTestId("agent-settings")).toBeVisible();
-  await page.waitForTimeout(500);
-  hashes.settings = await shot(page, "settings-800");
+  await expect(page.getByTestId("mind-back")).toHaveText("Luca");
+  await page.getByTestId("mind-back").click();
+  await expect(page.getByTestId("mind-place")).toBeVisible();
+  for (const [section, testId] of [
+    ["settings", "agent-settings"],
+    // Self held what you write: Settings, at Who {name} is (WP-43, round 3).
+    ["self", "mind-group-who"],
+    ["notebook", "mind-place"],
+  ] as const) {
+    await page.goto(`/#/agents?profile=${LUCA}&section=${section}`);
+    await expect(page.getByTestId(testId)).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => hashOf(page)).not.toContain("section=");
+  }
+});
+
+test("WP-43: an agent's long instructions are shown once, inside Settings", async ({
+  page,
+}) => {
+  const longPrompt = `Warm, exact, and unhurried. ${"Follow the release checklist. ".repeat(40)}`;
+  await boot(page, { systemPrompt: longPrompt });
+  await page.goto(`/#/agents?profile=${LUCA}&page=settings`);
+  const settings = page.getByTestId("agent-settings");
+  await expect(settings).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("mind-row-instructions")).toBeVisible();
+  // The folder's documents are what Luca reads, so the runtime's prompt
+  // built from them isn't shown again (WP-43, Decided 13).
+  expect(await settings.textContent()).not.toContain(
+    "Follow the release checklist.",
+  );
   const overflow = await page.evaluate(() => {
-    const card = document.querySelector<HTMLElement>(".luca-place-page");
-    return card ? card.scrollWidth - card.clientWidth : -1;
+    const space = document.querySelector('[data-testid="mind-space"]');
+    return space ? space.scrollWidth - space.clientWidth : -1;
   });
   expect(overflow).toBeLessThanOrEqual(0);
-  measure("narrow", { hashes, overflow });
+  measure("shown-once", { overflow });
 });
 
 test("flag off: the classic agents page and the rail match the base", async ({
@@ -941,10 +622,17 @@ test("flag off: the classic agents page and the rail match the base", async ({
 }) => {
   const hashes: Record<string, Record<string, string>> = {};
   const colors: Record<string, number> = {};
-  for (const [build, origin] of [
-    ["base", BASE_URL],
-    ["here", ""],
-  ] as const) {
+  // With one port to serve on (WP-43), the base and this build are shot in
+  // two runs: FLAG_OFF_PHASE=base against the base build, then
+  // FLAG_OFF_PHASE=here against this one, which compares the two.
+  const phase = process.env.FLAG_OFF_PHASE;
+  const builds = (
+    [
+      ["base", BASE_URL],
+      ["here", ""],
+    ] as const
+  ).filter(([build]) => !phase || build === phase);
+  for (const [build, origin] of builds) {
     const context = await browser.newContext({
       deviceScaleFactor: 2,
       viewport: { width: 1440, height: 900 },
@@ -958,6 +646,13 @@ test("flag off: the classic agents page and the rail match the base", async ({
       [
         "agent-luca",
         async () => {
+          await expect(
+            page
+              .getByRole("button")
+              .filter({ hasText: "Luca" })
+              .filter({ hasText: "wakes with the app" })
+              .first(),
+          ).toBeVisible({ timeout: 20_000 });
           await page
             .getByRole("button")
             .filter({ hasText: "Luca" })
@@ -1019,8 +714,15 @@ test("flag off: the classic agents page and the rail match the base", async ({
     }
     await context.close();
   }
-  measure("flag-off", { base: BASE_URL, colors, hashes });
   for (const value of Object.values(colors)) expect(value).toBeGreaterThan(8);
+  if (phase) {
+    measure(`flag-off-${phase}`, { colors, hashes: hashes[phase] });
+    if (phase === "base") return;
+    hashes.base = JSON.parse(
+      readFileSync(`${SHOTS}/measures/flag-off-base.json`, "utf8"),
+    ).hashes;
+  }
+  measure("flag-off", { base: phase ? "two runs" : BASE_URL, colors, hashes });
   expect(hashes.here).toEqual(hashes.base);
 });
 

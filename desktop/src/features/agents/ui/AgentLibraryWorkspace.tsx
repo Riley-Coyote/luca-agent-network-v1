@@ -43,8 +43,6 @@ import {
   type ResidentSummaryViewModel,
 } from "./agentLibraryViewModel";
 import { ManagedAgentLogPanel } from "./ManagedAgentLogPanel";
-import { MindSettings } from "@/features/agents/space/MindSettings";
-import type { MindSettingsAt } from "@/features/agents/space/mindSection";
 import { ResidentModelMenu } from "./ResidentModelMenu";
 import { CharacterAppearancePicker } from "./CharacterAppearancePicker";
 
@@ -507,35 +505,21 @@ function NotebookSection({
 
 export function SettingsSection({
   channels,
-  focusAt = null,
-  isActionPending = false,
-  layout = "page",
   managedAgent,
   onEdit,
   onOpenChannel,
-  onOpenLogs,
-  onFocusAtConsumed,
   onRestart,
   onStart,
-  onStop,
   onToggleStartOnLaunch,
   persona,
   resident,
 }: {
   channels: Array<{ id: string; name: string }>;
-  /** `space`: the row a way in names, opened, in view and lit. */
-  focusAt?: MindSettingsAt | null;
-  isActionPending?: boolean;
-  /** `space`: a mind's Settings tab (WP-13, Decided 5). */
-  layout?: "page" | "space";
   managedAgent: ManagedAgent | null;
   onEdit: () => void;
   onOpenChannel: (channelId: string) => void;
-  onOpenLogs?: () => void;
-  onFocusAtConsumed?: () => void;
   onRestart: () => void;
   onStart: () => void;
-  onStop?: () => void;
   onToggleStartOnLaunch: (enabled: boolean) => void;
   persona: AgentPersona | null;
   resident: ResidentSummaryViewModel;
@@ -543,26 +527,6 @@ export function SettingsSection({
   const autoRestart = useSetManagedAgentAutoRestartMutation();
   const nativeBinding = managedAgent?.nativeRuntimeBinding;
   const workspace = nativeBinding?.defaultWorkspace;
-  if (layout === "space") {
-    return (
-      <MindSettings
-        channels={channels}
-        focusAt={focusAt}
-        isActionPending={isActionPending}
-        managedAgent={managedAgent}
-        onEdit={onEdit}
-        onOpenChannel={onOpenChannel}
-        onOpenLogs={onOpenLogs}
-        onFocusAtConsumed={onFocusAtConsumed}
-        onRestart={onRestart}
-        onStart={onStart}
-        onStop={onStop}
-        onToggleStartOnLaunch={onToggleStartOnLaunch}
-        persona={persona}
-        resident={resident}
-      />
-    );
-  }
 
   return (
     <div

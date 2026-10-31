@@ -52,8 +52,7 @@ import {
   type AgentLibrarySection,
 } from "./AgentLibraryWorkspace";
 import { MindSpace } from "@/features/agents/space/MindSpace";
-import type { MindSettingsAt } from "@/features/agents/space/mindSection";
-import type { MindSection } from "@/features/agents/space/mindSection";
+import type { MindPage } from "@/features/agents/space/mindSection";
 import {
   buildResidentLibrary,
   type ResidentSummaryViewModel,
@@ -61,14 +60,14 @@ import {
 
 const AGENT_LIBRARY_SINGLE_PANE_BREAKPOINT_PX = 600;
 
+const PLACE: MindPage = { kind: "place" };
+
 export function AgentsView({
   addRequest = null,
-  focusAt = null,
   groupId = null,
-  mindSection = "notebook",
+  mindPage = PLACE,
   onAddConsumed,
-  onMindSectionChange,
-  onFocusAtConsumed,
+  onMindPage,
   onClearSelection,
   onReviewNativeConsumed,
   onSectionChange,
@@ -81,16 +80,12 @@ export function AgentsView({
 }: {
   /** Under the shell: the rail's `+` asking for Add agent or New group. */
   addRequest?: "agent" | "group" | null;
-  /** Under the shell: open the mind's space at What they can read. */
-  /** Under the shell: the row of a mind's Settings a way in names. */
-  focusAt?: MindSettingsAt | null;
   /** Under the shell: the group picked in the rail. */
   groupId?: string | null;
-  /** Under the shell: the mind's tab (WP-13). */
-  mindSection?: MindSection;
+  /** Under the shell: their page, or the page slid in over it (WP-43). */
+  mindPage?: MindPage;
   onAddConsumed?: () => void;
-  onMindSectionChange?: (section: MindSection) => void;
-  onFocusAtConsumed?: () => void;
+  onMindPage?: (page: MindPage, options?: { replace?: boolean }) => void;
   onClearSelection: () => void;
   onReviewNativeConsumed: () => void;
   onSectionChange: (section: AgentLibrarySection) => void;
@@ -443,9 +438,8 @@ export function AgentsView({
                   onOpenChannel={(channelId) => {
                     void goChannel(channelId);
                   }}
-                  onSectionChange={(next) => onMindSectionChange?.(next)}
-                  focusAt={focusAt}
-                  onFocusAtConsumed={() => onFocusAtConsumed?.()}
+                  onPage={(next, options) => onMindPage?.(next, options)}
+                  page={mindPage}
                   onStart={() => {
                     if (selectedManagedAgent) {
                       void agents.handleStart(selectedManagedAgent.pubkey);
@@ -458,11 +452,11 @@ export function AgentsView({
                       void agents.handleStop(selectedManagedAgent.pubkey);
                     }
                   }}
-                  onRestart={() => {
-                    if (selectedManagedAgent) {
-                      void agents.handleRestart(selectedManagedAgent.pubkey);
-                    }
-                  }}
+                  onRestart={() =>
+                    selectedManagedAgent
+                      ? agents.handleRestart(selectedManagedAgent.pubkey)
+                      : undefined
+                  }
                   onToggleStartOnLaunch={(enabled) => {
                     if (selectedManagedAgent) {
                       void agents.handleToggleStartOnAppLaunch(
@@ -473,7 +467,6 @@ export function AgentsView({
                   }}
                   persona={selectedPersona}
                   resident={selectedResident}
-                  section={mindSection}
                 />
               ) : (
                 <AgentLibraryWorkspace

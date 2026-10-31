@@ -5,6 +5,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 
+import { takeHistoryStep } from "@/app/navigation/leaveGuard";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { isMacPlatform } from "@/shared/lib/platform";
 import { trimMapToSize } from "@/shared/lib/trimMapToSize";
@@ -65,12 +66,14 @@ export function useBackForwardControls() {
 
   const canGoForward = locationIndex < maxIndex;
 
+  // A page with unsaved changes may hold the step and take it on its answer
+  // (leaveGuard.ts); taken then, the router's own blocker has had its say.
   const goBack = React.useCallback(() => {
     if (!canGoBack) {
       return;
     }
 
-    router.history.back();
+    takeHistoryStep((options) => router.history.back(options));
   }, [canGoBack, router.history]);
 
   const goForward = React.useCallback(() => {
@@ -78,7 +81,7 @@ export function useBackForwardControls() {
       return;
     }
 
-    router.history.forward();
+    takeHistoryStep((options) => router.history.forward(options));
   }, [canGoForward, router.history]);
 
   const handleKeyDown = React.useEffectEvent((event: KeyboardEvent) => {

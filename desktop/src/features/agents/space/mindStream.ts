@@ -78,6 +78,8 @@ export type MindEntry = {
   /** The notebook item this entry opens, when it is one. */
   notebookItemId?: string;
   made?: StreamArtifact;
+  /** The conversation it happened in, when it was one: its room opens. */
+  channelId?: string | null;
 };
 
 export type MindDay = { key: string; label: string; entries: MindEntry[] };
@@ -235,6 +237,7 @@ export function buildMindEntries(input: MindStreamInput): MindEntry[] {
       kind: forYouOrOwn(record.channelId, input.memberChannelIds),
       at,
       text: record.object ? `${record.verb}: ${record.object}` : record.verb,
+      channelId: record.channelId,
     });
   }
   for (const [key, group] of talk) {
@@ -247,6 +250,7 @@ export function buildMindEntries(input: MindStreamInput): MindEntry[] {
       kind: forYouOrOwn(group.channelId, input.memberChannelIds),
       at: group.at,
       text: `${where} · ${group.count} ${group.count === 1 ? "message" : "messages"}`,
+      channelId: group.channelId,
     });
   }
 
@@ -288,4 +292,26 @@ export function groupMindDays(
     day.entries.push(entry);
   }
   return days;
+}
+
+/**
+ * The other minds in a room, as a Days talk entry names them (WP-43, Riley's
+ * call on Works with): "A and B", "A, B and C", "A, B and 2 others".
+ */
+export function namesInRoom(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0] ?? "";
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`;
+}
+
+/** A Days entry's second line: with you or on their own, then, for a talk
+ *  in a room, the other minds who were there (WP-43). */
+export function dayWhoLine(
+  withYou: boolean,
+  others: readonly string[],
+): string {
+  const who = withYou ? "With you" : "On their own";
+  return others.length > 0 ? `${who} · with ${namesInRoom(others)}` : who;
 }

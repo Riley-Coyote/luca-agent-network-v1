@@ -406,20 +406,20 @@ test("the control: a note with words is still drawn, under its day", async ({
   expect(words).toContain("created this channel");
 });
 
-// ── 2 · an empty Notebook, its line only once its sources settle ──────
+// ── 2 · an empty place, its box only once its sources settle ──────────
+// WP-43: a mind with nothing yet gets one box in place of Made, Notebook and
+// Days (Decided 9); it is held to the same rule as the old empty line.
 async function openNotebook(page: Page) {
   await page
     .getByTestId(`place-row-mind:${ATLAS}`)
     .locator(".luca-rail-row-hit")
     .click();
+  // Their page is the Notebook's home now, its days a section of it, and a
+  // mind with nothing yet has one box in their place (BETA14_RELEASE.md
+  // WP-43, Decided 7 and 9).
   await expect(page.getByTestId("mind-space")).toBeVisible({
     timeout: 20_000,
   });
-  await page.getByTestId("mind-tab-notebook").click();
-  await expect(page.getByTestId("mind-notebook")).toBeVisible();
-  // Their days is the Notebook's third tab now (BETA14_RELEASE.md WP-40,
-  // Decided 3).
-  await page.getByTestId("mind-view-days").click();
 }
 
 /** Every frame, whether the line is there and whether a day is. */
@@ -433,8 +433,7 @@ const sampleFrames = (page: Page) =>
         at: performance.now(),
         day: document.querySelector('[data-testid="mind-entry"]') !== null,
         line:
-          document.querySelector('[data-testid="mind-notebook-empty"]') !==
-          null,
+          document.querySelector('[data-testid="mind-empty-place"]') !== null,
       });
       requestAnimationFrame(tick);
     };
@@ -466,7 +465,7 @@ const DELAYS = {
 };
 
 for (const mode of ["dark", "light"] as Mode[]) {
-  test(`empty Notebook: the line once its sources settle, ${mode}`, async ({
+  test(`empty place: the box once its sources settle, ${mode}`, async ({
     page,
   }) => {
     const log: string[] = [];
@@ -489,22 +488,18 @@ for (const mode of ["dark", "light"] as Mode[]) {
     await sampleFrames(page);
     const opened = await page.evaluate(() => performance.now());
     await openNotebook(page);
-    await expect(page.getByTestId("mind-notebook-empty")).toBeVisible({
+    await expect(page.getByTestId("mind-empty-place")).toBeVisible({
       timeout: 20_000,
     });
     const { answered, frames } = await readFrames(page);
-    const line = page.getByTestId("mind-notebook-empty");
-    // WP-40 adds a title above the explanatory line, and replaces the old
-    // toolbar/boxed plate with Notebook tabs and unshaded content.
+    const line = page.getByTestId("mind-empty-place");
     await expect(line.locator(".luca-mind-empty-title")).toHaveText(
-      "Nothing in their days yet",
+      "Atlas's place is empty for now",
     );
-    const text = await line.locator(".luca-mind-help").innerText();
+    const text = await line.locator(".luca-mind-help").first().innerText();
     const box = await page.evaluate(() => {
-      const plate = document.querySelector(
-        '[data-testid="mind-notebook-empty"]',
-      );
-      const toolbar = document.querySelector(".luca-mind-subtabs");
+      const plate = document.querySelector('[data-testid="mind-empty-place"]');
+      const toolbar = document.querySelector('[data-testid="mind-head"]');
       const words = plate?.querySelector(".luca-mind-help");
       const style = words ? getComputedStyle(words) : null;
       return {
@@ -534,8 +529,8 @@ for (const mode of ["dark", "light"] as Mode[]) {
       return { at: Math.round(at - opened), line: frame?.line ?? null };
     });
     const shotEmpty =
-      mode === "dark" ? await shot(page, "b-empty-notebook") : null;
-    measure(`empty-notebook-${mode}`, {
+      mode === "dark" ? await shot(page, "b-empty-place") : null;
+    measure(`empty-place-${mode}`, {
       answered: Object.fromEntries(
         Object.entries(answered).map(([key, at]) => [
           key,
@@ -553,14 +548,14 @@ for (const mode of ["dark", "light"] as Mode[]) {
       text,
     });
     expect(text).toBe(
-      "Atlas's days will gather here: what they do for you, their own work, their journal.",
+      "What Atlas makes, writes and does will live here: things they make on their own or for you, their journal, and their days.",
     );
     expect(Number.isFinite(lastSource)).toBe(true);
     expect(before.length).toBeGreaterThan(20);
     expect(before.filter((frame) => frame.line)).toHaveLength(0);
     for (const moment of moments) expect(moment.line).toBe(false);
     expect(firstLine && firstLine.at >= lastSource).toBe(true);
-    // Under the Notebook tabs, directly on the shared page (WP-40).
+    // Under their header, in one thin border, unshaded (WP-43, Decided 9).
     expect(
       box.plate && box.toolbar && box.plate.top >= box.toolbar.bottom,
     ).toBe(true);
@@ -569,9 +564,7 @@ for (const mode of ["dark", "light"] as Mode[]) {
   });
 }
 
-test("empty Notebook: the line goes the moment a day arrives", async ({
-  page,
-}) => {
+test("empty place: the box goes the moment a day arrives", async ({ page }) => {
   const log: string[] = [];
   await boot(page, {
     fixtures: { empty: true, journal: true },
@@ -582,7 +575,7 @@ test("empty Notebook: the line goes the moment a day arrives", async ({
     timeout: 20_000,
   });
   await openNotebook(page);
-  await expect(page.getByTestId("mind-notebook-empty")).toBeVisible({
+  await expect(page.getByTestId("mind-empty-place")).toBeVisible({
     timeout: 20_000,
   });
   await sampleFrames(page);
@@ -599,7 +592,7 @@ test("empty Notebook: the line goes the moment a day arrives", async ({
   const { frames } = await readFrames(page);
   const both = frames.filter((frame) => frame.line && frame.day);
   const firstDay = frames.findIndex((frame) => frame.day);
-  measure("empty-notebook-arrival", {
+  measure("empty-place-arrival", {
     bothInOneFrame: both.length,
     frames: frames.length,
     lineAfterDay: frames.slice(firstDay).some((frame) => frame.line),
@@ -609,7 +602,7 @@ test("empty Notebook: the line goes the moment a day arrives", async ({
   expect(firstDay).toBeGreaterThan(0);
   expect(frames[firstDay - 1]?.line).toBe(true);
   expect(both).toHaveLength(0);
-  await expect(page.getByTestId("mind-notebook-empty")).toHaveCount(0);
+  await expect(page.getByTestId("mind-empty-place")).toHaveCount(0);
 });
 
 // ── 3 · Claude Code's page head ───────────────────────────────────────
@@ -747,7 +740,7 @@ for (const mode of ["dark", "light"] as Mode[]) {
 }
 
 // ── 4 · one way of naming a day ───────────────────────────────────────
-test("the Notebook and All activity name the same days the same way", async ({
+test("their Days and All activity name the same days the same way", async ({
   page,
 }) => {
   const log: string[] = [];
@@ -780,6 +773,9 @@ test("the Notebook and All activity name the same days the same way", async ({
     { atlas: ATLAS, general: GENERAL, times },
   );
   await openNotebook(page);
+  // Days shows the three latest; Earlier days brings the rest (WP-43,
+  // Decided 7).
+  await page.getByTestId("mind-earlier-days").click({ timeout: 20_000 });
   await expect(page.locator(".luca-mind-day")).toHaveCount(4, {
     timeout: 20_000,
   });
