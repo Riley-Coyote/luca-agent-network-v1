@@ -1,5 +1,8 @@
 import { createHashHistory, createRouter } from "@tanstack/react-router";
 
+// Listening before the router is made, so it hears a step first
+// (leaveGuard.ts).
+import "@/app/navigation/leaveGuard";
 import { routeTree } from "@/app/routeTree.gen";
 import { wireNavigationChoreography } from "@/app/navigationChoreography";
 import { installNavigationViewTransitions } from "@/app/navigationViewTransitions";

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useBlocker } from "@tanstack/react-router";
+import { useBlocker, useRouter } from "@tanstack/react-router";
 
 import { setLeaveGuard } from "@/app/navigation/leaveGuard";
 
@@ -123,15 +123,21 @@ export function MindDocPane({
   });
   // A history step (the title bar's arrows, ⌘[ ⌘], the back link) is held
   // before it happens (leaveGuard.ts) and kept here until the answer.
+  // The browser's own step forward is held the same way, heard before the
+  // router hears it (round 4), so the address never leaves this page.
+  const router = useRouter();
   const [heldStep, setHeldStep] = React.useState<(() => void) | null>(null);
   React.useEffect(() => {
-    setLeaveGuard((resume) => {
-      if (!dirtyRef.current) return false;
-      setHeldStep(() => resume);
-      return true;
-    });
+    setLeaveGuard(
+      (resume) => {
+        if (!dirtyRef.current) return false;
+        setHeldStep(() => resume);
+        return true;
+      },
+      () => router.history.location.state.__TSR_index,
+    );
     return () => setLeaveGuard(null);
-  }, []);
+  }, [router]);
   const asking = blocker.status === "blocked" || heldStep !== null;
 
   const save = React.useCallback(
