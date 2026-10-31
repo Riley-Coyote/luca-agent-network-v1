@@ -855,6 +855,7 @@ updated deliberately: the folded lip now names the question rather than “Needs
 notarization or publication in this pass. Disk remained below the native-build reserve.
 Claude's redesigned agent pages (WP-43) remain a separate handoff. The broader browser
 suite's previously recorded baseline failures are not claimed fixed by these focused checks.
+
 ## WP-43 · Each agent's page is their place; Settings is yours (2026-10-30, Claude's design; Riley's call)
 
 Its first two commits say WP-42; the number went to the dendrite the same night.
@@ -1161,3 +1162,27 @@ Nothing may be lost. The seeds:
   - **Empty-place lines,** said once and the same in Settings › Companion › While you're away: "{Harness} can't take
     time of their own yet."; "{name} is off, so they can't take time of their own." [Start {name}]; "{name} is off and
     isn't set up on this Mac yet." [Set up {name}].
+
+### Integration verification (2026-10-31)
+
+- Checkpointed the local Ink surfaces and design studies at `02226ec1c`, then
+  merged the exact WP-43 handoff `57021c50a` into `claude/native-rail-glass`
+  as `bae1fc7d6`. The only conflict was this document; both sections were kept.
+  WP-43 production code is unchanged from the handoff.
+- All **4,440 desktop unit tests** pass. `pnpm build:e2e` (including TypeScript),
+  the served shell-lab build, px-text and diff checks pass.
+- All **117 focused browser tests** pass: the requested `shell-agent-place`,
+  `shell-mind-space`, `shell-agents-pages`, `shell-settings-agents` and
+  `shell-pages` specs, plus the six production temporary-surface checks.
+- The four classic-layout comparisons used an actual threaded baseline server,
+  not a missing default port. Its retained browser bundle was built before the
+  WP-43 merge and corresponds to `02226ec1c` (WP-42 plus the Ink integration).
+  All four comparisons are pixel-identical. This is not a new full-suite
+  comparison against `3147123aa`; the previously reported broad-suite failures
+  remain outside this focused gate.
+- Reviewed the real merged pages in the browser and the captured dark/light,
+  compact Settings, companion access, and unsaved-edit states. The review used
+  sample data; no installed profile, runtime settings or permissions changed.
+- No native candidate, installer, signing, notarization or publication was
+  performed in this integration pass. The next release gate is the combined
+  native candidate and Riley's walkthrough.
