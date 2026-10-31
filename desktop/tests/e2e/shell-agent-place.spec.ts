@@ -519,6 +519,7 @@ async function boot(
     hash = "/agents",
     light = false,
     runtimeTask = false,
+    talking = false,
     alsoAgents = [],
   }: {
     /** More minds on this Mac, by name and key. */
@@ -528,6 +529,8 @@ async function boot(
     hash?: string;
     light?: boolean;
     runtimeTask?: boolean;
+    /** Luca in a side conversation with Atlas, still talking. */
+    talking?: boolean;
   } = {},
 ) {
   page.on("pageerror", (error) => errors.push(`pageerror ${error.message}`));
@@ -597,6 +600,18 @@ async function boot(
       },
     ],
     activePersonaIds: ["persona-kestrel"],
+    exchanges: talking
+      ? [
+          {
+            bucket: 3,
+            channelName: "general",
+            exchangeId: "7".repeat(64),
+            members: [LUCA, ATLAS],
+            openedBy: LUCA,
+            spent: 1,
+          },
+        ]
+      : [],
     residentDocuments: {
       [LUCA]: {
         "soul.md":
@@ -1339,6 +1354,9 @@ test("every way in lands on its new home", async ({ page }) => {
     ["section=overview", "", "mind-place"],
     ["section=notebook", "notebook", "mind-notebook"],
     ["profileTab=memories", "", "mind-place"],
+    // An old word with no new home is dropped all the same (round 4).
+    ["profileTab=channels", "", "mind-place"],
+    ["profileTab=channels&profileView=agent", "", "mind-place"],
   ];
   const landed: Record<string, string> = {};
   await boot(page);
@@ -1357,8 +1375,10 @@ test("every way in lands on its new home", async ({ page }) => {
         async () => (await hashOf(page)).match(/[?&]page=([^&]*)/)?.[1] ?? "",
       )
       .toBe(page_);
+    await expect
+      .poll(async () => hashOf(page))
+      .not.toMatch(/[?&](at|section|profileTab|profileView)=/);
     const hash = await hashOf(page);
-    expect(hash).not.toMatch(/[?&](at|section|profileTab)=/);
     landed[word] = hash;
     if (word === "at=read")
       await expect(page.getByTestId("mind-back")).toHaveText("Settings");
@@ -1766,23 +1786,26 @@ for (const each of CAUSES)
       } else {
         expect(read.give).toBe(false);
         expect(read.reason).toBe(each.cause);
+        // Said once, without the action's words (round 4).
+        expect(read.reasonText).not.toContain("Time of their own:");
       }
       if (each.cause === "unsupported") {
-        expect(read.reasonText).toContain(
-          "Codex can't take time of their own yet.",
-        );
+        expect(read.reasonText).toBe("Codex can't take time of their own yet.");
         expect(read.fix ?? null).toBeNull();
         expect(read.first).toBe("Start a conversation");
       }
       if (each.cause === "stopped") {
         expect(read.header).toBe("Off");
-        expect(read.reasonText).toContain("Trinity is off.");
+        expect(read.reasonText).toBe(
+          "Trinity is off, so they can't take time of their own. Start Trinity",
+        );
         expect(read.fix).toBe("Start Trinity");
         expect(read.first).toBe("Start a conversation");
       }
       if (each.cause === "setup") {
-        expect(read.reasonText).toContain(
-          "Kestrel isn't set up on this Mac yet.",
+        expect(read.header).toBe("Off");
+        expect(read.reasonText).toBe(
+          "Kestrel is off and isn't set up on this Mac yet.",
         );
         expect(read.fix).toBe("Set up Kestrel");
       }
@@ -1809,6 +1832,12 @@ test("Settings › Companion's While you're away says the same reason", async ({
     const reason = row.getByTestId("mind-away-reason");
     await expect(reason).toHaveAttribute("data-reason", cause);
     said[cause] = await reason.textContent();
+    // The same lines the empty place says (round 4).
+    await expect(reason).toHaveText(
+      cause === "stopped"
+        ? "Trinity is off, so they can't take time of their own. Start Trinity"
+        : "Codex can't take time of their own yet.",
+    );
     if (cause === "stopped")
       await expect(row.getByTestId("mind-away-fix")).toHaveText(
         "Start Trinity",
@@ -1896,9 +1925,48 @@ test("restart shows while it's under way, then settles", async ({ page }) => {
   await page.getByTestId("mind-open-settings").click();
   const restart = page.getByTestId("mind-restart");
   await expect(restart).toHaveText("Restart Luca");
+  // Every word the footer's other button says while the restart runs.
+  await page.evaluate((luca) => {
+    const said = new Set<string>();
+    const rail = new Set<string>();
+    const seen = window as unknown as {
+      __footerSaid: Set<string>;
+      __railSaid: Set<string>;
+    };
+    seen.__footerSaid = said;
+    seen.__railSaid = rail;
+    const read = () => {
+      const button = document.querySelector<HTMLButtonElement>(
+        '[data-testid="mind-stop-start"]',
+      );
+      const restarting = document
+        .querySelector('[data-testid="mind-restart"]')
+        ?.textContent?.includes("Restarting");
+      if (button && restarting) {
+        said.add(`${button.textContent}|${button.disabled}`);
+        // What the rail says of Luca meanwhile: "off" while stopped.
+        const row = document.querySelector(
+          `[data-testid="place-row-mind:${luca}"]`,
+        );
+        if (row?.textContent) rail.add(row.textContent);
+      }
+    };
+    new MutationObserver(read).observe(document.body, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+  }, LUCA);
   await restart.click();
   await expect(restart).toHaveText("Restarting Luca…");
   await expect(restart).toBeDisabled();
+  const stopStart = page.getByTestId("mind-stop-start");
+  await expect(stopStart).toHaveText("Stop Luca");
+  await expect(stopStart).toBeDisabled();
+  // The slow start keeps the agent stopped a moment mid-restart: still
+  // "Stop", held, never "Start" (round 4); the observer above hears every
+  // word it says until the restart settles.
   await shot(page, "25-restarting-1440-night");
   await page.getByTestId("mind-back").click();
   const now = page.getByTestId("mind-now");
@@ -1908,7 +1976,19 @@ test("restart shows while it's under way, then settles", async ({ page }) => {
   await page.getByTestId("mind-open-settings").click();
   await expect(page.getByTestId("mind-restart")).toHaveText("Restart Luca");
   await expect(page.getByTestId("mind-restart")).toBeEnabled();
-  measure("restart", { settled: await now.count() });
+  const { footerSaid, railSaid } = await page.evaluate(() => {
+    const seen = window as unknown as {
+      __footerSaid: Set<string>;
+      __railSaid: Set<string>;
+    };
+    return {
+      footerSaid: [...seen.__footerSaid],
+      railSaid: [...seen.__railSaid],
+    };
+  });
+  expect(footerSaid.length).toBeGreaterThan(0);
+  expect(footerSaid.every((each) => each === "Stop Luca|true")).toBe(true);
+  measure("restart", { settled: await now.count(), footerSaid, railSaid });
 });
 
 for (const light of [false, true])
@@ -1998,6 +2078,17 @@ test("the chat drawer's links land on their homes", async ({ page }) => {
   await expect(page).toHaveURL(/#\/channels\//, { timeout: 20_000 });
   const dm = await page.evaluate(() => window.location.hash);
   const landed: Record<string, string> = {};
+  const focused: Record<string, string> = {};
+  const runtimeOf = async () => {
+    await page.evaluate((hash) => {
+      window.location.hash = hash;
+    }, dm);
+    const details = page.getByTestId("shell-lip-details");
+    await expect(details).toBeVisible({ timeout: 20_000 });
+    if ((await details.getAttribute("aria-expanded")) !== "true")
+      await details.click();
+    return page.getByTestId("resident-drawer-state").innerText();
+  };
   const links: Array<[string, () => Promise<void>, RegExp, string]> = [
     [
       "open",
@@ -2049,15 +2140,356 @@ test("the chat drawer's links land on their homes", async ({ page }) => {
     await expect(page.getByTestId("resident-drawer")).toBeVisible({
       timeout: 20_000,
     });
+    // The runtime line names the harness as their page does (round 4).
+    const runtime = await page.getByTestId("resident-drawer-state").innerText();
+    expect(runtime).toContain("Claude Code");
+    expect(runtime).not.toContain("claude-agent-acp");
     await click();
     await expect(page.getByTestId(testId)).toBeVisible({ timeout: 20_000 });
     const hash = decodeURIComponent(await page.evaluate(() => location.hash));
     expect(hash).toMatch(address);
     expect(hash).not.toMatch(/[?&](section|at|profileTab)=/);
     landed[name] = hash;
+    // Focus lands on the destination's heading, as after every move.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active = document.activeElement;
+          return (
+            active?.tagName === "H1" &&
+            Boolean(active.closest('[data-testid="mind-space"]'))
+          );
+        }),
+      )
+      .toBe(true);
+    focused[name] = await page.evaluate(
+      () =>
+        `${document.activeElement?.tagName} ${document.activeElement?.textContent}`,
+    );
   }
   measure("drawer-links", landed);
+  measure("drawer-focus", { focused, runtime: await runtimeOf() });
 });
+
+// ── round 4 ──────────────────────────────────────────────────────────────
+
+/** The caret and text of the open document, and where the page is. */
+async function docState(page: Page) {
+  return page.evaluate(() => {
+    const area = document.querySelector<HTMLTextAreaElement>(
+      '[data-testid="resident-document-textarea"]',
+    );
+    return {
+      hash: decodeURIComponent(window.location.hash),
+      lip: document.querySelector('[data-testid="shell-lip-name"]')
+        ?.textContent,
+      focus: document.activeElement?.getAttribute("data-testid") ?? null,
+      caret: area ? [area.selectionStart, area.selectionEnd] : null,
+      text: area?.value ?? null,
+      question: Boolean(
+        document.querySelector('[data-testid="mind-leave-question"]'),
+      ),
+    };
+  });
+}
+
+for (const doc of ["soul", "convictions"] as const)
+  for (const answer of ["keep", "esc", "discard", "save"] as const) {
+    if (doc === "convictions" && (answer === "discard" || answer === "save"))
+      continue;
+    test(`browser forward with unsaved ${doc} × ${answer}: the address keeps up`, async ({
+      page,
+    }) => {
+      await boot(page);
+      await openMind(page, LUCA);
+      await page.evaluate((luca) => {
+        window.location.hash = `/agents?profile=${luca}&page=settings`;
+      }, LUCA);
+      await expect(page.getByTestId("agent-settings")).toBeVisible({
+        timeout: 20_000,
+      });
+      await page.getByTestId(`mind-row-${doc}`).click();
+      const area = page.getByTestId("resident-document-textarea");
+      await expect(area).toBeEnabled({ timeout: 20_000 });
+      // Atlas from the rail, then the browser's own step back to the page.
+      await page
+        .getByTestId(`place-row-mind:${ATLAS}`)
+        .locator(".luca-rail-row-hit")
+        .click();
+      await expect(page.getByTestId("mind-empty-place")).toBeVisible({
+        timeout: 20_000,
+      });
+      await page.goBack();
+      await expect(area).toBeEnabled({ timeout: 20_000 });
+      const at = await docState(page);
+      expect(at.hash).toContain(`page=settings/${doc}`);
+      const marker = ` FORWARD-${doc}-${answer}`;
+      await area.click();
+      await area.evaluate((element) => {
+        const box = element as HTMLTextAreaElement;
+        box.setSelectionRange(box.value.length, box.value.length);
+      });
+      await page.keyboard.type(marker);
+      await area.evaluate((element) =>
+        (element as HTMLTextAreaElement).setSelectionRange(3, 7),
+      );
+      const before = await docState(page);
+      await page.goForward();
+      await expect(page.getByTestId("mind-leave-question")).toBeVisible();
+      const asked = await docState(page);
+      // While it asks, the address hasn't left the page.
+      expect(asked.hash).toBe(at.hash);
+      expect(asked.lip).toBe(at.lip);
+      expect(asked.focus).toBe("mind-leave-save");
+      const result: Record<string, unknown> = { at, asked };
+      if (answer === "keep" || answer === "esc") {
+        if (answer === "keep")
+          await page.getByTestId("mind-leave-keep").click();
+        else await page.keyboard.press("Escape");
+        await expect(page.getByTestId("mind-leave-question")).toHaveCount(0);
+        await expect
+          .poll(async () => (await docState(page)).focus)
+          .toBe("resident-document-textarea");
+        await page.waitForTimeout(600);
+        const kept = await docState(page);
+        expect(kept.hash).toBe(at.hash);
+        expect(kept.lip).toBe(at.lip);
+        expect(kept.caret).toEqual(before.caret);
+        expect(kept.text).toContain(marker.trim());
+        result.kept = kept;
+        // A reload lands where the address says: this page.
+        page.once("dialog", (dialog) => void dialog.accept());
+        await page.reload();
+        await expect(page.getByTestId("mind-doc-pane")).toBeVisible({
+          timeout: 20_000,
+        });
+        await expect(page.getByTestId("shell-lip-name")).toHaveText(
+          at.lip ?? "",
+        );
+        const reloaded = await docState(page);
+        expect(reloaded.hash).toBe(at.hash);
+        result.reloaded = reloaded;
+      } else {
+        await page.getByTestId(`mind-leave-${answer}`).click();
+        await expect(page.getByTestId("mind-empty-place")).toBeVisible({
+          timeout: 20_000,
+        });
+        const moved = await docState(page);
+        expect(moved.hash).toMatch(new RegExp(`profile=${ATLAS}`));
+        await expect(page.getByTestId("shell-lip-name")).toHaveText("Atlas");
+        await expect
+          .poll(() =>
+            page.evaluate(() => document.activeElement?.textContent ?? null),
+          )
+          .toBe("Atlas");
+        result.moved = moved;
+        // Back to the page: no question, the text as answered.
+        await page.goBack();
+        await expect(area).toBeEnabled({ timeout: 20_000 });
+        await expect(page.getByTestId("mind-leave-question")).toHaveCount(0);
+        if (answer === "save") await expect(area).toHaveValue(/FORWARD-/);
+        else await expect(area).not.toHaveValue(/FORWARD-/);
+      }
+      if (doc === "soul" && answer === "keep")
+        await shot(page, "28-forward-kept-soul-1440-night");
+      measure(`forward-${doc}-${answer}`, result);
+    });
+  }
+
+/** The page's scroll, and whether its title and first group are in view. */
+async function scrollState(page: Page) {
+  return page.evaluate(() => {
+    const scroller = document.querySelector<HTMLElement>(
+      '[data-testid="mind-space"]',
+    );
+    const view = scroller?.getBoundingClientRect();
+    const inView = (selector: string) => {
+      const box = document.querySelector(selector)?.getBoundingClientRect();
+      return Boolean(
+        box && view && box.top >= view.top - 1 && box.top < view.bottom,
+      );
+    };
+    return {
+      top: Math.round(scroller?.scrollTop ?? -1),
+      title: inView(
+        '[data-testid="mind-settings-title"], [data-testid="mind-page-title"]',
+      ),
+      who: inView('[data-testid="mind-group-who"]'),
+      focus: document.activeElement?.textContent ?? null,
+    };
+  });
+}
+
+async function openDrawer(page: Page, dm: string) {
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, dm);
+  const details = page.getByTestId("shell-lip-details");
+  await expect(details).toBeVisible({ timeout: 20_000 });
+  if ((await details.getAttribute("aria-expanded")) !== "true")
+    await details.click();
+  await expect(page.getByTestId("resident-drawer")).toBeVisible({
+    timeout: 20_000,
+  });
+}
+
+for (const [who, name] of [
+  [LUCA, "Luca"],
+  [ATLAS, "Atlas"],
+] as const)
+  test(`fresh moves start at the top: drawer Notebook, back, drawer Settings, ${name}`, async ({
+    page,
+  }) => {
+    await boot(page);
+    await openMind(page, who);
+    await page.getByTestId("mind-talk").click();
+    await expect(page).toHaveURL(/#\/channels\//, { timeout: 20_000 });
+    const dm = await page.evaluate(() => window.location.hash);
+    await openDrawer(page, dm);
+    await page
+      .getByTestId("resident-drawer")
+      .getByRole("button", { name: "Notebook" })
+      .click();
+    await expect(page.getByTestId("mind-space")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.waitForTimeout(1200);
+    const notebook = await scrollState(page);
+    // Back to the conversation, then Settings from the drawer.
+    await page.goBack();
+    await expect(page).toHaveURL(/#\/channels\//, { timeout: 20_000 });
+    const details = page.getByTestId("shell-lip-details");
+    await expect(details).toBeVisible({ timeout: 20_000 });
+    if ((await details.getAttribute("aria-expanded")) !== "true")
+      await details.click();
+    await page
+      .getByTestId("resident-drawer")
+      .getByRole("button", { name: "Settings" })
+      .click();
+    await expect(page.getByTestId("agent-settings")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.waitForTimeout(1200);
+    const settings = await scrollState(page);
+    expect(settings.top).toBe(0);
+    expect(settings.title).toBe(true);
+    expect(settings.who).toBe(true);
+    expect(settings.focus).toBe("Settings");
+    if (who === LUCA)
+      await shot(page, "29-settings-fresh-from-drawer-1440-night");
+    measure(`fresh-top-${name}`, { notebook, settings });
+  });
+
+test("a step back or forward comes back to where the page was", async ({
+  page,
+}) => {
+  await boot(page);
+  await openMind(page, LUCA);
+  await page.getByTestId("mind-open-settings").click();
+  await expect(page.getByTestId("agent-settings")).toBeVisible({
+    timeout: 20_000,
+  });
+  const scroller = page.getByTestId("mind-space");
+  await scroller.evaluate((element) => {
+    element.scrollTop = 420;
+  });
+  await page.waitForTimeout(300);
+  const left = await scrollState(page);
+  await page.getByTestId("mind-row-harness").click();
+  await expect(page.getByTestId("mind-pane-harness")).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.waitForTimeout(600);
+  const pane = await scrollState(page);
+  expect(pane.top).toBe(0);
+  await page.goBack();
+  await expect(page.getByTestId("agent-settings")).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.waitForTimeout(600);
+  const back = await scrollState(page);
+  expect(back.top).toBe(left.top);
+  await page.goForward();
+  await expect(page.getByTestId("mind-pane-harness")).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.waitForTimeout(600);
+  const forward = await scrollState(page);
+  expect(forward.top).toBe(0);
+  // Settings again by its button: a fresh move, at the top.
+  await page.getByTestId("mind-back").click();
+  await page.getByTestId("mind-back").click();
+  await page.getByTestId("mind-open-settings").click();
+  await expect(page.getByTestId("agent-settings")).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.waitForTimeout(600);
+  const fresh = await scrollState(page);
+  expect(fresh.top).toBe(0);
+  measure("scroll-restore", { left, pane, back, forward, fresh });
+});
+
+for (const light of [false, true])
+  for (const size of [
+    { w: 800, h: 500 },
+    { w: 1440, h: 900 },
+  ])
+    for (const state of ["working", "talking"] as const)
+      test(`the breathing dot travels with its sentence: ${state} at ${size.w}, by ${light ? "day" : "night"}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width: size.w, height: size.h });
+        await boot(page, {
+          light,
+          runtimeTask: state === "working",
+          talking: state === "talking",
+        });
+        await openMind(page, LUCA);
+        const now = page.getByTestId("mind-now");
+        await expect(now).toHaveAttribute("data-mind-state", state, {
+          timeout: 20_000,
+        });
+        if (state === "working")
+          await expect(now).toContainText(
+            "On their own · reading back through this week's notes · 12 min",
+          );
+        const read = await now.evaluate((line) => {
+          const dot = line.querySelector<HTMLElement>(".luca-mind-dot");
+          const lead = dot?.parentElement ?? null;
+          const word = lead?.lastChild ?? null;
+          const range = document.createRange();
+          if (word) range.selectNodeContents(word);
+          const wordBox = word ? range.getBoundingClientRect() : null;
+          const dotBox = dot?.getBoundingClientRect() ?? null;
+          return {
+            text: line.textContent,
+            dot: Boolean(dot),
+            leadLines: lead?.getClientRects().length ?? 0,
+            firstWord: word?.textContent ?? null,
+            sameLine:
+              dotBox && wordBox
+                ? Math.abs(
+                    dotBox.top +
+                      dotBox.height / 2 -
+                      (wordBox.top + wordBox.height / 2),
+                  ) <
+                  wordBox.height / 2
+                : false,
+            dotLeftOfWord:
+              dotBox && wordBox ? dotBox.right <= wordBox.left + 0.5 : false,
+            lines: Math.round(line.getBoundingClientRect().height / 18),
+          };
+        });
+        measure(`dot-${state}-${size.w}-${light ? "day" : "night"}`, read);
+        expect(read.dot).toBe(true);
+        expect(read.leadLines).toBe(1);
+        expect(read.sameLine).toBe(true);
+        expect(read.dotLeftOfWord).toBe(true);
+        await shot(
+          page,
+          `30-dot-${state}-${size.w}-${light ? "day" : "night"}`,
+        );
+      });
 
 test.afterAll(() => {
   measure(`console-${test.info().parallelIndex}`, { errors });
