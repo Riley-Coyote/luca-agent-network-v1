@@ -413,9 +413,10 @@ for (const mode of ["dark", "light"] as const) {
     // Every control is one row or one pane away (BETA14_RELEASE.md WP-43,
     // Decided 11 and 12).
     // Instructions: Atlas has a folder, so its Instructions row is its own
-    // instructions.md, not yet written (Decided 13, shown once).
+    // instructions.md (Decided 13, shown once); none written says "Not set"
+    // (WP-43, round 3).
     const instructions = page.getByTestId("mind-row-instructions");
-    await expect(instructions).toContainText("Not written yet");
+    await expect(instructions).toContainText("Not set");
     used.instructions = await instructions.innerText();
     // Runtime configuration: Advanced › {Harness} settings.
     await page.getByTestId("mind-row-config").click();

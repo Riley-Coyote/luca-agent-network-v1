@@ -896,9 +896,15 @@ test("asks are the shared ask row, answered in place; notebook actions stay reac
 // is a row whose pane opens; What they can read is Settings › Can read.
 test("Self and Settings: who they are; how they run", async ({ page }) => {
   await boot(page);
+  // The old `section=self` lands on Settings, at Who {name} is (WP-43,
+  // round 3): what Self held that you write.
   await page.goto(`/#/agents?profile=${LUCA}&section=self`);
-  // The old `section=self` lands on Notebook › Pages.
-  await expect.poll(() => hashOf(page)).toContain("page=notebook/pages");
+  await expect.poll(() => hashOf(page)).toContain("page=settings");
+  await expect(page.getByTestId("mind-group-who")).toBeVisible({
+    timeout: 20_000,
+  });
+  // What Self held that they write is Notebook › Pages.
+  await page.goto(`/#/agents?profile=${LUCA}&page=notebook/pages`);
   const pages = page.getByTestId("mind-pages");
   await expect(pages).toBeVisible({ timeout: 20_000 });
   const rows = await pages.locator("li").evaluateAll((items) =>

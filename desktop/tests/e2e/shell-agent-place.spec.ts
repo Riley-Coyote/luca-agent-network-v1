@@ -20,6 +20,7 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 const SHOTS = process.env.WP43_SHOTS ?? "test-results/shell-agent-place";
 const LUCA = "a".repeat(64);
 const ATLAS = "b".repeat(64);
+const TRINITY = "c".repeat(64);
 /** A member of the mock's #general (its PROFILE_ONLY_AGENT_PUBKEY). */
 const FIFTY =
   "8f83d6b7f3d74f7d933ae3a54dd8c6cc85c7f98e531c16e5a827b953441a8d67";
@@ -366,6 +367,36 @@ async function seedInvoke(page: Page, seed: Seed) {
             };
           }
           if (command === "get_resident_journal_activity") return null;
+          const flags = window as unknown as {
+            __WP43_FAIL_WRITE__?: boolean;
+            __WP43_SLOW_START__?: boolean;
+            __WP43_CHANNEL__?: string;
+          };
+          if (
+            command === "write_resident_document" &&
+            flags.__WP43_FAIL_WRITE__
+          )
+            throw new Error("The disk is full.");
+          if (command === "start_managed_agent" && flags.__WP43_SLOW_START__)
+            await new Promise((resolve) => setTimeout(resolve, 1800));
+          if (
+            command === "get_companion_initiative" &&
+            flags.__WP43_CHANNEL__ &&
+            who(payload) === flags.__WP43_CHANNEL__
+          )
+            return {
+              availability: "ready",
+              executionPaused: false,
+              nativeChannelAvailable: true,
+              actualModelExecutionVerified: false,
+              policy: {
+                revision: 0,
+                enabled: false,
+                paused: true,
+                allow_local_creations: false,
+                allow_outreach: false,
+              },
+            };
           if (command === "get_resident_continuity")
             return isLuca(payload)
               ? structuredClone(seed.continuity)
@@ -528,6 +559,13 @@ async function boot(
         pubkey: LUCA,
         personaId: "builtin:fizz",
         status: "running",
+        agentCommand: "claude-agent-acp",
+      },
+      {
+        name: "Trinity",
+        pubkey: TRINITY,
+        personaId: "persona-trinity",
+        status: "stopped",
       },
       {
         name: "Atlas",
@@ -544,7 +582,21 @@ async function boot(
         systemPrompt: "Keeps the release honest.",
         runtime: "claude",
       },
+      {
+        id: "persona-trinity",
+        displayName: "Trinity",
+        systemPrompt: "",
+        runtime: "codex",
+      },
+      // Not set up on this Mac: a definition with no resident yet.
+      {
+        id: "persona-kestrel",
+        displayName: "Kestrel",
+        systemPrompt: "",
+        runtime: "codex",
+      },
     ],
+    activePersonaIds: ["persona-kestrel"],
     residentDocuments: {
       [LUCA]: {
         "soul.md":
@@ -1131,15 +1183,19 @@ for (const light of [false, true]) {
       .getByTestId("resident-document-textarea")
       .fill("# Luca\n\nWarm, exact, unhurried, and brief.");
     await page.getByTestId("mind-back").click();
-    await expect(page.getByTestId("mind-unsaved-stop")).toHaveText(
-      "Save or discard your changes first.",
+    // The row under the editor asks (WP-43, round 3); Save holds focus.
+    await expect(page.getByTestId("mind-leave-question")).toContainText(
+      "Save changes to Soul before leaving?",
     );
-    await expect(page.getByTestId("mind-doc-pane")).toBeVisible();
-    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("mind-leave-save")).toBeFocused();
     await expect(page.getByTestId("mind-doc-pane")).toBeVisible();
     await shot(page, `10-soul-editor-unsaved-1440-${time}`);
-    await page.getByTestId("resident-document-discard").click();
+    // Esc keeps editing, the caret back in the editor.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("mind-leave-question")).toHaveCount(0);
+    await expect(page.getByTestId("resident-document-textarea")).toBeFocused();
     await page.getByTestId("mind-back").click();
+    await page.getByTestId("mind-leave-discard").click();
     await expect(page.getByTestId("agent-settings")).toBeVisible();
   });
 }
@@ -1278,8 +1334,10 @@ test("every way in lands on its new home", async ({ page }) => {
     ["at=runtime", "settings/harness", "mind-pane-harness"],
     ["at=permissions", "settings/permissions", "mind-pane-permissions"],
     ["section=settings", "settings", "agent-settings"],
-    ["section=self", "notebook/pages", "mind-pages"],
-    ["section=notebook", "", "mind-place"],
+    ["section=self", "settings", "mind-group-who"],
+    ["section=documents", "settings", "mind-group-who"],
+    ["section=overview", "", "mind-place"],
+    ["section=notebook", "notebook", "mind-notebook"],
     ["profileTab=memories", "", "mind-place"],
   ];
   const landed: Record<string, string> = {};
@@ -1428,6 +1486,577 @@ test("a Days talk entry names the other minds in its room", async ({
   await entry.scrollIntoViewIfNeeded();
   measure("days-with-minds", { text: await entry.textContent() });
   await shot(page, "20-days-with-other-minds-1440-night");
+});
+
+// ── leaving with unsaved changes (WP-43, round 3) ────────────────────────
+const WAYS = [
+  "back-link",
+  "title-back",
+  "title-forward",
+  "esc",
+  "cmd-[",
+  "cmd-]",
+  "rail-row",
+  "agents-icon",
+  "chats-icon",
+  "search-icon",
+] as const;
+const ANSWERS = ["save", "discard", "keep", "esc"] as const;
+
+const SOUL = `/agents?profile=${"a".repeat(64)}&page=settings/soul`;
+
+async function openSoul(page: Page) {
+  // From Settings, as a person would: the push gives the back link its way.
+  await page.evaluate((luca) => {
+    window.location.hash = `/agents?profile=${luca}&page=settings`;
+  }, LUCA);
+  await expect(page.getByTestId("agent-settings")).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByTestId("mind-row-soul").click();
+  await expect(page.getByTestId("resident-document-textarea")).toBeEnabled({
+    timeout: 20_000,
+  });
+}
+
+/** Where the page is: its address, the title bar, what holds focus. */
+async function stateOf(page: Page) {
+  return page.evaluate(() => ({
+    hash: decodeURIComponent(window.location.hash),
+    lip: document.querySelector('[data-testid="shell-lip-name"]')?.textContent,
+    focus:
+      document.activeElement?.getAttribute("data-testid") ??
+      document.activeElement?.tagName ??
+      null,
+    question: Boolean(
+      document.querySelector('[data-testid="mind-leave-question"]'),
+    ),
+  }));
+}
+
+for (const way of WAYS) {
+  test(`unsaved changes: ${way} × Save, Discard, Keep editing, Esc`, async ({
+    page,
+  }) => {
+    await boot(page);
+    await openMind(page, LUCA);
+    const results: Record<string, unknown> = {};
+    for (const answer of ANSWERS) {
+      await openSoul(page);
+      if (way === "title-forward" || way === "cmd-]") {
+        // Something ahead to go forward to: Atlas, then back to the Soul.
+        await page
+          .getByTestId(`place-row-mind:${ATLAS}`)
+          .locator(".luca-rail-row-hit")
+          .click();
+        await expect(page.getByTestId("mind-empty-place")).toBeVisible({
+          timeout: 20_000,
+        });
+        await page.getByTestId("global-back").click();
+        await expect(
+          page.getByTestId("resident-document-textarea"),
+        ).toBeEnabled({ timeout: 20_000 });
+      }
+      const marker = `EDITED-${way}-${answer}`;
+      const area = page.getByTestId("resident-document-textarea");
+      await area.click();
+      await area.press("End");
+      await area.type(` ${marker}`);
+      const caret = await area.evaluate(
+        (el) => (el as HTMLTextAreaElement).selectionStart,
+      );
+      const before = await stateOf(page);
+      // The way out.
+      if (way === "back-link") await page.getByTestId("mind-back").click();
+      if (way === "title-back") await page.getByTestId("global-back").click();
+      if (way === "title-forward")
+        await page.getByTestId("global-forward").click();
+      if (way === "esc") await page.keyboard.press("Escape");
+      if (way === "cmd-[") await page.keyboard.press("Meta+BracketLeft");
+      if (way === "cmd-]") await page.keyboard.press("Meta+BracketRight");
+      if (way === "rail-row")
+        await page
+          .getByTestId(`place-row-mind:${ATLAS}`)
+          .locator(".luca-rail-row-hit")
+          .click();
+      if (way === "agents-icon")
+        await page.getByTestId("open-agents-view").click();
+      if (way === "chats-icon")
+        await page.getByTestId("shell-place-conversations").click();
+      if (way === "search-icon")
+        await page
+          .getByTestId("shell-place-search")
+          .locator("button")
+          .first()
+          .click();
+      await page.waitForTimeout(300);
+      const asked = await stateOf(page);
+      const run: Record<string, unknown> = { asked };
+      if (way === "search-icon" && !asked.question) {
+        // Search opens its own field over the page; it goes nowhere until a
+        // result is picked, so there is nothing to ask yet.
+        run.note = "search opens a field; no move, so no question";
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(200);
+        run.after = await stateOf(page);
+        await expect(page.getByTestId("mind-doc-pane")).toBeVisible();
+        // Leave the edit unsaved and drop it for the next run.
+        await page.getByTestId("resident-document-discard").click();
+        results[answer] = run;
+        continue;
+      }
+      await expect(page.getByTestId("mind-leave-question")).toContainText(
+        "Save changes to Soul before leaving?",
+      );
+      await expect(page.getByTestId("mind-leave-save")).toBeFocused();
+      if (answer === "save") await page.getByTestId("mind-leave-save").click();
+      if (answer === "discard")
+        await page.getByTestId("mind-leave-discard").click();
+      if (answer === "keep") await page.getByTestId("mind-leave-keep").click();
+      if (answer === "esc") await page.keyboard.press("Escape");
+      await page.waitForTimeout(500);
+      const landed = await stateOf(page);
+      run.landed = landed;
+      if (answer === "keep" || answer === "esc") {
+        expect(landed.question).toBe(false);
+        expect(landed.hash).toBe(before.hash);
+        await expect(area).toBeFocused();
+        const caretAfter = await area.evaluate(
+          (el) => (el as HTMLTextAreaElement).selectionStart,
+        );
+        expect(caretAfter).toBe(caret);
+        expect(await area.inputValue()).toContain(marker);
+        run.caret = { before: caret, after: caretAfter };
+        await page.getByTestId("resident-document-discard").click();
+        results[answer] = run;
+        continue;
+      }
+      expect(landed.question).toBe(false);
+      expect(landed.hash).not.toBe(before.hash);
+      // Focus lands where the destination puts it on arrival: a page's own
+      // heading (never the title bar's); a conversation's composer, as the
+      // app arrives in every conversation.
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const el = document.activeElement as HTMLElement | null;
+            if (!el) return null;
+            if (el.getAttribute("data-testid") === "message-input")
+              return location.hash.startsWith("#/channels") ? "composer" : null;
+            return /^H[12]$/.test(el.tagName) &&
+              !el.closest('[data-testid="shell-lip"]')
+              ? el.textContent
+              : null;
+          }),
+        )
+        .not.toBeNull();
+      run.focusedHeading = await page.evaluate(
+        () => document.activeElement?.textContent,
+      );
+      // Reopened, the text is saved or gone.
+      await page.evaluate((hash) => {
+        window.location.hash = hash;
+      }, SOUL);
+      const reopened = page.getByTestId("resident-document-textarea");
+      await expect(reopened).toBeEnabled({ timeout: 20_000 });
+      const text = await reopened.inputValue();
+      run.reopenedHasEdit = text.includes(marker);
+      expect(text.includes(marker)).toBe(answer === "save");
+      results[answer] = run;
+    }
+    measure(`unsaved-${way}`, results);
+  });
+}
+
+test("unsaved changes: a failed save stays, keeps the text and says why", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (
+      window as unknown as { __WP43_FAIL_WRITE__: boolean }
+    ).__WP43_FAIL_WRITE__ = true;
+  });
+  await boot(page);
+  await openMind(page, LUCA);
+  await openSoul(page);
+  const area = page.getByTestId("resident-document-textarea");
+  await area.click();
+  await area.press("End");
+  await area.type(" EDITED-fail");
+  await page.getByTestId("mind-back").click();
+  await page.getByTestId("mind-leave-save").click();
+  await expect(page.getByTestId("mind-leave-question")).toHaveCount(0);
+  await expect(page.getByTestId("mind-doc-pane")).toBeVisible();
+  await expect(area).toHaveValue(/EDITED-fail/);
+  await expect(page.getByTestId("resident-document-status")).toContainText(
+    "The disk is full",
+  );
+  measure("unsaved-save-fails", {
+    status: await page.getByTestId("resident-document-status").textContent(),
+    state: await stateOf(page),
+  });
+});
+
+// ── round 3: the empty place's reasons, Set up, one harness, restart ──────
+const CAUSES: Array<{
+  cause: string;
+  open: (page: Page) => Promise<void>;
+  channel?: string;
+}> = [
+  {
+    cause: "unsupported",
+    open: (page) => openMind(page, ATLAS),
+  },
+  {
+    cause: "stopped",
+    open: (page) => openMind(page, TRINITY),
+  },
+  {
+    cause: "setup",
+    open: async (page) => {
+      await expect(page.getByTestId("place-rail-agents")).toBeVisible({
+        timeout: 20_000,
+      });
+      await page
+        .getByTestId("place-row-persona:persona-kestrel")
+        .locator(".luca-rail-row-hit")
+        .click();
+      await expect(page.getByTestId("mind-space")).toBeVisible({
+        timeout: 20_000,
+      });
+    },
+  },
+  {
+    cause: "ready",
+    open: (page) => openMind(page, ATLAS),
+    channel: ATLAS,
+  },
+];
+
+for (const each of CAUSES)
+  for (const light of [false, true])
+    test(`the empty place says why, ${each.cause}, by ${light ? "day" : "night"}`, async ({
+      page,
+    }) => {
+      if (each.channel)
+        await page.addInitScript((key) => {
+          (window as unknown as { __WP43_CHANNEL__: string }).__WP43_CHANNEL__ =
+            key;
+        }, each.channel);
+      await boot(page, { light });
+      await each.open(page);
+      const empty = page.getByTestId("mind-empty-place");
+      await expect(empty).toBeVisible({ timeout: 20_000 });
+      const read = await empty.evaluate((box) => ({
+        reason: box
+          .querySelector('[data-testid="mind-away-reason"]')
+          ?.getAttribute("data-reason"),
+        reasonText: box.querySelector('[data-testid="mind-away-reason"]')
+          ?.textContent,
+        fix: box.querySelector('[data-testid="mind-away-fix"]')?.textContent,
+        first: box.querySelector(".luca-mind-actions button")?.textContent,
+        give: Boolean(box.querySelector('[data-testid="mind-give-time"]')),
+        header: document.querySelector('[data-testid="mind-now"]')?.textContent,
+      }));
+      measure(`empty-${each.cause}-${light ? "day" : "night"}`, read);
+      if (each.cause === "ready") {
+        expect(read.give).toBe(true);
+        expect(read.reason ?? null).toBeNull();
+        expect(read.first).toContain("time of their own");
+      } else {
+        expect(read.give).toBe(false);
+        expect(read.reason).toBe(each.cause);
+      }
+      if (each.cause === "unsupported") {
+        expect(read.reasonText).toContain(
+          "Codex can't take time of their own yet.",
+        );
+        expect(read.fix ?? null).toBeNull();
+        expect(read.first).toBe("Start a conversation");
+      }
+      if (each.cause === "stopped") {
+        expect(read.header).toBe("Off");
+        expect(read.reasonText).toContain("Trinity is off.");
+        expect(read.fix).toBe("Start Trinity");
+        expect(read.first).toBe("Start a conversation");
+      }
+      if (each.cause === "setup") {
+        expect(read.reasonText).toContain(
+          "Kestrel isn't set up on this Mac yet.",
+        );
+        expect(read.fix).toBe("Set up Kestrel");
+      }
+      await shot(
+        page,
+        `22-empty-${each.cause}-1440-${light ? "day" : "night"}`,
+      );
+    });
+
+test("Settings › Companion's While you're away says the same reason", async ({
+  page,
+}) => {
+  await boot(page);
+  const said: Record<string, unknown> = {};
+  for (const [key, cause] of [
+    [TRINITY, "stopped"],
+    [ATLAS, "unsupported"],
+  ] as const) {
+    await page.evaluate((key) => {
+      window.location.hash = `/agents?profile=${key}&page=settings`;
+    }, key);
+    const row = page.getByTestId("mind-row-away");
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    const reason = row.getByTestId("mind-away-reason");
+    await expect(reason).toHaveAttribute("data-reason", cause);
+    said[cause] = await reason.textContent();
+    if (cause === "stopped")
+      await expect(row.getByTestId("mind-away-fix")).toHaveText(
+        "Start Trinity",
+      );
+    else await expect(row.getByTestId("mind-away-fix")).toHaveCount(0);
+  }
+  await shot(page, "23-settings-away-unsupported-1440-night");
+  measure("settings-away", said);
+});
+
+test("Set up: an agent not yet on this Mac", async ({ page }) => {
+  await boot(page);
+  await CAUSES[2].open(page);
+  const setUp = page.getByTestId("mind-head").getByRole("button", {
+    name: "Set up",
+  });
+  await expect(setUp).toBeVisible();
+  await expect(page.getByTestId("mind-now")).toBeVisible();
+  await shot(page, "24-set-up-kestrel-1440-night");
+  const before = await page.evaluate(
+    () =>
+      (
+        (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
+          .__BUZZ_E2E_COMMANDS__ ?? []
+      ).length,
+  );
+  await setUp.click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (from) =>
+          (
+            (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
+              .__BUZZ_E2E_COMMANDS__ ?? []
+          )
+            .slice(from)
+            .filter((command) => /managed_agent|persona/.test(command)),
+        before,
+      ),
+    )
+    .not.toEqual([]);
+  // Settings for it says what isn't there yet, with a way to write it.
+  await page.getByTestId("mind-open-settings").click();
+  await expect(page.getByTestId("mind-row-instructions")).toContainText(
+    "Not set",
+  );
+});
+
+test("one harness value: header, Settings row, Harness pane and its settings", async ({
+  page,
+}) => {
+  await boot(page);
+  await openMind(page, LUCA);
+  const header = await page.getByTestId("mind-runs").textContent();
+  await page.getByTestId("mind-open-settings").click();
+  const row = await page
+    .getByTestId("mind-row-harness")
+    .locator(".luca-mind-prow-value")
+    .textContent();
+  await page.getByTestId("mind-row-harness").click();
+  const pane = await page
+    .getByTestId("mind-pane-harness")
+    .locator(".luca-mind-prow")
+    .filter({ hasText: "Runtime" })
+    .locator(".luca-mind-prow-value")
+    .textContent();
+  await page.getByTestId("mind-back").click();
+  await page.getByTestId("mind-row-config").click();
+  const configTitle = await page.getByTestId("mind-page-title").textContent();
+  measure("harness-one-value", { header, row, pane, configTitle });
+  expect(header?.split(" · ")[0]).toBe("Claude Code");
+  expect(row).toBe("Claude Code");
+  expect(pane).toBe("Claude Code");
+  expect(configTitle).toBe("Claude Code settings");
+});
+
+test("restart shows while it's under way, then settles", async ({ page }) => {
+  await page.addInitScript(() => {
+    (
+      window as unknown as { __WP43_SLOW_START__: boolean }
+    ).__WP43_SLOW_START__ = true;
+  });
+  await boot(page);
+  await openMind(page, LUCA);
+  await page.getByTestId("mind-open-settings").click();
+  const restart = page.getByTestId("mind-restart");
+  await expect(restart).toHaveText("Restart Luca");
+  await restart.click();
+  await expect(restart).toHaveText("Restarting Luca…");
+  await expect(restart).toBeDisabled();
+  await shot(page, "25-restarting-1440-night");
+  await page.getByTestId("mind-back").click();
+  const now = page.getByTestId("mind-now");
+  await expect(now).toContainText("Restarting Luca…");
+  await expect(now).toHaveAttribute("data-live", "true");
+  await expect(now).not.toContainText("Restarting", { timeout: 10_000 });
+  await page.getByTestId("mind-open-settings").click();
+  await expect(page.getByTestId("mind-restart")).toHaveText("Restart Luca");
+  await expect(page.getByTestId("mind-restart")).toBeEnabled();
+  measure("restart", { settled: await now.count() });
+});
+
+for (const light of [false, true])
+  for (const size of [
+    { w: 800, h: 500 },
+    { w: 1440, h: 900 },
+  ])
+    test(`no cut sentences: the status line at ${size.w}, by ${light ? "day" : "night"}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: size.w, height: size.h });
+      await boot(page, { light });
+      await openMind(page, LUCA);
+      const now = page.getByTestId("mind-now");
+      await expect(page.getByTestId("mind-keeping-up")).toBeVisible({
+        timeout: 20_000,
+      });
+      const read = await now.evaluate((line) => {
+        const parts = [...line.children].map((child) => {
+          const style = getComputedStyle(child);
+          return {
+            text: child.textContent,
+            overflow: style.textOverflow,
+            cut:
+              (child as HTMLElement).scrollWidth >
+              (child as HTMLElement).clientWidth + 1,
+          };
+        });
+        const name = document
+          .querySelector('[data-testid="mind-page-title"]')
+          ?.getBoundingClientRect();
+        const box = line.getBoundingClientRect();
+        return {
+          parts,
+          text: line.textContent,
+          lines: Math.round(box.height / 18),
+          underName: name ? box.top >= name.bottom - 1 : null,
+          right: Math.round(box.right),
+          buttons: Math.round(
+            document
+              .querySelector(".luca-mind-head-actions")
+              ?.getBoundingClientRect().left ?? 0,
+          ),
+        };
+      });
+      measure(`status-${size.w}-${light ? "day" : "night"}`, read);
+      expect(read.text).toBe("Resting·Keeping up with Codex and Claude Code");
+      for (const part of read.parts) {
+        expect(part.overflow).not.toBe("ellipsis");
+        expect(part.cut).toBe(false);
+      }
+      expect(read.underName).toBe(true);
+      await shot(page, `26-status-${size.w}-${light ? "day" : "night"}`);
+    });
+
+test("Instructions not set: the row says so and opens where they're written", async ({
+  page,
+}) => {
+  await boot(page);
+  await page.evaluate((key) => {
+    window.location.hash = `/agents?profile=${key}&page=settings`;
+  }, ATLAS);
+  const row = page.getByTestId("mind-row-instructions");
+  await expect(row).toContainText("Not set", { timeout: 20_000 });
+  await row.click();
+  await expect(page.getByTestId("mind-doc-pane")).toBeVisible();
+  await expect(page.getByTestId("mind-page-title")).toHaveText("Instructions");
+  await expect(page.getByTestId("resident-document-textarea")).toBeEditable();
+  measure("instructions-not-set", { row: await page.url() });
+});
+
+test("App Settings › Appearance › Conversation › Chat mark", async ({
+  page,
+}) => {
+  await boot(page);
+  await page.goto("/#/settings?section=appearance");
+  const glyph = page.getByTestId("chat-mark-style-glyph");
+  await expect(glyph).toBeVisible({ timeout: 20_000 });
+  await glyph.scrollIntoViewIfNeeded();
+  await shot(page, "27-app-settings-chat-mark-1440-night");
+});
+
+test("the chat drawer's links land on their homes", async ({ page }) => {
+  await boot(page);
+  await openMind(page, LUCA);
+  await page.getByTestId("mind-talk").click();
+  await expect(page).toHaveURL(/#\/channels\//, { timeout: 20_000 });
+  const dm = await page.evaluate(() => window.location.hash);
+  const landed: Record<string, string> = {};
+  const links: Array<[string, () => Promise<void>, RegExp, string]> = [
+    [
+      "open",
+      () => page.getByTestId("resident-drawer-open-agent").click(),
+      /^#\/agents\?profile=a{64}$/,
+      "mind-place",
+    ],
+    [
+      "instructions",
+      () =>
+        page
+          .getByTestId("resident-drawer")
+          .locator("section", { hasText: "Instructions" })
+          .getByRole("button")
+          .first()
+          .click(),
+      /page=settings\/instructions/,
+      "mind-doc-pane",
+    ],
+    [
+      "notebook",
+      () =>
+        page
+          .getByTestId("resident-drawer")
+          .getByRole("button", { name: "Notebook" })
+          .click(),
+      /page=notebook(&|$)/,
+      "mind-notebook",
+    ],
+    [
+      "settings",
+      () =>
+        page
+          .getByTestId("resident-drawer")
+          .getByRole("button", { name: "Settings" })
+          .click(),
+      /page=settings(&|$)/,
+      "agent-settings",
+    ],
+  ];
+  for (const [name, click, address, testId] of links) {
+    await page.evaluate((hash) => {
+      window.location.hash = hash;
+    }, dm);
+    const details = page.getByTestId("shell-lip-details");
+    await expect(details).toBeVisible({ timeout: 20_000 });
+    if ((await details.getAttribute("aria-expanded")) !== "true")
+      await details.click();
+    await expect(page.getByTestId("resident-drawer")).toBeVisible({
+      timeout: 20_000,
+    });
+    await click();
+    await expect(page.getByTestId(testId)).toBeVisible({ timeout: 20_000 });
+    const hash = decodeURIComponent(await page.evaluate(() => location.hash));
+    expect(hash).toMatch(address);
+    expect(hash).not.toMatch(/[?&](section|at|profileTab)=/);
+    landed[name] = hash;
+  }
+  measure("drawer-links", landed);
 });
 
 test.afterAll(() => {

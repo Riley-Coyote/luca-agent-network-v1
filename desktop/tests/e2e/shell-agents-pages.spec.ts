@@ -585,7 +585,8 @@ test("WP-43: two places, no tabs; the old tab words land on their homes", async 
   await expect(page.getByTestId("mind-place")).toBeVisible();
   for (const [section, testId] of [
     ["settings", "agent-settings"],
-    ["self", "mind-pages"],
+    // Self held what you write: Settings, at Who {name} is (WP-43, round 3).
+    ["self", "mind-group-who"],
     ["notebook", "mind-place"],
   ] as const) {
     await page.goto(`/#/agents?profile=${LUCA}&section=${section}`);
