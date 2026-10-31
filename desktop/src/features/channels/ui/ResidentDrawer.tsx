@@ -40,6 +40,12 @@ function firstLines(text: string, count: number): string {
   return lines.slice(0, count).join("\n");
 }
 
+export type ResidentDrawerTarget =
+  | "page"
+  | "instructions"
+  | "notebook"
+  | "settings";
+
 export function ResidentDrawer({
   agent,
   persona,
@@ -48,7 +54,9 @@ export function ResidentDrawer({
 }: {
   agent: ManagedAgent;
   persona: AgentPersona | null;
-  onOpenAgent: (section: "documents" | "notebook" | "settings") => void;
+  /** Where a link goes: their page, their instructions, their Notebook or
+   *  their Settings; the caller turns it into the layout's own address. */
+  onOpenAgent: (target: ResidentDrawerTarget) => void;
   presentation: ResidentDrawerPresentation;
 }) {
   const model = useResidentModelChoice(agent);
@@ -142,7 +150,7 @@ export function ResidentDrawer({
       <section aria-labelledby="resident-drawer-instructions">
         <div className="flex items-baseline justify-between gap-3">
           <Eyebrow id="resident-drawer-instructions">Instructions</Eyebrow>
-          <OpenLink onClick={() => onOpenAgent("documents")}>
+          <OpenLink onClick={() => onOpenAgent("instructions")}>
             {instructions ? "Open" : "Write"}
           </OpenLink>
         </div>
@@ -195,7 +203,7 @@ export function ResidentDrawer({
         <button
           className="flex w-full items-center justify-between gap-3 rounded-2xl bg-plate px-3 py-2.5 text-left text-sm text-ink-muted transition-colors hover:bg-plate-hover hover:text-foreground focus-visible:bg-plate-hover focus-visible:text-foreground focus-visible:outline-hidden"
           data-testid="resident-drawer-open-agent"
-          onClick={() => onOpenAgent("documents")}
+          onClick={() => onOpenAgent("page")}
           type="button"
         >
           <span>Open {agent.name}</span>

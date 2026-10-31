@@ -35,6 +35,7 @@ test("WP-43: every page survives the address, both ways", () => {
   const pages = [
     { kind: "place" },
     { kind: "place", notebook: "pages" },
+    { kind: "place", notebook: "open" },
     { kind: "settings" },
     ...MIND_PANES.map((pane) => ({ kind: "pane", pane })),
     { kind: "file", relPath: "notes/todo.md" },
@@ -108,13 +109,15 @@ test("WP-43: every old way in lands on its new home", () => {
   assert.deepEqual(mindPageOfLegacy({ section: "settings" }), {
     kind: "settings",
   });
-  for (const section of ["self", "documents", "overview"])
-    assert.deepEqual(mindPageOfLegacy({ section }), {
-      kind: "place",
-      notebook: "pages",
-    });
-  for (const section of ["notebook", "place"])
+  // Self and Documents held what you write: Settings, at Who {name} is.
+  for (const section of ["self", "documents"])
+    assert.deepEqual(mindPageOfLegacy({ section }), { kind: "settings" });
+  for (const section of ["overview", "place"])
     assert.deepEqual(mindPageOfLegacy({ section }), { kind: "place" });
+  assert.deepEqual(mindPageOfLegacy({ section: "notebook" }), {
+    kind: "place",
+    notebook: "open",
+  });
   assert.deepEqual(mindPageOfLegacy({ profileTab: "memories" }), {
     kind: "place",
   });

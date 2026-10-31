@@ -39,7 +39,13 @@ type AgentsRouteSearch = {
   at?: MindSettingsAt;
   /** The classic page's section; under the shell an old way in, read once
    *  onto `page` (WP-43, Decided 3). */
-  section?: "place" | "documents" | "notebook" | "self" | "settings";
+  section?:
+    | "place"
+    | "documents"
+    | "notebook"
+    | "overview"
+    | "self"
+    | "settings";
 };
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -53,6 +59,7 @@ function validateAgentsSearch(
     search.section === "place" ||
     search.section === "documents" ||
     search.section === "notebook" ||
+    search.section === "overview" ||
     search.section === "self" ||
     search.section === "settings"
       ? search.section

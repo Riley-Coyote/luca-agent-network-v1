@@ -1,4 +1,9 @@
 import * as React from "react";
+
+import {
+  mindPageWord,
+  type MindPage,
+} from "@/features/agents/space/mindSection";
 import {
   useCanGoBack,
   useLocation,
@@ -145,8 +150,12 @@ export function useAppNavigation() {
     (
       pubkey: string,
       options?: NavigationBehavior & {
-        /** `place` is the default; `overview` remains the legacy documents alias. */
+        /** The classic page's section: `place` is the default; `overview`
+         *  remains the legacy documents alias. */
         section?: "place" | "documents" | "overview" | "notebook" | "settings";
+        /** Under the shell, the page itself (WP-43): their page when it
+         *  names none. Takes the place of `section`. */
+        page?: MindPage;
       },
     ) =>
       commitNavigation(
@@ -154,14 +163,16 @@ export function useAppNavigation() {
           to: "/agents",
           search: {
             profile: pubkey,
-            ...(options?.section && options.section !== "place"
-              ? {
-                  section:
-                    options.section === "overview"
-                      ? "documents"
-                      : options.section,
-                }
-              : {}),
+            ...(options?.page
+              ? { page: mindPageWord(options.page) ?? undefined }
+              : options?.section && options.section !== "place"
+                ? {
+                    section:
+                      options.section === "overview"
+                        ? "documents"
+                        : options.section,
+                  }
+                : {}),
           },
         },
         options,

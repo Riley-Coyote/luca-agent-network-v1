@@ -4,6 +4,7 @@
  * Pure, so the address's words are tested without React.
  *
  *   (none)                  their page
+ *   notebook                their page, at its Notebook
  *   notebook/pages          their page, its Notebook open on Pages
  *   settings                Settings
  *   settings/<pane>         one of Settings' panes
@@ -42,7 +43,7 @@ export const MIND_READING_KINDS = [
 export type MindReadingKind = (typeof MIND_READING_KINDS)[number];
 
 export type MindPage =
-  | { kind: "place"; notebook?: "pages" }
+  | { kind: "place"; notebook?: "open" | "pages" }
   | { kind: "settings" }
   | { kind: "pane"; pane: MindPane }
   | { kind: "file"; relPath: string }
@@ -59,6 +60,7 @@ const isReading = (value: string): value is MindReadingKind =>
 /** The address's `page` word, read; anything it can't name is their page. */
 export function parseMindPage(value: unknown): MindPage {
   if (typeof value !== "string" || value.length === 0) return { kind: "place" };
+  if (value === "notebook") return { kind: "place", notebook: "open" };
   if (value === "notebook/pages") return { kind: "place", notebook: "pages" };
   if (value === "settings") return { kind: "settings" };
   if (value === "made") return { kind: "made" };
@@ -85,7 +87,11 @@ export function parseMindPage(value: unknown): MindPage {
 export function mindPageWord(page: MindPage): string | null {
   switch (page.kind) {
     case "place":
-      return page.notebook === "pages" ? "notebook/pages" : null;
+      return page.notebook === "pages"
+        ? "notebook/pages"
+        : page.notebook === "open"
+          ? "notebook"
+          : null;
     case "settings":
       return "settings";
     case "pane":
@@ -169,8 +175,8 @@ const PANE_OF_AT: Record<MindSettingsAt, MindPane> = {
 
 /**
  * Every old way in, landed on its new home (Decided 3): `at` names a pane;
- * the old `section` and `profileTab` words name Settings, Notebook's Pages
- * or their page. Null when the address holds none of them.
+ * the old `section` and `profileTab` words name Settings, their Notebook or
+ * their page. Null when the address holds none of them.
  */
 export function mindPageOfLegacy(search: {
   at?: string | null;
@@ -180,11 +186,13 @@ export function mindPageOfLegacy(search: {
   const at =
     parseMindSettingsAt(search.at) ?? mindSettingsAtOfTab(search.profileTab);
   if (at) return { kind: "pane", pane: PANE_OF_AT[at] };
+  // Self and Documents held who they are, written by you: Settings, at Who
+  // {name} is (WP-43, round 3). Overview and Place were their page.
   const section = search.section;
-  if (section === "settings") return { kind: "settings" };
-  if (section === "self" || section === "documents" || section === "overview")
-    return { kind: "place", notebook: "pages" };
-  if (section === "notebook" || section === "place") return { kind: "place" };
+  if (section === "settings" || section === "self" || section === "documents")
+    return { kind: "settings" };
+  if (section === "notebook") return { kind: "place", notebook: "open" };
+  if (section === "overview" || section === "place") return { kind: "place" };
   const tab = search.profileTab;
   if (tab === "continuity" || tab === "memories" || tab === "info")
     return { kind: "place" };
