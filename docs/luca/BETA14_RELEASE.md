@@ -1085,3 +1085,30 @@ Nothing may be lost. The seeds:
   `unsaved_guard`, `shown_once`, `appearance_moved`;
 - navigation: `history_three_levels`, `keyboard`, `deep_links`, `reload_keeps_place`;
 - look and safety: `no_stray_colour`, `capability_map`, `classic_identical`, `unit_tests`, `playwright`, `gates`.
+
+**Since the build (2026-10-30, as built).**
+- *Merged with WP-42:* the dendrite is the mark at the page head (72, square in a 72 column, 16 px clear of the name)
+  and beside the Settings title (28).
+- *Riley's calls:* no standing "Works with" list; a Days talk entry names the other minds in its room ("With you ·
+  with Fifty"; "A, B and C"; "A, B and 2 others"). The title bar says "{name}" on their page and "{name} · {page}" on
+  every page pushed from it.
+- *Round 3 (an independent walk of Riley's paths):*
+  - **Leaving with unsaved changes** keeps the exact destination for every way out. The row under the editor asks
+    "Save changes to {Doc} before leaving?" with Keep editing · Discard · Save; Save holds focus. Save saves then
+    goes (a failed save stays, keeps the text and says why); Discard drops then goes; Keep editing or Esc stays, the
+    caret where it was. After the move, focus lands on the destination's heading (a conversation keeps its own
+    composer focus). History steps (the title bar's arrows, ⌘[ ⌘], the back link) are held before they happen
+    (`app/navigation/leaveGuard.ts`): the router's blocker hears them only after the browser has stepped, and steps
+    a held forward the wrong way.
+  - **The chat drawer's links** open their homes directly with `page=`: Open {name} their page, Instructions where
+    they live (the Instructions row's page, or Settings for a native runtime's), Notebook their Notebook, Settings
+    Settings. Old `section=self` and `section=documents` go to Settings, `section=overview` to their page,
+    `section=notebook` to their Notebook.
+  - **The empty place's main action** says the real reason in the header's words, with the fix beside it: off,
+    "Start {name}"; not set up, "Set up {name}"; a running harness without the companion's private channel (that is
+    what `nativeChannelAvailable` is), "{Harness} can't take time of their own yet". When it can't be used, "Start a
+    conversation" leads. Settings › Companion's While you're away says the same.
+  - **One harness value** for the header, the Settings row, the Harness pane and "{Harness} settings".
+  - **Restart** reads "Restarting {name}…", disabled, and the status line says so, until it settles.
+  - **No cut sentences:** the status line wraps under the name.
+  - **Instructions not set** say "Not set" and open where they're written.
