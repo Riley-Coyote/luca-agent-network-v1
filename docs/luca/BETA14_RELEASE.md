@@ -1389,8 +1389,14 @@ main chat and new chat keep that correction's 46 px capsule.
 - Native debug build passed in the shared cache with incremental compilation
   disabled. Reopened Polyphonic Rail Glass Candidate on its existing isolated
   profile, with source receipt for `21e18c4c3`; approximately 85 GiB remains free.
-- Native Retina screenshots, motion captures, and native frame-cost review
-  remain pending: macOS window capture is failing and the candidate is visible
-  only as a Stage Manager thumbnail. Automated pixel parity is not a substitute
-  for that review. Riley has been asked to bring it forward on the Retina display.
+- Native Retina proof now captured: 18px rail, 28px individual Settings head,
+  and 72px page head in night/day; 125-second rail/head recording; 12 growth
+  frames at 1/30-second intervals; 3x nearest-neighbour crops. Claude reviewed
+  the rail/head/growth captures over the verified two-way inbox and confirmed
+  fidelity to the study. Original dark appearance restored.
+- Evidence is in `~/Documents/Polyphonic-Candidates/2026-11-01-agent-marks/`
+  (`NATIVE-PROOF.md`). Native Reduce Motion screenshots and native frame-cost
+  timing remain open; automated tests are not claimed as those native checks.
+  Additional report-only Odyssey 1x captures await foregrounding after Stage
+  Manager tucked the moved window into a thumbnail. Approximately 90 GiB free.
   No publishing, tagging, release signing, or pushing is authorized.
