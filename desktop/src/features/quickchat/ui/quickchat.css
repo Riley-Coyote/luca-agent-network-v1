@@ -307,30 +307,45 @@
   position: absolute;
   bottom: 24px;
   left: 0;
-  right: 0;
+  width: min(14rem, 100%);
   max-height: min(340px, 50vh);
   overflow: auto;
-  padding: 14px;
+  padding: 5px;
   border-radius: 18px;
   background: hsl(var(--popover));
   box-shadow: 0 14px 48px #0006;
   z-index: 4;
   display: grid;
-  gap: 10px;
+  gap: 0;
 }
 .qc-context-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.qc-context-details pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: inherit;
+.qc-context-details > button,
+.qc-context-details .qc-context-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  text-align: left;
 }
-.qc-context-details ul {
-  padding-left: 14px;
-  list-style: disc;
+.qc-context-details > :is(button, label):hover {
+  background: hsl(var(--muted));
+}
+.qc-context-details hr {
+  margin: 4px;
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+}
+.qc-context-toggle input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: currentColor;
 }
 
 /* ── The one composer, in the mini chat (under the frame; Riley, 2026-10-27).
@@ -344,7 +359,8 @@
 :root[data-luca-frame] .qc-composer {
   align-items: center;
   border: 0;
-  border-radius: 18px 18px 8px 8px;
+  /* Riley's correction: a true pill, not corners concentric with the panel. */
+  border-radius: 18px;
   column-gap: 4px;
   display: grid;
   grid-template-areas: "add field picker send";

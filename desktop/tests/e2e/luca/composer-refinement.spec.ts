@@ -95,7 +95,7 @@ for (const theme of ["obsidian", "paper"]) {
         .toBe(mini ? 36 : 46);
       const idle = await measure(composer);
       expect(idle).toMatchObject({
-        radius: mini ? "18px 18px 8px 8px" : "23px",
+        radius: mini ? "18px" : "23px",
         padding: mini ? "3px 3px 3px 4px" : "5px 5px 5px 6px",
         shadow: "none",
       });
@@ -125,6 +125,7 @@ for (const theme of ["obsidian", "paper"]) {
       await waitForAnimations(page);
       const expanded = await measure(composer);
       expect(expanded.height).toBeGreaterThan(46);
+      expect(expanded.radius).toBe(idle.radius);
       expect(expanded.sendBottom).toBeCloseTo(idle.sendBottom, 0);
       expect(expanded.addBottom).toBeCloseTo(idle.addBottom, 0);
       expect(expanded.fieldLeft).toBeLessThan(9);

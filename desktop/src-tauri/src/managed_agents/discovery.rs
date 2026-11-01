@@ -156,7 +156,10 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         underlying_cli: Some("claude"),
         cli_install_commands: &["curl -fsSL https://claude.ai/install.sh | bash"],
         cli_install_commands_windows: &["powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\""],
-        adapter_install_commands: &["npm install -g @agentclientprotocol/claude-agent-acp"],
+        // Keep the adapter aligned with our ACP handshake and model bridge.
+        // An unversioned install selected 0.99.1 (SDK 2.x), which rejects this
+        // beta's initialize request before Luca can start. Upgrade deliberately.
+        adapter_install_commands: &["npm install -g @agentclientprotocol/claude-agent-acp@0.61.0"],
         install_instructions_url: "https://github.com/agentclientprotocol/claude-agent-acp",
         cli_install_hint: "Install the Claude Code CLI via the official install script.",
         adapter_install_hint: "Install the Claude Code ACP adapter via npm.",

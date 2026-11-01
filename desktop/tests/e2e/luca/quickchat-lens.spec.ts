@@ -97,7 +97,7 @@ test("Lens has unmasked nested backdrops and a solid fallback", async ({
         ),
     )
     .toBe("16px");
-  await expect(page.locator(".qc-header")).toHaveCSS("height", "32px");
+  await expect(page.locator(".qc-header")).toHaveCSS("height", "18px");
   await expect(page.locator(".qc-resize").first()).toHaveAttribute(
     "tabindex",
     "-1",

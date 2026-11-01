@@ -1187,6 +1187,15 @@ fn test_command_basenames_dotted_name_no_extra_candidates() {
 
 // ── Phase B: cli_install_commands_for_os ────────────────────────────────────
 
+#[test]
+fn claude_adapter_install_pins_the_model_bridge_compatible_version() {
+    let claude = super::known_acp_runtime_exact("claude").unwrap();
+    assert_eq!(
+        claude.adapter_install_commands,
+        &["npm install -g @agentclientprotocol/claude-agent-acp@0.61.0"]
+    );
+}
+
 /// Claude and Codex have non-empty default cli_install_commands (install.sh).
 #[test]
 fn test_claude_and_codex_have_cli_install_commands() {

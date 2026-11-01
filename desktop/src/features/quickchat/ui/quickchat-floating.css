@@ -1,0 +1,175 @@
+/* Approved edge-to-edge refinement. The old Lens material and transcript mask
+ * stay in quickchat-lens.css; this changes their placement, not the whole app. */
+.qc-dock {
+  display: contents;
+}
+.qc-header {
+  justify-content: flex-end;
+}
+:root[data-luca-frame] .qc-panel {
+  padding: 0;
+  gap: 0;
+}
+:root[data-luca-frame] .qc-scroll {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+:root[data-luca-frame] .qc-transcript {
+  padding: 0;
+  scroll-padding: 36px 14px calc(var(--qc-dock-height, 36px) + 22px);
+}
+:root[data-luca-frame] .qc-messages {
+  padding: 36px 14px calc(var(--qc-dock-height, 36px) + 22px);
+}
+/* Same soft edge, now at the window edges rather than below opaque bands.
+ * These have no painted fill and never receive input. */
+:root[data-luca-frame] .qc-scroll::before,
+:root[data-luca-frame] .qc-scroll::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 32px;
+  z-index: 1;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000,
+    rgb(0 0 0 / 0.72) 25%,
+    rgb(0 0 0 / 0.4) 50%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000,
+    rgb(0 0 0 / 0.72) 25%,
+    rgb(0 0 0 / 0.4) 50%,
+    transparent
+  );
+}
+:root[data-luca-frame] .qc-scroll::before {
+  top: 0;
+  border-radius: inherit;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+:root[data-luca-frame] .qc-scroll::after {
+  bottom: 0;
+  border-radius: inherit;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  -webkit-mask-image: linear-gradient(
+    to top,
+    #000,
+    rgb(0 0 0 / 0.72) 25%,
+    rgb(0 0 0 / 0.4) 50%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    to top,
+    #000,
+    rgb(0 0 0 / 0.72) 25%,
+    rgb(0 0 0 / 0.4) 50%,
+    transparent
+  );
+}
+:root[data-luca-frame] .qc-header {
+  top: 0;
+  right: 0;
+  height: 18px;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 3;
+}
+:root[data-luca-frame] .qc-actions {
+  position: relative;
+  align-self: flex-start;
+  align-items: flex-start;
+  height: 18px;
+  padding: 0 6px 0 18px;
+  pointer-events: auto;
+  gap: 0;
+}
+:root[data-luca-frame] .qc-context-details > :is(button, label) {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 9px;
+  border-radius: 7px;
+}
+:root[data-luca-frame] .qc-context-details > :is(button, label):hover {
+  background: var(--qc-well);
+}
+/* Approved bare controls: small marks, unchanged 24px targets, no framing. */
+:root[data-luca-frame] .qc-panel .qc-header .qc-actions button {
+  padding-bottom: 6px;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-radius: 5px;
+}
+:root[data-luca-frame]
+  .qc-panel
+  .qc-header
+  .qc-actions
+  button:is(:hover, :active, [aria-expanded="true"]) {
+  background: transparent;
+  color: var(--luca-frame-ink);
+}
+:root[data-luca-frame] .qc-dock {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 8px;
+  gap: 8px;
+  z-index: 3;
+}
+:root[data-luca-frame] .qc-context-wrap {
+  position: absolute;
+  inset: 0 0 auto;
+}
+:root[data-luca-frame] .qc-context-details {
+  width: min(14rem, 100%);
+  right: auto;
+  padding: 5px;
+  gap: 0;
+  max-height: min(
+    360px,
+    calc(var(--qc-panel-height, 380px) - var(--qc-dock-height, 36px) - 48px)
+  );
+  overflow-y: auto;
+}
+:root[data-luca-frame] .qc-composer {
+  background: rgb(24 24 25 / 0.48);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+:root[data-luca-frame]:not(.dark) .qc-composer {
+  background: rgb(248 247 245 / 0.58);
+}
+:root[data-luca-frame] .qc-newest {
+  bottom: calc(var(--qc-dock-height, 36px) + 22px);
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-luca-frame] .qc-scroll::before,
+  :root[data-luca-frame] .qc-scroll::after {
+    display: none;
+  }
+  :root[data-luca-frame] .qc-panel .qc-composer {
+    background: #242426;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-luca-frame]:not(.dark) .qc-panel .qc-composer {
+    background: #eeedeb;
+  }
+}

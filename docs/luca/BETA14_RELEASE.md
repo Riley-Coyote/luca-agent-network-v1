@@ -1269,3 +1269,103 @@ main chat and new chat keep that correction's 46 px capsule.
   Previous candidate and profile are preserved in `rollback-before-lens-20261031/`.
   No messages sent; production profile/app untouched. No release, push, tag
   or signing is part of this change.
+
+### Mini composer corner correction (2026-10-31)
+
+- Riley rejected the Lens study's 18/8 px split corners after seeing them in
+  use. The mini composer now has equal 18 px corners: a true 36 px pill at
+  one line, retaining the same rounding when expanded. Glass, fill, insets,
+  controls and the main/new-chat composers are unchanged.
+
+### Mini chat: edge-to-edge conversation and native controls (2026-10-31, WIP)
+
+- Riley approved a native control layer: the conversation now reaches both
+  panel edges, with the existing soft masks/blur at the edges instead of
+  solid bands. The title is gone; options, minimize and close remain separate
+  24 px floating controls. App context and attachments live under +.
+- On supported Macs in Glass mode, `NSGlassEffectView` renders the composer
+  and header controls above WKWebView. The input and buttons are inside its
+  content view, so their text stays sharp. Solid/Reduce Transparency and
+  older-system/browser fallbacks retain the web controls. Main/new-chat UI
+  is unchanged. No private glass API is used.
+- Native input feeds the existing draft, attachment and send callbacks. Session
+  IDs and acknowledged revisions reject stale echoes; active marked text is
+  not replaced. Native controls yield to modal dialogs and page reloads.
+- Verification: frontend build/typecheck, targeted Biome, diff checks and
+  26 focused browser cases pass in one run. Four windowless AppKit checks
+  pass for marked-text confirmation/cancellation and ordinary Return/Escape.
+  These are not a real Japanese keyboard-conversion walkthrough.
+- The first native rebuild was exercised through accessibility: plain text,
+  Shift-Return, undo, +/agent menus, Escape and minimize/reopen worked. Test
+  drafts were cleared; no chat was sent. Full-size native visual review is
+  still pending: macOS capture returned only a thumbnail. Do not call the
+  native material visually approved from browser screenshots.
+- The previous candidate and its profile are cloned in
+  `~/Documents/Polyphonic-Candidates/2026-10-23-rail-glass/rollback-native-controls-20261031/`.
+  Builds use the one shared cache. Nothing published, pushed, tagged or
+  release-signed. This WIP is not yet release-approved.
+- Final unsigned debug rebuild succeeded and the same candidate/profile was
+  reopened. The native + chooser opens, but automated file selection could
+  not complete (Open remained disabled); end-to-end native attachment picking
+  and real IME conversion remain explicit walkthrough items alongside the
+  visual check. The chooser was canceled, menus dismissed and draft left
+  empty. Only the rebuilt candidate is running. About 102 GiB remained free;
+  the temporary browser-test server was stopped, not the design preview.
+
+### Mini chat: approved bare-controls refinement (2026-11-01)
+
+- Supersedes the native-control experiment above. Riley chose the web Lens
+  treatment after comparing it with the native controls. The existing native
+  floor glass remains unchanged; mini chat no longer mounts a second native
+  input or button layer above the page.
+- More, Minimize and Close sit directly on the surface: 12 px marks with the
+  existing 24 px targets, no notch, discs, plate or framed header. Both minus
+  and X remain. No title or context row is added back.
+- Conversation flows edge-to-edge under the existing soft blur. Its sampling
+  layers now explicitly share the panel's corner radius. The floating 36 px
+  pill keeps its 18 px corners; attachments and app context remain under +.
+- The rejected native experiment is preserved outside the source tree in the
+  candidate's `superseded-native-controls-20261101` folder, not compiled or
+  shipped. The previous app and profile have a clone-backed rollback copy.
+- Focused browser checks cover bare controls, edge clipping, input/IME guards,
+  context and attachment menus, retained drafts, scrolling, opaque fallback
+  and unchanged main/new-chat composer geometry. No publication is authorized.
+- Final verification: all 24 focused browser cases pass in one run; frontend
+  typecheck/build, scoped Biome, px-text and diff checks pass. Unsigned native
+  debug build succeeded in the shared cache. Actual native window screenshots
+  confirm the bare controls and soft edges. Multiline paste, retained draft on
+  minimize/reopen, + context menu and close were exercised in the candidate;
+  the test draft was cleared, no message sent and no permission changed.
+  The same candidate/profile is open for Riley. Approximately 85 GiB free.
+
+### Mini chat: compact add-to-message menu (2026-11-01)
+
+- The + popover contains only Attach image, Attach current view, and Include
+  app context. Removed the snapshot explanation, extracted page text, and
+  visible-controls dump; no change to what context is sent or its opt-out.
+- Kept the approved Lens material, composer, and bare header unchanged.
+  The small menu focuses its first action, closes on repeated + or Escape,
+  and retains the draft. All 24 focused browser cases, typecheck/build,
+  scoped Biome, px-text, and diff checks pass. No publication authorized.
+- Native candidate rebuilt in the shared cache and reopened on the same
+  profile. Verified the compact menu visually and the native image chooser's
+  open/cancel path. No message sent or context preference changed.
+
+### Claude adapter recovery (2026-11-01)
+
+- The candidate reported "Claude Code adapter is missing". Claude Code itself
+  was present, but the shared app-managed `Buzz/node-tools` directory was absent.
+  The cause of that directory's removal is not established; this is required
+  runtime software, not a disposable build cache.
+- Restored `@agentclientprotocol/claude-agent-acp@0.61.0` into the app's private
+  npm prefix without replacing profiles, credentials, settings, or history.
+  The unversioned installer selected 0.99.1 first, which rejected this beta's
+  initialize request. Discovery now pins the compatible 0.61.0 version, matching
+  the existing model bridge, with a regression assertion for that install command.
+- Actual candidate verification: adapter initialized, relay connected, and Luca
+  answered a bounded no-tools connection check in the existing conversation.
+  Five model-bridge tests pass and the real adapter accepts the bridge hooks.
+  The Rust regression test was added but its run was stopped when Cargo began
+  rebuilding test dependencies; it is not claimed passed. The installer source
+  pin will enter the next candidate build; the running app is repaired through
+  its restored runtime dependency. Nothing published.

@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Camera,
   ChevronDown,
+  ImagePlus,
   MessageCircle,
   Minus,
   MoreHorizontal,
@@ -19,6 +20,7 @@ import type { QuickChatViewModel } from "../types";
 import { useQuickChatGlass } from "./useQuickChatGlass";
 import "./quickchat.css";
 import "./quickchat-lens.css";
+import "./quickchat-floating.css";
 import { useQuickComposerShape } from "./quickComposerShape";
 import { useQuickChatTranscript } from "./useQuickChatTranscript";
 
@@ -48,7 +50,11 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
   const optionsButton = React.useRef<HTMLButtonElement>(null);
   const pickerButton = React.useRef<HTMLButtonElement>(null);
   const contextButton = React.useRef<HTMLButtonElement>(null);
+  const attachButton = React.useRef<HTMLButtonElement>(null);
   const activeReader = React.useRef<FileReader | null>(null);
+  React.useEffect(() => {
+    if (contextOpen) attachButton.current?.focus();
+  }, [contextOpen]);
   React.useEffect(() => {
     if (!model.open) return;
     const dismiss = (event: KeyboardEvent) => {
@@ -86,7 +92,11 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
       )
         setMenu(false);
       if (!target.closest(".qc-picker-wrap")) setPicker(false);
-      if (!target.closest(".qc-context-wrap")) setContextOpen(false);
+      if (
+        !target.closest(".qc-context-wrap") &&
+        !contextButton.current?.contains(target)
+      )
+        setContextOpen(false);
     };
     document.addEventListener("pointerdown", outside, true);
     return () => document.removeEventListener("pointerdown", outside, true);
@@ -165,6 +175,24 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
     };
     reader.readAsDataURL(value);
   };
+  React.useLayoutEffect(() => {
+    if (!model.open) return;
+    const root = glass.panel.current;
+    const dock = root?.querySelector(".qc-dock");
+    if (!root || !dock) return;
+    const measure = () => {
+      root.style.setProperty(
+        "--qc-dock-height",
+        `${dock.getBoundingClientRect().height}px`,
+      );
+      root.style.setProperty("--qc-panel-height", `${root.clientHeight}px`);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(dock);
+    observer.observe(root);
+    measure();
+    return () => observer.disconnect();
+  }, [model.open, glass.panel]);
   const resize = (
     event: React.PointerEvent<HTMLButtonElement>,
     horizontal: boolean,
@@ -263,10 +291,6 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
         />
       ))}
       <header className="qc-header text-sm">
-        <span>
-          {resident?.name ?? "Luca"}{" "}
-          <span className="text-muted-foreground">· Quick Chat</span>
-        </span>
         <div className="qc-actions">
           <button
             ref={optionsButton}
@@ -279,7 +303,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
               setPicker(false);
             }}
           >
-            <MoreHorizontal size={14} />
+            <MoreHorizontal size={12} />
           </button>
           <button
             type="button"
@@ -287,14 +311,14 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
             aria-label="Minimize Quick Chat"
             onClick={() => model.setOpen(false)}
           >
-            <Minus size={14} />
+            <Minus size={12} />
           </button>
           <button
             type="button"
             aria-label="Close Quick Chat"
             onClick={() => model.setOpen(false)}
           >
-            <X size={14} />
+            <X size={12} />
           </button>
         </div>
       </header>
@@ -344,27 +368,6 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
                 )}
               </details>
             )}
-          <label>
-            <input
-              type="checkbox"
-              checked={model.contextEnabled}
-              onChange={(event) =>
-                model.setContextEnabled(event.target.checked)
-              }
-            />{" "}
-            Include current app context
-          </label>
-          <button
-            type="button"
-            data-testid="quickchat-capture"
-            disabled={model.capturing}
-            onClick={() => {
-              void model.capture();
-              setMenu(false);
-            }}
-          >
-            <Camera size={14} /> Attach current view
-          </button>
         </div>
       )}
       <div className="qc-scroll">
@@ -425,240 +428,222 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
           </button>
         )}
       </div>
-      {(model.error || attachmentError) && (
-        <p role="alert" className="text-xs text-destructive">
-          {model.error || attachmentError}
-        </p>
-      )}
-      {model.image && (
-        <div className="qc-attachment text-xs">
-          <img src={model.image.dataUrl} alt="Attached screenshot" />
-          <span>{model.image.name}</span>
-          <button
-            type="button"
-            aria-label="Remove image"
-            onClick={() => model.setImage(null)}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-      <div className="qc-context-wrap">
-        <button
-          ref={contextButton}
-          type="button"
-          data-testid="quickchat-context"
-          className="qc-context text-2xs"
-          aria-expanded={contextOpen}
-          aria-controls="quickchat-context-details"
-          onClick={() => {
-            model.refreshContext();
-            setContextOpen(!contextOpen);
-            setMenu(false);
-            setPicker(false);
-          }}
-        >
-          App context ·{" "}
-          {model.contextEnabled
-            ? (model.context?.screen ?? "Current view")
-            : "Off"}{" "}
-          <ChevronDown className="qc-chev" size={10} />
-        </button>
-        {contextOpen && (
-          <section
-            id="quickchat-context-details"
-            className="qc-context-details text-xs"
-            aria-label="Included app context"
-          >
-            <label className="qc-context-toggle">
-              <input
-                type="checkbox"
-                checked={model.contextEnabled}
-                onChange={(event) =>
-                  model.setContextEnabled(event.target.checked)
-                }
-              />{" "}
-              Include current app context
-            </label>
-            {model.contextEnabled ? (
-              <>
-                <p className="text-muted-foreground">
-                  A fresh snapshot is included when you send. This preview
-                  excludes Quick Chat.
-                </p>
-                {model.context ? (
-                  <>
-                    <strong>{model.context.screen}</strong>
-                    <pre>{model.context.text}</pre>
-                    {model.context.targets.length > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">
-                          Visible controls
-                        </span>
-                        <ul>
-                          {model.context.targets.map((target) => (
-                            <li key={target.id}>{target.label}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-muted-foreground">
-                    Current view will be captured when you send.
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="text-muted-foreground">
-                App context will not be included with your message.
-              </p>
-            )}
-          </section>
+      <div className="qc-dock">
+        {(model.error || attachmentError) && (
+          <p role="alert" className="text-xs text-destructive">
+            {model.error || attachmentError}
+          </p>
         )}
-      </div>
-      <form
-        className="qc-composer"
-        ref={shapeComposer}
-        onSubmit={(event) => {
-          event.preventDefault();
-          send();
-        }}
-      >
-        <input
-          ref={file}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
-          hidden
-          onChange={(event) => {
-            attach(event.target.files?.[0]);
-            event.target.value = "";
-          }}
-        />
-        <button
-          type="button"
-          className="qc-add"
-          aria-label="Attach image"
-          onClick={() => file.current?.click()}
-        >
-          <Plus size={16} />
-        </button>
-        <textarea
-          ref={composer}
-          data-testid="quickchat-input"
-          aria-label="Message"
-          placeholder="Ask about what you see…"
-          rows={1}
-          value={model.draft}
-          onChange={(event) => model.setDraft(event.target.value)}
-          onCompositionStart={() => {
-            composing.current = true;
-          }}
-          onCompositionEnd={() => {
-            composing.current = false;
-          }}
-          onScroll={(event) =>
-            event.currentTarget.toggleAttribute(
-              "data-scrolled",
-              event.currentTarget.scrollTop > 1,
-            )
-          }
-          onPaste={(event) => {
-            const image = Array.from(event.clipboardData.files).find((item) =>
-              item.type.startsWith("image/"),
-            );
-            if (image) {
-              event.preventDefault();
-              attach(image);
-            }
-          }}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.nativeEvent.isComposing &&
-              event.nativeEvent.keyCode !== 229 &&
-              !composing.current
-            ) {
-              event.preventDefault();
-              send();
-            }
-          }}
-        />
-        <div className="qc-picker-wrap">
-          <button
-            ref={pickerButton}
-            className="qc-picker-trigger text-xs"
-            type="button"
-            data-testid="quickchat-agent-picker"
-            aria-label="Choose resident and thinking effort"
-            aria-expanded={picker}
-            onClick={() => {
-              setPicker(!picker);
-              setContextOpen(false);
-              setMenu(false);
-            }}
-          >
-            {resident?.name ?? "Choose"}
-            <ChevronDown className="qc-chev" size={10} />
-          </button>
-          {picker && (
-            <div className="qc-picker">
-              <div className="qc-residents">
-                {model.residents.map((item) => (
-                  <button
-                    type="button"
-                    key={item.pubkey}
-                    aria-pressed={item.pubkey === model.selectedPubkey}
-                    onClick={() => model.selectResident(item.pubkey)}
-                  >
-                    <span>{item.name}</span>
-                    <span className="text-2xs text-muted-foreground">
-                      {item.detail}
-                    </span>
-                  </button>
-                ))}
-                {!model.residents.length && (
-                  <button type="button" onClick={model.openAgentSetup}>
-                    Set up a resident
-                  </button>
-                )}
-              </div>
-              <ThinkingEffortControl
-                effort={model.effort}
-                position={model.effortPosition}
-                onPositionChange={model.setEffortPosition}
-                onCommit={model.setEffort}
-                active={model.open && picker}
-                testId="quickchat-effort"
-              />
-            </div>
+        {model.image && (
+          <div className="qc-attachment text-xs">
+            <img src={model.image.dataUrl} alt="Attached screenshot" />
+            <span>{model.image.name}</span>
+            <button
+              type="button"
+              aria-label="Remove image"
+              onClick={() => model.setImage(null)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+        <div className="qc-context-wrap">
+          {contextOpen && (
+            <section
+              id="quickchat-context-details"
+              className="qc-context-details text-xs"
+              role="dialog"
+              aria-label="Add to message"
+            >
+              <button
+                ref={attachButton}
+                type="button"
+                onClick={() => {
+                  file.current?.click();
+                  setContextOpen(false);
+                  contextButton.current?.focus();
+                }}
+              >
+                <ImagePlus size={14} /> Attach image
+              </button>
+              <button
+                type="button"
+                data-testid="quickchat-capture"
+                disabled={model.capturing}
+                onClick={() => {
+                  void model.capture();
+                  setContextOpen(false);
+                  composer.current?.focus();
+                }}
+              >
+                <Camera size={14} /> Attach current view
+              </button>
+              <hr />
+              <label className="qc-context-toggle">
+                <input
+                  type="checkbox"
+                  checked={model.contextEnabled}
+                  onChange={(event) =>
+                    model.setContextEnabled(event.target.checked)
+                  }
+                />{" "}
+                Include app context
+              </label>
+            </section>
           )}
         </div>
-        {model.busy ? (
+        <form
+          className="qc-composer"
+          ref={shapeComposer}
+          onSubmit={(event) => {
+            event.preventDefault();
+            send();
+          }}
+        >
+          <input
+            ref={file}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            hidden
+            onChange={(event) => {
+              attach(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
           <button
+            ref={contextButton}
+            data-testid="quickchat-context"
             type="button"
-            className="qc-send"
-            aria-label="Stop response"
-            onClick={model.stop}
+            className="qc-add"
+            aria-label="Attachments and app context"
+            aria-expanded={contextOpen}
+            aria-haspopup="dialog"
+            aria-controls="quickchat-context-details"
+            onClick={() => {
+              setContextOpen(!contextOpen);
+              setMenu(false);
+              setPicker(false);
+            }}
           >
-            <Square size={14} />
+            <Plus size={16} />
           </button>
-        ) : (
-          <button
-            ref={sendButton}
-            type="submit"
-            className="qc-send"
-            data-testid="quickchat-send"
-            aria-label="Send message"
-            disabled={
-              !model.selectedPubkey || (!model.draft.trim() && !model.image)
+          <textarea
+            ref={composer}
+            data-testid="quickchat-input"
+            aria-label="Message"
+            placeholder="Ask about what you see…"
+            rows={1}
+            value={model.draft}
+            onChange={(event) => model.setDraft(event.target.value)}
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
+            }}
+            onScroll={(event) =>
+              event.currentTarget.toggleAttribute(
+                "data-scrolled",
+                event.currentTarget.scrollTop > 1,
+              )
             }
-          >
-            <ArrowUp size={16} />
-          </button>
-        )}
-      </form>
+            onPaste={(event) => {
+              const image = Array.from(event.clipboardData.files).find((item) =>
+                item.type.startsWith("image/"),
+              );
+              if (image) {
+                event.preventDefault();
+                attach(image);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing &&
+                event.nativeEvent.keyCode !== 229 &&
+                !composing.current
+              ) {
+                event.preventDefault();
+                send();
+              }
+            }}
+          />
+          <div className="qc-picker-wrap">
+            <button
+              ref={pickerButton}
+              className="qc-picker-trigger text-xs"
+              type="button"
+              data-testid="quickchat-agent-picker"
+              aria-label="Choose resident and thinking effort"
+              aria-expanded={picker}
+              onClick={() => {
+                setPicker(!picker);
+                setContextOpen(false);
+                setMenu(false);
+              }}
+            >
+              {resident?.name ?? "Choose"}
+              <ChevronDown className="qc-chev" size={10} />
+            </button>
+            {picker && (
+              <div className="qc-picker">
+                <div className="qc-residents">
+                  {model.residents.map((item) => (
+                    <button
+                      type="button"
+                      key={item.pubkey}
+                      aria-pressed={item.pubkey === model.selectedPubkey}
+                      onClick={() => model.selectResident(item.pubkey)}
+                    >
+                      <span>{item.name}</span>
+                      <span className="text-2xs text-muted-foreground">
+                        {item.detail}
+                      </span>
+                    </button>
+                  ))}
+                  {!model.residents.length && (
+                    <button type="button" onClick={model.openAgentSetup}>
+                      Set up a resident
+                    </button>
+                  )}
+                </div>
+                <ThinkingEffortControl
+                  effort={model.effort}
+                  position={model.effortPosition}
+                  onPositionChange={model.setEffortPosition}
+                  onCommit={model.setEffort}
+                  active={model.open && picker}
+                  testId="quickchat-effort"
+                />
+              </div>
+            )}
+          </div>
+          {model.busy ? (
+            <button
+              type="button"
+              className="qc-send"
+              aria-label="Stop response"
+              onClick={model.stop}
+            >
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              ref={sendButton}
+              type="submit"
+              className="qc-send"
+              data-testid="quickchat-send"
+              aria-label="Send message"
+              disabled={
+                !model.selectedPubkey || (!model.draft.trim() && !model.image)
+              }
+            >
+              <ArrowUp size={16} />
+            </button>
+          )}
+        </form>
+      </div>
     </section>
   );
   if (!glass.drawn) return model.open ? panel : launcher;

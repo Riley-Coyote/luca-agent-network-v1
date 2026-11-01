@@ -148,7 +148,7 @@ test("new chat keeps the previous room and full conversation opens the current r
   await page.screenshot({ path: "test-results/quickchat-quiet-hover.png" });
 });
 
-test("context is inspectable and excludes the utility draft and hidden credentials", async ({
+test("attachment choices never display captured context or private drafts", async ({
   page,
 }) => {
   await page.getByTestId("open-settings-view").click();
@@ -161,15 +161,22 @@ test("context is inspectable and excludes the utility draft and hidden credentia
   await page.getByTestId("quickchat-launcher").click();
   await page.getByTestId("quickchat-input").fill("private-draft-sentinel");
   await page.getByTestId("quickchat-context").click();
-  const detail = page.getByRole("region", { name: "Included app context" });
+  const detail = page.getByRole("dialog", { name: "Add to message" });
   await expect(detail).toBeVisible();
   await expect(detail).not.toContainText("private-draft-sentinel");
   await expect(detail).not.toContainText("hidden-credential-sentinel");
+  await expect(detail.locator("p, pre, ul, strong")).toHaveCount(0);
+  await expect(detail.getByRole("button")).toHaveCount(2);
   await detail.getByRole("checkbox").uncheck();
-  await expect(page.getByTestId("quickchat-context")).toContainText("Off");
+  await expect(detail.getByRole("checkbox")).not.toBeChecked();
   await page.getByTestId("quickchat-input").press("Escape");
   await expect(detail).toHaveCount(0);
   await expect(page.getByTestId("quickchat-panel")).toBeVisible();
+  await expect(page.getByTestId("quickchat-context")).toBeFocused();
+  await page.getByTestId("quickchat-context").click();
+  await expect(detail.getByRole("checkbox")).not.toBeChecked();
+  await page.getByTestId("quickchat-context").click();
+  await expect(detail).toHaveCount(0);
 });
 
 test("Escape dismisses the resident picker even when native buttons leave focus on the page", async ({
