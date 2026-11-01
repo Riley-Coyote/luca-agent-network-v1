@@ -596,9 +596,19 @@
   }
 }
 
-/* An agent's mark is light, and light needs the dark: by day it sits in a
- * small black well, in a row and at a page's head alike (WP-42). */
+/* Approved mark well: two extra pixels, centred on the existing face box. */
+.luca-agent-dendrite {
+  background: #121114;
+  border: 1px solid rgba(236, 232, 224, 0.08);
+  border-radius: 50%;
+  box-sizing: border-box;
+  display: grid;
+  flex-shrink: 0;
+  margin: -1px;
+  overflow: hidden;
+  place-items: center;
+}
+
 :root:not(.dark) .luca-agent-dendrite {
-  background: #050506;
-  border-radius: 999px;
+  border-color: rgba(0, 0, 0, 0.14);
 }

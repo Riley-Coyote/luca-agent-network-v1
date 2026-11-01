@@ -1369,3 +1369,22 @@ main chat and new chat keep that correction's 46 px capsule.
   rebuilding test dependencies; it is not claimed passed. The installer source
   pin will enter the next candidate build; the running app is repaired through
   its restored runtime dependency. Nothing published.
+
+### Approved growing agent marks (2026-11-01)
+
+- Ported Claude's `fine-marks.js` at `588e972a3`, with the handoff correction
+  `42ac41247`: working growth is 1.5x, rest is 2x, working bypasses choir, and
+  the 120-second overdue cap remains. No visual tuning. Only engine behavior
+  change: every size below 40 uses the small-mark behavior, as requested.
+- The 18px rail/place marks share `rail`; 28px settings marks use `settings`;
+  the 72px page head stays independent. Exact opaque wells add 1px per side
+  while preserving existing face centres, column widths, and name spacing.
+- One shared loop; hidden/offscreen marks pause; resolution-media changes
+  rebuild backing stores at actual DPR (capped at 3). Reduced motion draws
+  the study's still tree. All product marks use the shared INKFLOOR ramp.
+- Verified exact pixel parity with the study over 10,800 frames: 18/28/72px,
+  DPR 2/3, working/resting, plus reduced motion. Eight targeted engine tests,
+  all 4,442 desktop units, eight focused rail/page browser cases, typecheck,
+  frontend build, scoped Biome, px-text, and diff checks pass.
+- Native rebuild and Retina proof review are pending at this checkpoint.
+  No publishing, tagging, release signing, or pushing is authorized.

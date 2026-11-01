@@ -621,7 +621,7 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
       [...node.querySelectorAll<HTMLElement>("[data-home-kind]")].map((row) => {
         const face = row.querySelector<HTMLElement>(".luca-rail-face");
         const svg = face?.querySelector("svg");
-        const dendrite = face?.querySelector<HTMLElement>(
+        const dendrite = face?.querySelector<HTMLCanvasElement>(
           "[data-agent-dendrite]",
         );
         const box = (dendrite ?? svg)?.getBoundingClientRect();
@@ -631,6 +631,10 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
             face: face?.dataset.face,
             agentMark: svg?.hasAttribute("data-agent-mark") ?? false,
             dendrite: Boolean(dendrite),
+            backing: dendrite?.width,
+            expectedBacking: Math.round(
+              18 * Math.min(3, window.devicePixelRatio),
+            ),
             icon: svg?.getAttribute("class") ?? "",
             size: box ? `${box.width}x${box.height}` : null,
           },
@@ -642,6 +646,7 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
   for (const mind of [faces.luca, faces.agent]) {
     expect(mind.dendrite || mind.agentMark).toBe(true);
     expect(mind.size).toBe("18x18");
+    if (mind.dendrite) expect(mind.backing).toBe(mind.expectedBacking);
   }
   expect(faces.app.face).toBe("app");
   expect(faces.room.icon).toContain("lucide-hash");

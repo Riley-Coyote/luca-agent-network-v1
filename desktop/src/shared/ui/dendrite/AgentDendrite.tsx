@@ -12,20 +12,20 @@ export type AgentDendriteProps = {
   /** CSS pixels: 18 in a row, 72 at a page's head. */
   size?: number;
   working?: boolean;
+  group?: string;
   className?: string;
 };
 
 /**
- * An agent's mark (WP-42): its own dendrite, grown once from its key and kept,
- * with light running out to its tips, often while it works, and exactly still
- * under Reduce Motion. It's light, and light needs the dark: by day it sits in
- * a small black well (shell-rail.css). Decorative: the row's name labels it.
+ * The approved living dendrite: fresh growth within the previous tree, held
+ * still under Reduce Motion. Decorative: the row's name labels it.
  */
 export const AgentDendrite = React.memo(function AgentDendrite({
   className,
   residentKey,
   size = 18,
   working = false,
+  group,
 }: AgentDendriteProps) {
   const lucaPubkey = useCanonicalLucaPubkey();
   const seed = dendriteSeed(residentKey, lucaPubkey);
@@ -42,6 +42,7 @@ export const AgentDendrite = React.memo(function AgentDendrite({
     const handle = renderer.register(canvas, {
       seed,
       size,
+      group,
       working: live.current,
     });
     handleRef.current = handle;
@@ -49,7 +50,7 @@ export const AgentDendrite = React.memo(function AgentDendrite({
       handle.dispose();
       handleRef.current = null;
     };
-  }, [seed, size]);
+  }, [seed, size, group]);
 
   React.useEffect(() => {
     handleRef.current?.update({ working });
@@ -64,8 +65,8 @@ export const AgentDendrite = React.memo(function AgentDendrite({
   return (
     <span
       aria-hidden="true"
-      className={cn("luca-agent-dendrite relative inline-block", className)}
-      style={{ height: size, width: size }}
+      className={cn("luca-agent-dendrite", className)}
+      style={{ height: size + 2, width: size + 2 }}
     >
       <canvas
         tabIndex={-1}

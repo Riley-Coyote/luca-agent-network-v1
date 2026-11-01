@@ -120,7 +120,11 @@ export function placeRowFace(
     const key = rowId.slice(rowId.indexOf(":") + 1);
     return {
       kind: "agent",
-      face: key ? <AgentDendrite residentKey={key} size={18} /> : <AgentMark />,
+      face: key ? (
+        <AgentDendrite group="rail" residentKey={key} size={18} />
+      ) : (
+        <AgentMark />
+      ),
     };
   }
   if (rowId === "luca" || rowId.startsWith("persona:"))

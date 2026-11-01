@@ -392,7 +392,11 @@ function SettingsRoot({
         lede={`Everything you decide about ${name}. Their page is theirs: what they make, write and do lives there.`}
         mark={
           resident.pubkey ? (
-            <AgentDendrite residentKey={resident.pubkey} size={28} />
+            <AgentDendrite
+              group="settings"
+              residentKey={resident.pubkey}
+              size={28}
+            />
           ) : null
         }
         onBack={onBack}

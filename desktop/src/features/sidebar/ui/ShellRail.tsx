@@ -991,6 +991,7 @@ function homeFace(home: RailHome, working = false) {
         <RowFace kind="agent">
           {home.pubkey ? (
             <AgentDendrite
+              group="rail"
               residentKey={home.pubkey}
               size={18}
               working={working}
