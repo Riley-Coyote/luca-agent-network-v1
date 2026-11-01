@@ -1367,8 +1367,8 @@ main chat and new chat keep that correction's 46 px capsule.
   Five model-bridge tests pass and the real adapter accepts the bridge hooks.
   The Rust regression test was added but its run was stopped when Cargo began
   rebuilding test dependencies; it is not claimed passed. The installer source
-  pin will enter the next candidate build; the running app is repaired through
-  its restored runtime dependency. Nothing published.
+  pin is included in the growing-marks candidate build below; the runtime
+  dependency is restored. Nothing published.
 
 ### Approved growing agent marks (2026-11-01)
 
@@ -1386,5 +1386,11 @@ main chat and new chat keep that correction's 46 px capsule.
   DPR 2/3, working/resting, plus reduced motion. Eight targeted engine tests,
   all 4,442 desktop units, eight focused rail/page browser cases, typecheck,
   frontend build, scoped Biome, px-text, and diff checks pass.
-- Native rebuild and Retina proof review are pending at this checkpoint.
+- Native debug build passed in the shared cache with incremental compilation
+  disabled. Reopened Polyphonic Rail Glass Candidate on its existing isolated
+  profile, with source receipt for `21e18c4c3`; approximately 85 GiB remains free.
+- Native Retina screenshots, motion captures, and native frame-cost review
+  remain pending: macOS window capture is failing and the candidate is visible
+  only as a Stage Manager thumbnail. Automated pixel parity is not a substitute
+  for that review. Riley has been asked to bring it forward on the Retina display.
   No publishing, tagging, release signing, or pushing is authorized.
