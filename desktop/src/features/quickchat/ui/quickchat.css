@@ -77,8 +77,20 @@
   flex-direction: column;
   gap: 16px;
   line-height: 1.5;
-  scrollbar-width: thin;
   overflow-wrap: anywhere;
+}
+.qc-scroll {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.qc-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100%;
 }
 .qc-owner {
   align-self: flex-end;
@@ -322,9 +334,8 @@
 }
 
 /* ── The one composer, in the mini chat (under the frame; Riley, 2026-10-27).
- * The app's composer shape and surface (composer-states.css): a capsule at
- * one line with the add button and Send 7px in from its ends, its own
- * surface a step off the panel with nothing drawn round it, and past one line
+ * The compact Lens composer: its own surface a step off the panel with
+ * nothing drawn round it, and past one line
  * the words on top and the buttons on their own row (quickComposerShape.ts).
  * The words are the panel's own size, and the placeholder keeps to one line,
  * cut short when the window is narrow, so the box grows only for words
@@ -332,48 +343,21 @@
  * when you resize the window"). */
 :root[data-luca-frame] .qc-composer {
   align-items: center;
-  border: 1px solid transparent;
-  border-radius: 1.5rem;
-  column-gap: 6px;
+  border: 0;
+  border-radius: 18px 18px 8px 8px;
+  column-gap: 4px;
   display: grid;
   grid-template-areas: "add field picker send";
-  grid-template-columns: 34px minmax(0, 1fr) auto 34px;
-  min-height: 48px;
-  padding: 6px;
-}
-
-/* At night, the app composer's solid surface (composer-states.css), on the
- * panel's own: a step above it, a soft shadow beneath, nothing drawn round
- * it. On the mini chat's glass the composer keeps the frame's plate (below). */
-:root[data-luca-frame].dark .qc-panel:not([data-glass]) .qc-composer {
-  background-color: color-mix(
-    in srgb,
-    hsl(var(--foreground)) 5.5%,
-    hsl(var(--background))
-  );
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.35),
-    0 12px 28px -12px rgb(0 0 0 / 0.7);
-}
-
-:root[data-luca-frame]:not(.dark) .qc-composer {
-  background: color-mix(
-    in srgb,
-    hsl(var(--background)) 94%,
-    hsl(var(--mn-ink))
-  );
-}
-
-/* On the mini chat's glass the box is the frame's own plate, never a dark
- * hole in the glass. */
-:root[data-luca-frame] .qc-panel[data-glass] .qc-composer {
-  background: var(--luca-frame-plate, hsl(var(--foreground) / 0.08));
+  grid-template-columns: 30px minmax(0, 1fr) auto 30px;
+  min-height: 36px;
+  padding: 3px 3px 3px 4px;
+  box-shadow: none;
 }
 
 :root[data-luca-frame] .qc-composer > .qc-add,
 :root[data-luca-frame] .qc-composer > .qc-send {
-  height: 34px;
-  width: 34px;
+  height: 30px;
+  width: 30px;
 }
 
 :root[data-luca-frame] .qc-composer > .qc-add {
@@ -391,18 +375,19 @@
 
 :root[data-luca-frame] .qc-composer textarea {
   align-self: center;
-  font-size: 0.875rem;
+  font-size: var(--qc-text);
   grid-area: field;
-  line-height: 1.25rem;
-  max-height: 7.5rem;
-  padding: 7px 2px;
+  line-height: var(--qc-line);
+  max-height: calc(6 * var(--qc-line) + 5px);
+  padding: 6px 2px;
+  field-sizing: fixed;
 }
 
 /* Where the hint is longer than the line, its end fades out rather than
  * being cut: WebKit won't end a field's hint with an ellipsis. */
 :root[data-luca-frame] .qc-composer textarea:placeholder-shown {
   field-sizing: fixed;
-  height: 34px;
+  height: 30px;
   -webkit-mask-image: linear-gradient(
     to right,
     #000 calc(100% - 1.5rem),
@@ -418,19 +403,20 @@
   grid-template-areas:
     "field field field field"
     "add . picker send";
-  row-gap: 4px;
+  align-content: end;
+  row-gap: 2px;
 }
 
 :root[data-luca-frame] .qc-composer[data-composer-open] textarea {
   align-self: stretch;
-  padding: 6px 9px 0;
+  padding: 5px 8px 0;
 }
 
 /* Send, as the one composer's: quiet at rest; armed, white with a black arrow
  * at night and Riley's blue by day. */
 :root[data-luca-frame] .qc-composer .qc-send:disabled {
-  background: hsl(var(--foreground) / 0.08);
-  color: hsl(var(--muted-foreground));
+  background: rgb(255 255 255 / 0.04);
+  color: var(--qc-faint);
   opacity: 1;
 }
 
@@ -440,43 +426,17 @@
 }
 
 :root[data-luca-frame]:not(.dark) .qc-composer .qc-send:enabled {
-  background: hsl(var(--mn-act));
+  background: #007aff;
   color: #fff;
 }
 
-/* ── the mini chat as the floor's glass ─────────────────────────────
- * Under the glass frame (shell-glass.css) the mini chat is the floor's own
- * glass carried over the page (useQuickChatGlass.ts, glass.ts): what lies
- * beneath it, frosted and given the tone Apple's regular glass gives a dark
- * backdrop (measured on macOS 27.0.1, the liquid-glass skill: 32/255 over
- * black to 184/255 over white, so 0.596 of the backdrop plus 32/255, which
- * is brightness 0.795 and then contrast 0.75), with the frame's own veil in
- * front, the one that darkens the floor. So it shows the conversation that is
- * really beneath it, never the windows behind the app. Its rim is the rail's
- * glass rim (railGlass.css), the light itself, bright along the top and gone
- * by the bottom, softer on a pane this size; its shadow is the cards' on the
- * glass (shell-glass.css), a little deeper, since it floats above them. By
- * day it takes the floor's daytime veil, no white edge (white on white says
- * nothing) and the ink's shadow. `data-glass` is set only while the frame
- * really is glass.
- * ------------------------------------------------------------------ */
+/* Shared morph structure. The approved material lives in quickchat-lens.css.
+ * `data-glass` is set only while native glass is really beneath the frame. */
 .qc-glass {
-  --qc-glass-frost: blur(24px) brightness(0.795) contrast(0.75);
-  --qc-glass-veil: rgb(0 0 0 / var(--luca-frame-veil));
-  --qc-glass-rim: linear-gradient(
-    to bottom,
-    rgb(255 255 255 / 0.18),
-    rgb(255 255 255 / 0.06) 30%,
-    rgb(255 255 255 / 0.015) 55%,
-    rgb(255 255 255 / 0)
-  );
-  --qc-glass-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 20px 50px rgb(0 0 0 / 0.42);
   position: fixed;
   z-index: 90;
   pointer-events: none;
   color: var(--luca-frame-muted);
-  -webkit-backdrop-filter: var(--qc-glass-frost);
-  backdrop-filter: var(--qc-glass-frost);
   background-color: var(--qc-glass-veil);
   box-shadow: var(--qc-glass-shadow);
 }
@@ -500,14 +460,6 @@
   mask:
     linear-gradient(#000 0 0) content-box exclude,
     linear-gradient(#000 0 0);
-}
-:root:not(.dark) .qc-glass {
-  --qc-glass-frost: blur(24px);
-  --qc-glass-veil: hsl(var(--mn-floor) / var(--luca-frame-veil));
-  --qc-glass-rim: none;
-  --qc-glass-shadow:
-    0 1px 2px hsl(var(--mn-ink) / 0.1),
-    0 20px 48px -12px hsl(var(--mn-ink) / 0.26);
 }
 .qc-glass-mark {
   position: absolute;

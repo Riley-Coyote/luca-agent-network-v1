@@ -219,17 +219,13 @@
 }
 
 /* ── the composer, Send and search ────────────────────────────────────
- * By day the composer is a step darker than the paper, its own surface with
- * nothing drawn round it (Riley, 2026-10-27; composer-states.css). */
+ * By day use the preview's raised surface too, without the heavier ink mix.
+ * Nothing is drawn round it (composer-states.css). */
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
   [data-testid="message-composer"],
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
   [data-testid="message-composer"]:focus-within {
-  background: color-mix(
-    in srgb,
-    hsl(var(--mn-surface)) 94%,
-    hsl(var(--mn-ink))
-  );
+  background: hsl(var(--mn-raised));
   border-color: transparent;
   box-shadow: none;
 }

@@ -1186,3 +1186,86 @@ Nothing may be lost. The seeds:
 - No native candidate, installer, signing, notarization or publication was
   performed in this integration pass. The next release gate is the combined
   native candidate and Riley's walkthrough.
+
+### First-look composer correction (2026-10-31, on `175a01d4d`)
+
+- Frame chat and new-chat composers now use the approved preview's 46 px
+  capsule: 23 px radius, `5px 5px 5px 6px` padding, `--mn-raised` fill in both
+  modes, no shadow or visible border. The solid-frame day override agrees.
+- Mini chat uses the same geometry, replacing its bright rail plate with a
+  2.5% ink step over the existing panel. Its glass and the agent marks are
+  unchanged; Claude's separate studies remain pending.
+- Long drafts retain the full-width text area and anchored bottom controls.
+  The + button's one-pixel movement on expansion is also corrected.
+- TypeScript, frontend build, scoped Biome, px-text and diff checks pass.
+  **12/12 focused browser checks pass**: six composer cases (chat/new/mini,
+  Obsidian/Paper, idle/focused/expanded/cleared), plus six existing temporary
+  surface checks. Screenshots are under `desktop/test-results/luca-composer-refinement-*`.
+- Native proof completed with temporary inspector CSS in the existing
+  candidate, not a rebuilt bundle. At 1372 x 835, chat/new-chat/mini each
+  measure 46 px high, 23 px radius, the exact padding above, and no shadow
+  in both Vitesse Black and Paper. Chat/new-chat fills are `rgb(12,12,12)`
+  at night and `rgb(243,241,238)` by day (`--mn-raised`). Mini chat uses
+  2.5% ink over its unchanged glass (WebKit reports alpha `0.024`), with an
+  8% ink idle Send disc and no shadow. Captured pixels confirm the mini
+  well is only a small step from its panel, not the former light slab.
+- Native long drafts open the full-width text area above the buttons in
+  new chat and mini chat; clearing returns the 46 px capsule. All six idle
+  native captures, expanded views, and the approved preview are saved in
+  `/tmp/polyphonic-composer-proof`. Screenshot cursor highlights are from
+  the control tool, not composer shadows.
+- Restored the original Luca conversation, Vitesse Black theme and window
+  size; closed mini chat and the inspector and cleared all test drafts.
+  No messages were sent or permissions changed. The running candidate
+  retains the temporary CSS preview until restart; permanent source changes
+  still need inclusion in the next combined candidate build.
+- Nothing committed, signed, tagged, pushed or published in this correction.
+
+### Mini chat: approved Lens material and compact controls (2026-10-31)
+
+Supersedes the mini-chat geometry/material in the composer correction above;
+main chat and new chat keep that correction's 46 px capsule.
+
+- Ported Riley's approved `claude/minichat-glass @ 2caaab9e2` study. The veil
+  paints once, with three unmasked rounded lens layers and a frosted core.
+  The parent does not create a backdrop root. The morph hook keeps each
+  layer's radius concentric with the existing launcher-to-panel animation.
+- Header: 32 px, 13 px title, 14 px icons in 24 px targets. Mini composer:
+  36 px, 13/18 text, 30 px controls, 18/8 px concentric corners, eight-pixel
+  insets, quiet 3% white / 4% black fill. Main/new-chat geometry is unchanged.
+- Full-width multiline typing grows above anchored controls in 160 ms;
+  six-line internal scrolling, blue caret, keyboard-only focus rings,
+  restrained hover/press feedback, armed Send and new-message arrival motion.
+- Messages scroll below the header with proportional edge masks. New content
+  follows only while at the end; a reader scrolled away gets a newest arrow.
+  Close/minimize/Escape return focus to the launcher. Menus dismiss on outside
+  click and before the panel on Escape. IME guards include keyCode 229.
+- Opaque panel fallback retained; reduced motion removes the added animations.
+- Focused browser verification: all 20 unique cases pass across composer
+  refinement, existing Quick Chat behavior, and the new Lens coverage. The
+  effort tests now reopen the picker after Send, matching outside dismissal.
+  Synthetic IME events are not a substitute for a real Japanese input check.
+- Unsigned native candidate rebuilt successfully in the shared Cargo cache.
+  Native night/day captures cover rest, header hover, one/two lines, menus
+  and scroll fades. WKWebView renders the nested frost; the parent reports
+  no backdrop filter and the first lens reports blur(1.5px) brightness(1.15).
+  Header is 32 px and composer 36 px, with no composer shadow. The user's
+  Small text preference is retained (13/18 design tokens scale to 11.7/16.2).
+- Native pixel samples: night panel/rail both RGB 10; idle composer RGB 18.
+  Day panel RGB 247/247/245 versus rail 248/247/245; idle composer 237/237/235,
+  focused composer 231/231/229. Faint text contrast against the sampled
+  composer is 6.58:1 at night and 4.56:1 by day. This is sampled evidence,
+  not a contrast guarantee over arbitrary future content behind the glass.
+- Native menu Escape and close-to-launcher focus verified. The actual solid
+  frame fallback renders RGB 14/14/15 with 16 px corners and no glass layer.
+  Reduced-motion behavior is covered by the focused browser check; an OS
+  accessibility-toggle walkthrough is not claimed. Japanese input was
+  temporarily enabled with Riley's approval, but automation emitted literal
+  Romaji instead of composition events. Real IME confirmation/cancellation
+  remains a manual check. U.S. input, the hidden input menu, English-only
+  dictation, Vitesse Black and Liquid Glass were restored; drafts cleared.
+- Evidence and the side-by-side review page are in
+  `~/Documents/Polyphonic-Candidates/2026-10-23-rail-glass/proof-lens-20261031/`.
+  Previous candidate and profile are preserved in `rollback-before-lens-20261031/`.
+  No messages sent; production profile/app untouched. No release, push, tag
+  or signing is part of this change.

@@ -1,0 +1,467 @@
+/* Approved Lens study, claude/minichat-glass @ 2caaab9e2.
+ * Keep these local: the main and new-chat composers remain 46px capsules. */
+.qc-panel,
+.qc-launcher {
+  --qc-text: 0.8125rem;
+  --qc-line: 1.125rem;
+  --qc-small: 0.6875rem;
+  --qc-accent: #0a84ff;
+  --qc-ink: #e7e7e7;
+  --qc-muted: #c1c1c1;
+  --qc-faint: #999;
+  --qc-well: rgb(255 255 255 / 0.06);
+  --qc-press: rgb(255 255 255 / 0.1);
+  --qc-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:root:not(.dark) :is(.qc-panel, .qc-launcher) {
+  --qc-accent: #007aff;
+  --qc-ink: #242426;
+  --qc-muted: #48484a;
+  --qc-faint: #676769;
+  --qc-well: rgb(0 0 0 / 0.05);
+  --qc-press: rgb(0 0 0 / 0.08);
+}
+:root[data-luca-frame] .qc-panel {
+  padding: 0 14px 8px;
+  border-radius: 16px;
+  gap: 14px;
+  color: var(--qc-ink);
+}
+/* The opaque path is also the Reduce Transparency fallback. */
+:root[data-luca-frame] .qc-panel:not([data-glass]) {
+  background: #0e0e0f;
+}
+:root[data-luca-frame]:not(.dark) .qc-panel:not([data-glass]) {
+  background: #f8f7f5;
+}
+
+/* The veil paints once, BELOW nested, unmasked rounded backdrop layers.
+ * No filter/opacity/mask on the parent: they create a backdrop root and stop
+ * the children sampling the conversation. Only the hairline rim is masked. */
+.qc-glass {
+  --qc-glass-r: 16px;
+  --qc-frost: 12px;
+  --qc-lens: 10px;
+  --qc-lens-frost: 1.5px;
+  --qc-lens-light: 1.15;
+  --qc-glass-veil: rgb(0 0 0 / 0.25);
+  --qc-glass-rim: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.24),
+    rgb(255 255 255 / 0.08) 22%,
+    rgb(255 255 255 / 0.02) 48%,
+    transparent 70%
+  );
+  --qc-glass-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 22px 54px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-radius: var(--qc-glass-r);
+}
+.qc-glass-lens,
+.qc-glass::after {
+  position: absolute;
+  pointer-events: none;
+  inset: calc(var(--qc-lens) * var(--k));
+  border-radius: max(
+    calc(var(--qc-glass-r) * 0.5),
+    calc(var(--qc-glass-r) - var(--qc-lens) * var(--k))
+  );
+  -webkit-backdrop-filter: blur(
+      calc(
+        var(--qc-lens-frost) +
+        (var(--qc-frost) - var(--qc-lens-frost)) *
+        var(--k)
+      )
+    )
+    brightness(var(--qc-light, 1));
+  backdrop-filter: blur(
+      calc(
+        var(--qc-lens-frost) +
+        (var(--qc-frost) - var(--qc-lens-frost)) *
+        var(--k)
+      )
+    )
+    brightness(var(--qc-light, 1));
+  z-index: 0;
+}
+.qc-glass-lens:nth-child(1) {
+  --k: 0;
+  --qc-light: var(--qc-lens-light);
+}
+.qc-glass-lens:nth-child(2) {
+  --k: 0.3333;
+  --qc-light: calc(1 / var(--qc-lens-light));
+}
+.qc-glass-lens:nth-child(3) {
+  --k: 0.6667;
+}
+.qc-glass::after {
+  content: "";
+  --k: 1;
+  z-index: 1;
+}
+.qc-glass::before {
+  z-index: 2;
+}
+.qc-glass-mark {
+  z-index: 3;
+}
+:root:not(.dark) .qc-glass {
+  --qc-glass-veil: rgb(246 244 242 / 0.5);
+  --qc-lens-light: 1;
+  --qc-glass-rim: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.95),
+    rgb(255 255 255 / 0.4) 22%,
+    transparent 55%
+  );
+  --qc-glass-shadow:
+    0 0 0 0.5px rgb(21 22 27 / 0.05), 0 1px 2px rgb(21 22 27 / 0.08),
+    0 22px 50px -12px rgb(21 22 27 / 0.28);
+}
+
+:root[data-luca-frame] .qc-header {
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 9px;
+  height: 32px;
+  min-height: 0;
+  z-index: 1;
+  font-size: var(--qc-text);
+  line-height: var(--qc-line);
+  font-weight: 500;
+}
+:root[data-luca-frame] .qc-header .text-muted-foreground {
+  font-weight: 400;
+  color: var(--qc-faint);
+}
+:root[data-luca-frame] .qc-actions {
+  gap: 2px;
+}
+:root[data-luca-frame] .qc-actions button {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--qc-faint);
+  background: transparent;
+  transition:
+    background-color 180ms var(--qc-ease),
+    color 180ms var(--qc-ease);
+}
+:root[data-luca-frame] .qc-actions button:is(:hover, [aria-expanded="true"]) {
+  background: var(--qc-well);
+  color: var(--qc-muted);
+  transition-duration: 100ms;
+}
+:root[data-luca-frame] .qc-actions button:active:hover {
+  background: var(--qc-press);
+}
+.qc-actions button svg,
+.qc-add svg,
+.qc-send svg,
+.qc-newest svg {
+  transition: transform 180ms var(--qc-ease);
+}
+.qc-actions button:active:hover svg,
+.qc-add:active:hover svg,
+.qc-send:enabled:active:hover,
+.qc-newest:active:hover svg {
+  transform: scale(0.94);
+}
+
+:root[data-luca-frame] .qc-scroll {
+  margin-top: 32px;
+}
+:root[data-luca-frame] .qc-transcript {
+  display: block;
+  padding-top: 4px;
+  font-size: var(--qc-text);
+  line-height: 1.5;
+  --qc-edge-top: 0;
+  --qc-edge-bottom: 0;
+  --qc-edge-mask: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - var(--qc-edge-top))) 0px,
+    rgb(0 0 0 / calc(1 - var(--qc-edge-top) * 0.85)) 8px,
+    rgb(0 0 0 / calc(1 - var(--qc-edge-top) * 0.6)) 16px,
+    rgb(0 0 0 / calc(1 - var(--qc-edge-top) * 0.28)) 24px,
+    #000 32px,
+    #000 calc(100% - 20px),
+    rgb(0 0 0 / calc(1 - var(--qc-edge-bottom) * 0.55)) calc(100% - 10px),
+    rgb(0 0 0 / calc(1 - var(--qc-edge-bottom))) 100%
+  );
+  -webkit-mask-image: var(--qc-edge-mask);
+  mask-image: var(--qc-edge-mask);
+}
+/* Leave the scrollbar to macOS. A ::-webkit-scrollbar rule forces a 17px bar. */
+:root[data-luca-frame] .qc-prose {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+:root[data-luca-frame] .qc-owner {
+  max-width: 82%;
+  padding: 7px 12px;
+  border-radius: 16px;
+  background: rgb(255 255 255 / 0.03);
+}
+:root[data-luca-frame]:not(.dark) .qc-owner {
+  background: rgb(0 0 0 / 0.04);
+}
+.qc-message[data-new] {
+  animation: qc-rise 180ms var(--qc-ease) both;
+}
+@keyframes qc-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.qc-newest {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  margin-left: -13px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--qc-muted);
+  background: rgb(28 28 30 / 0.78);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 1px 2px #0006,
+    0 6px 16px #0006;
+  z-index: 2;
+}
+.qc-newest:hover {
+  background: rgb(40 40 42 / 0.82);
+  color: var(--qc-ink);
+}
+:root:not(.dark) .qc-newest {
+  background: rgb(255 255 255 / 0.86);
+  box-shadow:
+    0 1px 2px #15161b1a,
+    0 6px 16px #15161b24;
+}
+.qc-newest svg {
+  translate: 0 -0.5px;
+}
+
+:root[data-luca-frame] .qc-composer {
+  --qc-composer-fill: rgb(255 255 255 / 0.03);
+  margin: 0 -6px;
+  flex-shrink: 0;
+  background: var(--qc-composer-fill);
+  transition: background-color 180ms var(--qc-ease);
+}
+:root[data-luca-frame] .qc-composer:hover {
+  --qc-composer-fill: rgb(255 255 255 / 0.045);
+}
+:root[data-luca-frame] .qc-composer:has(textarea:focus) {
+  --qc-composer-fill: rgb(255 255 255 / 0.06);
+}
+:root[data-luca-frame]:not(.dark) .qc-composer {
+  --qc-composer-fill: rgb(0 0 0 / 0.04);
+}
+:root[data-luca-frame]:not(.dark) .qc-composer:hover {
+  --qc-composer-fill: rgb(0 0 0 / 0.05);
+}
+:root[data-luca-frame]:not(.dark) .qc-composer:has(textarea:focus) {
+  --qc-composer-fill: rgb(0 0 0 / 0.065);
+}
+:root[data-luca-frame] .qc-composer textarea {
+  caret-color: var(--qc-accent);
+}
+:root[data-luca-frame] .qc-composer textarea::placeholder {
+  color: var(--qc-faint);
+  opacity: 1;
+}
+:root[data-luca-frame] .qc-composer textarea[data-scrolled] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 10px);
+  mask-image: linear-gradient(to bottom, transparent, #000 10px);
+}
+:root[data-luca-frame] .qc-add {
+  align-self: center;
+  color: var(--qc-faint);
+}
+:root[data-luca-frame] .qc-add:hover {
+  background: var(--qc-well);
+  color: var(--qc-muted);
+}
+:root[data-luca-frame] .qc-picker-trigger {
+  height: 24px;
+  padding: 0 6px;
+  gap: 2px;
+  font-size: var(--qc-small);
+}
+:root[data-luca-frame] :is(.qc-context, .qc-picker-trigger, .qc-empty) {
+  color: var(--qc-faint);
+}
+:root[data-luca-frame]
+  :is(.qc-context, .qc-picker-trigger):is(:hover, [aria-expanded="true"]) {
+  color: var(--qc-muted);
+  background: transparent;
+}
+.qc-chev {
+  flex-shrink: 0;
+  transition: transform 180ms var(--qc-ease);
+}
+[aria-expanded="true"] > .qc-chev {
+  transform: rotate(180deg);
+}
+:root[data-luca-frame] .qc-send {
+  transition:
+    background-color 120ms var(--qc-ease),
+    color 120ms var(--qc-ease),
+    transform 180ms var(--qc-ease);
+}
+:root[data-luca-frame] .qc-send:enabled {
+  animation: qc-arm 220ms cubic-bezier(0.3, 1.35, 0.5, 1);
+}
+:root[data-luca-frame]:not(.dark) .qc-send:disabled {
+  background: rgb(21 22 27 / 0.04);
+}
+.qc-send svg {
+  translate: 0 0.5px;
+}
+@keyframes qc-arm {
+  from {
+    transform: scale(0.9);
+  }
+}
+
+:root[data-luca-frame] :is(.qc-menu, .qc-picker, .qc-context-details) {
+  padding: 5px;
+  border-radius: 12px;
+  font-size: var(--qc-text);
+  line-height: var(--qc-line);
+  color: var(--qc-ink);
+  background: rgb(18 18 19 / 0.8);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  box-shadow:
+    0 0 0 0.5px #ffffff0f,
+    0 1px 2px #0006,
+    0 14px 36px #0008;
+  z-index: 5;
+}
+:root[data-luca-frame]:not(.dark)
+  :is(.qc-menu, .qc-picker, .qc-context-details) {
+  background: rgb(250 249 247 / 0.86);
+  box-shadow:
+    0 0 0 0.5px #15161b14,
+    0 1px 2px #15161b14,
+    0 14px 36px #15161b2e;
+}
+:root[data-luca-frame] .qc-menu {
+  top: 30px;
+  right: 9px;
+  gap: 0;
+  transform-origin: top right;
+}
+:root[data-luca-frame] .qc-picker {
+  bottom: calc(100% + 8px);
+  right: -37px;
+  transform-origin: bottom right;
+}
+:root[data-luca-frame] .qc-context-details {
+  bottom: calc(100% + 6px);
+  left: -6px;
+  right: -6px;
+  padding: 8px 10px;
+  transform-origin: bottom left;
+}
+:root[data-luca-frame]
+  :is(
+    .qc-menu button,
+    .qc-menu label,
+    .qc-residents button,
+    .qc-context-toggle
+  ) {
+  min-height: 28px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: var(--qc-text);
+  line-height: var(--qc-line);
+}
+:root[data-luca-frame]
+  :is(.qc-menu button, .qc-menu label, .qc-residents button):hover {
+  background: var(--qc-well);
+}
+:root[data-luca-frame] :is(.qc-menu button, .qc-residents button):active:hover {
+  background: var(--qc-press);
+}
+:root[data-luca-frame] .qc-residents {
+  gap: 0;
+}
+:root[data-luca-frame] .qc-residents button[aria-pressed="true"] {
+  background: var(--qc-well);
+}
+:root[data-luca-frame]
+  :is(.qc-picker, .qc-context-details)
+  .text-muted-foreground {
+  color: var(--qc-faint);
+}
+.qc-panel button:not(.qc-resize),
+.qc-panel label,
+.qc-launcher {
+  cursor: default;
+}
+.qc-panel textarea {
+  cursor: text;
+}
+.qc-header,
+.qc-header *,
+.qc-panel button,
+.qc-panel label,
+.qc-panel svg {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.qc-panel svg {
+  pointer-events: none;
+}
+.qc-transcript {
+  -webkit-user-select: text;
+  user-select: text;
+}
+:root[data-luca-frame] .qc-panel :is(button, [tabindex]):focus {
+  outline: none;
+}
+:root[data-luca-frame] .qc-panel :is(button, [tabindex]):focus-visible,
+.qc-launcher:focus-visible {
+  outline: 2px solid var(--qc-accent);
+  outline-offset: 2px;
+}
+:root[data-luca-frame] .qc-transcript:focus-visible {
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+@media (max-resolution: 1.5dppx) {
+  .qc-glass::before {
+    padding: 1px;
+    opacity: 0.6;
+  }
+}
+@media (prefers-contrast: more) {
+  .qc-glass {
+    --qc-glass-rim: linear-gradient(
+      var(--luca-frame-thread),
+      var(--luca-frame-thread)
+    );
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qc-panel *,
+  .qc-panel,
+  .qc-launcher,
+  .qc-launcher * {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
+}

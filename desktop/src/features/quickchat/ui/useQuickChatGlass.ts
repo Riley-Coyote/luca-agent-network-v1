@@ -120,6 +120,7 @@ export function useQuickChatGlass({ open }: { open: boolean }) {
     element.style.width = `${shape.w}px`;
     element.style.height = `${shape.h}px`;
     element.style.borderRadius = `${shape.r}px`;
+    element.style.setProperty("--qc-glass-r", `${shape.r}px`);
     if (mark.current) {
       mark.current.style.opacity = String(markShown(shape.w, shape.h));
     }

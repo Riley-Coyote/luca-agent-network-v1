@@ -280,6 +280,8 @@ for (const refreshBeforeAck of [false, true]) {
     await input.fill("Send with the selected effort");
     await page.getByTestId("quickchat-send").click();
     await expect(input).toHaveValue("");
+    // Sending is outside the picker; Lens dismisses it just like other menus.
+    await page.getByTestId("quickchat-agent-picker").click();
     await expect(slider).toBeDisabled();
     await page.evaluate(() =>
       window.dispatchEvent(new Event("test-start-effort-refresh")),

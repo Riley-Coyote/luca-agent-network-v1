@@ -1,5 +1,6 @@
 import * as React from "react";
 import {
+  ArrowDown,
   ArrowUp,
   Camera,
   ChevronDown,
@@ -17,7 +18,9 @@ import { ThinkingEffortControl } from "@/features/thinking/ui/ThinkingEffortCont
 import type { QuickChatViewModel } from "../types";
 import { useQuickChatGlass } from "./useQuickChatGlass";
 import "./quickchat.css";
-import { shapeQuickComposer } from "./quickComposerShape";
+import "./quickchat-lens.css";
+import { useQuickComposerShape } from "./quickComposerShape";
+import { useQuickChatTranscript } from "./useQuickChatTranscript";
 
 export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
   const glass = useQuickChatGlass({ open: model.open });
@@ -34,25 +37,60 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
   const [attachmentError, setAttachmentError] = React.useState<string | null>(
     null,
   );
-  const transcript = React.useRef<HTMLDivElement>(null);
   const composer = React.useRef<HTMLTextAreaElement>(null);
+  const shapeComposer = useQuickComposerShape(model.draft);
+  const { transcript, messages, away, onScroll, newest } =
+    useQuickChatTranscript(model);
   const file = React.useRef<HTMLInputElement>(null);
-  const nearBottom = React.useRef(true);
+  const composing = React.useRef(false);
+  const wasOpen = React.useRef(model.open);
+  const sendButton = React.useRef<HTMLButtonElement>(null);
+  const optionsButton = React.useRef<HTMLButtonElement>(null);
+  const pickerButton = React.useRef<HTMLButtonElement>(null);
+  const contextButton = React.useRef<HTMLButtonElement>(null);
   const activeReader = React.useRef<FileReader | null>(null);
   React.useEffect(() => {
     if (!model.open) return;
     const dismiss = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (
+        event.key !== "Escape" ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        composing.current
+      )
+        return;
       event.preventDefault();
       event.stopPropagation();
-      if (contextOpen) setContextOpen(false);
-      else if (picker) setPicker(false);
-      else if (menu) setMenu(false);
-      else model.setOpen(false);
+      if (contextOpen) {
+        setContextOpen(false);
+        contextButton.current?.focus();
+      } else if (picker) {
+        setPicker(false);
+        pickerButton.current?.focus();
+      } else if (menu) {
+        setMenu(false);
+        optionsButton.current?.focus();
+      } else model.setOpen(false);
     };
     document.addEventListener("keydown", dismiss, true);
     return () => document.removeEventListener("keydown", dismiss, true);
   }, [model.open, model.setOpen, contextOpen, picker, menu]);
+  React.useEffect(() => {
+    if (!menu && !picker && !contextOpen) return;
+    const outside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        !target.closest(".qc-menu") &&
+        !optionsButton.current?.contains(target)
+      )
+        setMenu(false);
+      if (!target.closest(".qc-picker-wrap")) setPicker(false);
+      if (!target.closest(".qc-context-wrap")) setContextOpen(false);
+    };
+    document.addEventListener("pointerdown", outside, true);
+    return () => document.removeEventListener("pointerdown", outside, true);
+  }, [menu, picker, contextOpen]);
   React.useEffect(
     () => () => {
       activeReader.current?.abort();
@@ -64,28 +102,40 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
   const resident = model.residents.find(
     (item) => item.pubkey === model.selectedPubkey,
   );
-  React.useLayoutEffect(() => {
-    if (model.open && model.selectedPubkey && transcript.current) {
-      transcript.current.scrollTop = model.scrollTop;
-      nearBottom.current =
-        transcript.current.scrollHeight -
-          transcript.current.scrollTop -
-          transcript.current.clientHeight <
-        60;
-    }
-  }, [model.open, model.selectedPubkey, model.scrollTop]);
-  React.useEffect(() => {
-    if (model.messages.length && nearBottom.current && transcript.current)
-      transcript.current.scrollTop = transcript.current.scrollHeight;
-  }, [model.messages]);
   React.useEffect(() => {
     if (model.open) composer.current?.focus();
     else {
       setMenu(false);
       setPicker(false);
       setContextOpen(false);
+      composing.current = false;
+      if (wasOpen.current) glass.launcher.current?.focus();
     }
-  }, [model.open]);
+    wasOpen.current = model.open;
+  }, [model.open, glass.launcher]);
+  const send = () => {
+    if (
+      composing.current ||
+      model.busy ||
+      !model.selectedPubkey ||
+      (!model.draft.trim() && !model.image)
+    )
+      return;
+    const button = sendButton.current;
+    if (button && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      button
+        .querySelector("svg")
+        ?.animate(
+          [
+            { transform: "translateY(0)" },
+            { transform: "translateY(-2px)", offset: 0.35 },
+            { transform: "translateY(0)" },
+          ],
+          { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+        );
+    }
+    void model.send();
+  };
   const attach = (value?: File) => {
     if (!value) return;
     if (
@@ -181,6 +231,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
           type="button"
           className={`qc-resize qc-resize-${edge}`}
           aria-label={`Resize Quick Chat ${edge}`}
+          tabIndex={-1}
           onPointerDown={(event) =>
             resize(event, edge !== "top", edge !== "left")
           }
@@ -218,6 +269,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
         </span>
         <div className="qc-actions">
           <button
+            ref={optionsButton}
             type="button"
             aria-label="Quick Chat options"
             aria-expanded={menu}
@@ -227,7 +279,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
               setPicker(false);
             }}
           >
-            <MoreHorizontal size={17} />
+            <MoreHorizontal size={14} />
           </button>
           <button
             type="button"
@@ -235,14 +287,14 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
             aria-label="Minimize Quick Chat"
             onClick={() => model.setOpen(false)}
           >
-            <Minus size={17} />
+            <Minus size={14} />
           </button>
           <button
             type="button"
             aria-label="Close Quick Chat"
             onClick={() => model.setOpen(false)}
           >
-            <X size={17} />
+            <X size={14} />
           </button>
         </div>
       </header>
@@ -315,48 +367,63 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
           </button>
         </div>
       )}
-      <div
-        className="qc-transcript text-sm"
-        ref={transcript}
-        role="log"
-        aria-label="Quick Chat messages"
-        onScroll={(event) => {
-          const node = event.currentTarget;
-          nearBottom.current =
-            node.scrollHeight - node.scrollTop - node.clientHeight < 60;
-          model.setScrollTop(node.scrollTop);
-        }}
-      >
-        {model.messages.length === 0 && permissions.length === 0 && (
-          <p className="qc-empty text-muted-foreground">
-            {resident
-              ? "Ask about what you see, or start a conversation."
-              : "Choose a resident to start chatting."}
-          </p>
-        )}
-        {model.messages.map((message) => (
-          <div
-            key={message.id}
-            className={message.role === "owner" ? "qc-owner" : "qc-assistant"}
-          >
-            {message.role === "owner" ? (
-              message.text
-            ) : (
-              <Markdown
-                streaming={message.pending}
-                progressive
-                content={message.text || (message.pending ? "Thinking…" : "")}
-              />
+      <div className="qc-scroll">
+        <div
+          className="qc-transcript text-sm"
+          ref={transcript}
+          role="log"
+          aria-label="Quick Chat messages"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users must be able to scroll the message log
+          tabIndex={0}
+          onScroll={onScroll}
+        >
+          <div ref={messages} className="qc-messages">
+            {model.messages.length === 0 && permissions.length === 0 && (
+              <p className="qc-empty text-muted-foreground">
+                {resident
+                  ? "Ask about what you see, or start a conversation."
+                  : "Choose a resident to start chatting."}
+              </p>
             )}
+            {model.messages.map((message) => (
+              <div
+                key={message.id}
+                className={`qc-message ${message.role === "owner" ? "qc-owner" : "qc-assistant"}`}
+              >
+                {message.role === "owner" ? (
+                  message.text
+                ) : (
+                  <Markdown
+                    className="qc-prose"
+                    streaming={message.pending}
+                    progressive
+                    content={
+                      message.text || (message.pending ? "Thinking…" : "")
+                    }
+                  />
+                )}
+              </div>
+            ))}
+            {permissions.map((pending) => (
+              <ManagedPermissionCard
+                key={pending.pendingId}
+                pending={pending}
+                compact
+              />
+            ))}
           </div>
-        ))}
-        {permissions.map((pending) => (
-          <ManagedPermissionCard
-            key={pending.pendingId}
-            pending={pending}
-            compact
-          />
-        ))}
+        </div>
+        {away && (
+          <button
+            type="button"
+            className="qc-newest"
+            aria-label="Newest message"
+            title="Newest message"
+            onClick={newest}
+          >
+            <ArrowDown size={14} />
+          </button>
+        )}
       </div>
       {(model.error || attachmentError) && (
         <p role="alert" className="text-xs text-destructive">
@@ -378,6 +445,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
       )}
       <div className="qc-context-wrap">
         <button
+          ref={contextButton}
           type="button"
           data-testid="quickchat-context"
           className="qc-context text-2xs"
@@ -394,7 +462,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
           {model.contextEnabled
             ? (model.context?.screen ?? "Current view")
             : "Off"}{" "}
-          <ChevronDown size={10} />
+          <ChevronDown className="qc-chev" size={10} />
         </button>
         {contextOpen && (
           <section
@@ -451,10 +519,10 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
       </div>
       <form
         className="qc-composer"
-        ref={shapeQuickComposer}
+        ref={shapeComposer}
         onSubmit={(event) => {
           event.preventDefault();
-          void model.send();
+          send();
         }}
       >
         <input
@@ -473,7 +541,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
           aria-label="Attach image"
           onClick={() => file.current?.click()}
         >
-          <Plus size={18} />
+          <Plus size={16} />
         </button>
         <textarea
           ref={composer}
@@ -483,6 +551,18 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
           rows={1}
           value={model.draft}
           onChange={(event) => model.setDraft(event.target.value)}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={() => {
+            composing.current = false;
+          }}
+          onScroll={(event) =>
+            event.currentTarget.toggleAttribute(
+              "data-scrolled",
+              event.currentTarget.scrollTop > 1,
+            )
+          }
           onPaste={(event) => {
             const image = Array.from(event.clipboardData.files).find((item) =>
               item.type.startsWith("image/"),
@@ -496,16 +576,18 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
             if (
               event.key === "Enter" &&
               !event.shiftKey &&
-              !event.nativeEvent.isComposing
+              !event.nativeEvent.isComposing &&
+              event.nativeEvent.keyCode !== 229 &&
+              !composing.current
             ) {
               event.preventDefault();
-              if (!model.busy && (model.draft.trim() || model.image))
-                void model.send();
+              send();
             }
           }}
         />
         <div className="qc-picker-wrap">
           <button
+            ref={pickerButton}
             className="qc-picker-trigger text-xs"
             type="button"
             data-testid="quickchat-agent-picker"
@@ -518,7 +600,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
             }}
           >
             {resident?.name ?? "Choose"}
-            <ChevronDown size={13} />
+            <ChevronDown className="qc-chev" size={10} />
           </button>
           {picker && (
             <div className="qc-picker">
@@ -564,6 +646,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
           </button>
         ) : (
           <button
+            ref={sendButton}
             type="submit"
             className="qc-send"
             data-testid="quickchat-send"
@@ -572,7 +655,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
               !model.selectedPubkey || (!model.draft.trim() && !model.image)
             }
           >
-            <ArrowUp size={18} />
+            <ArrowUp size={16} />
           </button>
         )}
       </form>
@@ -582,6 +665,9 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
   return (
     <>
       <div ref={glass.shell} className="qc-glass" aria-hidden="true">
+        <span className="qc-glass-lens" />
+        <span className="qc-glass-lens" />
+        <span className="qc-glass-lens" />
         <MessageCircle ref={glass.mark} className="qc-glass-mark" size={20} />
       </div>
       {model.open || glass.leaving ? panel : null}
