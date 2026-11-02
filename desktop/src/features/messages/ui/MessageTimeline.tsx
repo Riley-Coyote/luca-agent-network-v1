@@ -28,6 +28,7 @@ import { UnreadPill, unreadCountLabel } from "@/shared/ui/UnreadPill";
 import type { ChannelIntro } from "./ChannelIntroBlock";
 import { FirstMessageSurface } from "./FirstMessageView";
 import { TimelineSkeleton, useTimelineSkeletonRows } from "./TimelineSkeleton";
+import { useShellLipPresenceSlot } from "@/app/shell/lipPresenceSlot";
 import { ConversationPresence } from "@/features/channels/ui/ConversationPresence";
 import { TimelineMessageList } from "./TimelineMessageList";
 import { VisitPresenceRail } from "./VisitPresenceRail";
@@ -624,6 +625,7 @@ const MessageTimelineBase = React.forwardRef<
   );
   const placeTopEdgeRef = React.useRef<() => void>(() => {});
   const hasPresence = shellFrame && presence !== null;
+  const presenceSlot = useShellLipPresenceSlot();
   React.useEffect(() => {
     const scroller = virtualizerScrollParent;
     const root = timelineRootRef.current;
@@ -639,10 +641,14 @@ const MessageTimelineBase = React.forwardRef<
       const badge = document
         .querySelector(".polyphonic-control-badge")
         ?.getBoundingClientRect();
-      // The agent at the top of a one-agent conversation: the same rule.
+      // The agent at the top of a one-agent conversation, risen into the
+      // lip (its presence slot): the same rule.
       const presenceBox = hasPresence
-        ? root.querySelector("[data-luca-presence]")?.getBoundingClientRect()
+        ? presenceSlot
+            ?.querySelector("[data-luca-presence]")
+            ?.getBoundingClientRect()
         : undefined;
+      const presenceShown = presenceBox !== undefined && presenceBox.height > 0;
       const inset = Math.max(
         badge &&
           badge.left < rootBox.right &&
@@ -650,7 +656,7 @@ const MessageTimelineBase = React.forwardRef<
           badge.bottom > rootBox.top
           ? Math.ceil(badge.bottom - rootBox.top + TIMELINE_TOP_GAP)
           : 0,
-        presenceBox && presenceBox.height > 0
+        presenceBox && presenceShown
           ? Math.ceil(presenceBox.bottom - rootBox.top + TIMELINE_TOP_GAP)
           : 0,
       );
@@ -707,7 +713,7 @@ const MessageTimelineBase = React.forwardRef<
       // Under the agent's mark and line, a third thing stacked at the top
       // is one too many: each day's own pill still passes in the flow.
       const show =
-        !hasPresence && day !== null && (own === null || own === "passed");
+        !presenceShown && day !== null && (own === null || own === "passed");
       stuck.toggleAttribute("data-shown", show);
       if (label && day !== null && label.textContent !== day)
         label.textContent = day;
@@ -743,7 +749,13 @@ const MessageTimelineBase = React.forwardRef<
       for (const divider of scroller.querySelectorAll("[data-day-passed]"))
         divider.removeAttribute("data-day-passed");
     };
-  }, [hasPresence, scrollContainerRef, shellFrame, virtualizerScrollParent]);
+  }, [
+    hasPresence,
+    presenceSlot,
+    scrollContainerRef,
+    shellFrame,
+    virtualizerScrollParent,
+  ]);
   React.useEffect(() => {
     void renderedMessages;
     placeTopEdgeRef.current();

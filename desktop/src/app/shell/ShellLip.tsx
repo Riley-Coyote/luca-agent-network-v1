@@ -12,6 +12,7 @@ import { useOpenSideId } from "@/features/exchange/openSide";
 import { useRailWork } from "@/features/sidebar/lib/useRailWork";
 import type { Channel } from "@/shared/api/types";
 import { setShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
+import { setShellLipPresenceSlot } from "@/app/shell/lipPresenceSlot";
 import { SHELL_FRAME_RAIL_WIDTH, shellShortcuts } from "@/app/shell/shellFrame";
 import { cn } from "@/shared/lib/cn";
 import { useNativeMacChrome } from "@/shared/lib/useNativeMacChrome";
@@ -310,6 +311,11 @@ export function ShellLip({
     workspace.layout.preset !== "single" &&
     !workspaceSlot(workspace.layout, workspace.layout.focusedSlotId).activeTab;
   const named = focusedPaneEmpty ? null : channel;
+  // The agent of a one-agent conversation rises into the lip with one pane
+  // open; with panes side by side the lip names the focused one, as before.
+  const presenceShown =
+    named !== null &&
+    (workspace === null || workspace.layout.preset === "single");
   // A side conversation open is named under its home, as the Chats rail
   // lights it there: "Atlas / Luca · general" (WP-25, Decided 2; WP-34).
   const side = useOpenSideName(named?.id ?? null);
@@ -418,6 +424,16 @@ export function ShellLip({
             )}
           </span>
         </h1>
+        {/* The agent of a one-agent conversation, on the card's axis: the
+            conversation portals them in (lipPresenceSlot.ts). Before the
+            actions, so Tab meets their page after back and forward. */}
+        {presenceShown ? (
+          <div
+            className="luca-lip-agent"
+            data-testid="shell-lip-agent"
+            ref={setShellLipPresenceSlot}
+          />
+        ) : null}
         {/* The open conversation's actions, at the lip's right end: the
             conversation portals them in (lipActionsSlot.ts, shell-header.css).
             After the name, so Tab meets them after back and forward. */}

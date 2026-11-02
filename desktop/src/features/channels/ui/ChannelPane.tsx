@@ -1096,6 +1096,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     agent: presenceAgent?.agent ?? null,
     channelId: activeChannelId,
     managedActivity,
+    name: presenceAgent?.name ?? "",
     observerActivity: agentActivityRows,
   });
   const presencePubkey = presenceAgent?.agent.pubkey ?? null;

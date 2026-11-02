@@ -1,78 +1,142 @@
 /* ── the agent at the top of a conversation with one agent (Nov 2) ──── */
-/* 14 / mark 56 / 8 / line 16. The reading area starts the page's gap below
- * it (MessageTimeline's top edge, as for the companion's badge), so no word
- * is ever under the mark or the line. Above the card's top veil. */
-.luca-presence {
-  display: flex;
-  justify-content: center;
-  left: 0;
-  padding-top: 14px;
+/* Their circle window rises out of the conversation's card into the lip,
+ * over the card's top edge on its axis, and under it stands a small text
+ * window: what they're doing, or their name while nothing is (the lip's own
+ * name steps aside for it). Both are the mark's dark display, in every
+ * theme, lit as the cards are: the top contour catches the light from above,
+ * and a soft shadow lies beneath; by day, no white edge, only an ink-cast
+ * shadow (conversation-shell.css, --mn-card-edge). The reading area starts
+ * the page's gap below the text window (MessageTimeline's top edge, as for
+ * the companion's badge). Fixed points, as the lip is. */
+
+/* The slot, on the card's axis (or the focused pane's, as the lip's name):
+ * the circle's top this far above the card's top edge. */
+.luca-lip-agent {
+  --luca-presence-rise: 20px;
+  left: calc(
+    var(--lip-pane-left, 0px) +
+    (100% - var(--lip-pane-left, 0px) - var(--lip-pane-right, 0px)) /
+    2
+  );
   pointer-events: none;
   position: absolute;
-  right: 0;
-  top: 0;
-  z-index: 45;
+  top: calc(var(--luca-frame-lip, 36px) - var(--luca-presence-rise));
+  transform: translateX(-50%);
+  width: max-content;
+}
+
+/* While the agent stands there, the lip's name steps aside: it stays the
+ * page's heading for a screen reader, drawn nowhere. */
+.luca-lip-card:has(> .luca-lip-agent:not(:empty)) > .luca-lip-name {
+  clip-path: inset(50%);
+  height: 1px;
+  max-width: none;
+  overflow: hidden;
+  width: 1px;
+}
+
+.luca-presence {
+  /* The mark's own display (AgentDendrite draws the circle in these). */
+  --luca-presence-glass: rgb(10 11 12);
+  --luca-presence-rim: rgb(40 42 44);
+  --luca-presence-rim-lit: rgb(56 57 59);
+  --luca-presence-ink: rgb(222 220 214);
+  --luca-presence-ink-off: rgb(124 123 120);
+  --luca-presence-edge:
+    0 -0.5px 0 rgb(255 255 255 / 0.12), 0 1px 2px rgb(0 0 0 / 0.32),
+    0 8px 20px -6px rgb(0 0 0 / 0.4);
+}
+
+:root[data-luca-shell]:not(.dark) .luca-presence {
+  --luca-presence-edge:
+    0 1px 2px hsl(var(--mn-ink) / 0.12),
+    0 10px 24px -8px hsl(var(--mn-ink) / 0.26);
 }
 
 .luca-presence-open {
   align-items: center;
-  border-radius: 12px;
+  background: none;
+  border: 0;
   cursor: default;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: min(360px, calc(100% - 32px));
+  gap: 6px;
   outline: none;
+  padding: 0;
   pointer-events: auto;
-  position: relative;
 }
 
-/* The circle is the mark's own (AgentDendrite draws it inline); only its
- * edge answers the pointer and the keyboard, as a ring laid exactly on it. */
-.luca-presence-open::before {
+/* The circle window. Its rim answers the pointer and the keyboard, as a
+ * ring laid exactly on the mark's own. */
+.luca-presence-face {
+  border-radius: 50%;
+  box-shadow: var(--luca-presence-edge);
+  display: block;
+  height: 56px;
+  position: relative;
+  width: 56px;
+}
+
+.luca-presence-face::after {
   border: 1px solid transparent;
   border-radius: 50%;
-  box-sizing: border-box;
   content: "";
-  height: 56px;
-  left: 50%;
-  margin-left: -28px;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: border-color 150ms ease;
+}
+
+/* The text window: a capsule round its words, as wide as they are (set by
+ * ConversationPresence), opening and closing from its middle. */
+.luca-presence-plate {
+  align-items: center;
+  background: var(--luca-presence-glass);
+  border: 1px solid var(--luca-presence-rim);
+  border-radius: 12px;
+  box-shadow: var(--luca-presence-edge);
+  box-sizing: border-box;
+  color: var(--luca-presence-ink);
+  display: flex;
+  font-weight: 500;
+  height: 24px;
+  justify-content: center;
+  letter-spacing: -0.003em;
+  line-height: 16px;
+  overflow: hidden;
+  padding: 0 11px;
+  position: relative;
+  transition:
+    width 320ms var(--motion-ease-drawer),
+    border-color 150ms ease;
+  white-space: nowrap;
+}
+
+.luca-presence-plate[data-rest="off"] {
+  color: var(--luca-presence-ink-off);
+}
+
+.luca-presence-measure {
+  left: 0;
   pointer-events: none;
   position: absolute;
   top: 0;
-  transition: border-color 150ms ease;
-  width: 56px;
-  z-index: 1;
+  visibility: hidden;
 }
 
-.luca-presence-open:hover::before {
-  border-color: rgb(56, 57, 59);
-}
-
-.luca-presence-open:focus-visible::before {
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-/* The agent page's state line (.luca-mind-now), centred and on one line. */
 .luca-presence-line {
-  color: hsl(var(--mn-ink-muted));
   display: flex;
-  font-size: 0.8125rem;
-  height: 1rem;
-  justify-content: center;
-  line-height: 1rem;
-  max-width: 100%;
-  transition:
-    color 150ms ease,
-    opacity 80ms ease-out;
-}
-
-.luca-presence-open:hover .luca-presence-line {
-  color: hsl(var(--mn-ink));
+  flex: none;
+  transition: opacity 80ms ease-out;
 }
 
 .luca-presence-line[data-leaving] {
   opacity: 0;
+}
+
+.luca-presence-plate[data-clamped] .luca-presence-line {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .luca-presence-words {
@@ -81,7 +145,6 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 @keyframes luca-presence-in {
@@ -95,10 +158,20 @@
   }
 }
 
+.luca-presence-open:hover .luca-presence-face::after,
+.luca-presence-open:hover .luca-presence-plate {
+  border-color: var(--luca-presence-rim-lit);
+}
+
+.luca-presence-open:focus-visible .luca-presence-face::after,
+.luca-presence-open:focus-visible .luca-presence-plate {
+  border-color: rgb(255 255 255 / 0.5);
+}
+
 /* The agent page's breathing dot (.luca-mind-dot). */
 .luca-presence-dot {
   animation: luca-presence-breathe 2.4s ease-in-out infinite;
-  background: hsl(var(--mn-ink));
+  background: currentColor;
   border-radius: 50%;
   display: inline-block;
   height: 6px;
@@ -127,8 +200,9 @@
     opacity: 1;
   }
 
+  .luca-presence-plate,
   .luca-presence-line,
-  .luca-presence-open::before {
+  .luca-presence-face::after {
     transition: none;
   }
 }
