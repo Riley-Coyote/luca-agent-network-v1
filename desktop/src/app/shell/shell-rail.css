@@ -597,7 +597,7 @@
 }
 
 /* Approved mark well: two extra pixels, centred on the existing face box. */
-.luca-agent-dendrite {
+.luca-agent-dendrite:not(.luca-agent-dendrite--original) {
   background: #121114;
   border: 1px solid rgba(236, 232, 224, 0.08);
   border-radius: 50%;
@@ -609,6 +609,11 @@
   place-items: center;
 }
 
-:root:not(.dark) .luca-agent-dendrite {
+:root:not(.dark) .luca-agent-dendrite:not(.luca-agent-dendrite--original) {
   border-color: rgba(0, 0, 0, 0.14);
+}
+
+.luca-agent-dendrite--original {
+  display: block;
+  flex-shrink: 0;
 }

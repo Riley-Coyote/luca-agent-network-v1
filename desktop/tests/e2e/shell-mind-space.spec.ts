@@ -1086,7 +1086,7 @@ test("a mind not on this Mac: the same space, its parts with no data hide", asyn
   measure("native", { asks, native, ownWords: own });
 });
 
-// The 74px well is centred on the unchanged 72px header column.
+// The Aug 10 original's canvas includes its border in the 72px column.
 test("the head's dendrite draws at 72 on a 72 column", async ({ page }) => {
   await boot(page);
   await openLuca(page);
@@ -1106,12 +1106,65 @@ test("the head's dendrite draws at 72 on a 72 column", async ({ page }) => {
             Math.round(specimen.getBoundingClientRect().height),
           ]
         : null,
+      centre: specimen
+        ? [
+            specimen.getBoundingClientRect().x +
+              specimen.getBoundingClientRect().width / 2 -
+              (outer.x + outer.width / 2),
+            specimen.getBoundingClientRect().y +
+              specimen.getBoundingClientRect().height / 2 -
+              (outer.y + outer.height / 2),
+          ]
+        : null,
       nameX: next ? Math.round(next.x - outer.x) : null,
       box: [Math.round(outer.x), Math.round(outer.y)],
     };
   });
   expect(column.column).toEqual([72, 72]);
-  expect(column.specimen).toEqual([74, 74]);
+  expect(column.specimen).toEqual([72, 72]);
+  expect(column.centre).toEqual([0, 0]);
+  const canvas = page.locator(".luca-mind-mark canvas[data-agent-dendrite]");
+  const material = await canvas.evaluate((node: HTMLCanvasElement) => {
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return {
+      width: rect.width,
+      height: rect.height,
+      box: style.boxSizing,
+      fill: style.backgroundColor,
+      border: style.borderTopColor,
+      borderWidth: style.borderTopWidth,
+      radius: style.borderRadius,
+      shadow: style.boxShadow,
+      filter: style.filter,
+      backing: [node.width, node.height],
+      dpr: window.devicePixelRatio,
+    };
+  });
+  expect(material).toEqual({
+    width: 72,
+    height: 72,
+    box: "border-box",
+    fill: "rgb(10, 11, 12)",
+    border: "rgb(40, 42, 44)",
+    borderWidth: "1px",
+    radius: "50%",
+    shadow: "none",
+    filter: "none",
+    backing: [
+      Math.round(72 * Math.min(2, material.dpr)),
+      Math.round(72 * Math.min(2, material.dpr)),
+    ],
+    dpr: material.dpr,
+  });
+  const first = await sampleDendrites(
+    page,
+    ".luca-mind-mark canvas[data-agent-dendrite]",
+  );
+  await page.waitForTimeout(800);
+  expect(
+    await sampleDendrites(page, ".luca-mind-mark canvas[data-agent-dendrite]"),
+  ).not.toEqual(first);
   // The name stands the header's 16 gap clear of the mark.
   expect(column.nameX).toBe(88);
   await page.mouse.move(0, 0);
@@ -1169,7 +1222,7 @@ test("each agent wears its own living dendrite", async ({ page }) => {
     ".luca-mind-mark canvas[data-agent-dendrite]",
   );
   expect(head).toHaveLength(1);
-  expect(head[0].width).toBe(Math.round(72 * Math.min(3, dpr)));
+  expect(head[0].width).toBe(Math.round(72 * Math.min(2, dpr)));
   expect(head[0].lit).toBeGreaterThan(40);
   await page.screenshot({ path: `${SHOTS}/dendrites.png` });
   measure("dendrites", { dpr, first, head });

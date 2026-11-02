@@ -1400,3 +1400,25 @@ main chat and new chat keep that correction's 46 px capsule.
   Additional report-only Odyssey 1x captures await foregrounding after Stage
   Manager tucked the moved window into a thumbnail. Approximately 90 GiB free.
   No publishing, tagging, release signing, or pushing is authorized.
+
+### Original 72px agent mark (2026-11-01, supersedes the large mark above)
+
+- Riley selected the Aug 10 original at 23:24 CST; source is Claude's
+  `original-72/CODEX-HANDOFF.md` at `73af60481`. The earlier growing-head
+  treatment and the unlanded v2 proposal are not the approved large mark.
+- Sizes >=40 use a separate TypeScript port of the original `DotPanel`/DLA
+  drawing. Its 72px border-box circle, unchanged INKFLOOR ramp, grey dust,
+  random trees and cooling/reset behavior match the supplied engine. Working
+  does not alter this mark. The only adaptations are the approved 60-step/sec
+  shared clock (four-step cap, 20-step mount, seven-step resize settle) and
+  live pixel-ratio observation. Native system Reduce Motion is not changed.
+- The 18/28px renderer, tree, grouping and well remain as at `21e18c4c3`;
+  their design is still open with Riley. Head centering/16px name gap restored
+  to the pre-`21e18c4c3` geometry.
+- The unchanged engine fixture and the port produce identical image bytes
+  after 620 steps at DPR 1 and 2. Fake 60/120/240Hz clocks each produce exactly
+  600 steps in ten seconds plus 20 on mount. Reduce Motion paints the mount
+  frame once with no loop. Nine focused browser checks pass, plus three
+  Retina-scale head/rail checks; typecheck/frontend build and scoped Biome pass.
+- Native build and Claude's capture review remain pending. No release,
+  signing, publication, tag or push is authorized.

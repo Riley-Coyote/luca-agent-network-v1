@@ -4,7 +4,8 @@ import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import { cn } from "@/shared/lib/cn";
 import { AgentMark } from "@/shared/ui/AgentMark";
 
-import { type DendriteMarkHandle, dendriteRenderer } from "./renderer";
+import { originalRenderer } from "./original";
+import { dendriteRenderer } from "./renderer";
 import { dendriteSeed } from "./tree";
 
 export type AgentDendriteProps = {
@@ -17,8 +18,8 @@ export type AgentDendriteProps = {
 };
 
 /**
- * The approved living dendrite: fresh growth within the previous tree, held
- * still under Reduce Motion. Decorative: the row's name labels it.
+ * Small marks retain the fine engine; heads use the approved Aug 10 original.
+ * Both hold still under Reduce Motion. Decorative: the row's name labels it.
  */
 export const AgentDendrite = React.memo(function AgentDendrite({
   className,
@@ -31,12 +32,25 @@ export const AgentDendrite = React.memo(function AgentDendrite({
   const seed = dendriteSeed(residentKey, lucaPubkey);
   const [supported] = React.useState(() => dendriteRenderer() !== null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const handleRef = React.useRef<DendriteMarkHandle | null>(null);
+  const handleRef = React.useRef<{
+    dispose(): void;
+    update?(options: { working: boolean }): void;
+  } | null>(null);
   const live = React.useRef(working);
   live.current = working;
 
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current;
+    if (size >= 40) {
+      const renderer = originalRenderer();
+      if (!canvas || !renderer) return;
+      const handle = renderer.register(canvas);
+      handleRef.current = handle;
+      return () => {
+        handle.dispose();
+        handleRef.current = null;
+      };
+    }
     const renderer = dendriteRenderer();
     if (!canvas || !renderer) return;
     const handle = renderer.register(canvas, {
@@ -53,7 +67,7 @@ export const AgentDendrite = React.memo(function AgentDendrite({
   }, [seed, size, group]);
 
   React.useEffect(() => {
-    handleRef.current?.update({ working });
+    handleRef.current?.update?.({ working });
   }, [working]);
 
   if (!supported) {
@@ -65,8 +79,15 @@ export const AgentDendrite = React.memo(function AgentDendrite({
   return (
     <span
       aria-hidden="true"
-      className={cn("luca-agent-dendrite", className)}
-      style={{ height: size + 2, width: size + 2 }}
+      className={cn(
+        "luca-agent-dendrite",
+        size >= 40 && "luca-agent-dendrite--original",
+        className,
+      )}
+      style={{
+        height: size >= 40 ? size : size + 2,
+        width: size >= 40 ? size : size + 2,
+      }}
     >
       <canvas
         tabIndex={-1}
@@ -74,7 +95,18 @@ export const AgentDendrite = React.memo(function AgentDendrite({
         data-agent-dendrite=""
         data-working={working ? "" : undefined}
         ref={canvasRef}
-        style={{ height: size, width: size }}
+        style={{
+          height: size,
+          width: size,
+          ...(size >= 40
+            ? ({
+                boxSizing: "border-box",
+                background: "rgb(10, 11, 12)",
+                border: "1px solid rgb(40, 42, 44)",
+                borderRadius: "50%",
+              } as const)
+            : {}),
+        }}
       />
     </span>
   );
