@@ -25,10 +25,10 @@ import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
 const MARK_SIZE = 56;
 /** A word stays up at least this long, so a quick turn reads as words. */
 const HOLD_MS = 600;
-/** The old word's fade; the new one rises in over 120 ms (the CSS). */
-const OUT_MS = 80;
-/** The text window's padding and rim on each side, in points (the CSS). */
-const PLATE_INSET = 11 + 1;
+/** The old words' dissolve (luca-presence-out, the CSS). */
+const OUT_MS = 200;
+/** How far in from the text window's rounded ends its words sit, in points. */
+const PLATE_INSET = 12;
 /** The widest the text window grows, and what it keeps clear of the card's
  *  sides. */
 const PLATE_MAX = 360;
@@ -137,47 +137,57 @@ export function useConversationPresenceLine({
   ]);
 }
 
-/** Holds each line for HOLD_MS, then fades it out and the next one in. */
+/** A line as the text window holds it: numbered, so the same words coming
+ *  back are a new arrival, not the old ones. */
+type HeldLine = { id: number; line: PresenceLine };
+
+/**
+ * Holds each line for HOLD_MS, then puts up the next at once: the new words
+ * come in while the old ones leave, for OUT_MS, on the same place, so the
+ * window is never empty.
+ */
 function useHeldLine(line: PresenceLine) {
-  const [shown, setShown] = React.useState(line);
-  const [leaving, setLeaving] = React.useState(false);
+  const [held, setHeld] = React.useState<{
+    gone: HeldLine | null;
+    now: HeldLine;
+  }>(() => ({ gone: null, now: { id: 0, line } }));
   const shownAt = React.useRef(performance.now());
   const latest = React.useRef(line);
   latest.current = line;
+  const { gone, now } = held;
   React.useEffect(() => {
     if (
-      line.text === shown.text &&
-      line.live === shown.live &&
-      line.rest === shown.rest
-    ) {
-      setLeaving(false);
+      line.text === now.line.text &&
+      line.live === now.line.live &&
+      line.rest === now.line.rest
+    )
       return;
-    }
-    let swap = 0;
-    const leave = window.setTimeout(
+    const swap = window.setTimeout(
       () => {
-        setLeaving(true);
-        swap = window.setTimeout(() => {
-          shownAt.current = performance.now();
-          setShown(latest.current);
-          setLeaving(false);
-        }, OUT_MS);
+        shownAt.current = performance.now();
+        setHeld({ gone: now, now: { id: now.id + 1, line: latest.current } });
       },
       Math.max(0, shownAt.current + HOLD_MS - performance.now()),
     );
-    return () => {
-      window.clearTimeout(leave);
-      window.clearTimeout(swap);
-    };
-  }, [line.live, line.rest, line.text, shown.live, shown.rest, shown.text]);
-  return { leaving, shown };
+    return () => window.clearTimeout(swap);
+  }, [line.live, line.rest, line.text, now]);
+  React.useEffect(() => {
+    if (!gone) return;
+    const left = window.setTimeout(
+      () => setHeld((each) => ({ ...each, gone: null })),
+      OUT_MS,
+    );
+    return () => window.clearTimeout(left);
+  }, [gone]);
+  return { gone, now };
 }
 
 /**
  * The text window hugs its words: its width is a hidden copy's, set before
- * paint, and the CSS carries it to the next words' on the drawer's curve, so
- * it opens or closes round them from the middle. Past the card's room it
- * stops, and the words end in an ellipsis.
+ * paint in the frame the words change, and the CSS carries it to the new
+ * words' on the line spring while they come in, so it opens or closes round
+ * them from the middle. Past the card's room it stops, and the words end in
+ * an ellipsis.
  */
 function usePlateWidth(
   plate: React.RefObject<HTMLSpanElement | null>,
@@ -194,7 +204,10 @@ function usePlateWidth(
       const wanted =
         Math.ceil(words.getBoundingClientRect().width) + 2 * PLATE_INSET;
       box.style.width = `${Math.max(0, Math.min(wanted, room))}px`;
-      box.toggleAttribute("data-clamped", wanted > room);
+      box.style.setProperty(
+        "--luca-presence-room",
+        `${Math.max(0, room - 2 * PLATE_INSET)}px`,
+      );
     };
     fit();
     const sizes = new ResizeObserver(fit);
@@ -224,22 +237,17 @@ export function ConversationPresence({
   pubkey: string;
 }) {
   const slot = useShellLipPresenceSlot();
-  const { leaving, shown } = useHeldLine(line);
+  const { gone, now } = useHeldLine(line);
   const plate = React.useRef<HTMLSpanElement>(null);
   const measure = React.useRef<HTMLSpanElement>(null);
   usePlateWidth(plate, measure, slot);
   if (!slot) return null;
+  const shown = now.line;
   const said = shown.rest
     ? shown.rest === "off"
       ? ", off"
       : ""
     : `, ${shown.text.charAt(0).toLowerCase()}${shown.text.slice(1)}`;
-  const words = (
-    <>
-      {shown.live ? <span aria-hidden className="luca-presence-dot" /> : null}
-      {shown.text}
-    </>
-  );
   return createPortal(
     <div
       className="luca-presence"
@@ -260,24 +268,30 @@ export function ConversationPresence({
             working={line.live}
           />
         </span>
-        <span
-          className="luca-presence-plate text-lip"
-          data-rest={shown.rest}
-          ref={plate}
-        >
+        <span className="luca-presence-plate text-lip" ref={plate}>
           <span aria-hidden className="luca-presence-measure" ref={measure}>
-            {words}
+            {shown.text}
           </span>
-          <span
-            className="luca-presence-line"
-            data-leaving={leaving ? "" : undefined}
-          >
+          <span className="luca-presence-line">
+            {gone ? (
+              <span
+                aria-hidden
+                className="luca-presence-words"
+                data-leaving=""
+                data-rest={gone.line.rest}
+                key={gone.id}
+              >
+                {gone.line.text}
+              </span>
+            ) : null}
             <span
               className="luca-presence-words"
+              data-in={now.id ? "" : undefined}
+              data-rest={shown.rest}
               data-testid="conversation-presence-line"
-              key={`${shown.live}:${shown.rest}:${shown.text}`}
+              key={now.id}
             >
-              {words}
+              {shown.text}
             </span>
           </span>
         </span>

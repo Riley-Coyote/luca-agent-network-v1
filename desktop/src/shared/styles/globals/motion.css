@@ -73,6 +73,45 @@
   --motion-duration-press: 640ms;
   --motion-ease-give: cubic-bezier(0.2, 0, 0, 1);
   --motion-duration-give: 90ms;
+
+  /* The line spring: a one-line window settling round new words (response
+     0.42s, damping 0.84, Ghost's line), sampled the same way. It is 88% of
+     the way there at 200ms and overshoots by under 1%, so it reads as
+     settling, never as a bounce; 600ms carries it to within 0.1% of rest. */
+  --motion-ease-line: linear(
+    0,
+    0.038,
+    0.128,
+    0.243,
+    0.366,
+    0.484,
+    0.592,
+    0.686,
+    0.764,
+    0.828,
+    0.879,
+    0.918,
+    0.948,
+    0.969,
+    0.984,
+    0.994,
+    1.001,
+    1.005,
+    1.007,
+    1.008,
+    1.008,
+    1.007,
+    1.006,
+    1.005,
+    1.004,
+    1.003,
+    1.003,
+    1.002,
+    1.001,
+    1.001,
+    1
+  );
+  --motion-duration-line: 600ms;
 }
 
 /* A newly-created conversational object settling into the timeline. */

@@ -2,12 +2,14 @@
 /* Their circle window rises out of the conversation's card into the lip,
  * over the card's top edge on its axis, and under it stands a small text
  * window: what they're doing, or their name while nothing is (the lip's own
- * name steps aside for it). Both are the mark's dark display, in every
- * theme, lit as the cards are: the top contour catches the light from above,
- * and a soft shadow lies beneath; by day, no white edge, only an ink-cast
- * shadow (conversation-shell.css, --mn-card-edge). The reading area starts
- * the page's gap below the text window (MessageTimeline's top edge, as for
- * the companion's badge). Fixed points, as the lip is. */
+ * name steps aside for it). The circle is the mark's own lens exactly as
+ * approved (design-lab/agent-marks/original-72): nothing is laid on it. The
+ * text window is a pane of the mark's black, darker than the card in every
+ * theme, so it needs no outline: at night its top edge catches the light from
+ * above and a soft shadow lies beneath it; by day, only an ink-cast shadow.
+ * The reading area starts the page's gap below the text window
+ * (MessageTimeline's top edge, as for the companion's badge). Fixed points,
+ * as the lip is. */
 
 /* The slot, on the card's axis (or the focused pane's, as the lip's name):
  * the circle's top this far above the card's top edge. */
@@ -36,15 +38,16 @@
 }
 
 .luca-presence {
-  /* The mark's own display (AgentDendrite draws the circle in these). */
-  --luca-presence-glass: rgb(10 11 12);
-  --luca-presence-rim: rgb(40 42 44);
-  --luca-presence-rim-lit: rgb(56 57 59);
+  /* The text window: the mark's black, a step under its lens's own fill
+   * (rgb(10 11 12), drawn by AgentDendrite), so it is darker than any card. */
+  --luca-presence-pane: rgb(0 0 0);
   --luca-presence-ink: rgb(222 220 214);
   --luca-presence-ink-off: rgb(124 123 120);
+  /* The lens's rim (rgb(40 42 44)) as it lights under the pointer. */
+  --luca-presence-rim-lit: rgb(56 57 59);
   --luca-presence-edge:
-    0 -0.5px 0 rgb(255 255 255 / 0.12), 0 1px 2px rgb(0 0 0 / 0.32),
-    0 8px 20px -6px rgb(0 0 0 / 0.4);
+    0 -0.5px 0 rgb(255 255 255 / 0.14), 0 1px 2px rgb(0 0 0 / 0.4),
+    0 8px 20px -6px rgb(0 0 0 / 0.45);
 }
 
 :root[data-luca-shell]:not(.dark) .luca-presence {
@@ -70,7 +73,6 @@
  * ring laid exactly on the mark's own. */
 .luca-presence-face {
   border-radius: 50%;
-  box-shadow: var(--luca-presence-edge);
   display: block;
   height: 56px;
   position: relative;
@@ -88,32 +90,22 @@
 }
 
 /* The text window: a capsule round its words, as wide as they are (set by
- * ConversationPresence), opening and closing from its middle. */
+ * ConversationPresence in the frame the words change), so it springs open
+ * or closed round the next words from its middle while they come in. */
 .luca-presence-plate {
-  align-items: center;
-  background: var(--luca-presence-glass);
-  border: 1px solid var(--luca-presence-rim);
+  background: var(--luca-presence-pane);
   border-radius: 12px;
   box-shadow: var(--luca-presence-edge);
-  box-sizing: border-box;
   color: var(--luca-presence-ink);
-  display: flex;
+  display: block;
   font-weight: 500;
   height: 24px;
-  justify-content: center;
   letter-spacing: -0.003em;
   line-height: 16px;
   overflow: hidden;
-  padding: 0 11px;
   position: relative;
-  transition:
-    width 320ms var(--motion-ease-drawer),
-    border-color 150ms ease;
+  transition: width var(--motion-duration-line) var(--motion-ease-line);
   white-space: nowrap;
-}
-
-.luca-presence-plate[data-rest="off"] {
-  color: var(--luca-presence-ink-off);
 }
 
 .luca-presence-measure {
@@ -124,85 +116,96 @@
   visibility: hidden;
 }
 
+/* The words, outgoing and incoming, on one place at the window's middle.
+ * Where they run past the window while it springs, they fade into its
+ * rounded ends rather than being cut; at rest they sit inside the fade. */
 .luca-presence-line {
-  display: flex;
-  flex: none;
-  transition: opacity 80ms ease-out;
-}
-
-.luca-presence-line[data-leaving] {
-  opacity: 0;
-}
-
-.luca-presence-plate[data-clamped] .luca-presence-line {
-  flex: 0 1 auto;
-  min-width: 0;
+  display: grid;
+  inset: 0;
+  mask-image: linear-gradient(
+    to right,
+    transparent 1px,
+    #000 10px,
+    #000 calc(100% - 10px),
+    transparent calc(100% - 1px)
+  );
+  place-items: center;
+  position: absolute;
 }
 
 .luca-presence-words {
-  animation: luca-presence-in 120ms ease-out both;
-  display: block;
-  min-width: 0;
+  grid-area: 1 / 1;
+  max-width: var(--luca-presence-room, none);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.luca-presence-words[data-rest="off"] {
+  color: var(--luca-presence-ink-off);
+}
+
+/* The new words come in on the window's own spring, so they land with it,
+ * sharp from their first frame; the old ones dissolve into a soft blur
+ * beneath them. Blur only on the way out: WebKit draws any blur, however
+ * slight, as about a pixel of softness, so words blurring in would land soft
+ * and then click into focus. */
+.luca-presence-words[data-in] {
+  animation: luca-presence-in var(--motion-duration-line)
+    var(--motion-ease-line) both;
+}
+
+.luca-presence-words[data-leaving] {
+  animation: luca-presence-out 200ms linear both;
 }
 
 @keyframes luca-presence-in {
   from {
     opacity: 0;
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
   }
 }
 
-.luca-presence-open:hover .luca-presence-face::after,
-.luca-presence-open:hover .luca-presence-plate {
+@keyframes luca-presence-out {
+  to {
+    filter: blur(3px);
+    opacity: 0;
+  }
+}
+
+.luca-presence-open:hover .luca-presence-face::after {
   border-color: var(--luca-presence-rim-lit);
 }
 
-.luca-presence-open:focus-visible .luca-presence-face::after,
-.luca-presence-open:focus-visible .luca-presence-plate {
+.luca-presence-open:focus-visible .luca-presence-face::after {
   border-color: rgb(255 255 255 / 0.5);
 }
 
-/* The agent page's breathing dot (.luca-mind-dot). */
-.luca-presence-dot {
-  animation: luca-presence-breathe 2.4s ease-in-out infinite;
-  background: currentColor;
-  border-radius: 50%;
-  display: inline-block;
-  height: 6px;
-  margin-right: 7px;
-  vertical-align: 0.1em;
-  width: 6px;
+/* The keyboard's ring on the text window, as on the circle: laid inside its
+ * edge, so the window keeps its shape. */
+.luca-presence-open:focus-visible .luca-presence-plate {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.5),
+    var(--luca-presence-edge);
 }
 
-@keyframes luca-presence-breathe {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
+/* The window takes its new width at once, and the new words only dissolve
+ * in where the old ones stood. */
 @media (prefers-reduced-motion: reduce) {
-  .luca-presence-words {
-    animation: none;
-  }
-
-  .luca-presence-dot {
-    animation: none;
-    opacity: 1;
-  }
-
   .luca-presence-plate,
-  .luca-presence-line,
   .luca-presence-face::after {
     transition: none;
+  }
+
+  .luca-presence-words[data-leaving] {
+    display: none;
+  }
+
+  .luca-presence-words[data-in] {
+    animation: luca-presence-dissolve 150ms ease-out both;
+  }
+}
+
+@keyframes luca-presence-dissolve {
+  from {
+    opacity: 0;
   }
 }
