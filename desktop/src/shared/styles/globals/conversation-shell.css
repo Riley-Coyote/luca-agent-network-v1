@@ -1739,10 +1739,12 @@
  * In the flow the day is only words: the chrome's face at the label step,
  * as written ("Today", "Thursday, October 29th"), no ring, no lit edge, no
  * capitals. Where it catches at the top over the words scrolling under it
- * (data-day-stuck, MessageTimeline; its stand-in is always caught), the
- * composer's glass gathers under it: the same material, no outline, no
- * shadow, near-solid, so a word passing under a word never competes with
- * it. */
+ * (data-day-stuck, MessageTimeline; its stand-in is always caught), glass
+ * gathers under it: the plate your own words sit on, the one fill that reads
+ * at a glance in every palette (the raised step is only 6 RGB in Vitesse
+ * Black, where a chip of it erased the words under it and showed nothing),
+ * with no outline and no shadow, near-solid, so a word passing under a word
+ * never competes with it. */
 :root[data-luca-shell] .luca-day-label {
   border-radius: 999px;
   color: hsl(var(--mn-ink-muted));
@@ -1762,7 +1764,7 @@
 
 :root[data-luca-shell]
   :is([data-day-stuck] > .luca-day-label, .luca-day-label[data-stuck]) {
-  background-color: hsl(var(--mn-raised) / 0.94);
+  background-color: color-mix(in srgb, var(--mn-plate-strong) 94%, transparent);
   -webkit-backdrop-filter: blur(20px) saturate(1.15);
   backdrop-filter: blur(20px) saturate(1.15);
 }
@@ -1770,7 +1772,7 @@
 /* The pills that float over the words (jump to the latest, the unread
  * count): the same glass, in the same voice, always gathered. */
 :root[data-luca-frame] .luca-glass-pill {
-  background-color: hsl(var(--mn-raised) / 0.94);
+  background-color: color-mix(in srgb, var(--mn-plate-strong) 94%, transparent);
   border-color: transparent;
   box-shadow: none;
   color: hsl(var(--mn-ink-muted));
@@ -1779,20 +1781,20 @@
 }
 
 :root[data-luca-frame] .luca-glass-pill:hover {
-  background-color: hsl(var(--mn-hover));
+  background-color: var(--mn-plate-strong-hover);
   color: hsl(var(--mn-ink));
 }
 
 @media (prefers-reduced-transparency: reduce) {
   :root[data-luca-frame] .luca-glass-pill {
-    background-color: hsl(var(--mn-raised));
+    background-color: var(--mn-plate-strong);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 
   :root[data-luca-shell]
     :is([data-day-stuck] > .luca-day-label, .luca-day-label[data-stuck]) {
-    background-color: hsl(var(--mn-raised));
+    background-color: var(--mn-plate-strong);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

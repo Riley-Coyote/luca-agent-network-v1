@@ -343,11 +343,20 @@
  * in both modes; the frame must not add weight or a shadow to the field.
  * Glass since Nov 2 ("a glass that text rolled behind"): the same tone let
  * through, so the conversation passing under it on the scroll edge
- * (conversation-shell.css) shows as soft light moving behind the field. */
+ * (conversation-shell.css) shows as soft light moving behind the field. Its
+ * tint is the raised tone with 2% more ink, so at 70% over the bare card it
+ * lands on the approved preview's own fill (rgb 12 at night in Vitesse
+ * Black, 243 by day, BETA14_RELEASE.md) instead of drifting toward the card;
+ * Reduce Transparency is that fill, solid. */
 :root[data-luca-frame] [data-testid="message-composer"],
 :root[data-luca-frame] [data-testid="message-composer"]:focus-within {
+  --composer-glass: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 2%,
+    hsl(var(--mn-raised))
+  );
   border-color: transparent;
-  background-color: hsl(var(--mn-raised) / 0.7);
+  background-color: color-mix(in srgb, var(--composer-glass) 70%, transparent);
   box-shadow: none;
   -webkit-backdrop-filter: blur(20px) saturate(1.15);
   backdrop-filter: blur(20px) saturate(1.15);

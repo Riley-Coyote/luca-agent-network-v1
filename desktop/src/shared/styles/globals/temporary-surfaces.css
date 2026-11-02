@@ -3,15 +3,14 @@
  * composer, capsule buttons) and the app's one light. A card on the floor is
  * drawn by the light on its top contour (--mn-card-edge); whatever sits on a
  * card is told from it by its material alone, never by a line (Riley, Oct 27,
- * on the composer), and the conversation has two: what sits in the flow of
- * words is the plate the owner's words sit on, and what floats over it (the
- * composer, the caught day, the pills) is the composer's raised tone. So the
- * notice is the plate, the sheet that rises out of the composer is the
- * composer's own material, of one piece with it, and neither has an outline,
- * a lit lip or a dark seam. Only the confirmation, which floats over
- * everything, is a card. Both materials are drawn from the palette, so they
- * hold by day too. Scoped to the new shell; classic UI and page-level ask
- * rows stay unchanged. */
+ * on the composer), and the conversation has two: the plate the owner's
+ * words sit on, the one fill that reads at a glance (also the pills and the
+ * caught day), and the composer's own quiet tone, as approved. So the notice
+ * is the plate, the sheet that rises out of the composer is the composer's
+ * tone, of one piece with it, and neither has an outline, a lit lip or a
+ * dark seam. Only the confirmation, which floats over everything, is a card.
+ * Both materials are drawn from the palette, so they hold by day too. Scoped
+ * to the new shell; classic UI and page-level ask rows stay unchanged. */
 :root[data-luca-frame]
   :is(
     .luca-room-stack[data-has-asks],

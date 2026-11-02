@@ -210,7 +210,7 @@
   [data-testid="message-composer"],
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
   [data-testid="message-composer"]:focus-within {
-  background: hsl(var(--mn-raised) / 0.7);
+  background: color-mix(in srgb, var(--composer-glass) 70%, transparent);
   border-color: transparent;
   box-shadow: none;
 }
