@@ -28,6 +28,7 @@ import { UnreadPill, unreadCountLabel } from "@/shared/ui/UnreadPill";
 import type { ChannelIntro } from "./ChannelIntroBlock";
 import { FirstMessageSurface } from "./FirstMessageView";
 import { TimelineSkeleton, useTimelineSkeletonRows } from "./TimelineSkeleton";
+import { ConversationPresence } from "@/features/channels/ui/ConversationPresence";
 import { TimelineMessageList } from "./TimelineMessageList";
 import { VisitPresenceRail } from "./VisitPresenceRail";
 import type { TimelineVirtualizerApi } from "./TimelineMessageList";
@@ -151,6 +152,10 @@ type MessageTimelineProps = {
   unreadCount?: number;
   /** Per-thread unread counts keyed by thread root id. */
   threadUnreadCounts?: ReadonlyMap<string, number>;
+  /** Under the shell, the agent at the top of a conversation with one
+   *  agent; the reading area starts below it. Memoize it: an object made
+   *  fresh each render would re-render the whole timeline. */
+  presence?: React.ComponentProps<typeof ConversationPresence> | null;
 };
 
 /** Stable empty reference used as the `useDeferredValue` initial value so the
@@ -191,6 +196,7 @@ const MessageTimelineBase = React.forwardRef<
     directMessageIntro = null,
     firstMessageOpen = false,
     focusedView = false,
+    presence = null,
     messages,
     mainEntries,
     threadSummaries,
@@ -617,6 +623,7 @@ const MessageTimelineBase = React.forwardRef<
     [renderedMessages],
   );
   const placeTopEdgeRef = React.useRef<() => void>(() => {});
+  const hasPresence = shellFrame && presence !== null;
   React.useEffect(() => {
     const scroller = virtualizerScrollParent;
     const root = timelineRootRef.current;
@@ -632,13 +639,21 @@ const MessageTimelineBase = React.forwardRef<
       const badge = document
         .querySelector(".polyphonic-control-badge")
         ?.getBoundingClientRect();
-      const inset =
+      // The agent at the top of a one-agent conversation: the same rule.
+      const presenceBox = hasPresence
+        ? root.querySelector("[data-luca-presence]")?.getBoundingClientRect()
+        : undefined;
+      const inset = Math.max(
         badge &&
-        badge.left < rootBox.right &&
-        badge.right > rootBox.left &&
-        badge.bottom > rootBox.top
+          badge.left < rootBox.right &&
+          badge.right > rootBox.left &&
+          badge.bottom > rootBox.top
           ? Math.ceil(badge.bottom - rootBox.top + TIMELINE_TOP_GAP)
-          : 0;
+          : 0,
+        presenceBox && presenceBox.height > 0
+          ? Math.ceil(presenceBox.bottom - rootBox.top + TIMELINE_TOP_GAP)
+          : 0,
+      );
       const top = inset > 0 ? `${inset}px` : "";
       if (viewport.style.top !== top) {
         viewport.style.top = top;
@@ -725,7 +740,7 @@ const MessageTimelineBase = React.forwardRef<
       for (const divider of scroller.querySelectorAll("[data-day-passed]"))
         divider.removeAttribute("data-day-passed");
     };
-  }, [scrollContainerRef, shellFrame, virtualizerScrollParent]);
+  }, [hasPresence, scrollContainerRef, shellFrame, virtualizerScrollParent]);
   React.useEffect(() => {
     void renderedMessages;
     placeTopEdgeRef.current();
@@ -1085,6 +1100,9 @@ const MessageTimelineBase = React.forwardRef<
           ) : null}
         </AnimatePresence>
         <VisitPresenceRail visitorPubkeys={visitorPubkeys} />
+        {hasPresence && presence ? (
+          <ConversationPresence {...presence} />
+        ) : null}
         {showUnreadPill ? (
           <div
             className={cn(

@@ -41,6 +41,7 @@ import { resolveManagedPresentationRetry } from "@/features/messages/lib/managed
 import { projectManagedTimelineMessages } from "@/features/messages/lib/managedTimelineProjection";
 import { projectFocusedThreadTimeline } from "@/features/messages/lib/focusedThreadProjection";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
+import { useConversationPresenceLine } from "@/features/channels/ui/ConversationPresence";
 import { ConversationRoomStack } from "@/features/channels/ui/ConversationRoomStack";
 import { StopAllWorkingResidents } from "@/features/channels/ui/StopAllWorkingResidents";
 import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
@@ -227,7 +228,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     React.useState<WelcomeComposerBannerState>("prompt");
   const pendingManagedPermissions = useManagedPermissions();
   const pendingManagedInputs = useManagedInputs();
-  const { goChannel } = useAppNavigation();
+  const { goAgent, goChannel } = useAppNavigation();
   const prepareDmSendChannel = usePrepareDmSendChannel(
     activeChannel,
     currentPubkey,
@@ -1065,6 +1066,54 @@ export const ChannelPane = React.memo(function ChannelPane({
     focusedThreadHead !== null &&
     pendingCount > 0 &&
     pendingShownFor !== focusedThreadHead.id;
+  // The agent at the top of a conversation with one agent (Nov 2): their
+  // mark and what they're doing, once the conversation has begun. The
+  // first-message view already holds them, and the focused view is about
+  // one exchange.
+  const presenceAgent = React.useMemo(() => {
+    if (!shellFrame || focusedThreadHead || firstMessage.open) return null;
+    const participant =
+      directMessageIntro?.participants.length === 1
+        ? directMessageIntro.participants[0]
+        : null;
+    if (!participant) return null;
+    const key = normalizePubkey(participant.pubkey);
+    const agent = agentSessionAgents.find(
+      (each) => normalizePubkey(each.pubkey) === key,
+    );
+    return agent
+      ? { agent, name: directMessageName ?? participant.displayName }
+      : null;
+  }, [
+    agentSessionAgents,
+    directMessageIntro,
+    directMessageName,
+    firstMessage.open,
+    focusedThreadHead,
+    shellFrame,
+  ]);
+  const presenceLine = useConversationPresenceLine({
+    agent: presenceAgent?.agent ?? null,
+    channelId: activeChannelId,
+    managedActivity,
+    observerActivity: agentActivityRows,
+  });
+  const presencePubkey = presenceAgent?.agent.pubkey ?? null;
+  const openPresence = React.useCallback(() => {
+    if (presencePubkey) goAgent(presencePubkey);
+  }, [goAgent, presencePubkey]);
+  const presence = React.useMemo(
+    () =>
+      presenceAgent && presenceLine
+        ? {
+            line: presenceLine,
+            name: presenceAgent.name,
+            onOpen: openPresence,
+            pubkey: presenceAgent.agent.pubkey,
+          }
+        : null,
+    [openPresence, presenceAgent, presenceLine],
+  );
   // The room's stack above the message box (SHELL_BUILD.md WP-23): under the
   // shell it holds the asks and the work as one stack; with the flag off the
   // strip, the proposal and the receipt stand as they always have.
@@ -1317,6 +1366,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   }
                   firstMessageOpen={firstMessage.open && !focusedThreadHead}
                   focusedView={shellFrame && Boolean(focusedThreadHead)}
+                  presence={presence}
                   scrollContainerRef={timelineScrollRef}
                   currentPubkey={currentPubkey}
                   fetchOlder={fetchOlder}

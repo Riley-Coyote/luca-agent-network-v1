@@ -1,0 +1,134 @@
+/* ── the agent at the top of a conversation with one agent (Nov 2) ──── */
+/* 14 / mark 56 / 8 / line 16. The reading area starts the page's gap below
+ * it (MessageTimeline's top edge, as for the companion's badge), so no word
+ * is ever under the mark or the line. Above the card's top veil. */
+.luca-presence {
+  display: flex;
+  justify-content: center;
+  left: 0;
+  padding-top: 14px;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 45;
+}
+
+.luca-presence-open {
+  align-items: center;
+  border-radius: 12px;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(360px, calc(100% - 32px));
+  outline: none;
+  pointer-events: auto;
+  position: relative;
+}
+
+/* The circle is the mark's own (AgentDendrite draws it inline); only its
+ * edge answers the pointer and the keyboard, as a ring laid exactly on it. */
+.luca-presence-open::before {
+  border: 1px solid transparent;
+  border-radius: 50%;
+  box-sizing: border-box;
+  content: "";
+  height: 56px;
+  left: 50%;
+  margin-left: -28px;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transition: border-color 150ms ease;
+  width: 56px;
+  z-index: 1;
+}
+
+.luca-presence-open:hover::before {
+  border-color: rgb(56, 57, 59);
+}
+
+.luca-presence-open:focus-visible::before {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* The agent page's state line (.luca-mind-now), centred and on one line. */
+.luca-presence-line {
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: 0.8125rem;
+  height: 1rem;
+  justify-content: center;
+  line-height: 1rem;
+  max-width: 100%;
+  transition:
+    color 150ms ease,
+    opacity 80ms ease-out;
+}
+
+.luca-presence-open:hover .luca-presence-line {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-presence-line[data-leaving] {
+  opacity: 0;
+}
+
+.luca-presence-words {
+  animation: luca-presence-in 120ms ease-out both;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes luca-presence-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The agent page's breathing dot (.luca-mind-dot). */
+.luca-presence-dot {
+  animation: luca-presence-breathe 2.4s ease-in-out infinite;
+  background: hsl(var(--mn-ink));
+  border-radius: 50%;
+  display: inline-block;
+  height: 6px;
+  margin-right: 7px;
+  vertical-align: 0.1em;
+  width: 6px;
+}
+
+@keyframes luca-presence-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-presence-words {
+    animation: none;
+  }
+
+  .luca-presence-dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  .luca-presence-line,
+  .luca-presence-open::before {
+    transition: none;
+  }
+}
