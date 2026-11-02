@@ -1,13 +1,12 @@
 /* Luca conversation-first shell. Kept last so this production-intent layer
    can refine legacy Buzz surfaces without forking their data components. */
 :root[data-luca-shell] {
-  /* Apple's system face, for chrome and reading alike: on a Mac this is SF
-     Pro, with the optical sizes and tracking the system applies to it, which
-     is the first thing that makes a window read as native. Elsewhere it falls
-     back to the bundled Inter. The labels are the second voice, the mono. */
+  /* The chrome's face, Instrument Sans, as the public app has it (Riley's
+     pick, Sept 14; Apple's system face here from Oct 23 read "off
+     everywhere" to him, Nov 2). Reading copy is Inter (typography.css). */
   --font-ui:
-    -apple-system, BlinkMacSystemFont, "Inter Variable", Inter, "Segoe UI",
-    system-ui, sans-serif;
+    "Instrument Sans Variable", "Instrument Sans", "Inter Variable",
+    "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
   --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
   /* The type ramp — sizes, leadings and tracking — lives in typography.css,
@@ -185,11 +184,11 @@
    * Change one, change the other. */
   /* The measure — the width of the READING column, not of the card. Running
      text holds 45 to 75 characters a line, about 66 at best; past that the
-     eye loses its return sweep. SF Pro sets about 7.3px a character at 16px,
-     so at 45rem a mind's reply ran to 91. This lands it near 68, measured
-     from the rendered lines. Wide windows get wider margins, not longer
-     lines. */
-  --mn-reading-measure: 34.5rem;
+     eye loses its return sweep. Inter sets about 8.3px a character at 16px,
+     so 34.5rem (tuned for SF Pro) held a reply to about 61; this lands it
+     near 66, measured from the rendered lines. Wide windows get wider
+     margins, not longer lines. */
+  --mn-reading-measure: 37rem;
   --mn-card-lip: 8px;
   --mn-card-gap: 4px;
   /* The header is TWO lines now — name, then the live-state line. */
@@ -838,13 +837,13 @@
   padding-block: 4px;
 }
 
-/* A label, so the second voice: mono capitals, opened up. */
+/* A label: the chrome's capitals, opened up (type-eyebrow's). */
 :root[data-luca-shell] [data-sidebar="group-label"] {
   color: hsl(var(--mn-ink-faint));
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: var(--type-eyebrow-size);
-  font-weight: 400;
-  letter-spacing: var(--type-caps-tracking);
+  font-weight: 500;
+  letter-spacing: var(--type-eyebrow-tracking);
   line-height: 24px;
   text-transform: uppercase;
 }

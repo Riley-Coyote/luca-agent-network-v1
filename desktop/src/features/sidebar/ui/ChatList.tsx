@@ -97,8 +97,8 @@ export const UNREAD_DOT_CLASS =
 
 /** Every section of the rail — Projects, Agents, Runtimes — starts with the
  *  same header: one label register, one inset, one height, and one trailing
- *  slot for a control (or none). The label is the second voice, mono
- *  capitals (`type-eyebrow`). Sections keep their rhythm from space, not
+ *  slot for a control (or none). The label is the chrome's capitals
+ *  (`type-eyebrow`). Sections keep their rhythm from space, not
  *  rules: RAIL_SECTION_CLASS is the gap above each. */
 export const RAIL_SECTION_CLASS = "mt-4 flex flex-col";
 

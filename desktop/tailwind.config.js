@@ -46,16 +46,12 @@ export default {
         "caps-wide": "var(--type-eyebrow-tracking)",
         "caps-wider": "var(--type-caps-wider-tracking)",
       },
-      // The shell's face (`--font-ui` in conversation-shell.css): Apple's
-      // system face on a Mac, the bundled Inter elsewhere.
       fontFamily: {
         sans: [
-          "-apple-system",
-          "BlinkMacSystemFont",
           '"Inter Variable"',
           "Inter",
+          '"Avenir Next"',
           '"Segoe UI"',
-          "system-ui",
           "sans-serif",
         ],
       },

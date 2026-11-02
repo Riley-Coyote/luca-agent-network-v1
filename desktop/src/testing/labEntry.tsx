@@ -72,6 +72,7 @@ import {
 } from "@/testing/labScene";
 import { roomProjectStorageKey } from "@/features/channels/lib/roomProjects";
 
+import "@fontsource-variable/instrument-sans";
 import "@fontsource-variable/inter/wght.css";
 import "@fontsource/fragment-mono/400.css";
 import "@fontsource/doto/400.css";
