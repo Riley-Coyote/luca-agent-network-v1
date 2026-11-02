@@ -340,12 +340,26 @@
  * No outline in any state: the box is its own surface, a step lighter than
  * the card at night, the way Apple fills a field instead of drawing round it.
  * Focus is the caret's. Use the same raised token as the approved preview,
- * in both modes; the frame must not add weight or a shadow to the field. */
+ * in both modes; the frame must not add weight or a shadow to the field.
+ * Glass since Nov 2 ("a glass that text rolled behind"): the same tone let
+ * through, so the conversation passing under it on the scroll edge
+ * (conversation-shell.css) shows as soft light moving behind the field. */
 :root[data-luca-frame] [data-testid="message-composer"],
 :root[data-luca-frame] [data-testid="message-composer"]:focus-within {
   border-color: transparent;
-  background-color: hsl(var(--mn-raised));
+  background-color: hsl(var(--mn-raised) / 0.7);
   box-shadow: none;
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  backdrop-filter: blur(20px) saturate(1.15);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-luca-frame] [data-testid="message-composer"],
+  :root[data-luca-frame] [data-testid="message-composer"]:focus-within {
+    background-color: hsl(var(--mn-raised));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* Over the reply recess too: the box's own surface, no edge drawn on it. */

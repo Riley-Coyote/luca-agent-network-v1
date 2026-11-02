@@ -667,6 +667,98 @@
 }
 
 /* ------------------------------------------------------------------
+ * THE COMPOSER'S SCROLL EDGE (Riley, Nov 2: "i would love for the composer
+ * to be a glass that text rolled behind with a nice blur fade like apple
+ * tends to do"). Apple's soft scroll edge, under the frame: the conversation
+ * keeps scrolling beneath the composer, blurring more the lower it goes and
+ * dimming toward the card's own tone, so the box's glass has something real
+ * behind it and the controls under it still read. Text stays sharp until
+ * about 40 over the box, then dissolves as it passes under, as Apple's
+ * does. In place of the veil's cover: five blurs, each stronger and lower
+ * than the last (they stack, so the edge reaches about 18px), each coming in
+ * over 16px; and the dim over them. Measured from the card's foot, where the composer stands: the box's
+ * top is 96 above it (the box, then its controls). Reduce Transparency
+ * keeps the cover.
+ * ------------------------------------------------------------------ */
+:root:root[data-luca-shell][data-luca-frame]
+  .luca-conversation-veil-bottom.luca-scroll-edge {
+  --edge-box-top: 96px;
+  background: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.luca-scroll-edge-blur,
+.luca-scroll-edge-dim {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+/* Each blur is whole from the foot up to --edge-to over the box's top. */
+.luca-scroll-edge-blur {
+  --edge-blur: 1px;
+  --edge-to: 24px;
+  --edge-mask: linear-gradient(
+    to top,
+    #000 calc(var(--edge-box-top) + var(--edge-to)),
+    transparent calc(var(--edge-box-top) + var(--edge-to) + 16px)
+  );
+  -webkit-backdrop-filter: blur(var(--edge-blur));
+  backdrop-filter: blur(var(--edge-blur));
+  -webkit-mask-image: var(--edge-mask);
+  mask-image: var(--edge-mask);
+}
+
+.luca-scroll-edge-blur:nth-child(2) {
+  --edge-blur: 2px;
+  --edge-to: 16px;
+}
+
+.luca-scroll-edge-blur:nth-child(3) {
+  --edge-blur: 4px;
+  --edge-to: 8px;
+}
+
+.luca-scroll-edge-blur:nth-child(4) {
+  --edge-blur: 8px;
+  --edge-to: 0px;
+}
+
+.luca-scroll-edge-blur:nth-child(5) {
+  --edge-blur: 16px;
+  --edge-to: -16px;
+}
+
+/* The dim: none above the edge, most under the controls' row. */
+.luca-scroll-edge-dim {
+  background: linear-gradient(
+    to top,
+    hsl(var(--background) / 0.92) 0,
+    hsl(var(--background) / 0.92) calc(var(--edge-box-top) - 46px),
+    hsl(var(--background) / 0.55) var(--edge-box-top),
+    hsl(var(--background) / 0.16) calc(var(--edge-box-top) + 24px),
+    hsl(var(--background) / 0) calc(var(--edge-box-top) + 40px)
+  );
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root:root[data-luca-shell][data-luca-frame]
+    .luca-conversation-veil-bottom.luca-scroll-edge {
+    background: linear-gradient(
+      to top,
+      hsl(var(--background)) calc(100% - 3rem),
+      hsl(var(--background) / 0)
+    );
+  }
+
+  .luca-scroll-edge-blur,
+  .luca-scroll-edge-dim {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------
  * THE VISIT
  *
  * A guest arriving is an event, not a footnote, so it is drawn as a
@@ -1642,9 +1734,74 @@
   border-color: transparent;
 }
 
-:root[data-luca-shell] [data-testid="message-timeline-day-divider"] > p {
+/* ── the day, said plainly (Riley, Nov 2: the day pills "look really bad
+ * and sloppy, and the all caps text inside them also looks off") ────────
+ * In the flow the day is only words: the chrome's face at the label step,
+ * as written ("Today", "Thursday, October 29th"), no ring, no lit edge, no
+ * capitals. Where it catches at the top over the words scrolling under it
+ * (data-day-stuck, MessageTimeline; its stand-in is always caught), the
+ * composer's glass gathers under it: the same material, no outline, no
+ * shadow, near-solid, so a word passing under a word never competes with
+ * it. */
+:root[data-luca-shell] .luca-day-label {
+  border-radius: 999px;
+  color: hsl(var(--mn-ink-muted));
+  font-family: var(--font-ui);
+  font-size: var(--type-label-size);
+  font-weight: 500;
+  letter-spacing: var(--type-label-tracking);
+  line-height: 1rem;
+  padding: 3px 10px;
+  -webkit-backdrop-filter: blur(0px);
+  backdrop-filter: blur(0px);
+  transition:
+    background-color 160ms ease,
+    -webkit-backdrop-filter 160ms ease,
+    backdrop-filter 160ms ease;
+}
+
+:root[data-luca-shell]
+  :is([data-day-stuck] > .luca-day-label, .luca-day-label[data-stuck]) {
+  background-color: hsl(var(--mn-raised) / 0.94);
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  backdrop-filter: blur(20px) saturate(1.15);
+}
+
+/* The pills that float over the words (jump to the latest, the unread
+ * count): the same glass, in the same voice, always gathered. */
+:root[data-luca-frame] .luca-glass-pill {
+  background-color: hsl(var(--mn-raised) / 0.94);
   border-color: transparent;
-  box-shadow: var(--mn-card-edge);
+  box-shadow: none;
+  color: hsl(var(--mn-ink-muted));
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  backdrop-filter: blur(20px) saturate(1.15);
+}
+
+:root[data-luca-frame] .luca-glass-pill:hover {
+  background-color: hsl(var(--mn-hover));
+  color: hsl(var(--mn-ink));
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-luca-frame] .luca-glass-pill {
+    background-color: hsl(var(--mn-raised));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  :root[data-luca-shell]
+    :is([data-day-stuck] > .luca-day-label, .luca-day-label[data-stuck]) {
+    background-color: hsl(var(--mn-raised));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell] .luca-day-label {
+    transition: none;
+  }
 }
 
 /* While a sheet is up, the card's drop shadows would fall ON the sheet and

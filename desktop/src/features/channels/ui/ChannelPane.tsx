@@ -123,6 +123,19 @@ import { ConversationEffortPicker } from "@/features/thinking/ui/ConversationEff
 import type { RuntimeTaskProjection } from "@/shared/api/tauriRuntimeTasks";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import "@/app/shell/shell-activity.css";
+/** The composer's scroll edge under the frame (conversation-shell.css): five
+ *  blurs, each stronger and lower than the last, and the dim over them. */
+const SCROLL_EDGE_LAYERS = (
+  <>
+    <span className="luca-scroll-edge-blur" />
+    <span className="luca-scroll-edge-blur" />
+    <span className="luca-scroll-edge-blur" />
+    <span className="luca-scroll-edge-blur" />
+    <span className="luca-scroll-edge-blur" />
+    <span className="luca-scroll-edge-dim" />
+  </>
+);
+
 export const ChannelPane = React.memo(function ChannelPane({
   activeChannel,
   agentPubkeys,
@@ -1484,8 +1497,13 @@ export const ChannelPane = React.memo(function ChannelPane({
                       cards, the composer itself) inside this isolate. */}
                   <div
                     aria-hidden="true"
-                    className="luca-conversation-veil-bottom absolute inset-x-0 bottom-0 -z-10 h-[calc(100%+3rem)]"
-                  />
+                    className={cn(
+                      "luca-conversation-veil-bottom absolute inset-x-0 bottom-0 -z-10 h-[calc(100%+3rem)]",
+                      shellFrame && "luca-scroll-edge",
+                    )}
+                  >
+                    {shellFrame ? SCROLL_EDGE_LAYERS : null}
+                  </div>
                   <div className="pointer-events-none">
                     {exchangesNeedingDecision.length > 0 ? (
                       <div className="luca-measure pointer-events-auto mb-2 grid gap-1">

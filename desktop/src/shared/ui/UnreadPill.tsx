@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 
 const UNREAD_PILL_CLASS =
-  "pointer-events-auto h-7 min-h-7 gap-1.5 rounded-full border-border/70 bg-background/95 px-2 py-1 type-eyebrow text-ink-faint shadow-xs backdrop-blur-sm hover:bg-muted/70 hover:text-foreground [&_svg]:size-4";
+  "luca-glass-pill pointer-events-auto h-7 min-h-7 gap-1.5 rounded-full border-border/70 bg-background/95 px-2 py-1 text-xs font-medium text-ink-faint shadow-xs backdrop-blur-sm hover:bg-muted/70 hover:text-foreground [&_svg]:size-4";
 
 export function unreadCountLabel(count: number) {
   return `${count} new message${count === 1 ? "" : "s"}`;

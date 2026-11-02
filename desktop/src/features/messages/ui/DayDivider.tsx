@@ -14,9 +14,7 @@ export function DayDivider({ label }: { label: string }) {
       data-testid="message-timeline-day-divider"
       data-day-label={label}
     >
-      <p className="relative z-10 shrink-0 rounded-full border border-border/70 bg-background px-2.5 py-1 type-eyebrow text-ink-faint">
-        {label}
-      </p>
+      <p className="luca-day-label relative z-10 shrink-0">{label}</p>
     </section>
   );
 }

@@ -705,6 +705,12 @@ const MessageTimelineBase = React.forwardRef<
         if (!pill) continue;
         const passed = pill.top < line - 0.5;
         divider.toggleAttribute("data-day-passed", passed);
+        // Caught on the line over the words scrolling under it: its glass
+        // gathers (conversation-shell.css, "the day, said plainly").
+        divider.toggleAttribute(
+          "data-day-stuck",
+          !passed && pill.top <= line + 0.5,
+        );
         if (!passed && pill.top > line + 0.5)
           incoming = Math.min(incoming, pill.top);
         if (divider.dataset.dayLabel === day)
@@ -746,8 +752,12 @@ const MessageTimelineBase = React.forwardRef<
       root.style.removeProperty("--luca-timeline-top-inset");
       viewport.style.maskImage = "";
       viewport.style.removeProperty("-webkit-mask-image");
-      for (const divider of scroller.querySelectorAll("[data-day-passed]"))
+      for (const divider of scroller.querySelectorAll(
+        "[data-day-passed], [data-day-stuck]",
+      )) {
         divider.removeAttribute("data-day-passed");
+        divider.removeAttribute("data-day-stuck");
+      }
     };
   }, [
     hasPresence,
@@ -1267,9 +1277,12 @@ const MessageTimelineBase = React.forwardRef<
             data-testid="message-timeline-stuck-day"
             ref={stuckDayRef}
           >
-            {/* The pill itself takes the pointer, as a solid thing over
-                the words would: nothing under it is readable anyway. */}
-            <p className="pointer-events-auto relative z-10 shrink-0 rounded-full border border-border/70 bg-background px-2.5 py-1 type-eyebrow text-ink-faint" />
+            {/* The label takes the pointer, as a solid thing over the
+                words would: nothing under its glass is readable anyway. */}
+            <p
+              className="luca-day-label pointer-events-auto relative z-10 shrink-0"
+              data-stuck=""
+            />
           </div>
         ) : null}
         {!isAtBottom ? (

@@ -202,32 +202,26 @@
     var(--tw-shadow);
 }
 
-/* ── the day, said quietly ────────────────────────────────────────────
- * The conversation's day pill loses the card edge (its hairline ring and
- * white lit top) and keeps only the ink-cast shadow of a piece of paper
- * (shellStudy.css:1298-1302), so it still reads where it sticks over the
- * scrolled messages. */
-:root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
-  :is(
-    [data-testid="message-timeline-day-divider"],
-    [data-testid="message-timeline-stuck-day"]
-  )
-  > p {
-  box-shadow:
-    0 1px 2px hsl(var(--mn-ink) / 0.1),
-    0 4px 12px -2px hsl(var(--mn-ink) / 0.12);
-}
-
 /* ── the composer, Send and search ────────────────────────────────────
- * By day use the preview's raised surface too, without the heavier ink mix.
- * Nothing is drawn round it (composer-states.css). */
+ * By day use the preview's raised surface too, without the heavier ink mix,
+ * let through as glass over the scroll edge as at night (Nov 2). Nothing is
+ * drawn round it (composer-states.css). */
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
   [data-testid="message-composer"],
 :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
   [data-testid="message-composer"]:focus-within {
-  background: hsl(var(--mn-raised));
+  background: hsl(var(--mn-raised) / 0.7);
   border-color: transparent;
   box-shadow: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
+    [data-testid="message-composer"],
+  :root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
+    [data-testid="message-composer"]:focus-within {
+    background: hsl(var(--mn-raised));
+  }
 }
 
 /* Send at rest on it: a quiet disc of ink, the arrow faint. Armed, it stays
