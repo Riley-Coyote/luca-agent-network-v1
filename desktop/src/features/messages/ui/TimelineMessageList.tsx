@@ -763,8 +763,10 @@ function VirtualizedTimelineRows({
         <VList
           ref={listRef}
           // Clear the measured header, including a resident companion or a
-          // wrapped status line. Sticky offsets start at this padding edge.
-          className="h-full min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-2 pt-[var(--buzz-channel-content-top-padding,5.75rem)] [--buzz-day-pill-sticky-top:0px]"
+          // wrapped status line, and under the shell the agent's mark the
+          // words run on under (MessageTimeline, --luca-timeline-rise).
+          // Sticky offsets start at this padding edge.
+          className="h-full min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-2 pt-[calc(var(--buzz-channel-content-top-padding,5.75rem)+var(--luca-timeline-rise,0px))] [--buzz-day-pill-sticky-top:0px]"
           data={items}
           item={VirtualizedTimelineItemShell}
           itemSize={estimateItemSize}

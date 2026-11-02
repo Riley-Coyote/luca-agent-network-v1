@@ -613,6 +613,11 @@ const MessageTimelineBase = React.forwardRef<
   // reading area starts below it, by the page's gap, so nothing is ever
   // under the badge; the stuck pill sits below it. When the badge goes, the
   // area returns, and the bottom-hold keeps the newest message in place.
+  // Under the agent's mark alone (Riley, Nov 2: "the text should just run to
+  // near the top and blur out as it leaves the page and goes behind the
+  // mark") the area keeps the card's top: only its first words start below
+  // the mark, and the words scrolling up run on under it, through the top
+  // edge (conversation-shell.css), the days' pills with them.
   const timelineRootRef = React.useRef<HTMLDivElement>(null);
   const stuckDayRef = React.useRef<HTMLDivElement>(null);
   const messageTimesRef = React.useRef(new Map<string, number>());
@@ -649,34 +654,49 @@ const MessageTimelineBase = React.forwardRef<
             ?.getBoundingClientRect()
         : undefined;
       const presenceShown = presenceBox !== undefined && presenceBox.height > 0;
-      const inset = Math.max(
+      const badgeInset =
         badge &&
-          badge.left < rootBox.right &&
-          badge.right > rootBox.left &&
-          badge.bottom > rootBox.top
+        badge.left < rootBox.right &&
+        badge.right > rootBox.left &&
+        badge.bottom > rootBox.top
           ? Math.ceil(badge.bottom - rootBox.top + TIMELINE_TOP_GAP)
-          : 0,
+          : 0;
+      const presenceInset =
         presenceBox && presenceShown
           ? Math.ceil(presenceBox.bottom - rootBox.top + TIMELINE_TOP_GAP)
-          : 0,
-      );
-      const top = inset > 0 ? `${inset}px` : "";
-      if (viewport.style.top !== top) {
+          : 0;
+      const inset = Math.max(badgeInset, presenceInset);
+      // Under the mark alone, the words run on under it; under the badge,
+      // the area itself starts below.
+      const under = presenceInset > 0 && badgeInset === 0;
+      const offset = inset > 0 ? `${inset}px` : "";
+      const top = under ? "" : offset;
+      if (
+        viewport.style.top !== top ||
+        root.style.getPropertyValue("--luca-timeline-top-inset") !== offset ||
+        root.hasAttribute("data-luca-top-edge") !== under
+      ) {
         viewport.style.top = top;
-        if (inset > 0) root.style.setProperty("--luca-timeline-top-inset", top);
+        // What floats at the timeline's top starts here either way.
+        if (offset) root.style.setProperty("--luca-timeline-top-inset", offset);
         else root.style.removeProperty("--luca-timeline-top-inset");
-        // Its new top edge fades over the scroller's top padding, as the
-        // card's top veil does where the badge isn't.
-        const fade = inset > 0 ? TIMELINE_TOP_FADE : "";
+        root.toggleAttribute("data-luca-top-edge", under);
+        // An area started below the badge fades over the scroller's top
+        // padding, as the card's top veil does where the badge isn't.
+        const fade = top ? TIMELINE_TOP_FADE : "";
         viewport.style.maskImage = fade;
         viewport.style.setProperty("-webkit-mask-image", fade);
+        holdBottomSoonRef.current();
       }
-      // The line a stuck pill sits on: the scroller's padding edge.
+      // The line a stuck pill sits on: the scroller's padding edge, or under
+      // the mark the card's top, which nothing is caught on.
       const box = scroller.getBoundingClientRect();
       const line =
         box.top +
         scroller.clientTop +
-        Number.parseFloat(getComputedStyle(scroller).paddingTop || "0");
+        (under
+          ? 0
+          : Number.parseFloat(getComputedStyle(scroller).paddingTop || "0"));
       // The day of the first row read below the line.
       let first: { top: number; time: number } | null = null;
       for (const row of scroller.querySelectorAll<HTMLElement>(
@@ -750,6 +770,7 @@ const MessageTimelineBase = React.forwardRef<
       window.removeEventListener("resize", schedule);
       viewport.style.top = "";
       root.style.removeProperty("--luca-timeline-top-inset");
+      root.removeAttribute("data-luca-top-edge");
       viewport.style.maskImage = "";
       viewport.style.removeProperty("-webkit-mask-image");
       for (const divider of scroller.querySelectorAll(
@@ -930,8 +951,16 @@ const MessageTimelineBase = React.forwardRef<
       }
       const rowRect = row.getBoundingClientRect();
       const fold = container.getBoundingClientRect();
+      // Under the agent's mark the words run on up under it, going soft
+      // (conversation-shell.css, "the top edge"): a row there is not read
+      // yet, so the fold starts where the words come clear.
+      const clear =
+        fold.top +
+        (Number.parseFloat(
+          getComputedStyle(container).getPropertyValue("--luca-timeline-rise"),
+        ) || 0);
       if (rowRect.height === 0) return;
-      if (rowRect.bottom > fold.top + 1 && rowRect.top < fold.bottom - 1) {
+      if (rowRect.bottom > clear + 1 && rowRect.top < fold.bottom - 1) {
         setIsUnreadPillDismissed(true);
       } else {
         setIsUnreadPillEarned(true);
@@ -1267,6 +1296,18 @@ const MessageTimelineBase = React.forwardRef<
           )}
         </div>
 
+        {shellFrame ? (
+          // Under the agent's mark, the words going soft as they leave
+          // (conversation-shell.css, "the top edge"), drawn while the root
+          // says the words run on under it.
+          <div aria-hidden className="luca-top-edge">
+            <span className="luca-top-edge-blur" />
+            <span className="luca-top-edge-blur" />
+            <span className="luca-top-edge-blur" />
+            <span className="luca-top-edge-blur" />
+            <span className="luca-top-edge-blur" />
+          </div>
+        ) : null}
         {shellFrame ? (
           // The day you're reading, stuck at the card's top once its own
           // pill has gone up past it (WP-29); placed and named by the

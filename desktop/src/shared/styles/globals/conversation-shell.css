@@ -802,6 +802,95 @@
 }
 
 /* ------------------------------------------------------------------
+ * THE TOP EDGE, UNDER THE AGENT'S MARK (Riley, Nov 2: "you have the
+ * conversation cutting off below the agent mark with a big thick band at the
+ * top of the conversation … the text should just run to near the top and
+ * blur out as it leaves the page and goes behind the mark at the top", as
+ * Muse does). The composer's soft edge turned over. The words run on under
+ * the mark to the card's top (MessageTimeline keeps the area there and starts
+ * only its first words below the mark, --luca-timeline-rise), and over that
+ * band, from the page's gap below the text window up to the card's top edge,
+ * they thin and blur away: the same five blurs, each coming in over 16px, the
+ * first at the band's foot; and the words themselves fading to nothing by
+ * the card's edge, so what shows through them is the card itself. The mark
+ * and its window stand over it, opaque. Reduce Transparency keeps the fade,
+ * without the blur.
+ * ------------------------------------------------------------------ */
+[data-luca-top-edge] {
+  --luca-timeline-rise: var(--luca-timeline-top-inset, 0px);
+}
+
+[data-luca-top-edge] > [data-luca-timeline-viewport] {
+  --edge-fade: linear-gradient(
+    to bottom,
+    transparent 0,
+    rgb(0 0 0 / 0.12) calc(var(--luca-timeline-rise) * 0.2),
+    rgb(0 0 0 / 0.42) calc(var(--luca-timeline-rise) * 0.45),
+    rgb(0 0 0 / 0.78) calc(var(--luca-timeline-rise) * 0.72),
+    #000 var(--luca-timeline-rise)
+  );
+  -webkit-mask-image: var(--edge-fade);
+  mask-image: var(--edge-fade);
+}
+
+.luca-top-edge {
+  display: none;
+}
+
+[data-luca-top-edge] > .luca-top-edge {
+  display: block;
+  height: var(--luca-timeline-rise);
+  inset: 0 0 auto;
+  pointer-events: none;
+  position: absolute;
+  z-index: 10;
+}
+
+/* Each blur comes in over 16px from --edge-in above the band's foot, and is
+ * whole above that, up to the card's edge. */
+.luca-top-edge-blur {
+  --edge-blur: 1px;
+  --edge-in: 0px;
+  --edge-mask: linear-gradient(
+    to top,
+    transparent var(--edge-in),
+    #000 calc(var(--edge-in) + 16px)
+  );
+  -webkit-backdrop-filter: blur(var(--edge-blur));
+  backdrop-filter: blur(var(--edge-blur));
+  inset: 0;
+  -webkit-mask-image: var(--edge-mask);
+  mask-image: var(--edge-mask);
+  position: absolute;
+}
+
+.luca-top-edge-blur:nth-child(2) {
+  --edge-blur: 2px;
+  --edge-in: 6px;
+}
+
+.luca-top-edge-blur:nth-child(3) {
+  --edge-blur: 4px;
+  --edge-in: 12px;
+}
+
+.luca-top-edge-blur:nth-child(4) {
+  --edge-blur: 8px;
+  --edge-in: 18px;
+}
+
+.luca-top-edge-blur:nth-child(5) {
+  --edge-blur: 16px;
+  --edge-in: 24px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .luca-top-edge-blur {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------
  * THE VISIT
  *
  * A guest arriving is an event, not a footnote, so it is drawn as a
