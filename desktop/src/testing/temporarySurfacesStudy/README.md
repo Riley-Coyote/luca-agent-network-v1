@@ -39,6 +39,8 @@ Scenarios: structured approval, unstructured shell command, optional discovery n
 
 ## Production boundaries
 
+- Production keeps the study's shapes but not its edge (Nov 2, Riley: does it "follow the same rules as most everything else in the app"?). `temporary-surfaces.css` takes the app's one light instead: only cards carry light, on their top contour. The notice is the plate the owner's words sit on, the sheet is the composer's own material, and neither has a lit lip or a dark seam. The confirmation is a card. Don't bring the Ink edge back to production from here.
+
 - Existing approval source: `features/agents/ui/ManagedPermissionCard.tsx`, `app/shell/placeRails/ManagedAsks.tsx`, `PlaceAskRow.tsx`, `features/channels/ui/ConversationRoomStack.tsx`.
 - Confirmation: `features/settings/ui/ResidentCapabilitySettings.tsx` and shared alert-dialog. Discovery notice: `features/agents/ui/NativeAgentNoticeCard.tsx`.
 - Fixture summaries are authored examples, not proof that the runtime supplies them. Production must use trusted structured metadata and retain the exact raw request. Do not infer safety or read-only status from arbitrary shell text.

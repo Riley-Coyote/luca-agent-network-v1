@@ -1,21 +1,30 @@
-/* Riley's selected temporary-surfaces study: Ink, with crisp edge depth.
- * No composer overrides, wallpaper simulation, coloured light or gradients.
- * Scoped to the new shell; classic UI and page-level ask rows stay unchanged. */
+/* The temporary surfaces: an ask's sheet, a notice, the confirmation. They
+ * keep the shapes Riley chose in the study (a sheet rising from behind the
+ * composer, capsule buttons) and the app's one light. A card on the floor is
+ * drawn by the light on its top contour (--mn-card-edge); whatever sits on a
+ * card is told from it by its material alone, never by a line (Riley, Oct 27,
+ * on the composer), and the conversation has two: what sits in the flow of
+ * words is the plate the owner's words sit on, and what floats over it (the
+ * composer, the caught day, the pills) is the composer's raised tone. So the
+ * notice is the plate, the sheet that rises out of the composer is the
+ * composer's own material, of one piece with it, and neither has an outline,
+ * a lit lip or a dark seam. Only the confirmation, which floats over
+ * everything, is a card. Both materials are drawn from the palette, so they
+ * hold by day too. Scoped to the new shell; classic UI and page-level ask
+ * rows stay unchanged. */
 :root[data-luca-frame]
   :is(
     .luca-room-stack[data-has-asks],
     .luca-temporary-notice,
     .luca-temporary-confirmation
   ) {
-  --temporary-edge:
-    0 0 0 0.5px rgb(0 0 0 / 0.85), inset 0 1px 0 hsl(var(--mn-ink) / 0.05),
-    inset 0 0.5px 0 hsl(var(--mn-ink) / 0.06),
-    inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.09);
   color: hsl(var(--mn-ink));
 }
 
 /* The sheet's unoccupied foot extends behind the existing composer. Only
- * paint overlaps: no text or controls are hidden by the composer's edge. */
+ * paint overlaps: no text or controls are hidden by the composer's edge.
+ * The composer's glass is the sheet's own tone, so the foot never shows
+ * through it as an edge. */
 :root[data-luca-frame] .luca-room-stack[data-has-asks] {
   position: relative;
   isolation: isolate;
@@ -28,8 +37,7 @@
   z-index: -1;
   pointer-events: none;
   border-radius: 20px 20px 0 0;
-  background: var(--mn-card-finish), hsl(var(--mn-floor));
-  box-shadow: var(--temporary-edge);
+  background: hsl(var(--mn-raised));
   animation: temporary-sheet-rise 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 :root[data-luca-frame] .luca-room-stack[data-has-asks] .luca-room-stack__head {
@@ -108,6 +116,9 @@
   justify-content: flex-end;
   gap: 8px;
 }
+/* The quiet button's tint and states (button-quiet.css) in the study's
+ * capsule: ink at 8%, 12% under the pointer, 18% held, and no lip. The one
+ * light button is the solid ink of Talk (`.luca-mind-talk`). */
 :root[data-luca-frame] .luca-room-stack .luca-quiet-button,
 :root[data-luca-frame] .luca-temporary-notice button,
 :root[data-luca-frame] .luca-temporary-confirmation button {
@@ -120,28 +131,54 @@
   font-weight: 500;
   line-height: 1.4;
   color: hsl(var(--mn-ink));
-  background: hsl(var(--mn-ink) / 0.09);
-  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.11);
+  background: hsl(var(--mn-ink) / 0.08);
+  box-shadow: none;
+  transition:
+    background-color 120ms,
+    opacity 120ms;
 }
 :root[data-luca-frame] .luca-room-stack [data-permission-choice="once"],
 :root[data-luca-frame]
   .luca-temporary-confirmation
   .luca-temporary-confirmation__allow {
-  color: hsl(var(--mn-floor));
+  color: hsl(var(--mn-surface));
   background: hsl(var(--mn-ink));
 }
-:root[data-luca-frame] .luca-room-stack .luca-quiet-button:hover:not(:disabled),
-:root[data-luca-frame] .luca-temporary-notice button:hover,
-:root[data-luca-frame] .luca-temporary-confirmation button:hover {
-  filter: brightness(1.12);
+:root[data-luca-frame]
+  .luca-room-stack
+  .luca-quiet-button:hover:not(:disabled, [data-permission-choice="once"]),
+:root[data-luca-frame] .luca-temporary-notice button:hover:not(:disabled),
+:root[data-luca-frame]
+  .luca-temporary-confirmation
+  button:hover:not(:disabled, .luca-temporary-confirmation__allow) {
+  background: hsl(var(--mn-ink) / 0.12);
 }
+:root[data-luca-frame]
+  .luca-room-stack
+  .luca-quiet-button:is([aria-pressed="true"], [data-state="open"]):not(
+    [data-permission-choice="once"]
+  ) {
+  background: hsl(var(--mn-ink) / 0.18);
+}
+:root[data-luca-frame]
+  .luca-room-stack
+  [data-permission-choice="once"]:hover:not(:disabled),
+:root[data-luca-frame]
+  .luca-temporary-confirmation
+  .luca-temporary-confirmation__allow:hover:not(:disabled) {
+  opacity: 0.86;
+}
+:root[data-luca-frame] .luca-room-stack .luca-quiet-button:focus-visible,
+:root[data-luca-frame] .luca-temporary-notice button:focus-visible,
+:root[data-luca-frame] .luca-temporary-confirmation button:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+/* The details are seen through a window cut back to the card. */
 :root[data-luca-frame] .luca-room-stack .luca-ask-details {
   padding: 11px 14px;
   border-radius: 12px;
-  background: hsl(var(--mn-ink) / 0.035);
-  box-shadow:
-    inset 0 0.5px 0 rgb(0 0 0 / 0.7),
-    inset 0 -0.5px 0 hsl(var(--mn-ink) / 0.07);
+  background: hsl(var(--background));
 }
 :root[data-luca-frame] .luca-room-stack .luca-ask-preview pre {
   max-height: 160px;
@@ -155,8 +192,7 @@
   gap: 12px;
   border: 0;
   border-radius: 20px;
-  background: var(--mn-card-finish), hsl(var(--mn-floor));
-  box-shadow: var(--temporary-edge);
+  background: var(--mn-plate-strong);
   flex-wrap: wrap;
 }
 :root[data-luca-frame] .luca-temporary-notice [data-slot="attachment-media"] {
@@ -177,14 +213,25 @@
 :root[data-luca-frame] .luca-temporary-notice [data-slot="attachment-actions"] {
   margin-left: auto;
 }
+/* Over everything, a card: the card's tone and grain, the light on its top
+ * contour, and a fall beneath it that is ink-cast by day. */
 :root[data-luca-frame] .luca-temporary-confirmation {
-  background: var(--mn-card-finish), hsl(var(--mn-floor));
+  background: var(--mn-card-finish, none), hsl(var(--background));
+  background-size:
+    256px 256px,
+    auto;
   border: 0;
   border-radius: 22px;
   padding: 22px;
   box-shadow:
-    var(--temporary-edge),
+    var(--mn-card-edge),
     0 24px 64px -20px rgb(0 0 0 / 0.6);
+}
+:root[data-luca-shell][data-luca-frame]:not(.dark)
+  .luca-temporary-confirmation {
+  box-shadow:
+    var(--mn-card-edge),
+    0 24px 64px -20px hsl(var(--mn-ink) / 0.24);
 }
 :root[data-luca-frame] .luca-temporary-confirmation h2 {
   font-size: 1.0625rem;
@@ -202,9 +249,7 @@
   }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root[data-luca-frame]
-    :is(.luca-temporary-notice, .luca-temporary-confirmation),
-  :root[data-luca-frame] .luca-room-stack[data-has-asks]::before {
+  :root[data-luca-frame] .luca-temporary-confirmation {
     background-image: none;
   }
 }
