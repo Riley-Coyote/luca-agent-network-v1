@@ -115,6 +115,8 @@ export function useQuickChatGlass({ open }: { open: boolean }) {
     if (!state || !element) return;
     const shape: Shape = shapeAt(state.corner, state.w.value, state.h.value);
     element.dataset.placed = "";
+    // Home: closed and still, the launcher is its mark alone (quickchat.css).
+    element.toggleAttribute("data-home", done && !state.opening);
     element.style.left = `${shape.x}px`;
     element.style.top = `${shape.y}px`;
     element.style.width = `${shape.w}px`;

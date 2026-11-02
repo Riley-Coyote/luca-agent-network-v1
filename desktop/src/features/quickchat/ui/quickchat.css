@@ -11,8 +11,8 @@
   z-index: 90;
 }
 .qc-launcher {
-  width: 46px;
-  height: 46px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -479,8 +479,47 @@
 }
 .qc-glass-mark {
   position: absolute;
-  right: 13px;
-  bottom: 13px;
+  right: 9px;
+  bottom: 9px;
+}
+/* At home the launcher is its mark alone, as the lip's and the places'
+ * icons are (Riley, Nov 2: "just the icon with no shape around it"): no
+ * glass until it pours out. Over it, the plate the places take; pressed,
+ * the glass grows out of that plate, and going home it drains back into it
+ * and its veil, light and shadow leave as it settles. */
+.qc-glass {
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+.qc-glass::before {
+  transition: opacity 140ms ease;
+}
+.qc-glass[data-home] {
+  background-color: transparent;
+  box-shadow: none;
+}
+.qc-glass[data-home]::before {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .qc-glass,
+  .qc-glass::before {
+    transition: none;
+  }
+}
+/* The same without the glass: the mark, and the plate under the pointer. */
+:root[data-luca-frame] .qc-launcher:not([data-glass]) {
+  background: transparent;
+  box-shadow: none;
+  color: hsl(var(--mn-ink-muted));
+  transition:
+    background-color 120ms,
+    color 120ms;
+}
+:root[data-luca-frame] .qc-launcher:not([data-glass]):hover {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: hsl(var(--mn-ink));
 }
 /* Over the launcher the disc takes the plate the rail's places take. */
 [data-quickchat]:has(.qc-launcher[data-glass]:hover) .qc-glass {

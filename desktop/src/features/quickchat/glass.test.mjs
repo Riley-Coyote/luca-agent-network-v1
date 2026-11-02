@@ -19,20 +19,20 @@ const corner = { right: 1080, bottom: 700 };
 
 test("the shape is a disc at the launcher, a capsule while only its width has grown, and the panel's corners once both have", () => {
   assert.deepEqual(shapeAt(corner, LAUNCHER, LAUNCHER), {
-    x: 1034,
-    y: 654,
-    w: 46,
-    h: 46,
-    r: 23,
+    x: 1044,
+    y: 664,
+    w: 36,
+    h: 36,
+    r: 18,
   });
-  assert.equal(shapeAt(corner, 420, LAUNCHER).r, 23);
+  assert.equal(shapeAt(corner, 420, LAUNCHER).r, 18);
   assert.equal(shapeAt(corner, 420, 560).r, PANEL_RADIUS);
   const half = shapeAt(corner, 420, LAUNCHER + 20).r;
-  assert.ok(half < 23 && half > PANEL_RADIUS);
+  assert.ok(half < 18 && half > PANEL_RADIUS);
   // The corner the launcher and the panel share never moves.
   for (const [w, h] of [
-    [46, 46],
-    [200, 46],
+    [36, 36],
+    [200, 36],
     [420, 300],
     [420, 560],
   ]) {
@@ -98,7 +98,7 @@ test("the panel is cut to the shape as an inset of its own box, never inside out
   );
   assert.equal(
     panelClip(panel, shapeAt(corner, LAUNCHER, LAUNCHER)),
-    "inset(514px 0px 0px 374px round 23px)",
+    "inset(524px 0px 0px 384px round 18px)",
   );
   // A spring's last hair past the panel clips nothing away.
   assert.equal(

@@ -231,7 +231,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
       title="Quick Chat"
       onClick={() => model.setOpen(true)}
     >
-      <MessageCircle size={20} />
+      <MessageCircle size={18} strokeWidth={1.7} />
     </button>
   );
   // While its glass drains home the panel stays, words gone and out of reach.
@@ -653,7 +653,12 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
         <span className="qc-glass-lens" />
         <span className="qc-glass-lens" />
         <span className="qc-glass-lens" />
-        <MessageCircle ref={glass.mark} className="qc-glass-mark" size={20} />
+        <MessageCircle
+          ref={glass.mark}
+          className="qc-glass-mark"
+          size={18}
+          strokeWidth={1.7}
+        />
       </div>
       {model.open || glass.leaving ? panel : null}
       {model.open ? null : launcher}

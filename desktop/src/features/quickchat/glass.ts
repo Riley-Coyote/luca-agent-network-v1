@@ -36,8 +36,10 @@ export const DRAIN: SpringSpec = { response: 0.32, damping: 0.94 };
 export const LEAD_S = 0.06;
 
 /** The launcher: a disc this wide, sharing the panel's bottom-right corner
- *  (quickchat.css: both sit 20 from the window's corner). */
-export const LAUNCHER = 46;
+ *  (quickchat.css: both sit 20 from the window's corner). At home it is only
+ *  its mark; the disc is the plate under the pointer, and the glass grows
+ *  from it (Riley, Nov 2: "just the icon with no shape around it"). */
+export const LAUNCHER = 36;
 /** The panel's corners: the window's own (SHELL_SPEC.md, "Corners"), so the
  *  mini chat reads as a small window of the same glass. */
 export const PANEL_RADIUS = 16;
