@@ -1420,5 +1420,10 @@ main chat and new chat keep that correction's 46 px capsule.
   600 steps in ten seconds plus 20 on mount. Reduce Motion paints the mount
   frame once with no loop. Nine focused browser checks pass, plus three
   Retina-scale head/rail checks; typecheck/frontend build and scoped Biome pass.
-- Native build and Claude's capture review remain pending. No release,
-  signing, publication, tag or push is authorized.
+- Native debug build passed at `bf453bcdb` in the shared cache with signing
+  skipped. The candidate reopened with its existing isolated profile. Claude
+  approved the source port; the native 1x night capture has been sent for review.
+  Retina night/day captures and the ten-second recording await foregrounding
+  on the built-in display; native visual approval is not claimed yet. Evidence:
+  `~/Documents/Polyphonic-Candidates/2026-11-01-original-72/NATIVE-PROOF.md`.
+  No release, signing, publication, tag or push is authorized.
