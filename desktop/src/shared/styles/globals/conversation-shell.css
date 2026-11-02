@@ -730,16 +730,31 @@
   --edge-to: -16px;
 }
 
-/* The dim: none above the edge, most under the controls' row. */
+/* The dim: none above the edge, the whole card under the controls' row. It
+ * is the card itself, copied over the words, as the veils and the rail's
+ * foot are (shell-frame.css): the card's grain on its surface, tiled from the
+ * window's origin so it lies on the card's own grain exactly, and faded by a
+ * mask. A flat colour wiped the grain off the card's foot, and where WebKit
+ * draws the grain brighter (the card reads about 13 over its base 6 in the
+ * native window) that showed as a black band along the bottom (Riley,
+ * Nov 2). */
 .luca-scroll-edge-dim {
-  background: linear-gradient(
+  --edge-dim: linear-gradient(
     to top,
-    hsl(var(--background) / 0.92) 0,
-    hsl(var(--background) / 0.92) calc(var(--edge-box-top) - 46px),
-    hsl(var(--background) / 0.55) var(--edge-box-top),
-    hsl(var(--background) / 0.16) calc(var(--edge-box-top) + 24px),
-    hsl(var(--background) / 0) calc(var(--edge-box-top) + 40px)
+    #000 0,
+    #000 calc(var(--edge-box-top) - 46px),
+    rgb(0 0 0 / 0.55) var(--edge-box-top),
+    rgb(0 0 0 / 0.16) calc(var(--edge-box-top) + 24px),
+    transparent calc(var(--edge-box-top) + 40px)
   );
+  background: var(--mn-card-finish, none), hsl(var(--mn-surface));
+  background-attachment: fixed;
+  background-position: 0 0;
+  background-size:
+    256px 256px,
+    100% 100%;
+  -webkit-mask-image: var(--edge-dim);
+  mask-image: var(--edge-dim);
 }
 
 @media (prefers-reduced-transparency: reduce) {
