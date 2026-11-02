@@ -704,7 +704,10 @@ const MessageTimelineBase = React.forwardRef<
         if (divider.dataset.dayLabel === day)
           own = passed ? "passed" : pill.top <= line + 0.5 ? "here" : "below";
       }
-      const show = day !== null && (own === null || own === "passed");
+      // Under the agent's mark and line, a third thing stacked at the top
+      // is one too many: each day's own pill still passes in the flow.
+      const show =
+        !hasPresence && day !== null && (own === null || own === "passed");
       stuck.toggleAttribute("data-shown", show);
       if (label && day !== null && label.textContent !== day)
         label.textContent = day;
