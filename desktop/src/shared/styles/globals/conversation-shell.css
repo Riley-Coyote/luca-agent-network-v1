@@ -669,16 +669,27 @@
 /* ------------------------------------------------------------------
  * THE COMPOSER'S SCROLL EDGE (Riley, Nov 2: "i would love for the composer
  * to be a glass that text rolled behind with a nice blur fade like apple
- * tends to do"). Apple's soft scroll edge, under the frame: the conversation
- * keeps scrolling beneath the composer, blurring more the lower it goes and
- * dimming toward the card's own tone, so the box's glass has something real
- * behind it and the controls under it still read. Text stays sharp until
- * about 40 over the box, then dissolves as it passes under, as Apple's
- * does. In place of the veil's cover: five blurs, each stronger and lower
- * than the last (they stack, so the edge reaches about 18px), each coming in
- * over 16px; and the dim over them. Measured from the card's foot, where the composer stands: the box's
- * top is 96 above it (the box, then its controls). Reduce Transparency
- * keeps the cover.
+ * tends to do"). Apple's soft scroll edge, under the frame: "a variable blur
+ * that provides a softer fade toward the bottom of the bar", where the bar
+ * overlaps the content "translucent and blurry and gets progressively more
+ * opaque from the top to the bottom" (HIG, Scroll views; SwiftUI,
+ * ScrollEdgeEffectStyle.soft). The hard style's "nearly opaque" field with
+ * "a defined, straight horizontal line at the top" is what Riley rejected:
+ * "it starts blurring above the composer, and then it looks like theres a
+ * bar across the bottom below the composer instead of it just being blurred
+ * down there" (Nov 2). So the edge is the bar's own: nothing above the box,
+ * whose own glass takes the words as they reach it; from its top edge five
+ * blurs, each stronger and lower than the last, coming in over 16px (stacked,
+ * about 18px by the box's foot, near the box's own 20); and the dim, the card
+ * coming back over the words, a tenth at the box's foot and six at the
+ * card's, so under the box the conversation is still there, blurred and
+ * thinning, rather than covered. The soft style is Apple's to use only with
+ * tested legibility: the controls' row is bare words, and over the brightest
+ * words that pass under it they hold 5.8:1 by night and 7.5:1 by day
+ * (Nov 2). A bright picture passing under them is the case it doesn't cover,
+ * and no dim short of the bar would. Measured from the card's foot,
+ * where the composer stands: the box's top is 96 above it (the box, then its
+ * controls). Reduce Transparency keeps the cover.
  * ------------------------------------------------------------------ */
 :root:root[data-luca-shell][data-luca-frame]
   .luca-conversation-veil-bottom.luca-scroll-edge {
@@ -688,6 +699,22 @@
   mask-image: none;
 }
 
+/* What the glass sees. The conversation lies on the one card, clear, inside
+ * the card's clip (shell-frame.css), and a clip-path is a backdrop root: the
+ * glass in it (the composer, the edge below) saw the words but never the card
+ * under them, so each blur laid a faint copy over words that stayed sharp,
+ * and only the dim could hide them (Nov 2). The card, copied beneath the
+ * conversation and registered with it, is the ground they blur; it lies on
+ * the card exactly, so it is never seen itself. */
+:root[data-luca-frame] [data-luca-frame-row] [data-testid="channel-drop-zone"] {
+  background: var(--mn-card-finish, none), hsl(var(--mn-surface));
+  background-attachment: fixed;
+  background-position: 0 0;
+  background-size:
+    256px 256px,
+    100% 100%;
+}
+
 .luca-scroll-edge-blur,
 .luca-scroll-edge-dim {
   inset: 0;
@@ -695,10 +722,11 @@
   position: absolute;
 }
 
-/* Each blur is whole from the foot up to --edge-to over the box's top. */
+/* Each blur is whole from the foot up to --edge-to from the box's top, and
+ * gone 16px above that; the first is gone exactly at the box's top. */
 .luca-scroll-edge-blur {
   --edge-blur: 1px;
-  --edge-to: 24px;
+  --edge-to: -16px;
   --edge-mask: linear-gradient(
     to top,
     #000 calc(var(--edge-box-top) + var(--edge-to)),
@@ -712,27 +740,28 @@
 
 .luca-scroll-edge-blur:nth-child(2) {
   --edge-blur: 2px;
-  --edge-to: 16px;
+  --edge-to: -22px;
 }
 
 .luca-scroll-edge-blur:nth-child(3) {
   --edge-blur: 4px;
-  --edge-to: 8px;
+  --edge-to: -28px;
 }
 
 .luca-scroll-edge-blur:nth-child(4) {
   --edge-blur: 8px;
-  --edge-to: 0px;
+  --edge-to: -34px;
 }
 
 .luca-scroll-edge-blur:nth-child(5) {
   --edge-blur: 16px;
-  --edge-to: -16px;
+  --edge-to: -40px;
 }
 
-/* The dim: none above the edge, the whole card under the controls' row. It
- * is the card itself, copied over the words, as the veils and the rail's
- * foot are (shell-frame.css): the card's grain on its surface, tiled from the
+/* The dim: none at the box's top, a tenth at its foot, three under the
+ * controls and six at the card's foot, with no plateau. It is the card
+ * itself, copied over the words, as the veils and the rail's foot are
+ * (shell-frame.css): the card's grain on its surface, tiled from the
  * window's origin so it lies on the card's own grain exactly, and faded by a
  * mask. A flat colour wiped the grain off the card's foot, and where WebKit
  * draws the grain brighter (the card reads about 13 over its base 6 in the
@@ -741,11 +770,10 @@
 .luca-scroll-edge-dim {
   --edge-dim: linear-gradient(
     to top,
-    #000 0,
-    #000 calc(var(--edge-box-top) - 46px),
-    rgb(0 0 0 / 0.55) var(--edge-box-top),
-    rgb(0 0 0 / 0.16) calc(var(--edge-box-top) + 24px),
-    transparent calc(var(--edge-box-top) + 40px)
+    rgb(0 0 0 / 0.6) 0,
+    rgb(0 0 0 / 0.3) calc(var(--edge-box-top) - 80px),
+    rgb(0 0 0 / 0.1) calc(var(--edge-box-top) - 46px),
+    transparent var(--edge-box-top)
   );
   background: var(--mn-card-finish, none), hsl(var(--mn-surface));
   background-attachment: fixed;
