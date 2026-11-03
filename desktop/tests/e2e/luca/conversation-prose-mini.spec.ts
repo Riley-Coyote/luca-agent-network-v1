@@ -55,6 +55,11 @@ for (const mode of ["dark", "light"] as const) {
       .locator(".qc-prose")
       .filter({ hasText: "Two useful details" });
     await expect(prose).toBeVisible();
+    expect(
+      await prose
+        .locator("li code")
+        .evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize)),
+    ).toBeGreaterThanOrEqual(12);
     await expect(prose.locator("ol > li").first().locator("p")).toHaveCount(2);
     expect(
       await prose.evaluate(

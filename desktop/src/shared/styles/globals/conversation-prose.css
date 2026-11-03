@@ -3,7 +3,7 @@
 .conversation-prose {
   --prose-leading: 1.6;
   --prose-gap: 0.75em;
-  --inline-code-font-size: 0.875em;
+  --inline-code-font-size: max(var(--type-label-size, 0.75rem), 0.875em);
   line-height: var(--prose-leading);
 }
 
@@ -98,7 +98,7 @@
 }
 
 .conversation-prose [data-code-block] code {
-  font-size: 0.875em;
+  font-size: max(var(--type-label-size, 0.75rem), 0.875em);
   font-weight: 400;
   line-height: 1.6;
 }
@@ -109,7 +109,7 @@
 }
 
 .conversation-prose table {
-  font-size: 0.875em;
+  font-size: max(var(--type-label-size, 0.75rem), 0.875em);
   line-height: 1.5;
 }
 
