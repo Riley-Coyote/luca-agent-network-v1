@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
@@ -50,6 +51,7 @@ for (const mode of ["dark", "light"] as const) {
     }, TEST_IDENTITIES.bob.pubkey);
     const edge = page.locator("[data-luca-top-edge] > .luca-top-edge");
     await expect(edge).toBeVisible();
+    await expect(page.getByTestId("composer-agent-ledge")).toHaveCount(0);
     for (const width of [1440, 1280, 1024, 390]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       await expect(edge).toHaveCSS("height", "48px");
@@ -83,6 +85,88 @@ for (const mode of ["dark", "light"] as const) {
         animations: "disabled",
       });
     }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/#/settings?section=appearance");
+    const sphere = page.getByTestId("composer-sphere-toggle");
+    await expect(sphere).toHaveAttribute("aria-checked", "false");
+    await sphere.click();
+    await page.goto("/#/channels/7eb9f239-9393-50b0-bd76-d85eef0511c7");
+    await expect(page.getByTestId("composer-agent-ledge")).toBeVisible();
+    await page.goto("/#/settings?section=appearance");
+    await page.getByTestId("composer-sphere-toggle").click();
+    const settings = `/#/agents?profile=${TEST_IDENTITIES.bob.pubkey}&page=settings`;
+    await page.goto(settings);
+    const picker = page.getByTestId("agent-chat-picture-input");
+    await picker.setInputFiles({
+      name: "avatar.svg",
+      mimeType: "image/svg+xml",
+      buffer: Buffer.from("<svg/>"),
+    });
+    await expect(page.getByRole("alert")).toContainText("PNG, JPG, or WebP");
+    await picker.setInputFiles({
+      name: "avatar.png",
+      mimeType: "image/png",
+      buffer: readFileSync(
+        new URL("../../../src-tauri/icons/128x128.png", import.meta.url),
+      ),
+    });
+    await expect(
+      page.getByTestId("agent-chat-picture").locator("img"),
+    ).toBeVisible();
+    const pictureShape = await page
+      .getByTestId("agent-chat-picture")
+      .locator("img")
+      .evaluate((el) => ({
+        radius: getComputedStyle(el).borderRadius,
+        width: el.getBoundingClientRect().width,
+      }));
+    expect(Number.parseFloat(pictureShape.radius)).toBeGreaterThanOrEqual(
+      pictureShape.width / 2,
+    );
+    await page.screenshot({
+      path: info.outputPath(`picture-settings-${mode}.png`),
+      animations: "disabled",
+    });
+    await page.reload();
+    await expect(
+      page.getByTestId("agent-chat-picture").locator("img"),
+    ).toBeVisible();
+    await page.goto("/#/channels/7eb9f239-9393-50b0-bd76-d85eef0511c7");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName: "bob-tyler",
+            }) ?? false,
+        ),
+      )
+      .toBe(true);
+    await page.evaluate(
+      (pubkey) =>
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelName: "bob-tyler",
+          pubkey,
+          content: "Your chosen picture stays with this conversation.",
+        }),
+      TEST_IDENTITIES.bob.pubkey,
+    );
+    await expect(page.locator(".luca-presence-face img")).toHaveAttribute(
+      "src",
+      /^data:image\/webp;base64,/,
+    );
+    await expect(page.getByTestId("composer-agent-ledge")).toHaveCount(0);
+    await page.screenshot({
+      path: info.outputPath(`picture-chat-${mode}.png`),
+      animations: "disabled",
+    });
+    await page.goto(settings);
+    await page
+      .getByRole("button", { name: "Use agent mark", exact: true })
+      .click();
+    await page.goto("/#/channels/7eb9f239-9393-50b0-bd76-d85eef0511c7");
+    await expect(page.locator(".luca-presence-face img")).toHaveCount(0);
+    await expect(page.locator(".luca-presence-face canvas")).toBeVisible();
   });
 }
 

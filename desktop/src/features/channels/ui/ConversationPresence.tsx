@@ -20,6 +20,8 @@ import { managedActivityStepLabel } from "@/features/messages/lib/managedOperati
 import type { ManagedConversationActivity } from "@/features/messages/managedPresentationTypes";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
+import { useAgentChatPicture } from "@/features/agents/lib/agentChatPicture";
+import { useIdentityQuery } from "@/shared/api/hooks";
 
 /** The mark at the top of a conversation with one agent (Nov 2 study). */
 const MARK_SIZE = 56;
@@ -237,6 +239,9 @@ export function ConversationPresence({
   pubkey: string;
 }) {
   const slot = useShellLipPresenceSlot();
+  const owner = useIdentityQuery().data?.pubkey;
+  const picture = useAgentChatPicture(owner, pubkey);
+  const [failedPicture, setFailedPicture] = React.useState<string | null>(null);
   const { gone, now } = useHeldLine(line);
   const plate = React.useRef<HTMLSpanElement>(null);
   const measure = React.useRef<HTMLSpanElement>(null);
@@ -262,11 +267,22 @@ export function ConversationPresence({
         type="button"
       >
         <span className="luca-presence-face">
-          <AgentDendrite
-            residentKey={pubkey}
-            size={MARK_SIZE}
-            working={line.live}
-          />
+          {picture && picture !== failedPicture ? (
+            <img
+              src={picture}
+              alt=""
+              width={MARK_SIZE}
+              height={MARK_SIZE}
+              className="size-full rounded-full object-cover"
+              onError={() => setFailedPicture(picture)}
+            />
+          ) : (
+            <AgentDendrite
+              residentKey={pubkey}
+              size={MARK_SIZE}
+              working={line.live}
+            />
+          )}
         </span>
         <span className="luca-presence-plate text-lip" ref={plate}>
           <span aria-hidden className="luca-presence-measure" ref={measure}>

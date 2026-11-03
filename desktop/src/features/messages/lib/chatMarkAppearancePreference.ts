@@ -5,11 +5,12 @@ export type ChatMarkStyle = "sphere" | "glyph";
 export type ChatMarkAppearance = {
   visible: boolean;
   style: ChatMarkStyle;
+  composerVisible: boolean;
 };
 
 const STORAGE_PREFIX = "luca.chat-mark-appearance.v1";
 const OWNER_PUBKEY_PATTERN = /^[0-9a-f]{64}$/;
-const DEFAULT_SNAPSHOT = "visible:sphere";
+const DEFAULT_SNAPSHOT = "visible:sphere:hidden";
 const snapshots = new Map<string, string>();
 const listeners = new Map<string, Set<() => void>>();
 
@@ -23,10 +24,11 @@ function storageKey(owner: string) {
 }
 
 function decode(snapshot: string): ChatMarkAppearance {
-  const [visibility, style] = snapshot.split(":");
+  const [visibility, style, composer] = snapshot.split(":");
   return {
     visible: visibility === "visible",
     style: style === "pixel" || style === "glyph" ? "glyph" : "sphere",
+    composerVisible: composer === "visible",
   };
 }
 
@@ -42,6 +44,7 @@ function readStored(owner: string): string {
       version?: unknown;
       visible?: unknown;
       style?: unknown;
+      composerVisible?: unknown;
     };
     if (
       parsed.version !== 1 ||
@@ -52,7 +55,7 @@ function readStored(owner: string): string {
     ) {
       return DEFAULT_SNAPSHOT;
     }
-    return `${parsed.visible ? "visible" : "hidden"}:${parsed.style}`;
+    return `${parsed.visible ? "visible" : "hidden"}:${parsed.style}:${parsed.composerVisible === true ? "visible" : "hidden"}`;
   } catch {
     return DEFAULT_SNAPSHOT;
   }
@@ -103,7 +106,7 @@ export function setChatMarkAppearance(
   if (!owner) return;
   const current = decode(snapshotFor(owner));
   const next = { ...current, ...change };
-  const encoded = `${next.visible ? "visible" : "hidden"}:${next.style}`;
+  const encoded = `${next.visible ? "visible" : "hidden"}:${next.style}:${next.composerVisible ? "visible" : "hidden"}`;
   if (encoded === snapshotFor(owner)) return;
   try {
     globalThis.localStorage?.setItem(

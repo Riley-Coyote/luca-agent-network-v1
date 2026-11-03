@@ -1066,12 +1066,35 @@ function ConversationAppearanceSettings({
             }
           />
         </SettingsOptionRow>
+        <SettingsOptionRow className="border-t border-border/30">
+          <div className="min-w-0">
+            <label
+              className="text-sm font-medium"
+              htmlFor="composer-sphere-switch"
+            >
+              Show sphere above composer
+            </label>
+            <p className="text-sm font-normal text-muted-foreground">
+              Show the resting sphere beside the message field. Working activity
+              stays visible.
+            </p>
+          </div>
+          <Switch
+            checked={chatMarks.composerVisible}
+            disabled={!currentPubkey}
+            id="composer-sphere-switch"
+            data-testid="composer-sphere-toggle"
+            onCheckedChange={(composerVisible) =>
+              setChatMarkAppearance(currentPubkey, { composerVisible })
+            }
+          />
+        </SettingsOptionRow>
         <SettingsOptionRow className="flex-wrap border-t border-border/30">
           <div className="min-w-0">
             <p className="text-sm font-medium">Chat mark</p>
             <p className="text-sm font-normal text-muted-foreground">
-              Sphere stays above the composer. Glyphs sit beside replies. This
-              style also applies to agent profiles and pickers.
+              Glyphs sit beside replies. The optional sphere sits above the
+              composer. This style also applies to agent profiles and pickers.
             </p>
           </div>
           <fieldset className="flex gap-1 rounded-full bg-background/50 p-1">

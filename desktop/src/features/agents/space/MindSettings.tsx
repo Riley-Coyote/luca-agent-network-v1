@@ -61,6 +61,7 @@ import {
 } from "./mindCompanion";
 import { configRowOf, groupConfigRows } from "./mindConfigGroups";
 import { MindDocPane } from "./MindDocPane";
+import { AgentChatPicture } from "./AgentChatPicture";
 import { MindKeepsUpWith } from "./MindKeepsUpWith";
 import { MindGroup, MindPageHead, MindRow } from "./MindPageKit";
 import { useMindPlace } from "./mindPlaceContext";
@@ -405,6 +406,15 @@ function SettingsRoot({
         titleTestId="mind-settings-title"
       />
 
+      {resident.pubkey ? (
+        <MindGroup title="Appearance">
+          <AgentChatPicture
+            key={resident.pubkey}
+            pubkey={resident.pubkey}
+            name={name}
+          />
+        </MindGroup>
+      ) : null}
       <MindGroup
         footnote={`You write these. ${name} reads them each time they start.`}
         testId="mind-group-who"

@@ -106,6 +106,10 @@ explicit model selection into an unset default merely because it currently
 matches the runtime default. The empty selection explicitly clears a pin.
 Resident appearance uses the shared Sphere/Glyph preference; legacy pixel
 assignments are inert and must never be offered by a product picker.
+The resting composer sphere has its own opt-in toggle, off by default; it
+must not hide working activity or the agent's top-of-chat presence. A custom
+chat picture is a bounded local raster, scoped by owner and resident, and
+does not alter runtime configuration, network identity, or the grown mark.
 
 Claude version pins are supplied by the native `claude_model_bridge` launcher,
 not a frontend list. Its documented active versions supplement live aliases;
