@@ -839,9 +839,15 @@
 }
 
 [data-luca-top-edge] > .luca-top-edge {
+  /* Backdrop filters can paint beyond their layer in WebKit. Keep their
+   * output inside the reading surface, never across the glass lip's seam.
+   * Unlike a mask/clip-path here, paint containment does not introduce a
+   * backdrop root that would hide the conversation from these filters. */
+  contain: paint;
   display: block;
   height: var(--luca-top-edge-depth);
   inset: 0 0 auto;
+  overflow: clip;
   pointer-events: none;
   position: absolute;
   z-index: 10;

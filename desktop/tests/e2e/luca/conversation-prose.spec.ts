@@ -55,6 +55,8 @@ for (const mode of ["dark", "light"] as const) {
     for (const width of [1440, 1280, 1024, 390]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       await expect(edge).toHaveCSS("height", "48px");
+      await expect(edge).toHaveCSS("overflow", "clip");
+      await expect(edge).toHaveCSS("contain", "paint");
       const metrics = await edge.evaluate((el) => {
         const root = el.parentElement;
         const viewport = root?.querySelector("[data-luca-timeline-viewport]");
