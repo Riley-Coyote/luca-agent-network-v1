@@ -5,6 +5,89 @@ use sha2::{Digest, Sha256};
 
 use super::sessions;
 
+/// Private locator metadata for the separately approved first-context sample.
+/// Never serialize this type into a tool result or retain its path in notes.
+pub(crate) struct InitialSessionLocatorV1 {
+    pub(crate) locator: String,
+    pub(crate) session_ref: OpaqueId,
+    pub(crate) updated_at: String,
+}
+
+/// Bounded recent metadata discovery; the caller must hold current source and
+/// initial-sample consent. This does not connect or index a Brain source.
+pub(crate) fn initial_session_locators(
+    root: &Path,
+    _kind: ConnectedBrainSourceKindV1,
+    source_id: &OpaqueId,
+    excluded: &HashSet<String>,
+    deadline: std::time::Instant,
+) -> Result<Vec<InitialSessionLocatorV1>, String> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(14);
+    // The ordinary catalogue probes purpose headers across the whole history.
+    // Initial setup needs metadata only here; purpose/header checks happen for
+    // at most three selected tails, never for every discovered transcript.
+    let mut queue = std::collections::VecDeque::from([(root.to_path_buf(), 0)]);
+    let mut files = Vec::new();
+    let mut visited = 0;
+    while let Some((directory, depth)) = queue.pop_front() {
+        if depth > 3 || directory.canonicalize().ok().as_deref() != Some(directory.as_path()) {
+            continue;
+        }
+        let entries = std::fs::read_dir(&directory).map_err(|_| "initial context unavailable")?;
+        for entry in entries {
+            visited += 1;
+            if visited > 4096 || std::time::Instant::now() >= deadline {
+                return Err("initial context metadata budget exhausted".into());
+            }
+            let entry = entry.map_err(|_| "initial context unavailable")?;
+            let file_type = entry.file_type().map_err(|_| "initial context unavailable")?;
+            let path = entry.path();
+            if file_type.is_symlink() { continue; }
+            if file_type.is_dir() {
+                if entry.file_name() != "subagents" && depth < 3 { queue.push_back((path, depth + 1)); }
+                continue;
+            }
+            if !file_type.is_file() || path.extension().and_then(|value| value.to_str()) != Some("jsonl")
+                || sessions::session_file_is_excluded(&path, excluded) { continue; }
+            let metadata = entry.metadata().map_err(|_| "initial context unavailable")?;
+            let updated = metadata.modified().map_err(|_| "initial context unavailable")?;
+            let updated: chrono::DateTime<chrono::Utc> = updated.into();
+            let locator = path.strip_prefix(root).ok().and_then(|value| value.to_str())
+                .ok_or("initial context locator unavailable")?.to_owned();
+            files.push((locator, updated.to_rfc3339()));
+        }
+    }
+    files.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    let mut selected = Vec::new();
+    for (locator, updated_at) in files {
+        if std::time::Instant::now() >= deadline {
+            return Err("initial context discovery timed out".into());
+        }
+        let Ok(at) = chrono::DateTime::parse_from_rfc3339(&updated_at) else { continue; };
+        if at < cutoff || at > chrono::Utc::now() + chrono::Duration::minutes(5) { continue; }
+        selected.push(InitialSessionLocatorV1 {
+            session_ref: session_id(source_id, &locator)?,
+            locator,
+            updated_at,
+        });
+        if selected.len() == 3 { break; }
+    }
+    Ok(selected)
+}
+
+/// Use the established visible-message filtering/redaction, but read only the
+/// last 64 KiB. Header/purpose validation remains mandatory and independent.
+pub(crate) fn initial_session_excerpts(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    source_id: &OpaqueId,
+    selected: &InitialSessionLocatorV1,
+    excluded: &HashSet<String>,
+) -> Result<Vec<String>, String> {
+    native_session_reference(root, kind, source_id, &selected.session_ref, &selected.locator, excluded)?;
+    sessions::read_visible_tail_bounded(root, kind, &selected.locator, 6, 64 * 1024)
+}
+
 /// Resolve at most three recent references without reading conversation bodies.
 pub(crate) fn recent_native_session_references(
     root: &Path,

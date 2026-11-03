@@ -1,7 +1,7 @@
 //! Durable body-free jobs for the V1 resident handoff loop.
 
 use crate::data_dir::BuzzPathExt;
-use std::{path::Path, time::Duration};
+use std::{path::Path, sync::Mutex, time::Duration};
 
 use luca_protocol::{
     derive_continuity_job_idempotency_key, CanonicalTimestamp, ContinuityJobStateV1,
@@ -20,6 +20,10 @@ use super::resident_notebook::{
 
 const JOB_FILENAME: &str = "handoff-jobs-v1.sqlite3";
 const JOB_KIND: &str = "resident_handoff";
+// Serialize explicit continuity-mode changes with the short owner-goal write.
+// Never acquire this from inside notebook/initiative locks. Ordinary getters
+// and automatic handoff jobs retain their existing behavior.
+static GOAL_RETENTION_MODE_CONTROL: Mutex<()> = Mutex::new(());
 const MAX_ATTEMPTS: u64 = 2;
 const IDLE_DELAY: Duration = Duration::from_secs(2);
 const RETRY_DELAY: Duration = Duration::from_secs(3);
@@ -70,9 +74,14 @@ pub(crate) fn enqueue_finalized(
     source_event_id: &luca_protocol::Hex64,
     binding_ref: &Sha256Ref,
 ) -> Result<Option<OpaqueId>, String> {
-    if !automatic_derivatives_allowed(app, &publish_request.owner_pubkey,
-        &publish_request.resident_pubkey, source_event_id)
-    { return Ok(None); }
+    if !automatic_derivatives_allowed(
+        app,
+        &publish_request.owner_pubkey,
+        &publish_request.resident_pubkey,
+        source_event_id,
+    ) {
+        return Ok(None);
+    }
     if continuity_mode(
         app,
         &publish_request.owner_pubkey,
@@ -191,14 +200,56 @@ pub(crate) fn set_continuity_mode(
     resident_pubkey: &luca_protocol::Hex64,
     mode: ResidentContinuityModeV1,
 ) -> Result<(), String> {
-    let mut connection = open_store(&job_store_path(app)?)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|_| "set resident continuity mode".to_owned())?;
-    set_mode_in_store(&transaction, owner_pubkey, resident_pubkey, mode)?;
-    transaction
-        .commit()
-        .map_err(|_| "commit resident continuity mode".to_owned())
+    with_mode_control(&GOAL_RETENTION_MODE_CONTROL, || {
+        let mut connection = open_store(&job_store_path(app)?)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| "set resident continuity mode".to_owned())?;
+        set_mode_in_store(&transaction, owner_pubkey, resident_pubkey, mode)?;
+        transaction
+            .commit()
+            .map_err(|_| "commit resident continuity mode".to_owned())
+    })
+}
+
+fn with_mode_control<T>(
+    control: &Mutex<()>,
+    effect: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let _guard = control
+        .lock()
+        .map_err(|_| "Continuity mode control unavailable.".to_owned())?;
+    effect()
+}
+
+fn with_enabled_retention<T>(
+    control: &Mutex<()>,
+    mode: impl FnOnce() -> Result<ResidentContinuityModeV1, String>,
+    retain: impl FnOnce() -> Result<T, String>,
+) -> Result<Option<T>, String> {
+    with_mode_control(control, || {
+        if mode()? != ResidentContinuityModeV1::Enabled {
+            return Ok(None);
+        }
+        retain().map(Some)
+    })
+}
+
+/// Admit one short exact-owner goal write while continuity is enabled. A
+/// concurrent Disable either waits for that already-admitted write or wins
+/// first and prevents it. Caller holds no notebook or initiative ledger lock;
+/// the callback may only commit the local canonical goal, never wait on a model.
+pub(crate) fn with_enabled_goal_retention<T>(
+    app: &AppHandle,
+    owner: &luca_protocol::Hex64,
+    resident: &luca_protocol::Hex64,
+    retain: impl FnOnce() -> Result<T, String>,
+) -> Result<Option<T>, String> {
+    with_enabled_retention(
+        &GOAL_RETENTION_MODE_CONTROL,
+        || continuity_mode(app, owner, resident),
+        retain,
+    )
 }
 
 pub(crate) fn latest_job_status(
@@ -382,9 +433,12 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
         Ok(Some(job)) => job,
         Ok(None) | Err(_) => return,
     };
-    if !automatic_derivatives_allowed(app, &job.job.owner_pubkey,
-        &job.job.resident_pubkey, &job.job.source_event_id)
-    {
+    if !automatic_derivatives_allowed(
+        app,
+        &job.job.owner_pubkey,
+        &job.job.resident_pubkey,
+        &job.job.source_event_id,
+    ) {
         let _ = transition_terminal(app, &job, "cancelled", "awareness_derivative_unavailable");
         return;
     }
@@ -447,8 +501,12 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
             if continuity_mode(app, &job.job.owner_pubkey, &job.job.resident_pubkey)
                 != Ok(ResidentContinuityModeV1::Enabled)
                 || !job_is_running(app, &job)
-                || !automatic_derivatives_allowed(app, &job.job.owner_pubkey,
-                    &job.job.resident_pubkey, &job.job.source_event_id)
+                || !automatic_derivatives_allowed(
+                    app,
+                    &job.job.owner_pubkey,
+                    &job.job.resident_pubkey,
+                    &job.job.source_event_id,
+                )
             {
                 let _ = transition_terminal(app, &job, "cancelled", "continuity_preempted");
                 return;
@@ -467,8 +525,11 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
                     // Reuse the validated resident authorship, without another
                     // model call. Failure is quiet and never breaks handoff/chat.
                     let _ = super::companion_initiative::carried::carry_committed_handoff(
-                        &state, &job.job.owner_pubkey, &job.job.resident_pubkey,
-                        &job.job.source_event_id, &carried_handoff,
+                        &state,
+                        &job.job.owner_pubkey,
+                        &job.job.resident_pubkey,
+                        &job.job.source_event_id,
+                        &carried_handoff,
                     );
                     let _ = complete_job(app, &job, "handoff_committed");
                 }
@@ -501,12 +562,18 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
 /// A temporary source frame is not permission to retain a handoff/carry body.
 /// Unknown metadata is not silently treated as a clean native conversation.
 pub(crate) fn automatic_derivatives_allowed(
-    app: &AppHandle, owner: &luca_protocol::Hex64, resident: &luca_protocol::Hex64,
+    app: &AppHandle,
+    owner: &luca_protocol::Hex64,
+    resident: &luca_protocol::Hex64,
     final_event: &luca_protocol::Hex64,
 ) -> bool {
-    super::managed_dispatch_store::global_dispatch_store(app).ok()
-        .and_then(|store| store.lock().ok().map(|store|
-            store.automatic_derivatives_allowed_for_final(owner, resident, final_event)))
+    super::managed_dispatch_store::global_dispatch_store(app)
+        .ok()
+        .and_then(|store| {
+            store.lock().ok().map(|store| {
+                store.automatic_derivatives_allowed_for_final(owner, resident, final_event)
+            })
+        })
         .unwrap_or(false)
 }
 
@@ -781,6 +848,82 @@ mod tests {
 
     fn id(value: &str) -> OpaqueId {
         OpaqueId::parse(value.to_owned()).unwrap()
+    }
+
+    #[test]
+    fn disable_serializes_with_admitted_goal_write_and_prevents_later_retention() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            mpsc,
+        };
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("goal-mode.sqlite3");
+        open_store(&path).unwrap();
+        let control = Mutex::new(());
+        let writes = AtomicUsize::new(0);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (attempting_tx, attempting_rx) = mpsc::channel();
+        let (disabled_tx, disabled_rx) = mpsc::channel();
+        std::thread::scope(|threads| {
+            let goal_path = path.clone();
+            let control = &control;
+            let writes = &writes;
+            let goal = threads.spawn(move || {
+                with_enabled_retention(
+                    control,
+                    || mode_from_store(&open_store(&goal_path)?, &key('a'), &key('b')),
+                    || {
+                        entered_tx.send(()).unwrap();
+                        release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                        writes.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    },
+                )
+                .unwrap()
+            });
+            entered_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            let disable_path = path.clone();
+            let disable = threads.spawn(move || {
+                attempting_tx.send(()).unwrap();
+                with_mode_control(control, || {
+                    let mut connection = open_store(&disable_path)?;
+                    let transaction = connection.transaction().map_err(|_| "test transaction")?;
+                    set_mode_in_store(
+                        &transaction,
+                        &key('a'),
+                        &key('b'),
+                        ResidentContinuityModeV1::Disabled,
+                    )?;
+                    transaction.commit().map_err(|_| "test commit")?;
+                    disabled_tx.send(()).unwrap();
+                    Ok(())
+                })
+                .unwrap();
+            });
+            attempting_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+            assert!(matches!(
+                disabled_rx.recv_timeout(Duration::from_millis(30)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ));
+            release_tx.send(()).unwrap();
+            assert_eq!(goal.join().unwrap(), Some(()));
+            disable.join().unwrap();
+        });
+        assert_eq!(writes.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            with_enabled_retention(
+                &control,
+                || { mode_from_store(&open_store(&path)?, &key('a'), &key('b')) },
+                || {
+                    writes.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(writes.load(Ordering::SeqCst), 1);
     }
 
     #[test]

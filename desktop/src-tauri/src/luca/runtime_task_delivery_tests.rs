@@ -40,6 +40,27 @@ fn store() -> (tempfile::TempDir, RuntimeTaskDeliveryStore) {
 }
 
 #[test]
+fn private_initiative_return_is_distinct_from_delegated_run_authority() {
+    let (_directory, mut store) = store();
+    let mut approved = approval();
+    approved.operation = RuntimeTaskDeliveryOperationV1::InitiativeReturn;
+    approved.runtime_family = "companion_initiative".into();
+    approved.permission_mode = "approved_companion_return".into();
+    store.create_authority(approved.clone()).unwrap();
+    let receipt = store
+        .bind_succeeded_result(&approved.task_id, digest("66"), timestamp(2))
+        .unwrap();
+    let id = receipt.delivery_id.unwrap();
+    assert_eq!(
+        store.approval_for_delivery(&id).unwrap().operation,
+        RuntimeTaskDeliveryOperationV1::InitiativeReturn
+    );
+    let mut fake_run = approved;
+    fake_run.operation = RuntimeTaskDeliveryOperationV1::NewTask;
+    assert!(store.create_authority(fake_run).is_err());
+}
+
+#[test]
 fn local_relay_scope_is_stable_only_for_the_exact_supervised_coordinate() {
     let local =
         relay_ref_with_supervised_url("ws://127.0.0.1:4317", Some("ws://127.0.0.1:4317")).unwrap();
@@ -562,6 +583,33 @@ fn synthesis_attempts_and_lease_are_durable_and_bounded_by_coordinator_policy() 
     let receipt = restarted.receipt_for_task(&first.task_id).unwrap();
     assert_eq!(receipt.synthesis_attempts, 2);
     assert_eq!(receipt.synthesis_lease_deadline_unix_ms, Some(12_000));
+}
+
+#[test]
+fn final_host_denial_blocks_only_the_exact_proven_unstarted_claim() {
+    let (directory, mut store) = store();
+    let (first, scope) = bind_and_claim(&mut store);
+    store
+        .release_unstarted_synthesis(&first, timestamp(4))
+        .unwrap();
+    let later = store
+        .claim_synthesis(&first.delivery_id, &scope, 7_000, 5_000, timestamp(5))
+        .unwrap();
+    assert_eq!(
+        store.block_unstarted_synthesis(&first, timestamp(6)),
+        Err(RuntimeTaskDeliveryError::Denied)
+    );
+    assert!(store.has_synthesis_claim(&later));
+    store
+        .block_unstarted_synthesis(&later, timestamp(7))
+        .unwrap();
+    let receipt = store.receipt_for_task(&later.task_id).unwrap();
+    assert_eq!(receipt.state, RuntimeTaskDeliveryStateV1::Blocked);
+    assert!(!store.has_synthesis_claim(&later));
+    drop(store);
+    let restarted =
+        RuntimeTaskDeliveryStore::load(directory.path().join("deliveries.json")).unwrap();
+    assert_eq!(restarted.receipt_for_task(&later.task_id).unwrap(), receipt);
 }
 
 #[test]

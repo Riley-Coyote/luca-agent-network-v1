@@ -145,8 +145,8 @@ test("setup opens the ordinary conversation, not a stage", async ({ page }) => {
   await arriveInLucaDm(page);
   // The header and the timeline are the first thing the owner sees: this is
   // a conversation, and it was one before they said anything.
-  await expect(page.getByTestId("chat-header")).toBeVisible();
-  await expect(page.getByTestId("chat-title")).toHaveText("Luca");
+  await expect(page.getByTestId("shell-lip")).toBeVisible();
+  await expect(page.getByTestId("shell-lip-name")).toHaveText("Luca");
   await expect(page.getByTestId("message-timeline")).toBeVisible();
   const opener = page.getByTestId("message-row").filter({ hasText: GREETING });
   await expect(opener).toHaveCount(1);
@@ -155,9 +155,10 @@ test("setup opens the ordinary conversation, not a stage", async ({ page }) => {
   );
   await expect(page.getByTestId("message-input")).toBeFocused();
   // The rail is where the owner left it — arrival no longer collapses it.
-  await expect(
-    page.locator('[data-state="expanded"][data-side="left"]'),
-  ).toHaveCount(1);
+  await expect(page.getByTestId("shell-lip-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
   await expect(
     page.getByRole("button", { name: "Stop", exact: true }),
   ).toHaveCount(0);
@@ -196,7 +197,7 @@ test("a typed first message joins the same timeline", async ({ page }) => {
   await expect(
     page.getByTestId("message-row").filter({ hasText: GREETING }),
   ).toHaveCount(1);
-  await expect(page.getByTestId("chat-header")).toBeVisible();
+  await expect(page.getByTestId("shell-lip")).toBeVisible();
   await expect(composer).toBeVisible();
   await expect(page.getByTestId("luca-greeting-choices")).toHaveCount(0);
 });
@@ -210,7 +211,7 @@ test("first chat fits compact windows in light and dark appearance", async ({
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     await page.setViewportSize({ width: 800, height: 500 });
     await expect(page.getByTestId("message-input")).toBeInViewport();
-    await expect(page.getByTestId("chat-header")).toBeInViewport();
+    await expect(page.getByTestId("shell-lip")).toBeInViewport();
     await expect(page.getByTestId("luca-greeting-choices")).toBeInViewport();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
@@ -313,14 +314,14 @@ test("all three residents exist from the first launch, and only Luca is awake", 
   const byPersona = (personaId: string) =>
     world.residents.filter((resident) => resident.personaId === personaId);
   expect(byPersona("builtin:fizz")).toHaveLength(1);
-  expect(byPersona("builtin:fifty")).toHaveLength(1);
-  expect(byPersona("builtin:trinity")).toHaveLength(1);
+  expect(byPersona("builtin:honey")).toHaveLength(1);
+  expect(byPersona("builtin:bumble")).toHaveLength(1);
 
   // Luca wakes with the app. The other two are here, not running: they wake
   // on the first message, like every other resident.
   expect(byPersona("builtin:fizz")[0].status).toBe("running");
-  expect(byPersona("builtin:fifty")[0].status).toBe("stopped");
-  expect(byPersona("builtin:trinity")[0].status).toBe("stopped");
+  expect(byPersona("builtin:honey")[0].status).toBe("stopped");
+  expect(byPersona("builtin:bumble")[0].status).toBe("stopped");
 
   const createdFor = (personaId: string) =>
     world.creates.filter((input) => input.personaId === personaId);
@@ -329,7 +330,7 @@ test("all three residents exist from the first launch, and only Luca is awake", 
     spawnAfterCreate: true,
     startOnAppLaunch: true,
   });
-  for (const personaId of ["builtin:fifty", "builtin:trinity"]) {
+  for (const personaId of ["builtin:honey", "builtin:bumble"]) {
     expect(createdFor(personaId)).toHaveLength(1);
     expect(createdFor(personaId)[0]).toMatchObject({
       spawnAfterCreate: false,
@@ -337,10 +338,19 @@ test("all three residents exist from the first launch, and only Luca is awake", 
     });
   }
 
-  // And the rail simply lists all three.
-  await expect(page.getByTestId("agent-rail-luca")).toBeVisible();
-  await expect(page.getByTestId("agent-rail-fifty")).toBeVisible();
-  await expect(page.getByTestId("agent-rail-trinity")).toBeVisible();
+  // WP-43's Agents rail exposes all three; internal persona IDs retain the
+  // historical honey/bumble names, while shipped residents are Vektor/Anima.
+  await page
+    .getByRole("navigation", { name: "Places", exact: true })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  for (const personaId of ["builtin:fizz", "builtin:honey", "builtin:bumble"]) {
+    await expect(
+      page.getByTestId(
+        `place-row-mind:${byPersona(personaId)[0].residentPubkey}`,
+      ),
+    ).toBeVisible();
+  }
 });
 
 test("the becoming puts the window back: the app has its own ground again", async ({

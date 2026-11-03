@@ -62,6 +62,7 @@ pub(crate) enum ManagedPermissionResolutionOutcome {
 struct ResolvedCapabilityPermission {
     decision: CapabilityPermissionDecision,
     outcome: ManagedPermissionResolutionOutcome,
+    customization_requested: bool,
 }
 
 impl ResolvedCapabilityPermission {
@@ -69,8 +70,26 @@ impl ResolvedCapabilityPermission {
         Self {
             decision: CapabilityPermissionDecision::Deny,
             outcome,
+            customization_requested: false,
         }
     }
+}
+
+/// Setup-specific result. Customization is always a denial of this proposal,
+/// never a third permission decision that generic callers could mistake for Allow.
+pub(crate) struct CompanionSetupReviewDecision {
+    pub decision: CapabilityPermissionDecision,
+    pub customization_requested: bool,
+}
+
+fn is_companion_setup_review(request: &ManagedPermissionRequestV2) -> bool {
+    request.resource.kind == "companion_setup_combined"
+        && request.capability == CapabilityKind::HarnessManage
+        && request.risk == CapabilityRisk::HighImpact
+}
+
+fn wants_setup_customization(request: &ManagedPermissionRequestV2, option: Option<&str>) -> bool {
+    is_companion_setup_review(request) && option == Some("customize")
 }
 
 #[derive(Debug, Clone)]
@@ -1008,14 +1027,21 @@ pub(crate) fn resolve_with_app(
         }
         _ => CapabilityPermissionDecision::Deny,
     };
-    let outcome = if decision == CapabilityPermissionDecision::Deny {
+    let customization_requested = wants_setup_customization(&pending.request, option_id.as_deref());
+    let outcome = if customization_requested {
+        ManagedPermissionResolutionOutcome::Cancelled
+    } else if decision == CapabilityPermissionDecision::Deny {
         ManagedPermissionResolutionOutcome::Rejected
     } else {
         ManagedPermissionResolutionOutcome::Approved
     };
     pending
         .decision_tx
-        .send(ResolvedCapabilityPermission { decision, outcome })
+        .send(ResolvedCapabilityPermission {
+            decision,
+            outcome,
+            customization_requested,
+        })
         .map_err(|_| "capability permission request is no longer waiting".to_string())?;
     Ok(())
 }
@@ -1085,13 +1111,24 @@ fn wait_capability_response(
     }
 }
 
+#[cfg(test)]
 fn settle_capability_response(
     pending_id: &str,
     receiver: &mpsc::Receiver<ResolvedCapabilityPermission>,
     timeout: Duration,
     cancelled: &mut impl FnMut() -> bool,
-    mut emit: impl FnMut(ManagedPermissionResolvedEvent),
+    emit: impl FnMut(ManagedPermissionResolvedEvent),
 ) -> CapabilityPermissionDecision {
+    settle_capability_review_response(pending_id, receiver, timeout, cancelled, emit).decision
+}
+
+fn settle_capability_review_response(
+    pending_id: &str,
+    receiver: &mpsc::Receiver<ResolvedCapabilityPermission>,
+    timeout: Duration,
+    cancelled: &mut impl FnMut() -> bool,
+    mut emit: impl FnMut(ManagedPermissionResolvedEvent),
+) -> ResolvedCapabilityPermission {
     let response = wait_capability_response(receiver, timeout, cancelled);
     if let Ok(mut entries) = capability_pending().lock() {
         entries.remove(pending_id);
@@ -1102,7 +1139,7 @@ fn settle_capability_response(
         pending_id: pending_id.to_owned(),
         outcome: response.outcome,
     });
-    response.decision
+    response
 }
 
 /// Resolve one structured operator permission against resident policy, an
@@ -1121,9 +1158,42 @@ pub(crate) fn await_capability_decision_cancellable(
     app: &AppHandle,
     owner_pubkey: &str,
     request: ManagedPermissionRequestV2,
-    mut cancelled: impl FnMut() -> bool,
+    cancelled: impl FnMut() -> bool,
 ) -> CapabilityPermissionDecision {
+    await_capability_review_cancellable(app, owner_pubkey, request, cancelled).decision
+}
+
+/// Combined companion setup alone can offer Customize. Every other permission
+/// API retains its original Allow/Deny behavior and cannot widen access here.
+pub(crate) fn await_companion_setup_review_cancellable(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    request: ManagedPermissionRequestV2,
+    cancelled: impl FnMut() -> bool,
+) -> CompanionSetupReviewDecision {
+    if !is_companion_setup_review(&request) {
+        return CompanionSetupReviewDecision {
+            decision: CapabilityPermissionDecision::Deny,
+            customization_requested: false,
+        };
+    }
+    let response = await_capability_review_cancellable(app, owner_pubkey, request, cancelled);
+    CompanionSetupReviewDecision {
+        decision: response.decision,
+        customization_requested: response.customization_requested,
+    }
+}
+
+fn await_capability_review_cancellable(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    request: ManagedPermissionRequestV2,
+    mut cancelled: impl FnMut() -> bool,
+) -> ResolvedCapabilityPermission {
     if let Some(decision) = capability_preflight_decision(&request, &mut cancelled, || {
+        if is_companion_setup_review(&request) {
+            return None;
+        }
         let level = super::resident_capability_authority::effective_access(
             app,
             owner_pubkey,
@@ -1150,10 +1220,19 @@ pub(crate) fn await_capability_decision_cancellable(
             None
         }
     }) {
-        return decision;
+        let outcome = if decision == CapabilityPermissionDecision::Deny {
+            ManagedPermissionResolutionOutcome::Rejected
+        } else {
+            ManagedPermissionResolutionOutcome::Approved
+        };
+        return ResolvedCapabilityPermission {
+            decision,
+            outcome,
+            customization_requested: false,
+        };
     }
     if cancelled() {
-        return CapabilityPermissionDecision::Deny;
+        return ResolvedCapabilityPermission::denied(ManagedPermissionResolutionOutcome::Cancelled);
     }
     let id = luca_protocol::canonical_sha256(&request)
         .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
@@ -1174,7 +1253,7 @@ pub(crate) fn await_capability_decision_cancellable(
         }
     });
     if inserted.is_none() {
-        return CapabilityPermissionDecision::Deny;
+        return ResolvedCapabilityPermission::denied(ManagedPermissionResolutionOutcome::Cancelled);
     }
     let _ = app.emit(
         PENDING_EVENT,
@@ -1184,7 +1263,7 @@ pub(crate) fn await_capability_decision_cancellable(
             offer: None,
         },
     );
-    settle_capability_response(
+    settle_capability_review_response(
         &id,
         &rx,
         Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS),
@@ -1382,6 +1461,65 @@ mod tests {
         }
     }
 
+    #[test]
+    fn customize_is_only_a_no_grant_answer_to_the_combined_setup_review() {
+        let mut request = capability_request("customize", 7);
+        assert!(!wants_setup_customization(&request, Some("customize")));
+        request.resource.kind = "companion_setup_combined".into();
+        assert!(!wants_setup_customization(&request, Some("customize")));
+        request.capability = CapabilityKind::HarnessManage;
+        request.risk = CapabilityRisk::HighImpact;
+        assert!(wants_setup_customization(&request, Some("customize")));
+        for option in [
+            None,
+            Some("deny"),
+            Some("unknown"),
+            Some("allow_once"),
+            Some("always_allow"),
+        ] {
+            assert!(!wants_setup_customization(&request, option));
+        }
+        request.resource.kind = "companion_setup".into();
+        assert!(!wants_setup_customization(&request, Some("customize")));
+    }
+
+    #[test]
+    fn customization_never_becomes_permission_and_cancellation_clears_it() {
+        let queued = || ResolvedCapabilityPermission {
+            decision: CapabilityPermissionDecision::Deny,
+            outcome: ManagedPermissionResolutionOutcome::Cancelled,
+            customization_requested: true,
+        };
+        let (tx, rx) = mpsc::channel();
+        tx.send(queued()).expect("customize answer");
+        let decision = settle_capability_response(
+            "setup-customize-test",
+            &rx,
+            Duration::from_secs(1),
+            &mut || false,
+            |_| {},
+        );
+        assert_eq!(decision, CapabilityPermissionDecision::Deny);
+        let (tx, rx) = mpsc::channel();
+        tx.send(queued()).expect("queued customize");
+        let mut checks = 0;
+        let response = wait_capability_response(&rx, Duration::from_secs(1), &mut || {
+            checks += 1;
+            checks > 1
+        });
+        assert_eq!(response.decision, CapabilityPermissionDecision::Deny);
+        assert!(!response.customization_requested);
+        for outcome in [
+            ManagedPermissionResolutionOutcome::Expired,
+            ManagedPermissionResolutionOutcome::SessionReplaced,
+            ManagedPermissionResolutionOutcome::ApplicationClosed,
+        ] {
+            let response = ResolvedCapabilityPermission::denied(outcome);
+            assert_eq!(response.decision, CapabilityPermissionDecision::Deny);
+            assert!(!response.customization_requested);
+        }
+    }
+
     fn insert_pending_capability(
         request: ManagedPermissionRequestV2,
     ) -> (String, mpsc::Receiver<ResolvedCapabilityPermission>) {
@@ -1483,6 +1621,7 @@ mod tests {
                 .send(ResolvedCapabilityPermission {
                     decision: CapabilityPermissionDecision::AllowOnce,
                     outcome: ManagedPermissionResolutionOutcome::Approved,
+                    customization_requested: false,
                 })
                 .expect("sibling waiter survives");
             assert_eq!(
@@ -1526,6 +1665,7 @@ mod tests {
             tx.send(ResolvedCapabilityPermission {
                 decision: allowed,
                 outcome: ManagedPermissionResolutionOutcome::Approved,
+                customization_requested: false,
             })
             .expect("queued approval");
             let mut checks = 0;

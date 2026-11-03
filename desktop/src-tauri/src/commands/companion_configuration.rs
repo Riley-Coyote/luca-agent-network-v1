@@ -36,7 +36,7 @@ pub(super) enum Harness {
     Codex,
 }
 impl Harness {
-    fn kind(self) -> NativeProfileKindV1 {
+    pub(super) fn kind(self) -> NativeProfileKindV1 {
         match self {
             Self::ClaudeCode => NativeProfileKindV1::ClaudeProjects,
             Self::Codex => NativeProfileKindV1::CodexSessions,
@@ -115,7 +115,20 @@ pub(super) struct FollowExpected {
     promote: bool,
 }
 impl FollowExpected {
-    fn after_owned_resume(&mut self, resumed: Option<(SafeU53, SafeU53)>) {
+    pub(super) fn selection(
+        &self,
+        root: PathBuf,
+        harness: Harness,
+    ) -> Result<NativeProfileSelectionV1, String> {
+        NativeProfileSelectionV1::new(
+            self.key.clone(),
+            root,
+            harness.kind(),
+            NativeProfileObservationClassV1::VisibleExcerpts,
+        )
+        .map_err(err)
+    }
+    pub(super) fn after_owned_resume(&mut self, resumed: Option<(SafeU53, SafeU53)>) {
         if let Some((previous, current)) = resumed {
             if self.paused && self.resident_revision == previous {
                 self.paused = false;
@@ -298,6 +311,26 @@ pub(crate) fn configure(
     arguments: Value,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<String, String> {
+    if arguments.get("action").and_then(Value::as_str) == Some("meeting_progress") {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ProgressRequest {
+            action: String,
+            #[serde(default)]
+            harnesses: Vec<Harness>,
+            guidance: crate::luca::first_meeting::GuidanceUpdate,
+        }
+        let request: ProgressRequest = serde_json::from_value(arguments)
+            .map_err(|_| "Invalid first-meeting progress request.")?;
+        if request.action != "meeting_progress" || !request.harnesses.is_empty() || cancelled() {
+            return Err("First-meeting bookkeeping cannot configure harnesses.".into());
+        }
+        return crate::luca::first_meeting::update_guidance(app, &scope, request.guidance)
+            .map(|receipt| receipt.to_string());
+    }
+    if arguments.get("action").and_then(Value::as_str) == Some("setup") {
+        return super::companion_setup::configure(app, scope, arguments, cancelled);
+    }
     let mut request: Request = serde_json::from_value(arguments)
         .map_err(|_| "Invalid companion configuration request.")?;
     request.validate()?;
@@ -308,6 +341,16 @@ pub(crate) fn configure(
         .path()
         .home_dir()
         .map_err(|_| "Home folder unavailable.")?;
+    let execution_scope = crate::luca::companion_initiative::host_scope::home_scope(
+        &state,
+        &scope.owner,
+        &scope.resident,
+    )
+    .map_err(|e| format!("companion control: {e:?}"))?;
+    let denial_generation = state
+        .companion_execution
+        .denial_generation(&execution_scope)
+        .map_err(|e| format!("companion control: {e:?}"))?;
     // Metadata only. No transcript enumeration or reads occur before approval.
     let (roots, unavailable) = discover_profiles(&home, &request.harnesses, |h| {
         std::env::var(match h {
@@ -455,10 +498,11 @@ pub(crate) fn configure(
                 "paused":matches!(request.action,Action::PauseBackground|Action::DisableBackground),
                 "allowOutreach":false,"allowLocalCreations":current.allow_local_creations||request.action==Action::EnableBackground,
                 "expectedRevision":current.revision.get(),"requestId":id("companion-work")?})).map_err(|_|"Invalid background policy.")?;
-            let receipt = super::companion_initiative::set_companion_initiative_policy(
+            let receipt = super::companion_initiative::set_reviewed_companion_initiative_policy(
                 scope.resident.as_str().into(),
                 input,
                 app.clone(),
+                Some(denial_generation),
             )?;
             results.push(
                 serde_json::to_value(receipt).map_err(|_| "Could not encode saved settings.")?,
@@ -476,11 +520,23 @@ pub(super) fn follow_approved(
     root: PathBuf,
     expected: &FollowExpected,
 ) -> Result<Option<(SafeU53, SafeU53)>, String> {
+    follow_with_notes_approved(app, scope, harness, root, expected, false)
+}
+
+/// Only a reviewed setup may add note retention; ordinary Follow preserves it.
+pub(super) fn follow_with_notes_approved(
+    app: &AppHandle,
+    scope: &FollowTarget,
+    harness: Harness,
+    root: PathBuf,
+    expected: &FollowExpected,
+    keep_notes: bool,
+) -> Result<Option<(SafeU53, SafeU53)>, String> {
     let state = app.state::<AppState>();
     if &follow_expected(&state, scope, harness, &root)? != expected {
         return Err("Companion permissions changed. Review this choice again.".into());
     }
-    if already_following(&state, scope, harness, &root) {
+    if already_following(&state, scope, harness, &root) && (!keep_notes || expected.promote) {
         return Ok(None);
     }
     let live = LiveAwarenessOwner::authenticate(&state).map_err(err)?;
@@ -541,7 +597,7 @@ pub(super) fn follow_approved(
             expected.grant_revision,
             &super::companion_sources::CompanionSourceChoicesInputV1 {
                 observe: true,
-                promote: expected.promote,
+                promote: expected.promote || keep_notes,
                 provider_egress: true,
                 retain_raw: false,
             },
@@ -689,7 +745,7 @@ pub(super) fn already_following(
     })()
     .unwrap_or(false)
 }
-fn id(prefix: &str) -> Result<OpaqueId, String> {
+pub(super) fn id(prefix: &str) -> Result<OpaqueId, String> {
     OpaqueId::parse(format!("{prefix}-{}", uuid::Uuid::new_v4()))
         .map_err(|_| "Invalid operation identifier.".into())
 }
@@ -752,6 +808,18 @@ fn approval_state(
         json!(policy.revision)
     };
     canonical_sha256(&value).map_err(|_| "Companion settings could not be checked.".into())
+}
+
+/// Freeze both awareness and initiative controls across the combined review.
+pub(super) fn setup_approval_state(
+    state: &AppState,
+    scope: &FollowTarget,
+) -> Result<String, String> {
+    canonical_sha256(&json!([
+        approval_state(state, scope, Action::Follow)?,
+        approval_state(state, scope, Action::EnableBackground)?
+    ]))
+    .map_err(|_| "Companion settings could not be checked.".into())
 }
 
 #[cfg(test)]

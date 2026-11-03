@@ -2,9 +2,12 @@
 //! filesystem access, or permission to publish on behalf of a resident.
 
 mod context;
+mod guidance;
 mod kickoff;
+mod owner_goal;
 mod record;
 pub(crate) use context::for_dispatch;
+pub(crate) use guidance::{update_guidance, GuidanceUpdate};
 pub(crate) use kickoff::{begin, StartResult};
 
 use std::collections::HashSet;
@@ -13,7 +16,6 @@ use nostr::Event;
 
 pub(crate) const FIRST_MEETING_MARKER: &str = "polyphonic-onboarding.first-meeting.v1";
 const FIRST_MEETING_PROMPT: &str = include_str!("first_meeting_prompt.md");
-const MAX_OWNER_REPLIES: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MeetingPhase {
@@ -90,9 +92,6 @@ pub(crate) fn phase_from_history(
         return None;
     }
     let reply_count = ordinary.len().saturating_sub(1);
-    if reply_count > MAX_OWNER_REPLIES {
-        return None;
-    }
     if current.id == start.id {
         (reply_count == 0).then_some(MeetingPhase::Opening)
     } else {
@@ -102,8 +101,8 @@ pub(crate) fn phase_from_history(
 
 pub(crate) fn brief(phase: MeetingPhase) -> String {
     let position = match phase {
-        MeetingPhase::Opening => "This is the opening turn. If permission-checked recent-session references are attached, read the bounded visible content before composing your greeting. Otherwise use the no-source greeting; do not imply a read happened.".to_owned(),
-        MeetingPhase::Reply(index) => format!("This is owner reply {index} of the bounded first-meeting window. Any session references were supplied on the opening turn and are listed again as identifiers only; do not re-read them or repeat discovery. Follow the conversation, including any request to skip or start work; do not repeat answered questions or declined offers."),
+        MeetingPhase::Opening => "This is the opening turn. If permission-checked recent-session references are attached, read the bounded visible content before composing your greeting. Otherwise welcome the owner naturally and offer useful collaboration; do not imply a read happened or recite a disclaimer about not knowing them.".to_owned(),
+        MeetingPhase::Reply(index) => format!("This is owner reply {index} in this ongoing first meeting, not a deadline or questionnaire. Opening session references are listed as identifiers only; do not re-read them or repeat discovery. Newly approved context, if supplied by the host, is separate. Follow the conversation, including any request to skip or start work; do not repeat answered questions or declined offers. Never restart the greeting."),
     };
     format!("{FIRST_MEETING_PROMPT}\n{position}")
 }
@@ -129,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn first_meeting_is_bounded_and_deduplicates_signed_history() {
+    fn first_meeting_deduplicates_signed_history_without_a_five_reply_deadline() {
         let owner = Keys::generate();
         let pubkey = owner.public_key().to_hex();
         let resident = Keys::generate().public_key().to_hex();
@@ -139,7 +138,7 @@ mod tests {
             phase_from_history(&events, &pubkey, &resident, "room", &start.id.to_hex()),
             Some(MeetingPhase::Opening)
         );
-        for n in 1..=6 {
+        for n in 1..=12 {
             let reply = message(
                 &owner,
                 &resident,
@@ -151,7 +150,7 @@ mod tests {
             events.push(reply);
             assert_eq!(
                 phase_from_history(&events, &pubkey, &resident, "room", &trigger),
-                (n <= 5).then_some(MeetingPhase::Reply(n))
+                Some(MeetingPhase::Reply(n))
             );
         }
     }
@@ -223,7 +222,7 @@ mod tests {
         // enforces once the setup name, sources and references are appended.
         assert!(opening.len() < 10 * 1024, "{}", opening.len());
         assert!(opening.contains("before composing your greeting"));
-        assert!(opening.contains("no-source greeting"));
+        assert!(opening.contains("welcome the owner naturally"));
         assert!(!opening.contains("Do not inspect their history before"));
         assert!(opening.contains("never grants permissions"));
         assert!(opening.contains("existing continuity"));
@@ -249,12 +248,12 @@ mod tests {
     #[test]
     fn recent_discovery_runs_on_opening_not_after_the_owner_answers() {
         assert!(includes_recent_references(MeetingPhase::Opening));
-        for index in 1..=MAX_OWNER_REPLIES {
+        for index in 1..=12 {
             assert!(!includes_recent_references(MeetingPhase::Reply(index)));
             // Every reply turn says so in the brief itself, not only by the
             // absence of references, so a reply never re-runs discovery.
             let reply = brief(MeetingPhase::Reply(index));
-            assert!(reply.contains("supplied on the opening turn"));
+            assert!(reply.contains("Opening session references"));
             assert!(reply.contains("do not re-read them or repeat discovery"));
         }
         assert!(FIRST_MEETING_PROMPT.contains("at most 64 KiB"));
@@ -279,7 +278,7 @@ mod tests {
             "If they decline the look, or bring you a task instead, start that work immediately"
         ));
         assert!(FIRST_MEETING_PROMPT.contains("open from something real you found"));
-        assert!(FIRST_MEETING_PROMPT.contains("When the host says what you have read"));
+        assert!(FIRST_MEETING_PROMPT.contains("Catalog counts are not proof of reading"));
         assert!(FIRST_MEETING_PROMPT.contains("use the available runtime tools"));
         assert!(FIRST_MEETING_PROMPT.contains("Brain is optional retained knowledge"));
         assert!(FIRST_MEETING_PROMPT.contains("Do not require a Brain connection or import"));
@@ -296,5 +295,25 @@ mod tests {
         assert!(FIRST_MEETING_PROMPT.contains("polyphonic-choices"));
         // Nothing is selected during setup now; the prompt must not claim it.
         assert!(!FIRST_MEETING_PROMPT.contains("owner selected these sources during setup"));
+    }
+
+    #[test]
+    fn guidance_teaches_through_work_and_recommends_review_not_silent_setup() {
+        for expected in [
+            "There is no five-reply deadline",
+            "Teach by doing",
+            "start or continue",
+            "group chats",
+            "host-owned review",
+            "Basic follow is not approval",
+            "Preserve customized, declined, or paused choices",
+            "meeting_progress",
+            "never grants permissions",
+        ] {
+            assert!(
+                FIRST_MEETING_PROMPT.contains(expected),
+                "missing: {expected}"
+            );
+        }
     }
 }

@@ -63,3 +63,38 @@ test("structured high-impact requests never acquire a remembered option", () => 
   assert.deepEqual(choices(html), ["deny", "once"]);
   assert.match(html, /Delete selected records/);
 });
+
+const companionSetup = {
+  protocol: "luca.managed.permission.v2",
+  capability: "harness_manage",
+  risk: "high_impact",
+  operation: "Follow Claude Code and Codex with the reviewed companion choices",
+  resource: {
+    kind: "companion_setup_combined",
+    displayName: "Companion setup",
+  },
+};
+test("combined setup offers clear choices without changing the ask's drawing", () => {
+  for (const surface of [true, false]) {
+    const html = draw({ surface, request: companionSetup });
+    assert.deepEqual(choices(html), ["deny", "customize", "once"]);
+    assert.match(html, />Not now</);
+    assert.match(html, />Customize</);
+    assert.match(html, />Approve</);
+    assert.doesNotMatch(html, /Allow once|Always here|>Deny</);
+  }
+});
+test("ordinary following and other permissions do not acquire Customize", () => {
+  for (const request of [
+    {
+      ...companionSetup,
+      resource: { ...companionSetup.resource, kind: "companion_setup" },
+    },
+    { ...companionSetup, capability: "filesystem_read" },
+    { ...companionSetup, risk: "routine" },
+  ]) {
+    const html = draw({ request });
+    assert.doesNotMatch(html, /Customize|>Approve<|>Not now</);
+    assert.ok(choices(html).includes("once"));
+  }
+});

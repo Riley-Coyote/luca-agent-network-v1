@@ -622,7 +622,7 @@ struct ClaudeHeader {
 /// This small eligibility projection reads only a bounded native metadata
 /// prefix, not a second transcript parser. Message content is ignored; the
 /// existing recent-tail helper owns visible-text extraction and redaction.
-fn validate_native_header(
+pub(super) fn validate_native_header(
     path: &Path,
     kind: NativeProfileKindV1,
     native_id: &str,

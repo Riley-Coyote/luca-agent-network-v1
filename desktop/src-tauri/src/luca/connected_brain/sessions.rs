@@ -292,9 +292,21 @@ pub(super) fn read_visible_tail(
     relative_path: &str,
     limit: usize,
 ) -> Result<Vec<String>, String> {
-    const MAX_TAIL_BYTES: u64 = 256 * 1024;
+    read_visible_tail_bounded(root, kind, relative_path, limit, 256 * 1024)
+}
+
+/// Shared visible-message parser with a caller-selected, strictly bounded tail.
+pub(super) fn read_visible_tail_bounded(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    relative_path: &str,
+    limit: usize,
+    max_tail_bytes: u64,
+) -> Result<Vec<String>, String> {
     if limit == 0
         || limit > MAX_SESSION_SELECTIONS
+        || max_tail_bytes == 0
+        || max_tail_bytes > 256 * 1024
         || kind == ConnectedBrainSourceKindV1::Repository
     {
         return Err("native observation selection is invalid".into());
@@ -306,11 +318,11 @@ pub(super) fn read_visible_tail(
         .metadata()
         .map_err(|_| "native observation is unavailable".to_owned())?
         .len();
-    let start = length.saturating_sub(MAX_TAIL_BYTES);
+    let start = length.saturating_sub(max_tail_bytes);
     file.seek(SeekFrom::Start(start))
         .map_err(|_| "native observation is unavailable".to_owned())?;
     let mut bytes = Vec::new();
-    file.take(MAX_TAIL_BYTES)
+    file.take(max_tail_bytes)
         .read_to_end(&mut bytes)
         .map_err(|_| "native observation is unavailable".to_owned())?;
     let mut lines = bytes.split(|byte| *byte == b'\n');

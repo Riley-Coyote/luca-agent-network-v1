@@ -357,16 +357,13 @@ impl InitiativeStore {
             .control
             .now_unix_ms
             .saturating_sub(INITIATIVE_WINDOW_MS);
-        let recent = jobs
-            .iter()
-            .filter(|j| j.created_unix_ms > since)
-            .collect::<Vec<_>>();
+        let recent = jobs.iter().collect::<Vec<_>>();
         let reserved = recent.iter().try_fold(0_u64, |sum, job| {
-            sum.checked_add(job.input.budget.total_ms()?)
+            sum.checked_add(window_charge(job,since)?.1)
                 .ok_or(InitiativeStoreErrorV1::Capacity)
         })?;
         let model_stages = recent.iter().try_fold(0_u64, |sum, job| {
-            sum.checked_add(job.model_stages_reserved)
+            sum.checked_add(window_charge(job,since)?.0)
                 .ok_or(InitiativeStoreErrorV1::Capacity)
         })?;
         if model_stages
@@ -410,7 +407,9 @@ impl InitiativeStore {
             reconciliation_ref: None,
             return_key: None,
             return_reserved_unix_ms: None,
+            return_effect_unix_ms: None,
             return_receipt_ref: None,
+            return_context: None,
         };
         save_job(&tx, &job)?;
         save_request(
@@ -608,6 +607,7 @@ impl InitiativeStore {
                 return Err(InitiativeStoreErrorV1::Conflict);
             }
             job.return_receipt_ref = Some(receipt_ref);
+            job.return_effect_unix_ms = Some(scope.now_unix_ms);
             job.state = InitiativeJobStateV1::Returned;
             Ok(())
         })
@@ -704,6 +704,89 @@ impl InitiativeStore {
     }
 
     /// Read exact owner/resident/origin job metadata, including retained recovery refs.
+    pub(crate) fn pending_returns(&self, scope: &InitiativeControlScopeV1) -> Result<Vec<InitiativeJobV1>, InitiativeStoreErrorV1> {
+        validate_scope(scope)?;
+        let mut rows = jobs_for(&self.connection,scope)?.into_iter().filter(|job|
+            job.origin_scope_ref == scope.origin_scope_ref && job.return_context.is_some()
+            && matches!(job.state,InitiativeJobStateV1::Succeeded|InitiativeJobStateV1::ReturnReserved)).collect::<Vec<_>>();
+        rows.sort_by(|a,b|(!matches!(a.state,InitiativeJobStateV1::ReturnReserved)).cmp(&(!matches!(b.state,InitiativeJobStateV1::ReturnReserved)))
+            .then_with(||b.created_unix_ms.cmp(&a.created_unix_ms)));
+        rows.truncate(8); Ok(rows)
+    }
+
+    /// Bind the exact authored creation while its result/current-head fence is
+    /// still held. A replay cannot replace the artifact or its source ancestry.
+    pub(crate) fn bind_return_context(&mut self, scope: &InitiativeControlScopeV1, id: &OpaqueId,
+        context: super::returns::InitiativeReturnContextV1) -> Result<(),InitiativeStoreErrorV1> {
+        self.control_change(scope,id,|connection,job| {
+            if job.state != InitiativeJobStateV1::Succeeded || job.private_pursuit.as_ref().and_then(|p|p.artifact_ref.as_ref()) != Some(&context.artifact_ref)
+                || job.result_ref.as_ref() != Some(&context.result_ref) || job.input.budget.return_ms == 0
+                || job.input.origin_conversation_id.is_none() {return Err(InitiativeStoreErrorV1::Scope);}
+            if job.return_context.as_ref().is_some_and(|old|old!=&context) {return Err(InitiativeStoreErrorV1::Conflict);}
+            if jobs_for(connection,scope)?.iter().any(|old|old.input.job_id!=job.input.job_id && old.return_key.is_some()
+                && old.return_context.as_ref().is_some_and(|prior|prior.novelty_ref==context.novelty_ref || prior.content_ref==context.content_ref)) {return Ok(());}
+            job.return_context=Some(context);Ok(())
+        }).map(|_|())
+    }
+
+    /// Reserve an already completed private result after quiet-hour deferral.
+    /// This cannot restart work or extend its model deadline. The return model
+    /// stage was charged in the original cycle, and is never refunded/replaced.
+    pub(crate) fn reserve_completed_return(&mut self, scope: &InitiativeRuntimeScopeV1,id:&OpaqueId,key:OpaqueId)
+        -> Result<InitiativeJobV1,InitiativeStoreErrorV1> {
+        self.control_change(&scope.control,id,|connection,job| {
+            let policy=load_policy(connection,&scope.control)?;policy.admits()?;
+            if scope.foreground_active {return Err(InitiativeStoreErrorV1::ForegroundBusy);}
+            if !scope.outreach_authorized || policy.return_consent.is_none() || policy.max_outreach_per_24h == 0
+                || job.binding_ref!=scope.binding_ref || job.policy_revision!=policy.revision
+                || job.return_context.is_none() || job.input.budget.return_ms==0 {return Err(InitiativeStoreErrorV1::Scope);}
+            if jobs_for(connection,&scope.control)?.iter().any(|prior|prior.input.job_id!=job.input.job_id && prior.return_key.is_some()
+                && prior.return_context.as_ref().zip(job.return_context.as_ref()).is_some_and(|(old,next)|old.novelty_ref==next.novelty_ref || old.content_ref==next.content_ref)) {
+                return Err(InitiativeStoreErrorV1::Conflict);
+            }
+            if job.state==InitiativeJobStateV1::ReturnReserved && job.return_key.as_ref()==Some(&key) {return Ok(());}
+            if job.state!=InitiativeJobStateV1::Succeeded || job.return_key.is_some() {return Err(InitiativeStoreErrorV1::Conflict);}
+            let jobs=jobs_for(connection,&scope.control)?;
+            let since=scope.control.now_unix_ms.saturating_sub(INITIATIVE_WINDOW_MS);
+            if job.created_unix_ms<=since {
+                let stages=jobs.iter().try_fold(0u64,|sum,j|sum.checked_add(window_charge(j,since)?.0).ok_or(InitiativeStoreErrorV1::Capacity))?;
+                let time=jobs.iter().try_fold(0u64,|sum,j|sum.checked_add(window_charge(j,since)?.1).ok_or(InitiativeStoreErrorV1::Capacity))?;
+                if stages.saturating_add(1)>policy.max_model_stages_per_24h || time.saturating_add(job.input.budget.return_ms)>policy.max_reserved_time_per_24h_ms {return Err(InitiativeStoreErrorV1::Capacity);}
+            }
+            if jobs.iter().any(|j|j.input.job_id!=job.input.job_id && j.state.holds_concurrency())
+                || jobs.iter().filter(|j|j.return_reserved_unix_ms.into_iter().chain(j.return_effect_unix_ms).any(|time|time>since)).count() as u64>=policy.max_outreach_per_24h {
+                return Err(InitiativeStoreErrorV1::Capacity);
+            }
+            job.return_key=Some(key);job.return_reserved_unix_ms=Some(scope.control.now_unix_ms);job.state=InitiativeJobStateV1::ReturnReserved;Ok(())
+        })
+    }
+
+    /// Cancel further sending of one completed return. This never retracts an
+    /// already-issued request; its exact key stays for late truthful receipts.
+    pub(crate) fn close_completed_return(&mut self,scope:&InitiativeControlScopeV1,id:&OpaqueId,key:&OpaqueId)->Result<(),InitiativeStoreErrorV1> {
+        self.control_change(scope,id,|_,job| {
+            if job.return_key.as_ref()!=Some(key) || job.result_ref.is_none() || job.state!=InitiativeJobStateV1::ReturnReserved {return Err(InitiativeStoreErrorV1::Scope);}
+            job.state=InitiativeJobStateV1::Cancelled;Ok(())
+        }).map(|_|())
+    }
+
+    /// Charge the current rolling window at every possible body-bearing relay
+    /// effect, even an ambiguous probe/retry. No model reservation is renewed.
+    pub(crate) fn record_return_effect(&mut self,scope:&InitiativeControlScopeV1,id:&OpaqueId)->Result<(),InitiativeStoreErrorV1> {
+        self.control_change(scope,id,|connection,job| {
+            let policy=load_policy(connection,scope)?;policy.admits()?;
+            if policy.return_consent.is_none() || policy.max_outreach_per_24h==0 || policy.revision!=job.policy_revision
+                || job.state!=InitiativeJobStateV1::ReturnReserved || job.return_key.is_none() {return Err(InitiativeStoreErrorV1::Scope);}
+            let since=scope.now_unix_ms.saturating_sub(INITIATIVE_WINDOW_MS);
+            if jobs_for(connection,scope)?.iter().filter(|other|other.input.job_id!=job.input.job_id
+                && other.return_reserved_unix_ms.into_iter().chain(other.return_effect_unix_ms).any(|time|time>since)).count() as u64>=policy.max_outreach_per_24h {
+                return Err(InitiativeStoreErrorV1::Capacity);
+            }
+            job.return_effect_unix_ms=Some(scope.now_unix_ms);Ok(())
+        }).map(|_|())
+    }
+
+    /// Read exact owner/resident/origin job metadata, including retained recovery refs.
     pub(crate) fn job(
         &self,
         scope: &InitiativeControlScopeV1,
@@ -773,6 +856,10 @@ impl InitiativeStore {
         })
     }
 }
+
+#[cfg(test)]
+#[path="return_ledger_tests.rs"]
+mod return_ledger_tests;
 
 fn validate_scope(scope: &InitiativeControlScopeV1) -> Result<(), InitiativeStoreErrorV1> {
     if scope.owner_pubkey == scope.resident_pubkey || scope.now_unix_ms > JSON_SAFE_INTEGER_MAX {

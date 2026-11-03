@@ -11,6 +11,8 @@ pub(crate) mod driver;
 pub(crate) mod executor;
 pub(crate) mod host_scope;
 pub(crate) mod own_inquiries;
+pub(crate) mod return_setup;
+pub(crate) mod returns;
 mod observed_evidence;
 mod policy;
 mod schema;

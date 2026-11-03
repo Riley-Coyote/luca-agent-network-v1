@@ -187,6 +187,12 @@ fn run_due_inner(app:&AppHandle,shared:&Arc<Shared>)->Result<InitiativeCoordinat
     let control=home_scope(&state,&owner,&resident)?;
     let policy=state.companion_initiative.with_control(&control,|store|store.policy(&control))?;
     if !policy.enabled||policy.paused||!policy.allow_local_creations{return Ok(InitiativeCoordinatorOutcomeV1::Quiet(InitiativeQuietReasonV1::Disabled));}
+    // A return has independent consent, source and quiet-hours admission.
+    let _=super::returns::deliver_pending(app,&resident,|job| {
+        if let Ok(mut running)=shared.running.lock() {*running=Some(Running {scope:control.clone(),job:job.input.job_id.clone(),thread:job.input.thread_id.clone()});}
+        let _=shared.control_wake.try_send(());
+    });
+    if let Ok(mut running)=shared.running.lock() {*running=None;}
     // Do not touch native/canonical bodies or OS APIs on a disabled policy.
     let scope=runtime_scope(app,&resident)?;
     let idle=verified_idle_ms(&state,scope.control.now_unix_ms).ok_or(InitiativeExecutorErrorV1::Unavailable)?;
@@ -211,8 +217,9 @@ fn run_due_inner(app:&AppHandle,shared:&Arc<Shared>)->Result<InitiativeCoordinat
     let canonical=current.semantic().revision_ref().map_err(|_|InitiativeExecutorErrorV1::Invalid)?;
     let revision=state.companion_initiative.with_control(&scope.control,|store|Ok(store.thread(&scope.control,&head.thread.thread_id)?.map(|thread|thread.revision)))?.unwrap_or(SafeU53::new(1).map_err(|_|InitiativeExecutorErrorV1::Invalid)?);
     let request=OpaqueId::parse(format!("initiative-cycle-{}",uuid::Uuid::new_v4())).map_err(|_|InitiativeExecutorErrorV1::Invalid)?;
+    let return_ms=if policy.return_consent.is_some() && policy.max_outreach_per_24h>0 {180_000}else{0};
     let cycle=InitiativeCycleInputV1 {job_id:job.clone(),request_id:request,thread_id:head.thread.thread_id.clone(),expected_thread_revision:revision,canonical_revision_ref:canonical.clone(),dependency_ref,
-        origin_conversation_id:None,budget:InitiativeTimeBudgetV1 {decision_ms:DECISION_MS,work_ms:WORK_MS,return_ms:0},deadline_unix_ms:scope.control.now_unix_ms.checked_add(DECISION_MS+WORK_MS).ok_or(InitiativeExecutorErrorV1::Invalid)?,continued_from:None};
+        origin_conversation_id:policy.return_consent.as_ref().map(|c|c.conversation_id.clone()),budget:InitiativeTimeBudgetV1 {decision_ms:DECISION_MS,work_ms:WORK_MS,return_ms},deadline_unix_ms:scope.control.now_unix_ms.checked_add(DECISION_MS+WORK_MS+return_ms).ok_or(InitiativeExecutorErrorV1::Invalid)?,continued_from:None};
     let live=LiveAwarenessOwner::authenticate(&state).map_err(|_|InitiativeExecutorErrorV1::Unavailable)?;
     let preparation=state.companion_initiative.with_live(&live,&scope.control,|store|Ok(prepare_planning(store,&scope,InitiativeTickInputV1 {cycle,idle_for_ms:idle,evidence,dependency_node},current)))??;
     let prepared=match preparation {

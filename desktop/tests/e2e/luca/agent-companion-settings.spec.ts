@@ -33,12 +33,12 @@ async function openSettings(page: Page, resident = MARA) {
     ],
   });
   await page.goto("/?e2e=mock&notebookDemo=1#/agents");
-  await page.getByTestId(`agent-library-row-${resident}`).click();
   await page
-    .getByRole("navigation", { name: "Agent workspace" })
-    .getByRole("button", { name: "Settings" })
+    .getByTestId(`place-row-mind:${resident}`)
+    .locator(".luca-rail-row-hit")
     .click();
-  await expect(page.getByTestId("agent-companion-settings")).toBeVisible();
+  await page.getByTestId("mind-open-settings").click();
+  await expect(page.getByTestId("mind-row-keeps")).toBeVisible();
 }
 
 async function companionCalls(page: Page) {
@@ -55,21 +55,20 @@ test("agent settings opens companion controls for a stopped agent without a chat
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await openSettings(page);
-  expect(await companionCalls(page)).toEqual([]);
   const before = await page.evaluate(
     () => (window.__BUZZ_E2E_COMMANDS__ ?? []).length,
   );
-  const entry = page.getByRole("button", { name: "Companion settings" });
-  const settingsUrl = page.url();
+  const entry = page.getByTestId("mind-row-keeps");
   await entry.click();
-  const dialog = page.getByRole("dialog", { name: "With Mara" });
-  await expect(dialog.getByText("Keep up with your work")).toBeVisible();
-  await expect(dialog.getByText("While you’re away")).toBeVisible();
+  const dialog = page.getByTestId("mind-keeps-up-with");
   await expect(
-    dialog.getByRole("button", { name: "Back to agent" }),
+    dialog.getByRole("heading", { name: "Keeps up with" }),
   ).toBeVisible();
+  await expect(page.getByTestId("mind-back")).toHaveText("Settings");
   const calls = await companionCalls(page);
-  expect(calls.map(({ command }) => command).sort()).toEqual([...READS].sort());
+  expect([...new Set(calls.map(({ command }) => command))].sort()).toEqual(
+    [...READS].sort(),
+  );
   expect(
     calls.every(
       ({ payload }) =>
@@ -91,10 +90,13 @@ test("agent settings opens companion controls for a stopped agent without a chat
   await page.screenshot({
     path: testInfo.outputPath("companion-settings.png"),
   });
-  await dialog.getByRole("button", { name: "Back to agent" }).click();
+  await page.getByTestId("mind-back").click();
   await expect(dialog).toHaveCount(0);
-  await expect(entry).toBeFocused();
-  await expect(page).toHaveURL(settingsUrl);
+  await expect(page.getByTestId("mind-open-settings")).toBeVisible();
+  await expect(page.getByTestId("mind-page-title")).toBeFocused();
+  await expect(page).toHaveURL(
+    new RegExp(`profile=(?:%22)?${MARA}(?:%22)?(?:&|$)`),
+  );
   expect(errors).toEqual([]);
 });
 
@@ -102,21 +104,23 @@ test("keyboard entry follows the selected resident and restores focus at compact
   page,
 }) => {
   await openSettings(page);
-  await page.getByTestId("agent-companion-settings").press("Enter");
-  await expect(page.getByRole("dialog", { name: "With Mara" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("agent-companion-settings")).toBeFocused();
+  await page.getByTestId("mind-row-keeps").press("Enter");
+  await expect(page.getByTestId("mind-keeps-up-with")).toBeVisible();
+  await page.getByTestId("mind-back").press("Enter");
+  await expect(page.getByTestId("mind-page-title")).toBeFocused();
 
-  await page.getByTestId(`agent-library-row-${LUCA}`).click();
   await page
-    .getByRole("navigation", { name: "Agent workspace" })
-    .getByRole("button", { name: "Settings" })
+    .getByTestId(`place-row-mind:${LUCA}`)
+    .locator(".luca-rail-row-hit")
     .click();
+  await page.getByTestId("mind-open-settings").click();
   await page.setViewportSize({ width: 480, height: 800 });
-  const entry = page.getByTestId("agent-companion-settings");
+  const entry = page.getByTestId("mind-row-keeps");
   await entry.press("Enter");
-  const dialog = page.getByRole("dialog", { name: "With Luca" });
-  await expect(dialog.getByText("Keep up with your work")).toBeVisible();
+  const dialog = page.getByTestId("mind-keeps-up-with");
+  await expect(
+    dialog.getByRole("heading", { name: "Keeps up with" }),
+  ).toBeVisible();
   const box = await dialog.boundingBox();
   expect(box?.x).toBeGreaterThanOrEqual(0);
   expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(480);
@@ -128,26 +132,31 @@ test("keyboard entry follows the selected resident and restores focus at compact
         (payload as { residentPubkey: string }).residentPubkey === LUCA,
     ),
   ).toBe(true);
-  await page.keyboard.press("Escape");
+  await page.getByTestId("mind-back").click();
   await expect(dialog).toHaveCount(0);
-  await expect(entry).toBeFocused();
+  await expect(page.getByTestId("mind-page-title")).toBeFocused();
 });
 
 test("work buttons request native discovery; manual folder selection stays explicit", async ({
   page,
 }) => {
   await openSettings(page);
-  await page.getByRole("button", { name: "Companion settings" }).click();
-  const dialog = page.getByRole("dialog", { name: "With Mara" });
-  await dialog.getByRole("button", { name: "Codex work", exact: true }).click();
-  await expect(
-    dialog.getByRole("button", { name: "Claude Code work", exact: true }),
-  ).toBeEnabled();
+  await page.getByTestId("mind-row-keeps").click();
+  const dialog = page.getByTestId("mind-keeps-up-with");
   await dialog
-    .getByRole("button", { name: "Claude Code work", exact: true })
+    .getByRole("switch", { name: "Follow Codex work", exact: true })
     .click();
   await expect(
-    dialog.getByRole("button", { name: "Codex work", exact: true }),
+    dialog.getByRole("switch", {
+      name: "Follow Claude Code work",
+      exact: true,
+    }),
+  ).toBeEnabled();
+  await dialog
+    .getByRole("switch", { name: "Follow Claude Code work", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("switch", { name: "Follow Codex work", exact: true }),
   ).toBeEnabled();
   const calls = await companionCalls(page);
   expect(
@@ -165,7 +174,10 @@ test("work buttons request native discovery; manual folder selection stays expli
     dialog.getByRole("button", { name: "Choose Codex folder" }),
   ).toBeHidden();
   await dialog
-    .getByText("Advanced: choose a profile folder", { exact: true })
+    .getByRole("button", {
+      name: "Use a different profile folder",
+      exact: true,
+    })
     .click();
   await dialog.getByRole("button", { name: "Choose Codex folder" }).click();
   const manual = (await companionCalls(page)).find(
@@ -183,10 +195,14 @@ test("work buttons request native discovery; manual folder selection stays expli
   });
 });
 
-test("an unavailable companion can be dismissed and reopened without losing the agent page", async ({
+test("unavailable work discovery can be dismissed and retried without losing the agent page", async ({
   page,
 }) => {
   await openSettings(page);
+  await page.getByTestId("mind-row-keeps").click();
+  const dialog = page.getByTestId("mind-keeps-up-with");
+  const follow = dialog.getByRole("switch", { name: "Follow Codex work" });
+  await expect(follow).toBeVisible();
   await page.evaluate(() => {
     const internals = (
       window as unknown as {
@@ -202,22 +218,23 @@ test("an unavailable companion can be dismissed and reopened without losing the 
     const invoke = internals.invoke;
     let fail = true;
     internals.invoke = async (command, ...args) => {
-      if (command === "get_companion_awareness" && fail) {
+      if (command === "follow_companion_work" && fail) {
         fail = false;
         throw new Error("Companion unavailable in test");
       }
       return invoke(command, ...args);
     };
   });
-  const entry = page.getByTestId("agent-companion-settings");
-  await entry.click();
-  const dialog = page.getByRole("dialog", { name: "With Mara" });
+  await follow.click();
   await expect(dialog.getByRole("alert")).toContainText(
-    "Companion controls are unavailable",
+    "Companion unavailable in test",
   );
-  await dialog.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(entry).toBeFocused();
-  await entry.click();
-  await expect(dialog.getByText("Keep up with your work")).toBeVisible();
+  await page.getByTestId("mind-back").click();
+  await expect(page.getByTestId("mind-open-settings")).toBeVisible();
+  await page.getByTestId("mind-open-settings").click();
+  await page.getByTestId("mind-row-keeps").click();
+  await expect(follow).toBeVisible();
+  await follow.click();
+  await expect(follow).toBeEnabled();
   await expect(dialog.getByRole("alert")).toHaveCount(0);
 });

@@ -37,6 +37,9 @@ static GLOBAL_STORE: OnceLock<Arc<Mutex<RuntimeTaskDeliveryStore>>> = OnceLock::
 pub(crate) enum RuntimeTaskDeliveryOperationV1 {
     NewTask,
     ContinueSession,
+    /// A private companion result under separate reviewed relay-return consent.
+    /// No delegated task projection or owner Run action is fabricated for it.
+    InitiativeReturn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -675,6 +678,19 @@ impl RuntimeTaskDeliveryStore {
         self.release_synthesis_retryable(&expected.delivery_id, expected.session_epoch, updated_at)
     }
 
+    /// A final host fence denied before transport began. Terminalize only the
+    /// exact claim; never mutate a newer lease or a body already in the outbox.
+    pub(crate) fn block_unstarted_synthesis(
+        &mut self,
+        expected: &RuntimeTaskSynthesisClaimV1,
+        updated_at: CanonicalTimestamp,
+    ) -> Result<(), RuntimeTaskDeliveryError> {
+        if !self.has_synthesis_claim(expected) {
+            return Err(RuntimeTaskDeliveryError::Denied);
+        }
+        self.mark_synthesis_blocked(&expected.delivery_id, expected.session_epoch, updated_at)
+    }
+
     /// End a stale synthesis lease after its persisted deadline has passed.
     ///
     /// Recovery deliberately keys this by task rather than by the old runtime
@@ -845,6 +861,25 @@ impl RuntimeTaskDeliveryStore {
 
     pub(crate) fn has_authority(&self, delivery_id: &OpaqueId) -> bool {
         self.key_for_delivery(delivery_id).is_ok()
+    }
+
+    /// Immutable host admission distinguishes private initiative from delegated work.
+    pub(crate) fn approval_for_delivery(
+        &self,
+        delivery_id: &OpaqueId,
+    ) -> Option<RuntimeTaskDeliveryApprovalV1> {
+        self.key_for_delivery(delivery_id)
+            .ok()
+            .and_then(|key| self.rows.get(&key))
+            .map(|row| row.approval.clone())
+    }
+    pub(crate) fn operation_for_task(
+        &self,
+        task: &OpaqueId,
+    ) -> Option<RuntimeTaskDeliveryOperationV1> {
+        self.rows
+            .get(task.as_str())
+            .map(|row| row.approval.operation)
     }
 
     pub(crate) fn delivery_state(
@@ -1379,6 +1414,35 @@ pub(crate) fn verified_conversation_members(
     app: &AppHandle,
     conversation_id: &OpaqueId,
 ) -> Result<BTreeSet<Hex64>, String> {
+    let (relay_self, events) = verified_conversation_events(app, conversation_id)?;
+    verified_conversation_members_from_events(&relay_self, conversation_id, &events)
+}
+
+/// Exact relay-authored two-member DM verification for private return setup.
+pub(crate) fn verify_private_return_dm(
+    app: &AppHandle,
+    conversation_id: &OpaqueId,
+    owner: &Hex64,
+    resident: &Hex64,
+) -> Result<(), String> {
+    let (relay_self, events) = verified_conversation_events(app, conversation_id)?;
+    let metadata = exact_relay_coordinate(&events, &relay_self, conversation_id, 39000)?;
+    let channel = crate::nostr_convert::channel_info_from_event(metadata, None, None)?;
+    let members = verified_conversation_members_from_events(&relay_self, conversation_id, &events)?;
+    if channel.channel_type != "dm"
+        || members.len() != 2
+        || !members.contains(owner)
+        || !members.contains(resident)
+    {
+        return Err("Companion returns require your private two-member conversation.".into());
+    }
+    Ok(())
+}
+
+fn verified_conversation_events(
+    app: &AppHandle,
+    conversation_id: &OpaqueId,
+) -> Result<(String, Vec<nostr::Event>), String> {
     let state = app.state::<crate::app_state::AppState>();
     let conversation = conversation_id.as_str().to_owned();
     let (relay_self, events) = tauri::async_runtime::block_on(async {
@@ -1409,7 +1473,7 @@ pub(crate) fn verified_conversation_members(
         .await
         .map_err(|_| "Conversation membership verification timed out.".to_owned())?
     })?;
-    verified_conversation_members_from_events(&relay_self, conversation_id, &events)
+    Ok((relay_self, events))
 }
 
 fn verified_conversation_members_from_events(

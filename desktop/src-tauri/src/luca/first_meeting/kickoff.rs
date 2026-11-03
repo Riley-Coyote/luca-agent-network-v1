@@ -299,6 +299,7 @@ async fn write_meeting_record(
         reply_trigger_ids: Vec::new(),
         completed_at: None,
         handoff_trigger_ids: Vec::new(),
+        guidance: None,
     };
     let Ok(_guard) = record::STATE_LOCK.lock() else {
         luca_log!(

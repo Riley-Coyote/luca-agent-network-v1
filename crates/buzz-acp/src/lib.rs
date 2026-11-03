@@ -4250,7 +4250,7 @@ fn claim_private_cognition_worker(
 fn private_cognition_turn_id(request: &luca_protocol::ResidentPrivateCognitionRequestV1) -> String {
     match request {
         luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request } => {
-            request.delivery_id.as_str().to_owned()
+            if request.runtime_family=="companion_initiative" {format!("initiative:{}",request.delivery_id.as_str())} else {request.delivery_id.as_str().to_owned()}
         }
         luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePlanning { request } => {
             format!("initiative:{}", request.job_id.as_str())
@@ -4263,7 +4263,7 @@ fn private_cognition_turn_id(request: &luca_protocol::ResidentPrivateCognitionRe
 }
 
 fn is_initiative_request(request: &luca_protocol::ResidentPrivateCognitionRequestV1) -> bool {
-    matches!(
+    matches!(request,luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {request} if request.runtime_family=="companion_initiative") || matches!(
         request,
         luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePlanning { .. }
             | luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePursuit { .. }
@@ -5165,7 +5165,8 @@ fn runtime_task_delivery_draft(
     if !completed {
         return Err("runtime_failed");
     }
-    if request.validate().is_err() || turn_id != request.delivery_id.as_str() {
+    let expected=if request.runtime_family=="companion_initiative" {format!("initiative:{}",request.delivery_id.as_str())}else{request.delivery_id.as_str().to_owned()};
+    if request.validate().is_err() || turn_id != expected {
         return Err("invalid_result");
     }
     if now_unix_ms >= request.deadline_unix_ms.get() {
@@ -5250,6 +5251,16 @@ mod runtime_task_delivery_tests {
             "max_draft_bytes": 32,
         }))
         .expect("synthetic delivery request")
+    }
+
+    #[test]
+    fn companion_return_native_turn_and_final_draft_correlate_without_changing_broker_delivery_id() {
+        let mut request=request();request.runtime_family="companion_initiative".into();
+        let envelope=luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {request:request.clone()};
+        let turn=private_cognition_turn_id(&envelope);assert_eq!(turn,format!("initiative:{}",request.delivery_id.as_str()));
+        assert!(is_initiative_request(&envelope));
+        assert_eq!(runtime_task_delivery_draft(&request,&turn,Some("Useful result.".into()),true,4000),Ok("Useful result.".into()));
+        assert_eq!(runtime_task_delivery_draft(&request,request.delivery_id.as_str(),Some("Useful result.".into()),true,4000),Err("invalid_result"));
     }
 
     #[test]

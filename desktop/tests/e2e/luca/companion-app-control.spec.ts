@@ -20,7 +20,20 @@ async function openChat(page: Page) {
     ],
   });
   await page.goto("/?e2e=mock&notebookDemo=1#/agents");
-  await expect(page.getByTestId(`agent-library-row-${LUCA}`)).toBeVisible();
+  // At compact widths the rail is intentionally folded. Opening it is the
+  // same discovery path a person uses, not a fixture-only direct URL.
+  const toggle = page.getByTestId("shell-lip-toggle");
+  await expect(toggle).toBeVisible();
+  const openedRail = (await toggle.getAttribute("aria-expanded")) !== "true";
+  if (openedRail) await toggle.click();
+  await expect(page.getByTestId(`place-row-mind:${LUCA}`)).toBeVisible();
+  if (openedRail) {
+    // The compact rail is a modal sheet. Dismiss it as a person would before
+    // testing the app-control badge; its overlay must not intercept Stop.
+    await page.keyboard.press("Escape");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  }
   await page.evaluate(() => {
     const state = window as unknown as {
       __TAURI_INTERNALS__: {
@@ -216,13 +229,13 @@ test("unauthorized requests and ordinary settings review never illuminate the ap
   await emit(page, { agentPubkey: TEST_IDENTITIES.outsider.pubkey });
   await emit(page, { observerChannelId: "other-conversation" });
   await emit(page, { controlRequestId: "mismatched-id" });
-  await page.getByTestId(`agent-library-row-${LUCA}`).click();
   await page
-    .getByRole("navigation", { name: "Agent workspace" })
-    .getByRole("button", { name: "Settings" })
+    .getByTestId(`place-row-mind:${LUCA}`)
+    .locator(".luca-rail-row-hit")
     .click();
-  await page.getByTestId("agent-companion-settings").click();
-  await expect(page.getByRole("dialog", { name: "With Luca" })).toBeVisible();
+  await page.getByTestId("mind-open-settings").click();
+  await page.getByTestId("mind-row-keeps").click();
+  await expect(page.getByTestId("mind-keeps-up-with")).toBeVisible();
   await expect(page.getByTestId("app-control-halo")).toHaveCount(0);
   expect(await actions(page)).toEqual([]);
 });

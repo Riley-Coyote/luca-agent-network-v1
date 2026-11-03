@@ -1531,6 +1531,8 @@ impl ManagedMessagePublisher {
                 .mark_published(&entry.request.dispatch_receipt_id, &entry.event_id, now)
                 .map_err(Self::map_runtime_task_delivery_error)?;
         }
+        super::companion_initiative::returns::record_published(&authority.app,&entry.request.dispatch_receipt_id)
+            .map_err(|_|ManagedPublicationAuthorityError::Unavailable)?;
         self.refresh_runtime_task_delivery_projection(&entry.request);
         outbox
             .mark_accepted(
@@ -1641,10 +1643,17 @@ impl ManagedMessagePublisher {
             }
             RuntimeTaskDeliveryReconciliationV1::Ready => {}
         }
-        match self
-            .transport
-            .submit_exact(&entry.signed_event_json, timeout)
-        {
+        let app=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.app.clone();
+        let initiative=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.store.lock()
+            .map_err(|_|ManagedPublicationAuthorityError::Unavailable)?.approval_for_delivery(&entry.request.dispatch_receipt_id)
+            .is_some_and(|approval|approval.operation==super::runtime_task_delivery::RuntimeTaskDeliveryOperationV1::InitiativeReturn);
+        // Initiative-only external effects hold the denial fence for at most
+        // one second, including connect/write/read. Process the response after
+        // releasing every authority lock; ambiguity retains exact outbox bytes.
+        let outcome=super::companion_initiative::returns::with_publication(&app,&entry.request.dispatch_receipt_id,
+            ||Ok(self.transport.submit_exact(&entry.signed_event_json,if initiative {timeout.min(Duration::from_secs(1))}else{timeout})))
+            .map_err(|_|ManagedPublicationAuthorityError::Denied)?;
+        match outcome {
             ManagedRelaySubmitOutcome::Response(response)
                 if response.event_id == entry.event_id.as_str() && response.accepted =>
             {
@@ -1710,11 +1719,15 @@ impl ManagedMessagePublisher {
                 .mark_submitted(&entry.idempotency_key, installation_session_id, false)
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         }
-        match self.transport.probe_exact(
-            &entry.signed_event_json,
-            entry.event_id.as_str(),
-            RECONCILE_REQUEST_TIMEOUT,
-        ) {
+        let app=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.app.clone();
+        let initiative=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.store.lock()
+            .map_err(|_|ManagedPublicationAuthorityError::Unavailable)?.approval_for_delivery(&entry.request.dispatch_receipt_id)
+            .is_some_and(|approval|approval.operation==super::runtime_task_delivery::RuntimeTaskDeliveryOperationV1::InitiativeReturn);
+        // Probe sends the exact signed body too: it needs the same live fences.
+        let probe=super::companion_initiative::returns::with_publication(&app,&entry.request.dispatch_receipt_id,||Ok(self.transport.probe_exact(
+            &entry.signed_event_json,entry.event_id.as_str(),if initiative {Duration::from_secs(1)}else{RECONCILE_REQUEST_TIMEOUT})))
+            .map_err(|_|ManagedPublicationAuthorityError::Denied)?;
+        match probe {
             ManagedRelayProbeOutcome::Present(response)
                 if response.event_id == entry.event_id.as_str() && response.accepted =>
             {
@@ -1975,6 +1988,8 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
                 .runtime_task_delivery
                 .as_ref()
                 .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+            super::companion_initiative::returns::admit_publication(&authority.app,&request.dispatch_receipt_id)
+                .map_err(|_|ManagedPublicationAuthorityError::Denied)?;
             let reserved = authority
                 .store
                 .lock()

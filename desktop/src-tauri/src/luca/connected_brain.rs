@@ -25,6 +25,7 @@ pub(crate) use index::{
 };
 pub(crate) use session_context::session_id as native_session_opaque_id;
 pub(crate) use session_context::{
+    initial_session_excerpts, initial_session_locators,
     context_for_native_session, list_native_sessions, native_session_reference,
     recent_native_session_references, visible_native_session_excerpts, IndexedSessionContextV1,
     IndexedSessionListV1,

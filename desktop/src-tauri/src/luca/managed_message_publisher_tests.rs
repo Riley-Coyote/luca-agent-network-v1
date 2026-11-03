@@ -352,6 +352,56 @@ fn managed_http_submit_classifies_only_bad_request_as_terminal() {
 }
 
 #[test]
+fn managed_http_return_submit_and_body_probe_honor_short_total_timeout() {
+    for probe in [false, true] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let server = std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            while started.elapsed() < Duration::from_secs(2) {
+                match listener.accept() {
+                    Ok((mut socket, _)) => {
+                        socket
+                            .set_read_timeout(Some(Duration::from_secs(1)))
+                            .unwrap();
+                        let mut request = [0u8; 8192];
+                        let _ = socket.read(&mut request);
+                        // No headers arrive within the request's total timeout.
+                        std::thread::sleep(Duration::from_millis(1200));
+                        return;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5))
+                    }
+                    Err(error) => panic!("fixture accept: {error}"),
+                }
+            }
+        });
+        let keys = Keys::parse(&"95".repeat(32)).unwrap();
+        let mut transport =
+            HttpManagedRelayTransport::new(keys, &format!("http://{address}"), None).unwrap();
+        let started = std::time::Instant::now();
+        if probe {
+            assert!(matches!(
+                transport.probe_exact("{}", &"1".repeat(64), Duration::from_millis(100)),
+                ManagedRelayProbeOutcome::Retryable
+            ));
+        } else {
+            assert!(matches!(
+                transport.submit_exact("{}", Duration::from_millis(100)),
+                ManagedRelaySubmitOutcome::Retryable
+            ));
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "network framing fence must not wait for the stalled response"
+        );
+        server.join().unwrap();
+    }
+}
+
+#[test]
 fn managed_http_submit_bounds_success_response_before_json_parse() {
     let (relay_url, server) = one_shot_http_response(
         200,

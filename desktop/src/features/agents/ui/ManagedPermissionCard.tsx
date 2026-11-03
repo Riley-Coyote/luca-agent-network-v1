@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import {
   PermissionAsk,
+  isCompanionSetupReview,
   rememberHint,
 } from "@/app/shell/placeRails/ManagedAsks";
 import { resolveManagedPermission } from "@/shared/api/managedPermissions";
@@ -64,6 +65,7 @@ export function ManagedPermissionCard({
   const [resolving, setResolving] = React.useState<string | null>(null);
   const request = pending.request;
   const structured = request.protocol === "luca.managed.permission.v2";
+  const companionSetup = isCompanionSetupReview(request);
   const canRemember = structured && canRememberCapabilityPermission(request);
   const offer = runtimePermissionOffer(pending);
   const projectLabel = offer.projectLabel;
@@ -198,8 +200,19 @@ export function ManagedPermissionCard({
                 type="button"
                 variant="ghost"
               >
-                Deny
+                {companionSetup ? "Not now" : "Deny"}
               </Button>
+              {companionSetup ? (
+                <Button
+                  disabled={resolving !== null}
+                  onClick={() => void choose("customize")}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {resolving === "customize" ? "Sending…" : "Customize"}
+                </Button>
+              ) : null}
               <Button
                 disabled={resolving !== null}
                 onClick={() => void choose("allow_once")}
@@ -207,7 +220,11 @@ export function ManagedPermissionCard({
                 type="button"
                 variant="outline"
               >
-                {resolving === "allow_once" ? "Sending…" : "Once"}
+                {resolving === "allow_once"
+                  ? "Sending…"
+                  : companionSetup
+                    ? "Approve"
+                    : "Once"}
               </Button>
               {canRemember ? (
                 <Button

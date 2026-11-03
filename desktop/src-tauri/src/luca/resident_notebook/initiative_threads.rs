@@ -38,8 +38,9 @@ pub(crate) struct InitiativeThreadCommitRequestV1 {
     pub(crate) resident_pubkey: Hex64,
     pub(crate) request_id: OpaqueId,
     pub(crate) actor: RevisionActor,
-    /// Host proof from an untainted, already committed signed handoff. Neither
-    /// a model's empty evidence list nor body/hash claims may set this flag.
+    /// Host proof from an untainted committed signed handoff, or the exact
+    /// verified current owner goal copied by first_meeting::owner_goal. Neither
+    /// a model's summary, empty evidence list, nor body/hash claims may set it.
     pub(crate) canonical_source_clean: bool,
     /// Sealed completed-native Own birth proof; never a caller/model bool.
     pub(crate) own_authorship_proof: Option<VerifiedOwnInquiryAuthorshipV1>,

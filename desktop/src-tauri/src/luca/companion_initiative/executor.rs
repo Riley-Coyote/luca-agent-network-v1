@@ -296,6 +296,17 @@ fn execute_pursuit<E: InitiativePrivateEndpointV1>(
                 &work.result,
                 Some((&receipt.dependency_node, &receipt.artifact_ref)),
             )?;
+            if store.job(&scope.control,&work.request.job_id)?.is_some_and(|job|job.input.budget.return_ms>0) {
+                store.bind_return_context(&scope.control,&work.request.job_id,super::returns::InitiativeReturnContextV1 {
+                    artifact_id:receipt.artifact_id.clone(),version:receipt.version,artifact_ref:receipt.artifact_ref.clone(),
+                    result_ref:receipt.result_ref.clone(),dependency_node:receipt.dependency_node.clone(),
+                    record_id:prepared.expected_record().clone(),canonical_revision_ref:work.request.thread.canonical_revision_ref.clone(),
+                    observations:work.request.evidence.iter().map(|e|e.observation.clone()).collect(),
+                    novelty_ref:hash_ref(&serde_json::json!([work.request.thread.thread_id,work.request.thread.canonical_revision_ref,
+                        work.request.evidence.iter().map(|e|&e.observation.evidence_ref).collect::<Vec<_>>()]))?,
+                    content_ref:match &work.result.result {InitiativePursuitOutcomeV1::Created {title,markdown,..}=>hash_ref(&(title,markdown))?,_=>return Err(InitiativeExecutorErrorV1::Invalid)},
+                })?;
+            }
             Ok(InitiativeExecutionOutcomeV1::Creation(receipt))
         })
     } else if matches!(&work.result.result, InitiativePursuitOutcomeV1::OwnInquiry { .. }) {

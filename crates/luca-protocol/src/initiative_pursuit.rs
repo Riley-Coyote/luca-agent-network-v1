@@ -285,13 +285,18 @@ impl<'de> Deserialize<'de> for InitiativePursuitOutcomeV1 {
             raw.source_refs,
             raw.eligible_after,
         ) {
-            (RawOutcomeKind::Created, Some(title), Some(markdown), None, Some(source_refs), None) => {
-                Self::Created {
-                    title,
-                    markdown,
-                    source_refs,
-                }
-            }
+            (
+                RawOutcomeKind::Created,
+                Some(title),
+                Some(markdown),
+                None,
+                Some(source_refs),
+                None,
+            ) => Self::Created {
+                title,
+                markdown,
+                source_refs,
+            },
             (RawOutcomeKind::OwnInquiry, None, None, Some(body), Some(source_refs), None) => {
                 Self::OwnInquiry { body, source_refs }
             }
@@ -335,7 +340,9 @@ impl InitiativePursuitOutcomeV1 {
             if body.trim().is_empty()
                 || body.trim() != body
                 || body.len() > MAX_INITIATIVE_THREAD_BODY_BYTES
-                || body.chars().any(|c| c.is_control() && c != '\n' && c != '\t')
+                || body
+                    .chars()
+                    .any(|c| c.is_control() && c != '\n' && c != '\t')
                 || source_refs.is_empty()
                 || source_refs.len() >= MAX_INITIATIVE_THREAD_SOURCES
                 || source_refs.windows(2).any(|refs| refs[0] >= refs[1])
@@ -551,6 +558,14 @@ impl ResidentPrivateCognitionControlV1 {
             }
             crate::ResidentPrivateCognitionRequestV1::InitiativePursuit { request } => {
                 request.session_epoch
+            }
+            // The inherited channel authenticates its epoch independently.
+            // This label enables exact cancellation, never publication.
+            crate::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request }
+                if request.runtime_family == "companion_initiative" =>
+            {
+                let Self::CancelInitiative { session_epoch, .. } = self;
+                *session_epoch
             }
             _ => return false,
         };

@@ -56,6 +56,15 @@ pub fn set_companion_initiative_policy(
     input: CompanionInitiativePolicyInputV1,
     app: AppHandle,
 ) -> Result<CompanionInitiativeStatusV1, String> {
+    set_reviewed_companion_initiative_policy(resident_pubkey, input, app, None)
+}
+
+pub(super) fn set_reviewed_companion_initiative_policy(
+    resident_pubkey: String,
+    input: CompanionInitiativePolicyInputV1,
+    app: AppHandle,
+    reviewed_denial_generation: Option<u64>,
+) -> Result<CompanionInitiativeStatusV1, String> {
     if input.allow_outreach {
         return Err("Proactive publication is not enabled in this candidate.".into());
     }
@@ -66,6 +75,13 @@ pub fn set_companion_initiative_policy(
         .ok_or("companion initiative unavailable")?;
     let resident = managed_resident(&app, &resident_pubkey, &owner)?;
     let scope = home_scope(&state, &owner, &resident).map_err(error)?;
+    let denial_generation = match reviewed_denial_generation {
+        Some(generation) => generation,
+        None => state
+            .companion_execution
+            .denial_generation(&scope)
+            .map_err(error)?,
+    };
     let expected =
         SafeU53::new(input.expected_revision).map_err(|_| "invalid companion policy revision")?;
     let request =
@@ -94,17 +110,36 @@ pub fn set_companion_initiative_policy(
     if !next.enabled || next.paused {
         state.companion_execution.pause(&scope).map_err(error)?;
     }
-    let (policy,_cancelled)=if widening {
-        let live=LiveAwarenessOwner::authenticate(&state).map_err(|error|error.to_string())?;
+    let (policy, _cancelled) = if widening {
+        let live = LiveAwarenessOwner::authenticate(&state).map_err(|error| error.to_string())?;
         if !crate::luca::managed_cognition::initiative_adapter_supported(&resident) {
-            return Err("This companion's current native adapter has no supported background path.".into());
+            return Err(
+                "This companion's current native adapter has no supported background path.".into(),
+            );
         }
-        state.companion_initiative.with_live(&live,&scope,|store|store.set_policy(&scope,&request,expected,next))
+        let _lease = live
+            .lease()
+            .map_err(|_| "companion identity unavailable".to_owned())?;
+        if _lease.owner() != &scope.owner_pubkey {
+            return Err("companion identity changed".into());
+        }
+        state.companion_execution.commit_reviewed_resume(
+            &scope,
+            denial_generation,
+            next.enabled && !next.paused,
+            || {
+                state.companion_initiative.with_control(&scope, |store| {
+                    store.set_policy(&scope, &request, expected, next)
+                })
+            },
+        )
     } else {
-        state.companion_initiative.with_control(&scope,|store|store.set_policy(&scope,&request,expected,next))
-    }.map_err(error)?;
+        state.companion_initiative.with_control(&scope, |store| {
+            store.set_policy(&scope, &request, expected, next)
+        })
+    }
+    .map_err(error)?;
     if policy.enabled && !policy.paused {
-        state.companion_execution.resume(&scope).map_err(error)?;
         // Explicit policy is only eligibility. This records actual interaction
         // and wakes the default-off coordinator; idle/cadence/current-head/native
         // admission still decide whether any later model is permitted.
@@ -190,10 +225,17 @@ pub async fn retire_companion_shared_thread(
         drop(_lease);
         // The validated canonical retirement is durable first. Cancel only the
         // exact tracked thread; Native cancellation is a request, not stoppage.
-        state.companion_execution.retire_thread(&scope, &id).map_err(error)?;
-        if let Some((running_resident, job, running_thread)) = state.companion_coordinator.active_job() {
+        state
+            .companion_execution
+            .retire_thread(&scope, &id)
+            .map_err(error)?;
+        if let Some((running_resident, job, running_thread)) =
+            state.companion_coordinator.active_job()
+        {
             if running_resident == resident && running_thread == id {
-                let _ = state.companion_initiative.with_control(&scope, |store| store.interrupt_private_cycle(&scope, &job));
+                let _ = state
+                    .companion_initiative
+                    .with_control(&scope, |store| store.interrupt_private_cycle(&scope, &job));
             }
         }
         Ok(())

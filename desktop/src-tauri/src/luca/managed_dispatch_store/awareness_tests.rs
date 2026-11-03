@@ -68,6 +68,27 @@ fn exact_frame_binding_is_body_free_immutable_replay_and_not_injection_authority
 }
 
 #[test]
+fn initial_sample_in_ordinary_awareness_frame_cannot_automatically_handoff_or_carry() {
+    let mut fixture = Fixture::new();
+    // Initial samples use ordinary observation references, not untracked text
+    // from an MCP result. A keep-notes=false source can still inform chat, but
+    // its final must not enter automatic continuity/carry.
+    let reference = fixture.observation(1);
+    fixture.store.bind_turn_awareness_context(&fixture.authority, number(7), &hash('a'),
+        &id("initial-context-frame"), &[reference], 100).unwrap();
+    fixture.store.bind_communication_turn_start(&fixture.trigger.id.to_hex(),
+        &fixture.resident.public_key().to_hex(), CHANNEL, 7, 100).unwrap();
+    let final_id = "ee".repeat(32);
+    fixture.store.begin_submission(&fixture.trigger.id.to_hex(),
+        &fixture.resident.public_key().to_hex(), 7, &final_id).unwrap();
+    fixture.store.mark_published(&fixture.trigger.id.to_hex(),
+        &fixture.resident.public_key().to_hex(), &final_id).unwrap();
+    assert!(!fixture.store.automatic_derivatives_allowed_for_final(
+        &fixture.authority.owner_pubkey, &fixture.authority.resident_pubkey,
+        &Hex64::parse(final_id).unwrap()));
+}
+
+#[test]
 fn warm_taint_survives_row_removal_restart_and_epoch_binding_changes() {
     let mut fixture = Fixture::new(); fixture.bind();
     fixture.store.dispatches.clear();

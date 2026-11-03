@@ -125,7 +125,8 @@ fn from_record(
         // sources are now usually connected during the conversation itself.
         meeting.brain_sources = record::brain_summaries(catalog);
     }
-    let context = record::compose_brief(&meeting, phase, &granted);
+    let mut context = record::compose_brief(&meeting, phase, &granted);
+    context.push_str(&format!("\nCurrent signed owner event reference: {trigger}. Only this active owner's event may be supplied as ownerGoalEventId; it is not permission or a goal by itself.\n"));
     if active_scope(state).ok()? != *scope || context.len() > 16384 {
         return None;
     }
@@ -185,6 +186,7 @@ fn from_relay_history(
     }
     let phase = phase_from_history(&history, owner.as_str(), resident, conversation, trigger)?;
     let mut context = brief(phase);
+    context.push_str(&format!("\nCurrent signed owner event reference: {trigger}. Only this active owner's event may be supplied as ownerGoalEventId; it is not permission or a goal by itself.\n"));
     context.push_str(&record::setup_name_line(name.as_deref()));
     if super::includes_recent_references(phase) && Instant::now() < deadline {
         if let Some(references) = references(app, state, owner, resident, binding, egress, deadline)

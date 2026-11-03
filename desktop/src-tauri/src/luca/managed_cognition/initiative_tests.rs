@@ -122,6 +122,46 @@ fn cancellation_uses_separate_writer_while_model_await_lock_is_held() {
 }
 
 #[test]
+fn companion_return_has_exact_cancellation_and_ordinary_task_delivery_does_not() {
+    let base = future_request();
+    let request:luca_protocol::RuntimeTaskDeliveryRequestV1=serde_json::from_value(serde_json::json!({
+        "protocol":luca_protocol::RUNTIME_TASK_DELIVERY_PROTOCOL,"delivery_id":format!("task-result:{}","d".repeat(64)),"task_id":"initiative:fixture-job",
+        "owner_pubkey":base.owner_pubkey(),"resident_pubkey":base.resident_pubkey(),"conversation_id":"fixture-dm","binding_ref":base.binding_ref(),
+        "result_sha256":format!("sha256:{}","e".repeat(64)),"runtime_family":"companion_initiative","summary":"fixture","result_excerpt":"PRIVATE_RETURN_SENTINEL",
+        "result_total_bytes":128,"result_is_excerpt":true,"deadline_unix_ms":unix_time_millis()+5000,"max_draft_bytes":1024
+    })).unwrap();
+    let envelope = ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+        request: request.clone(),
+    };
+    let (client, remote) = client(&envelope);
+    remote
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    let mut ordinary = request.clone();
+    ordinary.runtime_family = "claude_code".into();
+    assert!(matches!(
+        client.begin_initiative(ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+            request: ordinary
+        }),
+        Err(ManagedCognitionError::Invalid)
+    ));
+    let claim = client.begin_initiative(envelope.clone()).unwrap();
+    let cancel = claim.cancellation();
+    let guard = client.channel.lock().unwrap();
+    let mut reader = BufReader::new(remote);
+    let mut frame = Vec::new();
+    reader.read_until(b'\n', &mut frame).unwrap();
+    assert!(cancel.cancel().unwrap());
+    frame.clear();
+    reader.read_until(b'\n', &mut frame).unwrap();
+    let control: ResidentPrivateCognitionControlV1 = serde_json::from_slice(&frame).unwrap();
+    assert!(control.matches_initiative(&envelope));
+    assert!(!String::from_utf8_lossy(&frame).contains("PRIVATE_RETURN_SENTINEL"));
+    drop(guard);
+    drop(claim);
+}
+
+#[test]
 fn undrained_claim_closes_only_private_transport_and_never_reassigns_late_reply() {
     let request = future_request();
     let (client, mut remote) = client(&request);

@@ -64,16 +64,19 @@ SHELL_FRAME=0
 [[ "$CANDIDATE_KIND" != rail-glass ]] || SHELL_FRAME=1
 readonly SHELL_FRAME
 readonly SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz buzz-relay)
+# Unsigned mode is never inherited; the executable requires an explicit flag.
+UNSIGNED_LOCAL=0
 
 fail() { printf 'Candidate refused: %s\n' "$1" >&2; exit 1; }
 
 usage() {
     printf '%s\n' \
         "Usage: $0 check|build|run|stop --target-dir $SHARED_TARGET" \
-        "       --instance-root /absolute/dedicated/instance [--signing-identity name-or-hash]" \
+        "       --instance-root /absolute/dedicated/instance [--signing-identity name-or-hash | --unsigned]" \
         "check is read-only; build does not launch; run never builds; stop sends only owned SIGTERM." \
         "The target is always the one shared build cache; stop alone may name an older one." \
         "The instance root is required, internal and outside the cache. Signing override is build-only." \
+        "--unsigned is local-only check/build/run opt-in and must be specified again when running that bundle." \
         "Rust 1.95.0, existing ~/.cargo, offline locked dependencies, default system-keyring, debug/app-only." \
         "No release/notarization, installed-app replacement, native prompts, or provider configuration edits."
 }
@@ -168,13 +171,18 @@ try {
     const environment = { BUZZ_DESKTOP_DATA_DIR: data, LUCA_NATIVE_STATE_ISOLATION_ROOT: native, BUZZ_DEV_KEYRING_SERVICE: keyring, BUZZ_RELAY_URL: 'buzz-local://on-this-device' };
     process.stdout.write(JSON.stringify(environment));
   } else if (action === 'receipt') {
-    const [file, protocol, source, base, branch, identity, product, instance, keyring, config, entitlements, target, signing, ...names] = args;
-    write(file, { protocol, sourceRevision: source, sourceBase: base, sourceBranch: branch, worktreeClean: true, bundleIdentifier: identity, productName: product, instanceRoot: instance, keyringService: keyring, configSha256: hash(config), entitlementsSha256: hash(entitlements), rustVersion: '1.95.0', architecture: 'aarch64-apple-darwin', profile: 'debug', features: ['default', 'system-keyring'], signingIdentity: signing, notarized: false, sidecars: names.map(name => ({ name, sourceSha256: hash(path.join(target, 'debug', name)) })) });
+    const [file, protocol, source, base, branch, identity, product, instance, keyring, config, entitlements, target, signing, signingMode, ...names] = args;
+    requireValue(signingMode === 'signed' || (signingMode === 'unsigned-local' && signing === 'unsigned-local'), 'invalid candidate signing mode');
+    write(file, { protocol, sourceRevision: source, sourceBase: base, sourceBranch: branch, worktreeClean: true, bundleIdentifier: identity, productName: product, instanceRoot: instance, keyringService: keyring, configSha256: hash(config), entitlementsSha256: hash(entitlements), rustVersion: '1.95.0', architecture: 'aarch64-apple-darwin', profile: 'debug', features: ['default', 'system-keyring'], signingMode, signingIdentity: signingMode === 'unsigned-local' ? null : signing, notarized: false, sidecars: names.map(name => ({ name, sourceSha256: hash(path.join(target, 'debug', name)) })) });
   } else if (action === 'verify-receipt') {
-    const [file, protocol, source, base, branch, identity, product, instance, keyring, config, entitlements, ...names] = args;
+    const [file, protocol, source, base, branch, identity, product, instance, keyring, config, entitlements, signingMode, ...names] = args;
     const r = read(file);
     requireValue(r.protocol === protocol && r.sourceRevision === source && r.sourceBase === base && r.sourceBranch === branch && r.worktreeClean === true && r.bundleIdentifier === identity && r.productName === product && r.instanceRoot === instance && r.keyringService === keyring && r.configSha256 === hash(config) && r.entitlementsSha256 === hash(entitlements), 'source or isolation receipt mismatch');
     requireValue(r.rustVersion === '1.95.0' && r.architecture === 'aarch64-apple-darwin' && r.profile === 'debug' && JSON.stringify(r.features) === '["default","system-keyring"]' && r.notarized === false && JSON.stringify(r.sidecars?.map(v => v.name)) === JSON.stringify(names) && r.sidecars.every(v => /^[a-f0-9]{64}$/.test(v.sourceSha256)), 'incomplete candidate source receipt');
+    requireValue(signingMode === 'unsigned-local'
+      ? r.signingMode === 'unsigned-local' && r.signingIdentity === null
+      : signingMode === 'signed' && (r.signingMode === undefined || r.signingMode === 'signed') && typeof r.signingIdentity === 'string' && r.signingIdentity.length > 0,
+      'candidate signing mode does not match the explicit run option');
   } else if (action === 'manifest' || action === 'verify-manifest') {
     const [file, bundle, protocol, source, ...names] = args;
     const files = ['Contents/Info.plist', 'Contents/Resources/companion-delegation-source.json', ...names.map(n => `Contents/MacOS/${n}`)];
@@ -218,6 +226,11 @@ prepare_paths() {
     OWNER_FILE="$CONTROL_DIR/instance-owner.json"
     PID_FILE="$CONTROL_DIR/owned-candidate.json"
     MANIFEST="$CONTROL_DIR/signed-candidate.json"
+    MANIFEST_PROTOCOL="$PROTOCOL"
+    if [[ "$UNSIGNED_LOCAL" == 1 ]]; then
+        MANIFEST="$CONTROL_DIR/unsigned-candidate.json"
+        MANIFEST_PROTOCOL="$PROTOCOL.unsigned-local"
+    fi
     KEYRING_SERVICE="buzz-desktop-dev.companion-delegation-$(json scope "$INSTANCE_ROOT")"
 }
 
@@ -314,12 +327,42 @@ verify_bundle() {
     [[ -d "$APP_BUNDLE" && ! -L "$APP_BUNDLE" ]] || fail "candidate bundle is missing or symlinked"
     plist_json=$(/usr/bin/plutil -convert json -o - "$PLIST")
     json plist "$plist_json" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" "$DATA_DIR" "$NATIVE_ROOT" "$KEYRING_SERVICE" "$APP_VERSION"
-    json verify-receipt "$RECEIPT" "$PROTOCOL" "$SOURCE_REVISION" "$SOURCE_BASE" "$EXPECTED_BRANCH" "$BUNDLE_ID" "$PRODUCT_NAME" "$INSTANCE_ROOT" "$KEYRING_SERVICE" "$CONFIG_PATH" "$ENTITLEMENTS_PATH" "${SIDECARS[@]}"
+    json verify-receipt "$RECEIPT" "$PROTOCOL" "$SOURCE_REVISION" "$SOURCE_BASE" "$EXPECTED_BRANCH" "$BUNDLE_ID" "$PRODUCT_NAME" "$INSTANCE_ROOT" "$KEYRING_SERVICE" "$CONFIG_PATH" "$ENTITLEMENTS_PATH" "$(candidate_signing_mode)" "${SIDECARS[@]}"
     for name in buzz-desktop "${SIDECARS[@]}"; do
         verify_executable "$APP_BUNDLE/Contents/MacOS/$name"
-        /usr/bin/codesign --verify --strict "$APP_BUNDLE/Contents/MacOS/$name"
+        [[ "$UNSIGNED_LOCAL" == 1 ]] || /usr/bin/codesign --verify --strict "$APP_BUNDLE/Contents/MacOS/$name"
     done
-    /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
+    [[ "$UNSIGNED_LOCAL" == 1 ]] || /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
+}
+
+candidate_signing_mode() {
+    if [[ "$UNSIGNED_LOCAL" == 1 ]]; then printf '%s' unsigned-local; else printf '%s' signed; fi
+}
+
+lookup_signing_identity() {
+    /usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | /usr/bin/head -1
+}
+
+resolve_signing_identity() {
+    if [[ "$UNSIGNED_LOCAL" == 1 ]]; then
+        [[ -z "$SIGNING_IDENTITY" ]] || fail "--unsigned cannot be combined with a signing identity"
+        printf '%s' unsigned-local
+        return
+    fi
+    local signing="$SIGNING_IDENTITY"
+    [[ -n "$signing" ]] || signing=$(lookup_signing_identity)
+    [[ -n "$signing" ]] || fail "no Developer ID is available; choose an explicit signing identity (or '-' for disclosed local ad-hoc signing)"
+    [[ ! "$signing" =~ [[:cntrl:]] ]] || fail "invalid signing identity"
+    printf '%s' "$signing"
+}
+
+codesign_candidate_bundle() {
+    /usr/bin/codesign --force --deep --timestamp=none --sign "$1" --entitlements "$ENTITLEMENTS_PATH" "$APP_BUNDLE"
+}
+
+sign_candidate_bundle() {
+    [[ "$UNSIGNED_LOCAL" != 1 ]] || return 0
+    codesign_candidate_bundle "$1"
 }
 
 capture_native_node() {
@@ -358,12 +401,7 @@ build_candidate() {
     # The rail-glass candidate is the shell's test app (docs/luca/rail-system/
     # SHELL_BUILD.md): its page is built with the shell's frame switched on.
     [[ "$SHELL_FRAME" != 1 ]] || export VITE_LUCA_SHELL_FRAME=1
-    signing="$SIGNING_IDENTITY"
-    if [[ -z "$signing" ]]; then
-        signing=$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | /usr/bin/head -1)
-        [[ -n "$signing" ]] || fail "no Developer ID is available; choose an explicit signing identity (or '-' for disclosed local ad-hoc signing)"
-    fi
-    [[ ! "$signing" =~ [[:cntrl:]] ]] || fail "invalid signing identity"
+    signing=$(resolve_signing_identity)
     mkdir -p "$TARGET_DIR"
     validate_directory "$TARGET_DIR"
     cargo build --offline --locked -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p buzz-cli -p git-credential-nostr -p buzz-relay
@@ -384,13 +422,13 @@ build_candidate() {
     /usr/bin/plutil -insert LucaCompanionDelegationCandidate -bool true "$PLIST"
     /usr/bin/plutil -insert LSEnvironment -json "$(json environment "$DATA_DIR" "$NATIVE_ROOT" "$KEYRING_SERVICE")" "$PLIST"
     mkdir -p "$APP_BUNDLE/Contents/Resources"
-    json receipt "$RECEIPT" "$PROTOCOL" "$SOURCE_REVISION" "$SOURCE_BASE" "$EXPECTED_BRANCH" "$BUNDLE_ID" "$PRODUCT_NAME" "$INSTANCE_ROOT" "$KEYRING_SERVICE" "$CONFIG_PATH" "$ENTITLEMENTS_PATH" "$TARGET_DIR" "$signing" "${SIDECARS[@]}"
-    # All source/isolation metadata precedes the final signature. Nothing inside
-    # the signed bundle is changed afterward. No notarization or release occurs.
-    /usr/bin/codesign --force --deep --timestamp=none --sign "$signing" --entitlements "$ENTITLEMENTS_PATH" "$APP_BUNDLE"
+    json receipt "$RECEIPT" "$PROTOCOL" "$SOURCE_REVISION" "$SOURCE_BASE" "$EXPECTED_BRANCH" "$BUNDLE_ID" "$PRODUCT_NAME" "$INSTANCE_ROOT" "$KEYRING_SERVICE" "$CONFIG_PATH" "$ENTITLEMENTS_PATH" "$TARGET_DIR" "$signing" "$(candidate_signing_mode)" "${SIDECARS[@]}"
+    # In signed mode all metadata precedes the final signature. Unsigned mode
+    # performs no signing operation. No notarization or release occurs.
+    sign_candidate_bundle "$signing"
     verify_bundle
-    json manifest "$MANIFEST" "$APP_BUNDLE" "$PROTOCOL" "$SOURCE_REVISION" buzz-desktop "${SIDECARS[@]}"
-    printf 'Built (not launched or installed): %s\nSource: %s\nSigning: %s\nSigned hashes: %s\n' "$APP_BUNDLE" "$SOURCE_REVISION" "$signing" "$MANIFEST"
+    json manifest "$MANIFEST" "$APP_BUNDLE" "$MANIFEST_PROTOCOL" "$SOURCE_REVISION" buzz-desktop "${SIDECARS[@]}"
+    printf 'Built (not launched or installed): %s\nSource: %s\nSigning: %s\nCandidate hashes: %s\n' "$APP_BUNDLE" "$SOURCE_REVISION" "$signing" "$MANIFEST"
 }
 
 run_candidate() {
@@ -398,9 +436,9 @@ run_candidate() {
     refuse_running_candidate
     lock_instance
     verify_bundle
-    json verify-manifest "$MANIFEST" "$APP_BUNDLE" "$PROTOCOL" "$SOURCE_REVISION" buzz-desktop "${SIDECARS[@]}"
+    json verify-manifest "$MANIFEST" "$APP_BUNDLE" "$MANIFEST_PROTOCOL" "$SOURCE_REVISION" buzz-desktop "${SIDECARS[@]}"
     [[ ! -L "$CONTROL_DIR/candidate.log" ]] || fail "candidate log must not be a symlink"
-    # Spawn the verified executable inside its signed Tauri .app so $! is an
+    # Spawn the verified executable inside its isolated Tauri .app so $! is an
     # actual owned app PID. LaunchServices/open does not return that app PID.
     # Native authentication/profile variables and HOME are deliberately intact.
     (
@@ -452,8 +490,10 @@ main() {
     [[ "$MODE" == check || "$MODE" == build || "$MODE" == run || "$MODE" == stop ]] || { usage; return 2; }
     shift
     TARGET_DIR='' INSTANCE_ROOT='' SIGNING_IDENTITY=''
+    UNSIGNED_LOCAL=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --unsigned) UNSIGNED_LOCAL=1; shift ;;
             --target-dir|--instance-root|--signing-identity)
                 [[ $# -ge 2 && -n "$2" ]] || { usage; return 2; }
                 case "$1" in
@@ -466,6 +506,7 @@ main() {
         esac
     done
     [[ -n "$TARGET_DIR" ]] || { usage; return 2; }
+    [[ "$UNSIGNED_LOCAL" != 1 || ( -z "$SIGNING_IDENTITY" && "$MODE" != stop ) ]] || fail "--unsigned is check/build/run-only and cannot be combined with a signing identity"
     # Stopping only signals an owned process, so it may still name a target from
     # before the one-cache rule; everything else builds or runs from the cache.
     [[ "$MODE" == stop || "$TARGET_DIR" == "$SHARED_TARGET" ]] || fail "Polyphonic builds use the one shared build cache ($SHARED_TARGET), never a separate target"
@@ -479,7 +520,7 @@ main() {
     fi
     case "$MODE" in
         check)
-            printf 'Read-only checks passed. Source: %s\nApp: %s\nDisposable state: %s\nNo build or launch performed.\n' "$SOURCE_REVISION" "$APP_BUNDLE" "$INSTANCE_ROOT" ;;
+            printf 'Read-only checks passed. Source: %s\nApp: %s\nDisposable state: %s\nMode: %s\nNo build or launch performed.\n' "$SOURCE_REVISION" "$APP_BUNDLE" "$INSTANCE_ROOT" "$(candidate_signing_mode)" ;;
         build) build_candidate ;;
         run) run_candidate ;;
         stop) stop_candidate ;;

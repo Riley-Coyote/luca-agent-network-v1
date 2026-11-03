@@ -50,6 +50,16 @@ pub(crate) use material::{
 };
 pub(crate) use profiles::desktop_source_bindings;
 
+/// Complete private-purpose exclusions for an explicitly approved initial read.
+/// This reads only Polyphonic's body-free ledger, never a harness transcript.
+pub(crate) fn initial_context_exclusions(
+    state: &AppState,
+    family: &str,
+    deadline: Instant,
+) -> Result<std::collections::HashSet<String>, AwarenessStoreError> {
+    profiles::complete_exclusions(state, family, deadline)
+}
+
 const MAX_ACTIVE_SCOPES: usize = 64;
 const MAX_MATERIAL_REFS: usize = 128;
 const MAX_PENDING_PROFILE_CHILDREN: usize = 32;
@@ -167,6 +177,27 @@ pub(crate) struct CompanionSourceRuntimeV1 {
     machine_stops: Arc<MachineSourceStopsV1>,
 }
 impl CompanionSourceRuntimeV1 {
+    /// Remember an already-admitted, explicitly reviewed initial sample as a
+    /// normal profile child. No source read or grant occurs here. Deny-first
+    /// stop metadata wins over a late admission and cannot be reactivated.
+    pub(crate) fn remember_initial_sample(
+        &self,
+        reference: luca_protocol::AwarenessObservationRefV1,
+        child: OpaqueId,
+    ) -> Result<(), AwarenessStoreError> {
+        let inner = self.inner.lock().map_err(|_| AwarenessStoreError::Unavailable)?;
+        let handle = inner.as_ref().ok_or(AwarenessStoreError::Unavailable)?;
+        if handle.owner != reference.owner_pubkey || handle.device != reference.device_id
+            || handle.shared.closing.load(Ordering::Acquire) {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        let mut facts = handle.shared.facts.lock().map_err(|_| AwarenessStoreError::Unavailable)?;
+        let key = material::observation_key(&reference);
+        if !facts.active.contains(&key) { return Err(AwarenessStoreError::Unavailable); }
+        facts.remember(reference, SourceMaterialScopeV1::ProfileChild(child));
+        Ok(())
+    }
+
     /// First relevant feature initialization: restore only/off, then start one
     /// owned idle event pump + privacy timer. False means the private catalog is
     /// unavailable (not repaired); privacy housekeeping still runs. Call outside

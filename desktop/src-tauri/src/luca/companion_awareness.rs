@@ -20,6 +20,7 @@ pub(crate) mod catalog;
 #[cfg(test)]
 mod controller_tests;
 mod live_owner;
+pub(crate) mod initial_context;
 pub(crate) mod machine_activity;
 pub(crate) mod machine_catalog;
 pub(crate) mod machine_runner;
@@ -807,6 +808,33 @@ impl CompanionAwarenessRuntime {
                 },
                 resolve,
             )?;
+            Ok(effect())
+        })
+    }
+
+    /// Extra relay-return admission, separate from promotion/provider egress.
+    /// Source revisions, destination choices and retained ancestry are rechecked
+    /// under one denial barrier before the bounded host effect.
+    pub(crate) fn admit_initiative_return<T>(
+        &self, lease:&LiveAwarenessLease<'_>, resident:&Hex64,node:&OpaqueId,now:&CanonicalTimestamp,
+        binding:&luca_protocol::Sha256Ref,references:&[AwarenessObservationRefV1],
+        approved:&[super::companion_initiative::return_setup::InitiativeReturnSourceV1],
+        mut resolve:impl FnMut(&AwarenessObservationRefV1,bool)->AwarenessMaterialFactsV1,
+        effect:impl FnOnce()->T,
+    )->Result<T,AwarenessStoreError> {
+        if references.is_empty() {return Err(AwarenessStoreError::Invalid);}
+        self.with_controller(lease.owner(),|controller| {
+            controller.store.recheck_promoted_artifact(node,&AwarenessHostFactsV1 {owner_pubkey:lease.owner(),resident_pubkey:resident,now,
+                source_fresh:false,material_state:luca_protocol::AwarenessMaterialStateV1::Unavailable},&mut resolve)?;
+            for reference in references {
+                if &reference.owner_pubkey!=lease.owner() || &reference.resident_pubkey!=resident {return Err(AwarenessStoreError::Invalid);}
+                let key=AwarenessGrantKeyV1 {source:AwarenessSourceKeyV1 {owner_pubkey:lease.owner().clone(),source_id:reference.source_id.clone(),device_id:reference.device_id.clone()},resident_pubkey:resident.clone()};
+                let snapshot=controller.store.snapshot(&key)?;
+                if !approved.iter().any(|source|source.source_id==reference.source_id && source.device_id==reference.device_id
+                    && source.grant_revision==snapshot.grant.grant_revision && source.deny_epoch==snapshot.source.deny_epoch)
+                    || !snapshot.grant.choices.promote || snapshot.grant.choices.provider_egress_binding.as_ref()!=Some(binding) {return Err(AwarenessStoreError::Invalid);}
+                controller.store.recheck_native_history_choice(&key,binding)?;
+            }
             Ok(effect())
         })
     }

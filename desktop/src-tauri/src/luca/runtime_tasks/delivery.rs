@@ -755,6 +755,8 @@ fn recover_rows(
 }
 
 fn recover_row(app: &AppHandle, row: RuntimeTaskDeliveryReceiptV1) -> Result<bool, String> {
+    if store(app)?.lock().map_err(|_|"Task return state is unavailable.")?.operation_for_task(&row.task_id)
+        ==Some(RuntimeTaskDeliveryOperationV1::InitiativeReturn) {return Ok(false);}
     if row.state == RuntimeTaskDeliveryStateV1::AwaitingResult {
         let task_state = memory()
             .lock()

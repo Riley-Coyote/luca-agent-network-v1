@@ -30,6 +30,7 @@ mod companion_initiative;
 mod companion_profiles;
 mod companion_follow;
 pub(crate) mod companion_configuration;
+mod companion_setup;
 mod companion_machine;
 mod connected_brain;
 mod continuity;

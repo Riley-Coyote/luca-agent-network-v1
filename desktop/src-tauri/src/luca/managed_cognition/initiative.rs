@@ -105,6 +105,23 @@ pub(crate) fn request_initiative_pursuit(
     }
 }
 
+/// Separately approved initiative synthesis using the existing tool-free return
+/// protocol. The publisher still requires its distinct InitiativeReturn grant.
+pub(crate) fn begin_companion_return(
+    request: &RuntimeTaskDeliveryRequestV1,
+    epoch: SafeU53,
+) -> Result<ManagedInitiativeAdmission, ManagedCognitionError> {
+    if request.runtime_family != "companion_initiative" {
+        return Err(ManagedCognitionError::Invalid);
+    }
+    begin(
+        ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+            request: request.clone(),
+        },
+        epoch,
+    )
+}
+
 fn begin(
     request: ResidentPrivateCognitionRequestV1,
     epoch: SafeU53,
@@ -160,10 +177,16 @@ impl Drop for ManagedInitiativeAdmission {
 
 fn control_for(
     request: &ResidentPrivateCognitionRequestV1,
+    current_epoch: SafeU53,
 ) -> Option<ResidentPrivateCognitionControlV1> {
     let epoch = match request {
         ResidentPrivateCognitionRequestV1::InitiativePlanning { request } => request.session_epoch,
         ResidentPrivateCognitionRequestV1::InitiativePursuit { request } => request.session_epoch,
+        ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request }
+            if request.runtime_family == "companion_initiative" =>
+        {
+            current_epoch
+        }
         _ => return None,
     };
     Some(ResidentPrivateCognitionControlV1::CancelInitiative {
@@ -183,7 +206,8 @@ impl ManagedCognitionClient {
         if self.invalidated.load(Ordering::Acquire) {
             return Err(ManagedCognitionError::Unavailable);
         }
-        let control = control_for(&request).ok_or(ManagedCognitionError::Invalid)?;
+        let control =
+            control_for(&request, self.session_epoch).ok_or(ManagedCognitionError::Invalid)?;
         let ResidentPrivateCognitionControlV1::CancelInitiative { session_epoch, .. } = &control;
         if !control.matches_initiative(&request)
             || request.resident_pubkey() != &self.resident_pubkey
@@ -297,7 +321,8 @@ impl ManagedCognitionClient {
         &self,
         request: &ResidentPrivateCognitionRequestV1,
     ) -> Result<ResidentPrivateCognitionResultV1, ManagedCognitionError> {
-        let control = control_for(request).ok_or(ManagedCognitionError::Invalid)?;
+        let control =
+            control_for(request, self.session_epoch).ok_or(ManagedCognitionError::Invalid)?;
         let mut channel = self
             .channel
             .lock()
@@ -365,6 +390,16 @@ impl ManagedCognitionClient {
                 ) => result
                     .validate_against_at(request, now)
                     .map_err(|_| ManagedCognitionError::Invalid)?,
+                (
+                    ResidentPrivateCognitionResultV1::RuntimeTaskDelivery { result },
+                    ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request },
+                ) if request.runtime_family == "companion_initiative"
+                    && now < request.deadline_unix_ms.get() =>
+                {
+                    result
+                        .validate_against(request)
+                        .map_err(|_| ManagedCognitionError::Invalid)?;
+                }
                 _ => return Err(ManagedCognitionError::Invalid),
             }
             Ok(result)

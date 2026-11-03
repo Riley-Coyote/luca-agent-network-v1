@@ -293,6 +293,12 @@ fn priority_stop_survives_full_command_queue_and_shutdown_joins_owned_loop() {
         shared: Arc::clone(&shared),
         worker,
     });
+    let initial_child = id("approved-initial-child");
+    runtime.remember_initial_sample(record.clone(), initial_child.clone()).unwrap();
+    let next_turn = runtime.snapshot(&engine.owner, &fixture.resident, &now()).unwrap();
+    assert_eq!(next_turn.references(), vec![record.clone()]);
+    assert_eq!(next_turn.binding(&record).unwrap().scope,
+        SourceMaterialScopeV1::ProfileChild(initial_child.clone()));
     runtime
         .after_pause(&engine.owner, &fixture.resident)
         .unwrap();
@@ -302,6 +308,7 @@ fn priority_stop_survives_full_command_queue_and_shutdown_joins_owned_loop() {
         .unwrap()
         .references()
         .is_empty());
+    assert!(runtime.remember_initial_sample(record.clone(), initial_child).is_err());
     // A capture already admitted before deny cannot re-current its metadata.
     shared.facts.lock().unwrap().remember(
         record,

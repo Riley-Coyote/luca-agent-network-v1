@@ -86,6 +86,18 @@ export function failed(error: unknown, fallback: string) {
 const FOCUSABLE =
   'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Only this host-owned combined review has a no-change Customize answer. */
+export function isCompanionSetupReview(
+  request: PendingManagedPermission["request"],
+): boolean {
+  return (
+    request.protocol === "luca.managed.permission.v2" &&
+    request.capability === "harness_manage" &&
+    request.risk === "high_impact" &&
+    request.resource.kind === "companion_setup_combined"
+  );
+}
+
 /**
  * An answered ask leaves while it holds focus: focus moves on to the next
  * ask's first control, or after the last to `fallback`, so the next Tab
@@ -145,6 +157,7 @@ export function PermissionAsk({
   const [details, setDetails] = React.useState(false);
   const request = pending.request;
   const structured = request.protocol === "luca.managed.permission.v2";
+  const companionSetup = isCompanionSetupReview(request);
   const offer = runtimePermissionOffer(pending);
   const title = structured
     ? request.operation
@@ -163,23 +176,37 @@ export function PermissionAsk({
     }
   };
   const answers = structured
-    ? [
-        { key: "deny", label: "Deny", run: () => answer("deny") },
-        {
-          key: "once",
-          label: "Once",
-          run: () => answer("once", "allow_once"),
-        },
-        ...(canRememberCapabilityPermission(request)
-          ? [
-              {
-                key: "always",
-                label: "Always here",
-                run: () => answer("always", "always_allow"),
-              },
-            ]
-          : []),
-      ]
+    ? companionSetup
+      ? [
+          { key: "deny", label: "Not now", run: () => answer("deny") },
+          {
+            key: "customize",
+            label: "Customize",
+            run: () => answer("customize", "customize"),
+          },
+          {
+            key: "once",
+            label: "Approve",
+            run: () => answer("once", "allow_once"),
+          },
+        ]
+      : [
+          { key: "deny", label: "Deny", run: () => answer("deny") },
+          {
+            key: "once",
+            label: "Once",
+            run: () => answer("once", "allow_once"),
+          },
+          ...(canRememberCapabilityPermission(request)
+            ? [
+                {
+                  key: "always",
+                  label: "Always here",
+                  run: () => answer("always", "always_allow"),
+                },
+              ]
+            : []),
+        ]
     : visiblePermissionTenses(offer).map((tense) => ({
         key: tense,
         label: PERMISSION_TENSE_LABEL[tense],
@@ -209,6 +236,7 @@ export function PermissionAsk({
     <PlaceAskRow
       {...common}
       data-permission-surface={surface ? "" : undefined}
+      data-companion-setup-review={companionSetup ? "" : undefined}
       answers={presentedAnswers.map((each) => (
         <PlaceQuietButton
           data-permission-choice={each.key}
@@ -219,11 +247,13 @@ export function PermissionAsk({
         >
           {busy === each.key && each.key !== "deny"
             ? busyLabel(each.key)
-            : surface && each.key === "once"
-              ? "Allow once"
-              : surface && each.key === "always"
-                ? "Always here"
-                : each.label}
+            : companionSetup
+              ? each.label
+              : surface && each.key === "once"
+                ? "Allow once"
+                : surface && each.key === "always"
+                  ? "Always here"
+                  : each.label}
         </PlaceQuietButton>
       ))}
       extra={

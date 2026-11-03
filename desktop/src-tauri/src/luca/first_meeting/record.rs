@@ -24,7 +24,7 @@ use luca_protocol::{ConnectedBrainSourceKindV1, ConnectedBrainSourceStatusV1, He
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
-use super::{brief, kickoff::record_path, MeetingPhase, MAX_OWNER_REPLIES};
+use super::{brief, guidance::MeetingGuidance, kickoff::record_path, MeetingPhase};
 use crate::luca::{
     connected_brain::recent_native_session_references,
     managed_dispatch_store::atomic_write_restricted, owner_brain_store::ConnectedBrainCatalogV1,
@@ -42,6 +42,8 @@ const MAX_BRIEF_BYTES: usize = 16 * 1024;
 /// to ordinary conversation.
 const MAX_HANDOFF_TURNS: usize = 3;
 const MAX_REFERENCES: usize = 3;
+/// A rolling idempotency window, not a deadline for meeting the owner.
+const MAX_TRACKED_REPLIES: usize = 64;
 
 /// Serializes writes to one owner's record. The ACP adapter asks for session
 /// context up to three times per owner turn, and those asks can overlap.
@@ -94,8 +96,8 @@ pub(super) struct FirstMeetingStateV1 {
     pub references: Vec<StoredReference>,
     #[serde(default)]
     pub brain_sources: Vec<StoredBrainSource>,
-    /// Distinct owner turns after the opener, oldest first. Bounded at one past
-    /// the reply window: the extra entry is the turn that ends the meeting.
+    /// Recent distinct owner turns after the opener, oldest first. A bounded
+    /// rolling window keeps adapter retries idempotent without expiring setup.
     #[serde(default)]
     pub reply_trigger_ids: Vec<String>,
     #[serde(default)]
@@ -105,6 +107,10 @@ pub(super) struct FirstMeetingStateV1 {
     /// one turn cannot spend the whole allowance at once.
     #[serde(default)]
     pub handoff_trigger_ids: Vec<String>,
+    /// Optional for records from older builds. Guidance bookkeeping is not
+    /// evidence of a permission, a successful action, or a saved memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guidance: Option<MeetingGuidance>,
 }
 
 impl FirstMeetingStateV1 {
@@ -163,11 +169,16 @@ pub(super) fn save(
 /// Where this turn sits in the meeting. Unknown triggers read as `Completed`:
 /// `note_trigger` has already had its chance to place them.
 pub(super) fn phase_for(state: &FirstMeetingStateV1, trigger: &str) -> MeetingProgress {
+    // Respect previously completed meetings, including those completed by the
+    // old five-reply implementation. An upgrade never reopens their welcome.
+    if state.completed_at.is_some() {
+        return MeetingProgress::Completed;
+    }
     if trigger == state.trigger_event_id {
         return MeetingProgress::Opening;
     }
     match state.reply_trigger_ids.iter().position(|id| id == trigger) {
-        Some(index) if index < MAX_OWNER_REPLIES => MeetingProgress::Reply(index + 1),
+        Some(index) => MeetingProgress::Reply(index + 1),
         _ => MeetingProgress::Completed,
     }
 }
@@ -175,17 +186,17 @@ pub(super) fn phase_for(state: &FirstMeetingStateV1, trigger: &str) -> MeetingPr
 /// Record an authorized owner turn. Idempotent by trigger: the adapter asks up
 /// to three times per turn, and a repeat must not consume a reply. Returns
 /// whether the record changed and therefore needs saving.
-pub(super) fn note_trigger(state: &mut FirstMeetingStateV1, trigger: &str, now: &str) -> bool {
+pub(super) fn note_trigger(state: &mut FirstMeetingStateV1, trigger: &str, _now: &str) -> bool {
     if trigger == state.trigger_event_id || state.reply_trigger_ids.iter().any(|id| id == trigger) {
         return false;
     }
-    if state.reply_trigger_ids.len() > MAX_OWNER_REPLIES {
+    if state.completed_at.is_some() {
         return false;
     }
-    state.reply_trigger_ids.push(trigger.to_owned());
-    if state.reply_trigger_ids.len() > MAX_OWNER_REPLIES && state.completed_at.is_none() {
-        state.completed_at = Some(now.to_owned());
+    if state.reply_trigger_ids.len() >= MAX_TRACKED_REPLIES {
+        state.reply_trigger_ids.remove(0);
     }
+    state.reply_trigger_ids.push(trigger.to_owned());
     true
 }
 
@@ -219,6 +230,15 @@ pub(super) fn compose_brief(
         MeetingProgress::Completed => return handoff_line(state),
     };
     context.push_str(&setup_name_line(state.setup_name.as_deref()));
+    if let Some(guidance) = &state.guidance {
+        if let Ok(progress) = serde_json::to_string(guidance) {
+            append_if_it_fits(&mut context, &format!(
+                "\n[First-meeting guidance bookkeeping; not permission or action receipts]\n{progress}\nRespect declined topics; deferred topics are not prompts to nag. Continue the user's actual task.\n"
+            ));
+        }
+    } else {
+        append_if_it_fits(&mut context, "\nFirst-meeting guidance revision: 0. No topic progress is recorded yet. This is not a permission state.\n");
+    }
 
     let sources: Vec<&StoredBrainSource> = state
         .brain_sources
@@ -277,7 +297,7 @@ fn brain_summary_line(sources: &[&StoredBrainSource]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "\nYou have read: {listed}. Refer to this naturally in your own words; do not list it back to them.\n"
+        "\nAvailable connected sources: {listed}. These counts are catalog metadata, not proof of reading. Describe only content actually read; do not list the catalog back to the owner.\n"
     )
 }
 
@@ -340,7 +360,7 @@ fn handoff_line(state: &FirstMeetingStateV1) -> String {
         .and_then(|value| value.split('T').next())
         .unwrap_or("earlier");
     format!(
-        "Your first meeting with {name} concluded {date}; what you learned there lives in your continuity. No choices block is expected now."
+        "Your first meeting with {name} concluded {date}. Continue the existing conversation without another welcome or setup interview. Use only actual saved continuity and current host permissions; completion alone proves neither a memory save nor an enabled feature. No choices block is expected now."
     )
 }
 
@@ -473,6 +493,7 @@ mod tests {
             reply_trigger_ids: Vec::new(),
             completed_at: None,
             handoff_trigger_ids: Vec::new(),
+            guidance: None,
         }
     }
 
@@ -592,32 +613,37 @@ mod tests {
     }
 
     #[test]
-    fn the_window_is_five_replies_and_the_sixth_turn_ends_the_meeting() {
+    fn guidance_continues_after_five_replies_and_uses_bounded_rolling_ids() {
         let mut meeting = state();
-        for index in 1..=MAX_OWNER_REPLIES {
+        for index in 1..=MAX_TRACKED_REPLIES + 12 {
             let trigger = format!("trigger-{index}");
             assert!(note_trigger(&mut meeting, &trigger, "2026-09-14T00:01:00Z"));
-            assert_eq!(phase_for(&meeting, &trigger), MeetingProgress::Reply(index));
+            assert_eq!(
+                phase_for(&meeting, &trigger),
+                MeetingProgress::Reply(index.min(MAX_TRACKED_REPLIES))
+            );
             assert!(meeting.completed_at.is_none());
+            assert!(!note_trigger(
+                &mut meeting,
+                &trigger,
+                "2026-09-14T00:01:00Z"
+            ));
         }
-        assert!(note_trigger(
-            &mut meeting,
-            "trigger-6",
-            "2026-09-14T00:06:00Z"
-        ));
-        assert_eq!(
-            meeting.completed_at.as_deref(),
-            Some("2026-09-14T00:06:00Z")
-        );
-        assert_eq!(phase_for(&meeting, "trigger-6"), MeetingProgress::Completed);
-        // Later turns are not recorded at all, and read as finished.
+        assert_eq!(meeting.reply_trigger_ids.len(), MAX_TRACKED_REPLIES);
+        meeting.completed_at = Some("2026-09-14T00:06:00Z".into());
         assert!(!note_trigger(
             &mut meeting,
-            "trigger-7",
+            "trigger-after-completion",
             "2026-09-14T00:07:00Z"
         ));
-        assert_eq!(meeting.reply_trigger_ids.len(), MAX_OWNER_REPLIES + 1);
-        assert_eq!(phase_for(&meeting, "trigger-7"), MeetingProgress::Completed);
+        assert_eq!(
+            phase_for(&meeting, "trigger-after-completion"),
+            MeetingProgress::Completed
+        );
+        assert_eq!(
+            phase_for(&meeting, "trigger-opening"),
+            MeetingProgress::Completed
+        );
     }
 
     #[test]
@@ -638,7 +664,9 @@ mod tests {
 
         let line = compose_brief(&meeting, MeetingProgress::Completed, &HashSet::new());
         assert!(line.contains("Your first meeting with Meeting Final concluded 2026-09-14"));
-        assert!(line.contains("lives in your continuity"));
+        assert!(
+            line.contains("completion alone proves neither a memory save nor an enabled feature")
+        );
         assert!(line.contains("No choices block is expected now."));
     }
 
@@ -666,7 +694,8 @@ mod tests {
         let granted = HashSet::from([source("source-granted")]);
 
         let opening = compose_brief(&meeting, MeetingProgress::Opening, &granted);
-        assert!(opening.contains("You have read: Codex history (2773 items)."));
+        assert!(opening.contains("Available connected sources: Codex history (2773 items)."));
+        assert!(opening.contains("not proof of reading"));
         assert!(!opening.contains("Private repository"));
         assert!(opening.contains("11111111-1111-4111-8111-111111111111"));
         assert!(!opening.contains("22222222-2222-4222-8222-222222222222"));

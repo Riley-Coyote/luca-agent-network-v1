@@ -188,26 +188,26 @@ async fn serve_channel<R: tokio::io::AsyncBufRead + Unpin, W: tokio::io::AsyncWr
                 biased;
                 reply = &mut reply_rx => break reply.unwrap_or(CognitionReply::Unavailable("runtime_failed")),
                 _ = &mut deadline => {
-                    cancel_current_initiative(&tx, &request);
+                    cancel_current_initiative(&tx, &request,session_epoch);
                     break CognitionReply::Unavailable("deadline_expired");
                 }
                 next = read_frame_into(&mut reader, &mut assembly) => {
                     let control = match next {
                         Ok(Some(frame)) => decode_control(&frame, &resident_pubkey, &binding_ref, session_epoch),
-                        _ => { cancel_current_initiative(&tx, &request); return; }
+                        _ => { cancel_current_initiative(&tx, &request,session_epoch); return; }
                     };
                     match control {
                         Ok(control) if control.matches_initiative(&request) => {
                             let _ = tx.send(CognitionEnvelope::CancelInitiative { control });
                         }
                         Ok(_) => {}, // stale/other/legacy requests are never cancelled
-                        Err(()) => { cancel_current_initiative(&tx, &request); return; }
+                        Err(()) => { cancel_current_initiative(&tx, &request,session_epoch); return; }
                     }
                 }
             }
         };
         if write_reply(&mut writer, reply, job_id).await.is_err() {
-            cancel_current_initiative(&tx, &request);
+            cancel_current_initiative(&tx, &request, session_epoch);
             break;
         }
     }
@@ -216,10 +216,19 @@ async fn serve_channel<R: tokio::io::AsyncBufRead + Unpin, W: tokio::io::AsyncWr
 fn cancel_current_initiative(
     tx: &tokio::sync::mpsc::UnboundedSender<CognitionEnvelope>,
     request: &ResidentPrivateCognitionRequestV1,
+    channel_epoch: Option<luca_protocol::SafeU53>,
 ) {
     let epoch = match request {
         ResidentPrivateCognitionRequestV1::InitiativePlanning { request } => request.session_epoch,
         ResidentPrivateCognitionRequestV1::InitiativePursuit { request } => request.session_epoch,
+        ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request }
+            if request.runtime_family == "companion_initiative" =>
+        {
+            let Some(epoch) = channel_epoch else {
+                return;
+            };
+            epoch
+        }
         _ => return,
     };
     let _ = tx.send(CognitionEnvelope::CancelInitiative {

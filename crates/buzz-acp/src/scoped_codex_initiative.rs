@@ -20,7 +20,8 @@ fn resident_voice_fits_bound(persona: Option<&str>) -> bool {
 
 pub(super) fn is_scoped_request(source: &PromptSource) -> bool {
     matches!(source, PromptSource::Continuity(request) if matches!(request.as_ref(),
-        ResidentPrivateCognitionRequestV1::InitiativePlanning {..} | ResidentPrivateCognitionRequestV1::InitiativePursuit {..}))
+        ResidentPrivateCognitionRequestV1::InitiativePlanning {..} | ResidentPrivateCognitionRequestV1::InitiativePursuit {..})
+        || matches!(request.as_ref(),ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {request} if request.runtime_family=="companion_initiative"))
 }
 
 pub(super) async fn run(
@@ -45,6 +46,11 @@ pub(super) async fn run(
                 request.deadline_unix_ms.get()
             }
             ResidentPrivateCognitionRequestV1::InitiativePursuit { request } => {
+                request.deadline_unix_ms.get()
+            }
+            ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request }
+                if request.runtime_family == "companion_initiative" =>
+            {
                 request.deadline_unix_ms.get()
             }
             _ => return (isolated_continuity_failure(), None),
@@ -455,12 +461,33 @@ async fn execute(
             }
             let output = output.ok_or("native final not verified")?;
             validate_output(request, &output, unix_ms())?;
+            if matches!(
+                request,
+                ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { .. }
+            ) {
+                return serde_json::from_str::<ReturnDraft>(&output)
+                    .map(|draft| draft.draft)
+                    .map_err(|_| "native return shape".into());
+            }
             return Ok(output);
         }
     }
 }
 
 fn scoped_prompt(request: &ResidentPrivateCognitionRequestV1, now: u64) -> Result<String, String> {
+    if let ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request } = request {
+        if request.runtime_family != "companion_initiative" || now >= request.deadline_unix_ms.get()
+        {
+            return Err("unsupported or expired return".into());
+        }
+        let prompt = pool::build_runtime_task_delivery_prompt(request)
+            .map_err(|_| "private return prompt")?;
+        let prompt=format!("{prompt}\nReturn exactly one JSON object with one field, draft, containing the final message string. Do not use tools; this is synthesis of the supplied result only.");
+        if prompt.len() > 64 * 1024 {
+            return Err("private context bound".into());
+        }
+        return Ok(prompt);
+    }
     let (shape, limit) = match request {
         ResidentPrivateCognitionRequestV1::InitiativePlanning { request } => {
             request
@@ -490,6 +517,14 @@ fn scoped_prompt(request: &ResidentPrivateCognitionRequestV1, now: u64) -> Resul
     Ok(prompt)
 }
 fn output_schema(request: &ResidentPrivateCognitionRequestV1) -> Result<serde_json::Value, String> {
+    if let ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request } = request {
+        if request.runtime_family != "companion_initiative" {
+            return Err("unsupported return schema".into());
+        }
+        return Ok(
+            serde_json::json!({"type":"object","properties":{"draft":{"type":"string","minLength":1,"maxLength":request.max_draft_bytes.get()}},"required":["draft"],"additionalProperties":false}),
+        );
+    }
     fn object(properties: serde_json::Value) -> serde_json::Value {
         let required = properties
             .as_object()
@@ -556,8 +591,28 @@ fn validate_output(
                 .validate_against_at(request, now)
                 .map_err(|_| "native work correlation".into())
         }
+        ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request }
+            if request.runtime_family == "companion_initiative" =>
+        {
+            let draft = serde_json::from_str::<ReturnDraft>(output)
+                .map_err(|_| "native return shape")?
+                .draft;
+            if now >= request.deadline_unix_ms.get()
+                || draft.trim().is_empty()
+                || draft.len() > request.max_draft_bytes.get() as usize
+            {
+                return Err("native return bound".into());
+            }
+            Ok(())
+        }
         _ => Err("unsupported result".into()),
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReturnDraft {
+    draft: String,
 }
 
 #[cfg(test)]

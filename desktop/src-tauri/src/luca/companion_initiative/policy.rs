@@ -24,6 +24,9 @@ pub(crate) struct InitiativePolicyV1 {
     /// Existing policies never acquire this authority by migration.
     #[serde(default)]
     pub allow_local_creations: bool,
+    /// Separate reviewed relay publication scope. Missing on older policies is OFF.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_consent: Option<super::return_setup::InitiativeReturnConsentV1>,
     pub max_model_stages_per_24h: u64,
     pub max_outreach_per_24h: u64,
     pub max_cycle_time_ms: u64,
@@ -37,6 +40,7 @@ impl InitiativePolicyV1 {
             enabled: false,
             paused: true,
             allow_local_creations: false,
+            return_consent: None,
             max_model_stages_per_24h: 3,
             max_outreach_per_24h: 0,
             max_cycle_time_ms: 15 * 60 * 1000,
@@ -44,6 +48,9 @@ impl InitiativePolicyV1 {
         })
     }
     pub(crate) fn validate(&self) -> Result<(), InitiativeStoreErrorV1> {
+        if let Some(consent) = &self.return_consent {
+            consent.validate()?;
+        }
         if (!self.enabled && !self.paused)
             || self.max_model_stages_per_24h > MAX_INITIATIVE_MODEL_STAGES
             || self.max_outreach_per_24h > MAX_INITIATIVE_OUTREACH
@@ -84,4 +91,13 @@ impl InitiativeTimeBudgetV1 {
             .filter(|n| *n > 0 && *n <= MAX_INITIATIVE_CYCLE_MS)
             .ok_or(InitiativeStoreErrorV1::Invalid)
     }
+}
+
+/// A quiet-hours-deferred return remains charged in its actual reservation
+/// window after the original work reservation ages out. Never double-charge
+/// the return while the whole-cycle reservation is still in this window.
+pub(super) fn window_charge(job:&super::InitiativeJobV1,since:u64)->Result<(u64,u64),InitiativeStoreErrorV1> {
+    if job.created_unix_ms>since {return Ok((job.model_stages_reserved,job.input.budget.total_ms()?));}
+    if job.return_reserved_unix_ms.is_some_and(|time|time>since) {return Ok((1,job.input.budget.return_ms));}
+    Ok((0,0))
 }

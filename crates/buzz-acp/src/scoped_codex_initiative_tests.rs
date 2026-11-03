@@ -1,6 +1,41 @@
 use super::*;
 
 #[test]
+fn companion_return_uses_enforced_scoped_lane_and_only_accepts_bounded_draft() {
+    let mut request = crate::runtime_task_delivery_tests::request();
+    request.runtime_family = "companion_initiative".into();
+    let envelope = ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+        request: request.clone(),
+    };
+    let source = PromptSource::Continuity(Box::new(envelope.clone()));
+    assert!(is_scoped_request(&source));
+    let prompt = scoped_prompt(&envelope, 4000).unwrap();
+    assert!(prompt.contains("not an owner-delegated task"));
+    assert_eq!(
+        output_schema(&envelope).unwrap()["required"],
+        serde_json::json!(["draft"])
+    );
+    assert!(validate_output(&envelope, r#"{"draft":"A useful optional result."}"#, 4000).is_ok());
+    for output in [
+        r#"{"draft":""}"#,
+        r#"{"draft":"ok","tools":["shell"]}"#,
+        "not JSON",
+    ] {
+        assert!(validate_output(&envelope, output, 4000).is_err());
+    }
+    assert!(validate_output(
+        &envelope,
+        r#"{"draft":"ok"}"#,
+        request.deadline_unix_ms.get()
+    )
+    .is_err());
+    request.runtime_family = "codex".into();
+    assert!(!is_scoped_request(&PromptSource::Continuity(Box::new(
+        ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request }
+    ))));
+}
+
+#[test]
 fn scoped_voice_preserves_normal_document_assembly_and_rejects_overflow() {
     assert!(resident_voice_fits_bound(None));
     // A default resident's five assembled documents already exceed 8 KiB.

@@ -46,10 +46,62 @@ struct OpenSurfaceParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-enum CompanionAction { Follow, PauseAwareness, ResumeAwareness, EnableBackground, PauseBackground, ResumeBackground, DisableBackground }
+enum CompanionAction { Setup, MeetingProgress, Follow, PauseAwareness, ResumeAwareness, EnableBackground, PauseBackground, ResumeBackground, DisableBackground }
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum FollowHarness { ClaudeCode, Codex }
+#[derive(Debug, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionSetupOptions {
+    /// One bounded recent-history sample, separate from following future changes.
+    #[serde(default)]
+    initial_context: bool,
+    /// Retain useful source-linked notes for this companion, never a raw archive.
+    #[serde(default)]
+    keep_notes: bool,
+    /// Bounded private background work using the connected subscription.
+    #[serde(default)]
+    background_work: bool,
+    /// Useful, limited unsolicited returns in the same Luca conversation.
+    #[serde(default)]
+    proactive_returns: bool,
+    /// Optional owner-requested local quiet times; omit to preserve existing
+    /// times (22:00–08:00 initially). Requires proactive_returns in this review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    quiet_hours: Option<CompanionQuietHours>,
+}
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CompanionQuietHours {
+    /// Local minutes after midnight, 0 through 1439.
+    start_minute: u16,
+    /// Local minutes after midnight, distinct from start_minute.
+    end_minute: u16,
+}
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum MeetingTopic { CompanionSetup, CollaborationPreferences, HarnessDelegation, OtherAgents, GroupChats, BrainKnowledge, CompanionControls }
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum MeetingTopicStatus { Introduced, Deferred, Declined }
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct MeetingTopicUpdate { topic: MeetingTopic, status: MeetingTopicStatus }
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MeetingGuidanceUpdate {
+    expected_revision: u64,
+    /// Only the current signed owner message, and only when it states their
+    /// actual chosen goal. The host verifies the event and copies no model text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner_goal_event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    topics: Vec<MeetingTopicUpdate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    first_useful_outcome: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    complete: Option<bool>,
+}
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ConfigureCompanionParams {
@@ -57,6 +109,12 @@ struct ConfigureCompanionParams {
     /// Select only the harnesses the owner asked to follow. Omit for other actions.
     #[serde(default)]
     harnesses: Vec<FollowHarness>,
+    /// Only for setup. Propose independent choices; the host must obtain approval.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    options: Option<CompanionSetupOptions>,
+    /// Only for meeting_progress: non-authoritative guidance, never permissions or memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    guidance: Option<MeetingGuidanceUpdate>,
 }
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -514,7 +572,7 @@ impl LucaRepositoriesMcp {
         })
     }
 
-    #[tool(name = "configure_companion", description = "Apply companion settings directly from chat when the owner asks. To follow Claude Code and/or Codex, use action follow and the requested harnesses: the host locates their profiles, presents ONE clear in-chat approval covering visible session activity and sharing with your current model, saves the choices and starts following. No folder picker or settings page is needed for normal profiles. Does not import old history, connect Brain, retain raw activity, or enable background work. Missing profiles are reported individually while available requested profiles can still be approved. Advanced controls are only for the missing or unusual installation; never guess a path. Pause/resume awareness and enable/pause/resume/disable background work are also supported directly. Widening access requires host approval; pauses apply immediately. Report the actual result briefly in chat, including incomplete entries. Never navigate to settings unless asked or a reported exception requires it.")]
+    #[tool(name = "configure_companion", description = "Configure this companion directly in chat through host-owned approval. For the recommended full setup use action setup, harnesses claude_code and/or codex, and explicitly proposed options initial_context, keep_notes, background_work, proactive_returns. Each option is independently disclosed; omitted scopes stay off. Recent sampling is separate from following future changes. The host discovers normal profiles without folder picking, reviews the selected scopes once, and returns per-source/capability results. Allow customization or decline. A recommendation or conversational yes never bypasses the host review. Plain action follow enables only observation and sharing for the named harnesses, not notes, old-history sampling or background work. Pause/resume awareness and enable/pause/resume/disable background work remain supported. No Brain, browser, screen or social access is implied. Report only actual receipts, not a claim that an enabled feature already produced an observation, memory or result. Missing/unusual profiles alone need advanced controls. During first meeting only, action meeting_progress with guidance records non-authoritative onboarding progress using the host revision; it never changes permissions or stores personal memory. Do not navigate settings merely to demonstrate a change.")]
     async fn configure_companion(&self, Parameters(params): Parameters<ConfigureCompanionParams>) -> Result<CallToolResult, ErrorData> {
         self.client.call_with_deadline("configure_companion", params, RESIDENT_PROPOSAL_DEADLINE).await
     }
@@ -897,6 +955,38 @@ mod tests {
         assert!(serde_json::from_value::<ConversationImageParams>(serde_json::json!({"url":"https://example.com/image.png","path":"/private"})).is_err());
     }
 
+    #[test]
+    fn combined_setup_scopes_are_explicit_and_progress_is_not_authority() {
+        let omitted: ConfigureCompanionParams = serde_json::from_value(serde_json::json!({
+            "action":"setup","harnesses":["claude_code","codex"]
+        })).unwrap();
+        let serialized = serde_json::to_value(omitted).unwrap();
+        assert!(serialized.get("options").is_none());
+        assert!(serialized.get("guidance").is_none());
+        let selected: ConfigureCompanionParams = serde_json::from_value(serde_json::json!({
+            "action":"setup","harnesses":["codex"],"options":{"keep_notes":true}
+        })).unwrap();
+        let serialized = serde_json::to_value(selected).unwrap();
+        assert_eq!(serialized["options"]["keep_notes"], true);
+        for scope in ["initial_context","background_work","proactive_returns"] {
+            assert_eq!(serialized["options"][scope], false);
+        }
+        for invalid in [
+            serde_json::json!({"action":"setup","options":{"provider":"other"}}),
+            serde_json::json!({"action":"meeting_progress","guidance":{"expectedRevision":0,"grants":true}}),
+            serde_json::json!({"action":"meeting_progress","guidance":{"expectedRevision":0,"topics":[{"topic":"companion_setup","status":"approved"}]}}),
+        ] {
+            assert!(serde_json::from_value::<ConfigureCompanionParams>(invalid).is_err());
+        }
+        let progress: ConfigureCompanionParams = serde_json::from_value(serde_json::json!({
+            "action":"meeting_progress","guidance":{"expectedRevision":0,"topics":[{"topic":"companion_setup","status":"declined"}],"complete":true}
+        })).unwrap();
+        let serialized = serde_json::to_value(progress).unwrap();
+        assert_eq!(serialized["guidance"]["expectedRevision"], 0);
+        assert_eq!(serialized["guidance"]["topics"][0]["status"], "declined");
+        assert!(serialized.get("options").is_none());
+    }
+
     #[tokio::test]
     async fn protected_attachment_reply_becomes_pixels_not_base64_text() {
         use image::{ExtendedColorType, ImageEncoder};
@@ -949,7 +1039,7 @@ mod tests {
             stream.write_all(response.as_bytes()).await.unwrap();
         });
         let server=LucaRepositoriesMcp {client:Arc::new(RepositoryBrokerClient {endpoint,capability:format!("sha256:{}","a".repeat(64)),conversation_id:"setup-room".into()}),tool_router:LucaRepositoriesMcp::tool_router()};
-        let result=server.configure_companion(Parameters(ConfigureCompanionParams {action:CompanionAction::Follow,harnesses:vec![FollowHarness::ClaudeCode,FollowHarness::Codex]})).await.unwrap();
+        let result=server.configure_companion(Parameters(ConfigureCompanionParams {action:CompanionAction::Follow,harnesses:vec![FollowHarness::ClaudeCode,FollowHarness::Codex],options:None,guidance:None})).await.unwrap();
         let encoded=serde_json::to_value(result).unwrap();
         let receipt:Value=serde_json::from_str(encoded["content"][0]["text"].as_str().unwrap()).unwrap();
         assert_eq!(receipt["status"],"not_changed");

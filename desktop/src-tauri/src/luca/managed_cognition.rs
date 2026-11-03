@@ -22,7 +22,7 @@ use serde::Deserialize;
 
 mod initiative;
 pub(crate) use initiative::{
-    begin_initiative_planning, begin_initiative_pursuit, request_initiative_planning,
+    begin_companion_return, begin_initiative_planning, begin_initiative_pursuit, request_initiative_planning,
     request_initiative_pursuit, ManagedInitiativeAdmission, ManagedInitiativeCancellation,
 };
 

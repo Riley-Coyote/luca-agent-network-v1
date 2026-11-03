@@ -240,16 +240,82 @@ test("source receipt includes all six fresh helper hashes and exact source/isola
     const entitlements = join(repository, "desktop/src-tauri/Entitlements.plist");
     const receipt = join(root, "source.json");
     const common = [receipt, "polyphonic.companion-delegation-candidate.v1", source, "b".repeat(40), "fixture-branch", identity, product, join(root, "instance"), "buzz-desktop-dev.fixture", overlay, entitlements];
-    assert.equal(shell('json receipt "$@"', [...common, target, "fixture-public-signing", ...sidecars]).status, 0);
-    assert.equal(shell('json verify-receipt "$@"', [...common, ...sidecars]).status, 0);
+    assert.equal(shell('json receipt "$@"', [...common, target, "fixture-public-signing", "signed", ...sidecars]).status, 0);
+    assert.equal(shell('json verify-receipt "$@"', [...common, "signed", ...sidecars]).status, 0);
     const value = JSON.parse(readFileSync(receipt, "utf8"));
     assert.deepEqual(value.sidecars.map((v) => v.name), sidecars);
     assert.deepEqual(value.features, ["default", "system-keyring"]);
     assert.equal(value.notarized, false);
+    assert.equal(value.signingMode, "signed");
     const mismatch = [...common];
     mismatch[2] = "c".repeat(40);
-    assert.notEqual(shell('json verify-receipt "$@"', [...mismatch, ...sidecars]).status, 0);
+    assert.notEqual(shell('json verify-receipt "$@"', [...mismatch, "signed", ...sidecars]).status, 0);
     assert.equal(value.environment, undefined);
+  });
+});
+
+test("unsigned mode is explicit and never looks up or invokes a signing identity", () => {
+  const unsigned = shell('UNSIGNED_LOCAL=1; SIGNING_IDENTITY=""; lookup_signing_identity() { printf UNSAFE_LOOKUP; return 99; }; codesign_candidate_bundle() { printf UNSAFE_SIGN; return 99; }; resolve_signing_identity; sign_candidate_bundle unused');
+  assert.equal(unsigned.status, 0, unsigned.stderr);
+  assert.equal(unsigned.stdout, "unsigned-local");
+  assert.equal(shell('candidate_signing_mode', [], { UNSIGNED_LOCAL: "1" }).stdout, "signed");
+  const signed = shell('SIGNING_IDENTITY=fixture-signer; lookup_signing_identity() { return 99; }; codesign_candidate_bundle() { [[ "$1" == fixture-signer ]] && printf signed-fixture; }; signing=$(resolve_signing_identity); sign_candidate_bundle "$signing"');
+  assert.equal(signed.status, 0, signed.stderr);
+  assert.equal(signed.stdout, "signed-fixture");
+  assert.notEqual(shell('UNSIGNED_LOCAL=1; SIGNING_IDENTITY=fixture-signer; resolve_signing_identity').status, 0);
+});
+
+test("unsigned flags reject signing overrides and stop before doing work", () => {
+  const cache = join(process.env.HOME, "Library/Caches/luca-build/cargo-target");
+  for (const args of [
+    ["build", "--unsigned", "--signing-identity", "fixture"],
+    ["run", "--unsigned", "--signing-identity", "fixture"],
+    ["stop", "--unsigned"],
+  ]) {
+    const refused = spawnSync("bash", [script, ...args, "--target-dir", cache, "--instance-root", "/private/tmp/not-created-candidate"],
+      { encoding: "utf8", timeout: 10_000 });
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stderr, /unsigned is check\/build\/run-only/);
+  }
+});
+
+test("unsigned receipts require explicit matching mode and retain exact source/isolation checks", () => {
+  temporary((root) => {
+    const target = join(root, "target");
+    mkdirSync(join(target, "debug"), { recursive: true });
+    for (const name of sidecars) writeFileSync(join(target, "debug", name), "fixture-only");
+    const receipt = join(root, "unsigned-source.json");
+    const entitlements = join(repository, "desktop/src-tauri/Entitlements.plist");
+    const common = [receipt, "fixture-protocol", source, "b".repeat(40), "fixture-branch", identity,
+      product, join(root, "instance"), "buzz-desktop-dev.fixture", overlay, entitlements];
+    assert.equal(shell('json receipt "$@"', [...common, target, "unsigned-local", "unsigned-local", ...sidecars]).status, 0);
+    const value = JSON.parse(readFileSync(receipt, "utf8"));
+    assert.equal(value.signingMode, "unsigned-local");
+    assert.equal(value.signingIdentity, null);
+    assert.equal(value.notarized, false);
+    assert.equal(shell('json verify-receipt "$@"', [...common, "unsigned-local", ...sidecars]).status, 0);
+    assert.notEqual(shell('json verify-receipt "$@"', [...common, "signed", ...sidecars]).status, 0);
+    const wrong = [...common];
+    wrong[7] = join(root, "different-instance");
+    assert.notEqual(shell('json verify-receipt "$@"', [...wrong, "unsigned-local", ...sidecars]).status, 0);
+    value.signingIdentity = "fixture-signer";
+    writeFileSync(receipt, JSON.stringify(value));
+    assert.notEqual(shell('json verify-receipt "$@"', [...common, "unsigned-local", ...sidecars]).status, 0);
+    value.signingIdentity = null;
+    delete value.signingMode;
+    writeFileSync(receipt, JSON.stringify(value));
+    assert.notEqual(shell('json verify-receipt "$@"', [...common, "unsigned-local", ...sidecars]).status, 0);
+  });
+});
+
+test("unsigned candidate selects a distinct mode-bound hash manifest", () => {
+  temporary((root) => {
+    const paths = [join(root, "target"), join(root, "instance")];
+    const setup = 'TARGET_DIR="$1"; INSTANCE_ROOT="$2"; prepare_paths; printf "%s" "$MANIFEST"';
+    assert.equal(shell(setup, paths).stdout, join(paths[1], "control/signed-candidate.json"));
+    assert.equal(shell('UNSIGNED_LOCAL=1; ' + setup, paths).stdout, join(paths[1], "control/unsigned-candidate.json"));
+    assert.equal(shell('UNSIGNED_LOCAL=1; TARGET_DIR="$1"; INSTANCE_ROOT="$2"; prepare_paths; printf "%s" "$MANIFEST_PROTOCOL"', paths).stdout,
+      "polyphonic.companion-delegation-candidate.v1.unsigned-local");
   });
 });
 

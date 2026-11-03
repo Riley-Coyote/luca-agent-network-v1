@@ -131,7 +131,13 @@ pub(crate) struct InitiativeJobV1 {
     pub reconciliation_ref: Option<Sha256Ref>,
     pub return_key: Option<OpaqueId>,
     pub return_reserved_unix_ms: Option<u64>,
+    /// Conservative actual body-bearing send/probe boundary, not only job birth.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_effect_unix_ms: Option<u64>,
     pub return_receipt_ref: Option<Sha256Ref>,
+    /// Host-verified creation/destination coordinates. Never a model draft.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_context: Option<super::returns::InitiativeReturnContextV1>,
 }
 
 /// Body-free private-work tracking. Framed means written to the private channel,

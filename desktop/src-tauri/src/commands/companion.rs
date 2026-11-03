@@ -86,11 +86,42 @@ pub(super) fn set_awareness_paused(
         .ok_or("companion awareness unavailable")?;
     let resident = managed_resident(app, resident_pubkey, &owner)?;
     let _ = state.companion_coordinator.foreground_activity(app);
+    let mut initiative_pause_failure = None;
     if paused {
-        if let Ok(scope) =
-            crate::luca::companion_initiative::host_scope::home_scope(&state, &owner, &resident)
-        {
-            let _ = state.companion_execution.pause(&scope);
+        match crate::luca::companion_initiative::host_scope::home_scope(&state, &owner, &resident) {
+            Ok(scope) => {
+                let persisted = (|| {
+                    state.companion_execution.pause(&scope)?;
+                    state.companion_initiative.with_control(&scope, |store| {
+                        let current = store.policy(&scope)?;
+                        let mut next = current.clone();
+                        next.paused = true;
+                        next.revision = SafeU53::new(current.revision.get().checked_add(1).ok_or(
+                            crate::luca::companion_initiative::InitiativeStoreErrorV1::Unavailable,
+                        )?)
+                        .map_err(|_| {
+                            crate::luca::companion_initiative::InitiativeStoreErrorV1::Unavailable
+                        })?;
+                        let request = OpaqueId::parse(format!(
+                            "awareness-pause:{}",
+                            uuid::Uuid::new_v4()
+                        ))
+                        .map_err(|_| {
+                            crate::luca::companion_initiative::InitiativeStoreErrorV1::Invalid
+                        })?;
+                        store
+                            .set_policy(&scope, &request, current.revision, next)
+                            .map(|_| ())
+                    })
+                })();
+                if let Err(error) = persisted {
+                    initiative_pause_failure = Some(format!("Companion stopped in this process, but saving its background pause failed: {error:?}"));
+                }
+            }
+            Err(error) => {
+                initiative_pause_failure =
+                    Some(format!("Companion background pause unavailable: {error:?}"))
+            }
         }
         // Stop owned readers even if the following durable write fails.
         state
@@ -127,6 +158,9 @@ pub(super) fn set_awareness_paused(
             .map_err(error)?;
         #[cfg(unix)]
         let _ = state.companion_browser.after_pause(&owner, &resident);
+        if let Some(error) = initiative_pause_failure {
+            return Err(error);
+        }
     } else if let Some(live) = live.as_ref() {
         for selection in state
             .companion_sources
@@ -146,8 +180,15 @@ pub(super) fn set_awareness_paused(
                     .map_err(error)?;
             }
         }
-        for registration in state.companion_sources.list_profiles(&owner, &resident).map_err(error)? {
-            let authority = match state.companion_awareness.snapshot(&owner, registration.selection.grant_key()) {
+        for registration in state
+            .companion_sources
+            .list_profiles(&owner, &resident)
+            .map_err(error)?
+        {
+            let authority = match state
+                .companion_awareness
+                .snapshot(&owner, registration.selection.grant_key())
+            {
                 Ok(value) => value,
                 Err(AwarenessStoreError::Missing) => continue,
                 Err(failure) => return Err(error(failure)),
@@ -155,23 +196,39 @@ pub(super) fn set_awareness_paused(
             if authority.grant.state == luca_protocol::AwarenessGrantStateV1::Active
                 && authority.grant.choices.observe
             {
-                state.companion_sources.resume_profile(live, registration.selection).map_err(error)?;
+                state
+                    .companion_sources
+                    .resume_profile(live, registration.selection)
+                    .map_err(error)?;
             }
         }
         // This explicit global Resume rechecks only saved machine selections
         // for this resident. Class dispatch remains closed: text gets one shot,
         // only metadata starts notifications, and browsers stay separately off.
-        for selection in state.companion_sources.list_machines(&owner, &resident).map_err(error)? {
+        for selection in state
+            .companion_sources
+            .list_machines(&owner, &resident)
+            .map_err(error)?
+        {
             let authority = match state.companion_awareness.snapshot(&owner, selection.key()) {
                 Ok(value) => value,
                 Err(AwarenessStoreError::Missing) => continue,
                 Err(failure) => return Err(error(failure)),
             };
-            if authority.grant.state != luca_protocol::AwarenessGrantStateV1::Active || !authority.grant.choices.observe { continue; }
+            if authority.grant.state != luca_protocol::AwarenessGrantStateV1::Active
+                || !authority.grant.choices.observe
+            {
+                continue;
+            }
             use crate::luca::companion_awareness::machine_activity::MachineObservationClassV1;
             match selection.class() {
-                MachineObservationClassV1::AppMetadata | MachineObservationClassV1::AccessibilityText | MachineObservationClassV1::ScreenText => {
-                    state.companion_sources.resume_machine(live, selection.key()).map_err(error)?;
+                MachineObservationClassV1::AppMetadata
+                | MachineObservationClassV1::AccessibilityText
+                | MachineObservationClassV1::ScreenText => {
+                    state
+                        .companion_sources
+                        .resume_machine(live, selection.key())
+                        .map_err(error)?;
                 }
             }
         }
@@ -225,7 +282,9 @@ pub async fn withdraw_companion_awareness_grant(
             .map_err(error)?;
         let _ = state.companion_execution.withdraw_grant(&key);
         projection(&state, &owner, &resident)
-    }).await.map_err(|_| "companion withdrawal unavailable".to_owned())?
+    })
+    .await
+    .map_err(|_| "companion withdrawal unavailable".to_owned())?
 }
 
 pub(super) fn projection(
@@ -302,9 +361,7 @@ fn error(error: AwarenessStoreError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::luca::companion_awareness::selected_files::tests::{
-        id, Fixture,
-    };
+    use crate::luca::companion_awareness::selected_files::tests::{id, Fixture};
 
     #[test]
     fn companion_status_does_not_treat_saved_resume_as_running_collection() {
@@ -317,6 +374,9 @@ mod tests {
         assert!(!status.paused);
         assert!(!status.collection_running);
         assert!(status.grants[0].grant.choices.observe);
-        assert_eq!(serde_json::to_value(status).unwrap()["collectionRunning"], false);
+        assert_eq!(
+            serde_json::to_value(status).unwrap()["collectionRunning"],
+            false
+        );
     }
 }

@@ -63,6 +63,18 @@
   white-space: normal;
   line-height: 1.45;
 }
+
+/* The combined review is a full disclosure, not a three-line action title.
+ * Clamping its box while the shared title allows visible overflow placed the
+ * remaining words over the answers. Let this one review size its own row. */
+:root[data-luca-frame]
+  .luca-room-stack__asks
+  [data-companion-setup-review]
+  .luca-place-row-title {
+  display: block;
+  -webkit-line-clamp: unset;
+  font-weight: 400;
+}
 :root[data-luca-frame] .luca-room-stack__fold {
   align-items: center;
   justify-content: space-between;
