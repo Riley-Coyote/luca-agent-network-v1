@@ -920,6 +920,8 @@ const CARD_VIEWS = [
 
 const NIGHT_CARD_LIGHT =
   "rgba(255, 255, 255, 0.12) 0px -0.5px 0px 0px, rgba(0, 0, 0, 0.25) 0px 1px 2px 0px, rgba(0, 0, 0, 0.32) 0px 18px 44px 0px";
+const NIGHT_MAIN_CARD_SHADOW =
+  "rgba(0, 0, 0, 0.25) 0px 1px 2px 0px, rgba(0, 0, 0, 0.32) 0px 18px 44px 0px";
 
 /** The cards on the frame, as shellGlass.ts finds them, with their light. */
 const measureCards = (page: Page) =>
@@ -1084,7 +1086,11 @@ for (const mode of ["dark", "light"] as const) {
       expect(cards.length).toBeGreaterThan(0);
       for (const card of cards) {
         expect(card.boxShadow).toBe(
-          mode === "dark" ? NIGHT_CARD_LIGHT : "none",
+          mode === "dark"
+            ? card.kind === "one card"
+              ? NIGHT_MAIN_CARD_SHADOW
+              : NIGHT_CARD_LIGHT
+            : "none",
         );
       }
       await paintDesktop(page);
@@ -1436,7 +1442,7 @@ test.describe("with the frame merged", () => {
       expect(measured.railRadius).toBe("10px");
       expect(measured.railShadow).toBe("none");
       expect(measured.oneCard).toEqual({ x: 44, y: 36, w: 1390, h: 858 });
-      expect(measured.oneCardShadow).toBe(NIGHT_CARD_LIGHT);
+      expect(measured.oneCardShadow).toBe(NIGHT_MAIN_CARD_SHADOW);
       expect(measured.veil).toBe(liquid ? 0.64 : 0.22);
       expect(measured.card?.y).toBe(36);
       expect(measured.card?.x).toBe(264);

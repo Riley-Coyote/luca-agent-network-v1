@@ -36,7 +36,7 @@
 
 /* ── the one card ──────────────────────────────────────────────────────
  * Drawn once, beneath the rail and the content, and never moved: its
- * surface, its grain, its lit top edge and (at night) the cards' edge light;
+ * surface and grain, with shadow-only separation (no lit rim);
  * by day its one shadow on the floor (shellGlass.ts). Its right edge is the
  * conversation's, which the lip measures and publishes on the root as a
  * right card opens (ShellLip.tsx); its bottom rises over a live huddle's
@@ -52,13 +52,21 @@
   background-size: 256px 256px;
   border-radius: var(--radius);
   bottom: var(--luca-frame-card-bottom, var(--luca-frame-edge));
-  box-shadow: var(--mn-card-edge);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.14),
+    0 8px 24px rgb(0 0 0 / 0.12);
   left: var(--luca-frame-places);
   pointer-events: none;
   position: absolute;
   right: var(--luca-frame-card-right, var(--luca-frame-edge));
   top: var(--luca-frame-lip);
   z-index: 0;
+}
+
+:root[data-luca-frame="solid"]:not(.dark) [data-luca-one-card] {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.05),
+    0 12px 32px -8px hsl(var(--mn-ink) / 0.12);
 }
 
 /* ── the lip ───────────────────────────────────────────────────────── */
