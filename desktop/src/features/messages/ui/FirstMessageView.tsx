@@ -1,5 +1,5 @@
 import * as React from "react";
-import { motion, usePresence, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import type { DirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
@@ -83,38 +83,43 @@ export function useFirstMessageView({
     !isTimelineLoading &&
     !openThreadHeadId &&
     messageCount === 0;
-  const [open, setOpen] = React.useState(false);
-  const [draining, setDraining] = React.useState(false);
-  const [leaving, setLeaving] = React.useState(false);
+  const hasMessages = messageCount > 0;
+  const [openChannel, setOpenChannel] = React.useState<string | null>(null);
+  const [drainingChannel, setDrainingChannel] = React.useState<string | null>(
+    null,
+  );
+  const [leavingChannel, setLeavingChannel] = React.useState<string | null>(
+    null,
+  );
   const openFor = React.useRef<string | null>(null);
   React.useEffect(() => {
     if (empty) {
+      setDrainingChannel(null);
+      setLeavingChannel(null);
       const opening = window.setTimeout(() => {
         openFor.current = activeChannelId;
-        setOpen(true);
+        setOpenChannel(activeChannelId);
       }, 160);
       return () => window.clearTimeout(opening);
     }
     if (openFor.current === null) return;
-    const sent = openFor.current === activeChannelId;
+    const sent = openFor.current === activeChannelId && hasMessages;
     openFor.current = null;
-    setOpen(false);
+    setOpenChannel(null);
     if (!sent) return;
     let settled = 0;
     const glide = () => {
-      setDraining(false);
-      setLeaving(true);
-      settled = window.setTimeout(() => setLeaving(false), 900);
+      setDrainingChannel(null);
+      setLeavingChannel(activeChannelId);
+      settled = window.setTimeout(() => setLeavingChannel(null), 900);
     };
     // The film drains into the composer where it waits; only then does it go.
     const drains =
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
-      document.querySelector(
-        ":is(.luca-first-message-surface, .luca-first-message-pool) canvas",
-      ) !== null;
+      document.querySelector(".luca-first-message-surface canvas") !== null;
     let drained = 0;
     if (drains) {
-      setDraining(true);
+      setDrainingChannel(activeChannelId);
       drained = window.setTimeout(glide, TURING_DRAIN_SECONDS * 1000);
     } else {
       glide();
@@ -122,11 +127,16 @@ export function useFirstMessageView({
     return () => {
       window.clearTimeout(drained);
       window.clearTimeout(settled);
-      setDraining(false);
-      setLeaving(false);
+      setDrainingChannel(null);
+      setLeavingChannel(null);
     };
-  }, [activeChannelId, empty]);
-  return { subject, open, draining, leaving };
+  }, [activeChannelId, empty, hasMessages]);
+  return {
+    subject,
+    open: openChannel !== null && openChannel === activeChannelId,
+    draining: drainingChannel !== null && drainingChannel === activeChannelId,
+    leaving: leavingChannel !== null && leavingChannel === activeChannelId,
+  };
 }
 
 /** The composer's own editable surface, and nothing else that takes text. */
@@ -138,15 +148,15 @@ function composerInput(target: EventTarget | null): HTMLElement | null {
     : null;
 }
 
-function composerFooter(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(
+function composerFooter(root: ParentNode = document): HTMLElement | null {
+  return root.querySelector<HTMLElement>(
     "[data-first-message-column] footer[data-luca-reading-plane]",
   );
 }
 
 /** The composer's pill: the shape drawn as glass. */
-function composerPill(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(
+function composerPill(root: ParentNode = document): HTMLElement | null {
+  return root.querySelector<HTMLElement>(
     '[data-first-message-column] footer[data-luca-reading-plane] [data-testid="message-composer"]',
   );
 }
@@ -347,10 +357,9 @@ function useSubjectLine(subject: FirstMessageSubject): string | null {
 
 /**
  * Under the frame (Riley, 2026-10-27: "calm, like a fresh chat"): the one you
- * are about to talk to, set as their page sets them, their face in a small
- * pool of their own ink, their name, one line about them. The rest of the
- * room stays the room. Sending, the words go first; the pool drains into the
- * face, and then the face goes.
+ * are about to talk to, set as their page sets them. The original full-card
+ * film is quieter now, while the name, face, and real composer keep their
+ * contrast. Sending, the words go first and the film drains away.
  */
 function QuietGreeting({ subject }: { subject: FirstMessageSubject }) {
   const reduceMotion = useReducedMotion();
@@ -385,7 +394,6 @@ function QuietGreeting({ subject }: { subject: FirstMessageSubject }) {
         initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96 }}
         transition={{ duration: reduceMotion ? 0.2 : 0.7, ease }}
       >
-        <FirstMessagePool />
         {/* The eyes close over the drop as it drains: they go first. */}
         <motion.div
           aria-hidden="true"
@@ -408,91 +416,6 @@ function QuietGreeting({ subject }: { subject: FirstMessageSubject }) {
   );
 }
 
-/** The face's own body: where the pool draws the drop, and where it drains. */
-function faceBody(pool: HTMLElement | null): DOMRect | null {
-  return (
-    pool?.parentElement
-      ?.querySelector("[data-first-message-body]")
-      ?.getBoundingClientRect() ?? null
-  );
-}
-
-/**
- * The Turing film, held to a small pool around the face. Each keystroke lands
- * in it as a seed somewhere around the face; sending, it drains into the face.
- */
-function FirstMessagePool() {
-  const surfaceRef = React.useRef<LivingSurfaceHandle | null>(null);
-  const poolRef = React.useRef<HTMLDivElement | null>(null);
-  const [available, setAvailable] = React.useState(true);
-  const [isPresent, safeToRemove] = usePresence();
-  const reduceMotion = useReducedMotion();
-  const leaving = React.useRef(false);
-
-  React.useEffect(() => {
-    let lastSeed = 0;
-    const onInput = (event: Event) => {
-      if (!composerInput(event.target) || !(event instanceof InputEvent))
-        return;
-      if (event.inputType.startsWith("delete")) return;
-      if (/^\s+$/.test(event.data ?? "")) return;
-      const now = performance.now();
-      if (now - lastSeed < 70) return;
-      lastSeed = now;
-      const face = faceBody(poolRef.current);
-      if (!face) return;
-      const angle = Math.random() * Math.PI * 2;
-      const reach = (face.width / 2) * (1.3 + Math.random() * 0.9);
-      surfaceRef.current?.pulse(
-        face.left + face.width / 2 + Math.cos(angle) * reach,
-        face.top + face.height / 2 + Math.sin(angle) * reach,
-      );
-    };
-    document.addEventListener("input", onInput, true);
-    return () => document.removeEventListener("input", onInput, true);
-  }, []);
-
-  // The ink parts around their name and the line under it.
-  const beforeFrame = React.useCallback(() => {
-    const surface = surfaceRef.current;
-    if (!surface) return;
-    const greeting = poolRef.current?.closest("[data-first-message-presence]");
-    surface.wells(
-      greeting ? Array.from(greeting.querySelectorAll("p"), textRect) : [],
-    );
-    if (!leaving.current) surface.body(faceBody(poolRef.current));
-  }, []);
-
-  React.useEffect(() => {
-    if (isPresent) return;
-    leaving.current = true;
-    const face = faceBody(poolRef.current);
-    if (!available || reduceMotion || !face) {
-      safeToRemove?.();
-      return;
-    }
-    surfaceRef.current?.release(face);
-    const drained = window.setTimeout(
-      () => safeToRemove?.(),
-      TURING_DRAIN_SECONDS * 1000 + 60,
-    );
-    return () => window.clearTimeout(drained);
-  }, [available, isPresent, reduceMotion, safeToRemove]);
-
-  if (!available) return null;
-  return (
-    <div aria-hidden="true" className="luca-first-message-pool" ref={poolRef}>
-      <LivingSurfaceCanvas
-        beforeFrame={beforeFrame}
-        className="luca-first-message-pool__canvas"
-        kind="turing"
-        onUnavailable={() => setAvailable(false)}
-        ref={surfaceRef}
-      />
-    </div>
-  );
-}
-
 /** A press on the room itself, not on anything in it that wants the press. */
 function pressable(target: EventTarget | null) {
   if (!(target instanceof Element)) return false;
@@ -503,10 +426,17 @@ function pressable(target: EventTarget | null) {
 }
 
 /** The Turing film behind the first-message view. */
-export function FirstMessageSurface() {
+export function FirstMessageSurface({
+  draining = false,
+  conversationId,
+}: {
+  draining?: boolean;
+  conversationId?: string | null;
+}) {
+  const framed = useShellFrameEnabled();
+  const hostRef = React.useRef<HTMLDivElement>(null);
   const surfaceRef = React.useRef<LivingSurfaceHandle | null>(null);
   const [available, setAvailable] = React.useState(true);
-  const [isPresent, safeToRemove] = usePresence();
   const reduceMotion = useReducedMotion();
   const wrote = React.useRef(false);
   const leaving = React.useRef(false);
@@ -518,13 +448,15 @@ export function FirstMessageSurface() {
     const onInput = (event: Event) => {
       const input = composerInput(event.target);
       if (!input || !(event instanceof InputEvent)) return;
+      const column = hostRef.current?.closest("[data-first-message-column]");
+      if (!column?.contains(input)) return;
       if (event.inputType.startsWith("delete")) return;
       if (/^\s+$/.test(event.data ?? "")) return;
       const now = performance.now();
       if (now - lastSeed < 45) return;
       lastSeed = now;
       wrote.current = true;
-      const pill = composerPill() ?? input;
+      const pill = composerPill(column) ?? input;
       const caret = caretPoint(input);
       surfaceRef.current?.pulse(
         caret.x,
@@ -539,11 +471,13 @@ export function FirstMessageSurface() {
   const beforeFrame = React.useCallback(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
-    const greeting = document.querySelector("[data-first-message-presence]");
+    const column = hostRef.current?.closest("[data-first-message-column]");
+    if (!column) return;
+    const greeting = column.querySelector("[data-first-message-presence]");
     const wells = greeting
       ? Array.from(greeting.querySelectorAll("p"), textRect)
       : [];
-    const footer = composerFooter();
+    const footer = composerFooter(column);
     for (const control of footer?.querySelectorAll(
       '[data-testid="message-composer-toolbar"] button',
     ) ?? []) {
@@ -552,46 +486,49 @@ export function FirstMessageSurface() {
     }
     surface.wells(wells);
     if (!leaving.current) {
-      const body = document.querySelector("[data-first-message-body]");
+      const body = column.querySelector("[data-first-message-body]");
       surface.body(body ? body.getBoundingClientRect() : null);
     }
-    const pill = composerPill();
+    const pill = composerPill(column);
     const rect = pill?.getBoundingClientRect() ?? null;
     // The pill's own corner: a capsule on one line, a fixed radius as it grows.
     const corner = pill
       ? Number.parseFloat(getComputedStyle(pill).borderTopLeftRadius)
       : Number.NaN;
     surface.glass(
-      rect,
+      // Keep the approved real composer under the shell, not a shader copy.
+      framed ? null : rect,
       rect ? Math.min(rect.height / 2, corner || rect.height / 2) : 0,
       fill,
     );
-  }, [fill]);
+  }, [fill, framed]);
 
   // Sending: the film, and the drop with it, drain into the composer.
   React.useEffect(() => {
-    if (isPresent) return;
+    if (!draining) return;
     leaving.current = true;
-    const pill = composerPill();
+    const column = hostRef.current?.closest("[data-first-message-column]");
+    const pill = column ? composerPill(column) : null;
     if (!wrote.current || !available || reduceMotion || !pill) {
-      safeToRemove?.();
       return;
     }
     surfaceRef.current?.release(pill.getBoundingClientRect());
-    const drained = window.setTimeout(
-      () => safeToRemove?.(),
-      TURING_DRAIN_SECONDS * 1000 + 60,
-    );
-    return () => window.clearTimeout(drained);
-  }, [available, isPresent, reduceMotion, safeToRemove]);
+  }, [available, draining, reduceMotion]);
 
   if (!available) return null;
   return (
-    <div aria-hidden="true" className="luca-first-message-surface">
+    <div
+      ref={hostRef}
+      aria-hidden="true"
+      className="luca-first-message-surface"
+      data-conversation-id={conversationId}
+      data-light-strength={framed ? "0.28" : "1"}
+    >
       <LivingSurfaceCanvas
         beforeFrame={beforeFrame}
         className="luca-first-message-surface__canvas"
         kind="turing"
+        lightStrength={framed ? 0.28 : 1}
         onUnavailable={() => setAvailable(false)}
         pressable={pressable}
         ref={surfaceRef}

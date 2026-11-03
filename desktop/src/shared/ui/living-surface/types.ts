@@ -19,8 +19,8 @@ export type SurfaceBox = {
 export type SurfaceBody = { x: number; y: number; radius: number };
 
 export interface LivingSurface {
-  /** The colour the surface sits on (sRGB 0..1). */
-  configure(surface: SurfaceColor): void;
+  /** Ground (sRGB 0..1), with optional film relief strength (default 1). The body keeps its contrast. */
+  configure(surface: SurfaceColor, lightStrength?: number): void;
   /** Where each line of words is: the surface keeps quiet under them. */
   setWells(boxes: readonly SurfaceBox[]): void;
   /** The one you are about to talk to, as a body of the surface's own, or no one. */

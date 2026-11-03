@@ -292,7 +292,7 @@ test("WP-20: under Reduce Motion the film settles to the base's moment, and the 
     const page = await fresh();
     await boot(page, { hash: "/", origin: "", reduce: true });
     await page
-      .locator(".luca-first-message-pool canvas")
+      .locator(".luca-first-message-surface canvas")
       .waitFor({ state: "attached", timeout: 60_000 });
     const at = Date.now();
     const draws = await untilStill(page);

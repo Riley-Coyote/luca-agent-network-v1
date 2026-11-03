@@ -173,6 +173,7 @@ uniform ivec2 uGrid;
 uniform float uCell;
 uniform float uScale;         // device pixels per point
 uniform float uLight;         // how much of the light has come on, 0 .. 1
+uniform float uRelief;        // film's relief only; the body keeps its own ink
 uniform vec3 uGround;         // the surface the film lies on
 uniform float uDark;          // 1 on a dark surface, 0 on paper
 uniform vec4 uGlassFill;      // the composer's own colour, and how full of ink it is
@@ -271,14 +272,14 @@ vec3 shade(vec2 p, float squeeze, float light) {
     float wet = exp(-shoulder * shoulder) * smoothstep(0.7, 0.98, face) * 0.3;
     // the body is Ghost's own black; the film is a shade of it, and the neck between them runs from one to the other
     float body = uBody.w > 0.001 ? 1.0 - smoothstep(-2.0, 5.0, length(p - uBody.xy) - uBody.z) : 0.0;
-    return mix(uGround, vec3(0.0), cover * mix(INK_DEPTH, 0.94, body)) + (rim + sky + wet) * cover;
+    return mix(uGround, vec3(0.0), cover * mix(INK_DEPTH * uRelief, 0.94, body)) + (rim + sky + wet) * cover * mix(uRelief, 1.0, body);
   }
   float down = smoothstep(0.08, 0.95, -face);
   float lit = exp(-inside / 0.9) * up * 0.55 * cover;
   float pressed = (exp(-inside / 1.6) * down * 0.11 + 0.02) * cover;
   // the body is ink on paper, not a pressing
   float body = uBody.w > 0.001 ? 1.0 - smoothstep(-0.5, 0.5, length(p - uBody.xy) - uBody.z) : 0.0;
-  vec3 paper = uGround * (1.0 - pressed) + (1.0 - uGround) * lit;
+  vec3 paper = uGround * (1.0 - pressed * uRelief) + (1.0 - uGround) * lit * uRelief;
   return mix(paper, vec3(0.03) + lit * 0.5, body * cover);
 }
 
@@ -362,6 +363,7 @@ export class TuringSurface implements LivingSurface {
   private height = 1;
   private ground: SurfaceColor = [0.063, 0.063, 0.063];
   private dark = true;
+  private relief = 1;
   private sown = false;
   private sinceSown = 0;
   private stepsSinceSown = 0;
@@ -437,8 +439,11 @@ export class TuringSurface implements LivingSurface {
     this.resize();
   }
 
-  configure(surface: SurfaceColor) {
+  configure(surface: SurfaceColor, lightStrength = 1) {
     this.ground = surface;
+    this.relief = Number.isFinite(lightStrength)
+      ? Math.max(0, Math.min(1, lightStrength))
+      : 1;
     this.dark =
       0.2126 * surface[0] + 0.7152 * surface[1] + 0.0722 * surface[2] < 0.5;
   }
@@ -759,6 +764,7 @@ export class TuringSurface implements LivingSurface {
     gl.uniform1f(u("uCell"), CELL);
     gl.uniform1f(u("uScale"), this.canvas.width / this.width);
     gl.uniform1f(u("uLight"), this.sown ? fade : 0);
+    gl.uniform1f(u("uRelief"), this.relief);
     const from = this.body ??
       this.glass ?? { x: this.width / 2, y: this.height / 2 };
     const farthest = Math.hypot(

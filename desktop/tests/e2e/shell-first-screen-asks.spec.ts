@@ -298,6 +298,85 @@ async function pixels(
 const near = (a: number[], b: number[], within = 3) =>
   a.every((v, i) => Math.abs(v - b[i]) <= within);
 
+for (const mode of ["dark", "light"] as const) {
+  test(`full-card film follows agent switches: ${mode}`, async ({ page }) => {
+    test.setTimeout(60000);
+    page.setDefaultTimeout(10000);
+    const errors: string[] = [];
+    await boot(page, { asks: false, mode, log: errors });
+    const film = page.locator(".luca-first-message-surface");
+    const name = page.locator(".luca-first-message-greeting__name");
+    await expect(name).toHaveText("Luca");
+    await page.getByRole("button", { name: "Atlas", exact: true }).click();
+    await expect(name).toHaveText("Atlas");
+    const atlas = new URL(page.url()).hash;
+    await expect(film.locator("canvas")).toHaveCount(1);
+    const oldCanvas = await film.locator("canvas").elementHandle();
+    await page.getByRole("button", { name: "Wren", exact: true }).click();
+    await expect(name).toHaveText("Wren");
+    const wren = new URL(page.url()).hash;
+    await expect
+      .poll(() => oldCanvas?.evaluate((el) => el.isConnected))
+      .toBe(false);
+    for (const [hash, label] of [
+      [atlas, "Atlas"],
+      [wren, "Wren"],
+      [atlas, "Atlas"],
+    ]) {
+      await page.evaluate((hash) => {
+        location.hash = hash;
+      }, hash);
+      await expect(name).toHaveText(label);
+      await expect(film.locator("canvas")).toHaveCount(1);
+      await expect(film).toHaveAttribute("data-light-strength", "0.28");
+      await expect(
+        page.locator(".luca-first-message-greeting__eyes"),
+      ).toHaveCount(1);
+      await expect(page.locator(".luca-first-message-pool")).toHaveCount(0);
+    }
+    for (const width of [1440, 1280, 1024, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      const box = await film.boundingBox();
+      const viewport = await page
+        .locator("[data-luca-timeline-viewport]")
+        .boundingBox();
+      expect(box).not.toBeNull();
+      expect(viewport).not.toBeNull();
+      expect(
+        Math.abs((box?.width ?? 0) - (viewport?.width ?? 1)),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs((box?.height ?? 0) - (viewport?.height ?? 1)),
+      ).toBeLessThanOrEqual(1);
+      await page.mouse.move(1, 1);
+      await page.waitForTimeout(1400);
+      await shot(page, `full-card-${mode}-${width}`);
+    }
+    // The system's setting affects this film too, not just the old pool.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect
+      .poll(
+        async () => {
+          const a = await film.screenshot({ animations: "disabled" });
+          await page.waitForTimeout(400);
+          const b = await film.screenshot({ animations: "disabled" });
+          return a.equals(b);
+        },
+        { timeout: 30000 },
+      )
+      .toBe(true);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const editor = page.locator(
+      '[data-testid="message-composer"] [contenteditable="true"]',
+    );
+    await editor.fill("Hello Atlas");
+    await editor.press("Enter");
+    await expect(page.locator("[data-first-message-draining]")).toHaveCount(1);
+    await expect(film).toHaveCount(0, { timeout: 10000 });
+    expect(errors).toEqual([]);
+  });
+}
+
 // ── d1 · the first screen sits on the card ─────────────────────────────
 for (const frame of ["black", "liquid"] as Frame[]) {
   for (const mode of ["dark", "light"] as Mode[]) {
@@ -306,10 +385,10 @@ for (const frame of ["black", "liquid"] as Frame[]) {
       await boot(page, { asks: false, frame, log, mode });
       const name = page.locator(".luca-first-message-greeting__name");
       await expect(name).toBeVisible({ timeout: 20_000 });
-      // The face's pool (Riley, 2026-10-27), not a film across the card.
-      await expect(page.locator(".luca-first-message-pool canvas")).toHaveCount(
-        1,
-      );
+      // The original full-card film, now dimmed independently of the face.
+      await expect(
+        page.locator(".luca-first-message-surface canvas"),
+      ).toHaveCount(1);
       await page.mouse.move(1430, 890);
       await page.waitForTimeout(600);
       const facts = await page.evaluate(() => {

@@ -17,7 +17,8 @@
 
 /* While the surface draws the composer as glass, the composer's own fill
    steps aside; it comes back the moment the surface has gone. */
-[data-first-message-column]:has(.luca-first-message-surface canvas)
+:root:not([data-luca-frame])
+  [data-first-message-column]:has(.luca-first-message-surface canvas)
   footer[data-luca-reading-plane]
   [data-testid="message-composer"] {
   background-color: transparent;
@@ -168,34 +169,6 @@
   block-size: 100%;
   inline-size: 100%;
   margin: 0;
-}
-
-/* The body's plain black stands in only where the pool can't run. */
-.luca-first-message-greeting__face:has(.luca-first-message-pool canvas)
-.luca-first-message-greeting__body {
-  background: transparent;
-}
-
-.luca-first-message-pool {
-  block-size: 20rem;
-  inline-size: 20rem;
-  left: 50%;
-  pointer-events: none;
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.luca-first-message-pool__canvas {
-  block-size: 100%;
-  inline-size: 100%;
-}
-
-/* The pool's edge: the ink thins out into the card. Masked on the canvas
-   itself, where every renderer composites it. */
-.luca-first-message-pool canvas {
-  -webkit-mask-image: radial-gradient(closest-side, #000 32%, transparent 100%);
-  mask-image: radial-gradient(closest-side, #000 32%, transparent 100%);
 }
 
 .luca-first-message-greeting--quiet .luca-first-message-greeting__name {

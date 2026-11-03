@@ -1377,6 +1377,9 @@ export const ChannelPane = React.memo(function ChannelPane({
                     focusedThreadHead ? null : directMessageIntro
                   }
                   firstMessageOpen={firstMessage.open && !focusedThreadHead}
+                  firstMessageDraining={
+                    firstMessage.draining && !focusedThreadHead
+                  }
                   focusedView={shellFrame && Boolean(focusedThreadHead)}
                   presence={presence}
                   scrollContainerRef={timelineScrollRef}
@@ -1602,7 +1605,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                     {/* Height zero, so the composer's measured height (and
                         the timeline's padding) never changes for the name. */}
                     <div className="luca-measure luca-first-message-greeting-slot">
-                      <AnimatePresence>
+                      <AnimatePresence key={activeChannelId ?? "none"}>
                         {firstMessage.open && firstMessage.subject ? (
                           <FirstMessageGreeting
                             subject={firstMessage.subject}

@@ -78,6 +78,8 @@ export const LivingSurfaceCanvas = React.forwardRef<
     /** How long the surface runs unseen before it opens; with reduced motion, how long it settles. */
     warmSeconds?: number;
     settledSeconds?: number;
+    /** Relief intensity; the body, eyes, and surrounding UI keep their contrast. */
+    lightStrength?: number;
     beforeFrame?: () => void;
     /** Whether a press at this target belongs to the surface. */
     pressable?: (target: EventTarget | null) => boolean;
@@ -89,6 +91,7 @@ export const LivingSurfaceCanvas = React.forwardRef<
     className,
     warmSeconds = 0,
     settledSeconds = 9,
+    lightStrength = 1,
     beforeFrame,
     pressable,
     onUnavailable,
@@ -193,7 +196,7 @@ export const LivingSurfaceCanvas = React.forwardRef<
       return;
     }
     surfaceRef.current = surface;
-    surface.configure(surfaceBehind(host));
+    surface.configure(surfaceBehind(host), lightStrength);
 
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let raf = 0;
@@ -304,7 +307,7 @@ export const LivingSurfaceCanvas = React.forwardRef<
       framed = nowFramed;
       cancelAnimationFrame(grounding);
       grounding = requestAnimationFrame(() => {
-        surface.configure(surfaceBehind(host));
+        surface.configure(surfaceBehind(host), lightStrength);
         if (motion.matches) settle();
       });
     };
@@ -342,7 +345,7 @@ export const LivingSurfaceCanvas = React.forwardRef<
       canvas.remove();
       canvasRef.current = null;
     };
-  }, [kind, settledSeconds, toUnit, warmSeconds]);
+  }, [kind, lightStrength, settledSeconds, toUnit, warmSeconds]);
 
   return <div className={className} ref={hostRef} />;
 });

@@ -1,5 +1,4 @@
 import * as React from "react";
-import { AnimatePresence } from "motion/react";
 
 import {
   isDeferredTimelineSnapshotStale,
@@ -79,6 +78,7 @@ type MessageTimelineProps = {
   /** A direct conversation with a resident, before its first message: the
    *  timeline opens on still water with the conversation's ink in it. */
   firstMessageOpen?: boolean;
+  firstMessageDraining?: boolean;
   /** The timeline shows one exchange (the focused view), under the shell:
    *  the new-messages pill sits below the day label, with room made for it
    *  (WP-14 review). */
@@ -196,6 +196,7 @@ const MessageTimelineBase = React.forwardRef<
     channelIntro = null,
     directMessageIntro = null,
     firstMessageOpen = false,
+    firstMessageDraining = false,
     focusedView = false,
     presence = null,
     messages,
@@ -1145,14 +1146,16 @@ const MessageTimelineBase = React.forwardRef<
         data-focused-view={focusedView ? "" : undefined}
         ref={timelineRootRef}
       >
-        {/* Under everything else in the timeline: the water paints first.
-            Under the frame the film is a small pool around the face, which
-            the greeting holds (FirstMessageView.tsx). */}
-        <AnimatePresence>
-          {firstMessageOpen && !shellFrame ? (
-            <FirstMessageSurface key={channelId ?? "none"} />
-          ) : null}
-        </AnimatePresence>
+        {/* The original full-card film, under the reading plane. A channel
+            switch disposes it immediately rather than draining into another
+            agent's composer. */}
+        {firstMessageOpen || firstMessageDraining ? (
+          <FirstMessageSurface
+            conversationId={channelId}
+            key={`first-message-film:${channelId ?? "none"}`}
+            draining={firstMessageDraining}
+          />
+        ) : null}
         <VisitPresenceRail visitorPubkeys={visitorPubkeys} />
         {hasPresence && presence ? (
           <ConversationPresence {...presence} />
