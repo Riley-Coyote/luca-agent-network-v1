@@ -3,6 +3,89 @@ import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 
 const channel = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+
+for (const mode of ["dark", "light"] as const) {
+  test(`top blur stays at the surface edge in ${mode}`, async ({
+    page,
+  }, info) => {
+    await page.addInitScript(
+      ({ key, mode }) => {
+        localStorage.setItem(key, JSON.stringify({ "shell-frame": true }));
+        localStorage.setItem(
+          "buzz-theme",
+          mode === "dark" ? "vitesse-black" : "paper",
+        );
+        localStorage.setItem("buzz-follow-system", "false");
+      },
+      { key: FEATURE_OVERRIDES_STORAGE_KEY, mode },
+    );
+    await installMockBridge(page, {
+      managedAgents: [
+        {
+          name: "Luca",
+          pubkey: TEST_IDENTITIES.bob.pubkey,
+          status: "running",
+          channelNames: ["bob-tyler"],
+        },
+      ],
+    });
+    await page.goto("/#/channels/7eb9f239-9393-50b0-bd76-d85eef0511c7");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName: "bob-tyler",
+            }) ?? false,
+        ),
+      )
+      .toBe(true);
+    await page.evaluate((pubkey) => {
+      for (let i = 0; i < 30; i++)
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelName: "bob-tyler",
+          pubkey,
+          content: `Reading line ${i + 1}. The conversation stays sharp until it approaches the surface edge.\n\nOnly the words passing under the top edge soften away.`,
+        });
+    }, TEST_IDENTITIES.bob.pubkey);
+    const edge = page.locator("[data-luca-top-edge] > .luca-top-edge");
+    await expect(edge).toBeVisible();
+    for (const width of [1440, 1280, 1024, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await expect(edge).toHaveCSS("height", "48px");
+      const metrics = await edge.evaluate((el) => {
+        const root = el.parentElement;
+        const viewport = root?.querySelector("[data-luca-timeline-viewport]");
+        if (!root || !viewport) throw new Error("Missing timeline edge host");
+        return {
+          rise: Number.parseFloat(
+            getComputedStyle(root).getPropertyValue(
+              "--luca-timeline-top-inset",
+            ),
+          ),
+          fade: getComputedStyle(viewport).maskImage,
+          ramp: Array.from(el.children, (child) =>
+            getComputedStyle(child).getPropertyValue("--edge-in").trim(),
+          ),
+        };
+      });
+      expect(metrics.rise).toBeGreaterThan(48);
+      expect(metrics.fade).toContain("48px");
+      expect(metrics.ramp).toEqual(["0px", "8px", "16px", "24px", "32px"]);
+      await page.locator("[data-luca-timeline-viewport]").evaluate((el) => {
+        const scroller =
+          el.querySelector("[data-testid='message-scroll-container']") ??
+          el.firstElementChild;
+        if (scroller) scroller.scrollTop = scroller.scrollHeight / 2;
+      });
+      await page.screenshot({
+        path: info.outputPath(`edge-${mode}-${width}.png`),
+        animations: "disabled",
+      });
+    }
+  });
+}
+
 const sample = `A small, verified update—not a redesign.
 
 ## What changed

@@ -809,25 +809,26 @@
  * Muse does). The composer's soft edge turned over. The words run on under
  * the mark to the card's top (MessageTimeline keeps the area there and starts
  * only its first words below the mark, --luca-timeline-rise), and over that
- * band, from the page's gap below the text window up to the card's top edge,
- * they thin and blur away: the same five blurs, each coming in over 16px, the
- * first at the band's foot; and the words themselves fading to nothing by
+ * edge strip, independent of the space reserved beneath the agent's badge,
+ * they thin and blur away. Spread the five blurs across that strip rather
+ * than reaching full blur halfway down the badge. The words fade only near
  * the card's edge, so what shows through them is the card itself. The mark
  * and its window stand over it, opaque. Reduce Transparency keeps the fade,
  * without the blur.
  * ------------------------------------------------------------------ */
 [data-luca-top-edge] {
   --luca-timeline-rise: var(--luca-timeline-top-inset, 0px);
+  --luca-top-edge-depth: min(var(--luca-timeline-rise), 48px);
 }
 
 [data-luca-top-edge] > [data-luca-timeline-viewport] {
   --edge-fade: linear-gradient(
     to bottom,
     transparent 0,
-    rgb(0 0 0 / 0.12) calc(var(--luca-timeline-rise) * 0.2),
-    rgb(0 0 0 / 0.42) calc(var(--luca-timeline-rise) * 0.45),
-    rgb(0 0 0 / 0.78) calc(var(--luca-timeline-rise) * 0.72),
-    #000 var(--luca-timeline-rise)
+    rgb(0 0 0 / 0.12) calc(var(--luca-top-edge-depth) * 0.15),
+    rgb(0 0 0 / 0.55) calc(var(--luca-top-edge-depth) * 0.4),
+    rgb(0 0 0 / 0.9) calc(var(--luca-top-edge-depth) * 0.7),
+    #000 var(--luca-top-edge-depth)
   );
   -webkit-mask-image: var(--edge-fade);
   mask-image: var(--edge-fade);
@@ -839,7 +840,7 @@
 
 [data-luca-top-edge] > .luca-top-edge {
   display: block;
-  height: var(--luca-timeline-rise);
+  height: var(--luca-top-edge-depth);
   inset: 0 0 auto;
   pointer-events: none;
   position: absolute;
@@ -866,22 +867,22 @@
 
 .luca-top-edge-blur:nth-child(2) {
   --edge-blur: 2px;
-  --edge-in: 6px;
+  --edge-in: 8px;
 }
 
 .luca-top-edge-blur:nth-child(3) {
   --edge-blur: 4px;
-  --edge-in: 12px;
+  --edge-in: 16px;
 }
 
 .luca-top-edge-blur:nth-child(4) {
   --edge-blur: 8px;
-  --edge-in: 18px;
+  --edge-in: 24px;
 }
 
 .luca-top-edge-blur:nth-child(5) {
   --edge-blur: 16px;
-  --edge-in: 24px;
+  --edge-in: 32px;
 }
 
 @media (prefers-reduced-transparency: reduce) {
