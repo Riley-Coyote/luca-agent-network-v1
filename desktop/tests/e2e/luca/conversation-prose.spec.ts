@@ -89,6 +89,7 @@ for (const mode of ["dark", "light"] as const) {
     await page.goto("/#/settings?section=appearance");
     const sphere = page.getByTestId("composer-sphere-toggle");
     await expect(sphere).toHaveAttribute("aria-checked", "false");
+    await page.getByTestId("chat-mark-style-glyph").click();
     await sphere.click();
     await page.goto("/#/channels/7eb9f239-9393-50b0-bd76-d85eef0511c7");
     await expect(page.getByTestId("composer-agent-ledge")).toBeVisible();

@@ -962,10 +962,7 @@ export const ChannelPane = React.memo(function ChannelPane({
         directMessageIntro.participants[0].displayName)
       : null;
   const composerLedgeAgents = React.useMemo(() => {
-    const showSphereIdentity =
-      chatMarkAppearance.visible &&
-      chatMarkAppearance.composerVisible &&
-      chatMarkAppearance.style === "sphere";
+    const showSphereIdentity = chatMarkAppearance.composerVisible;
     const isActive = (pubkey: string) => {
       const key = normalizePubkey(pubkey);
       const state = presentationStateByPubkey?.get(key);
@@ -997,9 +994,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     activityAgents,
     activityTraces,
     agentActivityRows,
-    chatMarkAppearance.visible,
     chatMarkAppearance.composerVisible,
-    chatMarkAppearance.style,
     composerWorkingBotPubkeys,
     presentationStateByPubkey,
     workingResidentKeys,
