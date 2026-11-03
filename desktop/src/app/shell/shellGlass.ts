@@ -41,13 +41,15 @@ const defaultStorage = (): FrameStorage | null => {
   }
 };
 
-/** The stored frame; solid until someone chooses glass. */
+/** Glass by default; explicit solid choices remain authoritative. The drawing
+ * resolver still uses solid where glass is unavailable or transparency reduced.
+ */
 export function readFrame(storage: FrameStorage | null = defaultStorage()) {
   try {
     const stored = storage?.getItem(FRAME_STORAGE_KEY);
-    return isFrame(stored) ? stored : "solid";
+    return isFrame(stored) ? stored : "glass";
   } catch {
-    return "solid";
+    return "glass";
   }
 }
 

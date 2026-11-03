@@ -5,6 +5,20 @@ use serde_json::json;
 use super::*;
 
 #[test]
+fn companion_return_status_reports_pause_without_claiming_delivery_readiness() {
+    let mut work = crate::luca::companion_initiative::InitiativePolicyV1::disabled().unwrap();
+    assert_eq!(companion_return_status(&work, false)["blockedByPause"], true);
+    work.enabled = true;
+    work.paused = false;
+    assert_eq!(companion_return_status(&work, true)["blockedByPause"], true);
+    let status = companion_return_status(&work, false);
+    assert_eq!(status["blockedByPause"], false);
+    assert_eq!(status["consentPresent"], false);
+    assert!(status["quietHoursLocal"].is_null());
+    assert!(status["readiness"].as_str().unwrap().contains("not delivery readiness"));
+}
+
+#[test]
 fn accepted_repository_stream_handles_fragmented_requests_and_large_replies() {
     // Explicitly reproduce Darwin's inherited accepted-socket flag on every
     // platform. The response exceeds a small Unix socket send buffer and the

@@ -437,7 +437,10 @@ function MindPlace({
         <div className="luca-mind-detail">
           <ResidentNotebookDetailView
             detail={detail}
-            onBack={() => setDetail(null)}
+            onBack={() => {
+              setDetail(null);
+              void notebook.refresh();
+            }}
             onChanged={async (next) => {
               setDetail(next.item ? next : null);
               await notebook.refresh();

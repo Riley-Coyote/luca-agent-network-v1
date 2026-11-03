@@ -723,6 +723,21 @@ fn list_repositories(
     })
 }
 
+fn companion_return_status(
+    work: &super::companion_initiative::InitiativePolicyV1,
+    awareness_paused: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "consentPresent":work.return_consent.is_some(),
+        "blockedByPause":awareness_paused || work.paused || !work.enabled,
+        "maxPerRollingDay":work.max_outreach_per_24h,
+        "quietHoursLocal":work.return_consent.as_ref().map(|consent| serde_json::json!({
+            "startMinute":consent.quiet_start_minute,"endMinute":consent.quiet_end_minute
+        })),
+        "readiness":"Consent presence is not delivery readiness; source, identity, runtime, quiet hours and rate limits are checked again before delivery."
+    })
+}
+
 fn companion_status(app: &AppHandle, state: &crate::app_state::AppState, context: &BrokerContext) -> serde_json::Value {
     (|| -> Option<serde_json::Value> {
         let awareness = state.companion_awareness.resident_state(&context.owner_pubkey, &context.resident_pubkey).ok()?;
@@ -753,6 +768,8 @@ fn companion_status(app: &AppHandle, state: &crate::app_state::AppState, context
             "awarenessRevision":awareness.revision,"selectedGrantCount":grants.entries.len(),
             "sources":sources,"sourceListTruncated":grants.truncated,
             "backgroundEnabled":work.enabled,"backgroundPaused":work.paused,"backgroundRevision":work.revision,
+            "proactiveReturns":companion_return_status(&work, awareness.paused),
+            "pausePersistsAcrossLaunch":true,"resumeOnLaunchRequiresUnpaused":true,
             "memoryEnabled":crate::luca::continuity_jobs::continuity_mode(app, &context.owner_pubkey, &context.resident_pubkey).ok().map(|mode| mode == luca_protocol::ResidentContinuityModeV1::Enabled),
             "recentNoteReceipt":crate::commands::companion_notes::status(&context.owner_pubkey, &context.resident_pubkey),
             "activityInChatReady":crate::luca::managed_dispatch_store::ordinary_turn_awareness_consumers_ready(),

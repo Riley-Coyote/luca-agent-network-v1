@@ -112,6 +112,7 @@ test("paused source notes stay manageable without showing content or enabling ac
         (window as unknown as { testNoteForgotten: boolean }).testNoteForgotten,
     ),
   ).toBe(true);
+  await expect(page.getByTestId("mind-notebook-item")).toHaveCount(0);
   const calls = await companionCalls(page);
   expect(
     calls.some(({ command }) => /^(set_|select_|resume_)/.test(command)),

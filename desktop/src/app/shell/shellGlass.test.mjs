@@ -50,17 +50,19 @@ test("frame setting is stored under polyphonic-frame", () => {
   assert.equal(readFrame(storage), "solid");
 });
 
-test("frame setting defaults to solid", () => {
-  assert.equal(readFrame(memoryStorage()), "solid");
-  assert.equal(readFrame(null), "solid");
+test("fresh frame setting defaults to glass without writing a preference", () => {
+  const storage = memoryStorage();
+  assert.equal(readFrame(storage), "glass");
+  assert.equal(storage.values.size, 0);
+  assert.equal(readFrame(null), "glass");
 });
 
 test("frame setting ignores anything but solid or glass", () => {
   assert.equal(
     readFrame(memoryStorage({ "polyphonic-frame": "liquid" })),
-    "solid",
+    "glass",
   );
-  assert.equal(readFrame(memoryStorage({ "polyphonic-frame": "" })), "solid");
+  assert.equal(readFrame(memoryStorage({ "polyphonic-frame": "" })), "glass");
 });
 
 test("frame setting survives storage that throws", () => {
@@ -72,7 +74,7 @@ test("frame setting survives storage that throws", () => {
       throw new Error("blocked");
     },
   };
-  assert.equal(readFrame(broken), "solid");
+  assert.equal(readFrame(broken), "glass");
   assert.doesNotThrow(() => writeFrame("glass", broken));
 });
 
