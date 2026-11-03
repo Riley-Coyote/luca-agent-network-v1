@@ -397,7 +397,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
                   message.text
                 ) : (
                   <Markdown
-                    className="qc-prose"
+                    className="conversation-prose qc-prose"
                     streaming={message.pending}
                     progressive
                     content={

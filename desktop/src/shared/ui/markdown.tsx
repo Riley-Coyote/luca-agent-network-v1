@@ -1361,7 +1361,7 @@ function ExternalLinkAnchor({
 }
 
 function createMarkdownComponents(mediaInset = false): Components {
-  const listItemClassName = "[&_p]:inline";
+  const listItemClassName = "markdown-list-item";
   const listClassName = "space-y-1 pl-6 marker:text-ink-faint";
 
   function MarkdownAnchor({

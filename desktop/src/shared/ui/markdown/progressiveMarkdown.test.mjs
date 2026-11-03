@@ -18,6 +18,29 @@ test("keeps one unfinished paragraph literal", () => {
   });
 });
 
+test("appended loose-list paragraphs stay in their container until a real boundary", () => {
+  let snapshot = null;
+  const source =
+    "Intro.\n\n1. First.\n\n   More detail.\n\n2. Second.\n\nAfterwards.\n";
+  for (let end = 1; end <= source.length; end++) {
+    snapshot = advanceProgressiveMarkdownSnapshot(
+      snapshot,
+      source.slice(0, end),
+    );
+    assert.equal(
+      snapshot.blocks.map((block) => block.content).join("") +
+        snapshot.trailing,
+      source.slice(0, end),
+    );
+  }
+  assert.equal(snapshot.blocks[0].content, "Intro.\n\n");
+  assert.equal(
+    snapshot.blocks[1].content,
+    "1. First.\n\n   More detail.\n\n2. Second.\n\n",
+  );
+  assert.equal(snapshot.trailing, "Afterwards.\n");
+});
+
 test("freezes blocks before the unfinished tail", () => {
   assert.deepEqual(
     splitProgressiveMarkdown("First paragraph.\n\n- one\n- two"),

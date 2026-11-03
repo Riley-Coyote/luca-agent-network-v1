@@ -92,6 +92,29 @@ test("invalid metadata is ordinary text", () => {
     );
 });
 
+test("late canonical replies stay clean without extending the five-reply offer window", () => {
+  const owners = Array.from({ length: 7 }, (_, index) => ({
+    ...trigger,
+    id: `owner-${index}`,
+    body: reply.body,
+    tags: [],
+  }));
+  const other = { ...reply, id: "other", signerPubkey: "c".repeat(64) };
+  const rows = [trigger, ...owners, other, reply];
+  const presentation = firstMeetingPresentation(rows, owner, luca);
+  assert.deepEqual([...presentation.responseIds], [reply.id]);
+  assert.equal(latestFirstMeetingOffer(rows, owner, luca), null);
+  assert.equal(
+    visibleFirstMeetingProse(reply.body, false),
+    "What brings you here?",
+  );
+  // No owner trigger, no interpretation of an otherwise legitimate code example.
+  assert.equal(
+    firstMeetingPresentation([reply], owner, luca).responseIds.size,
+    0,
+  );
+});
+
 test("only the latest unanswered canonical offer within five owner replies is active", () => {
   assert.deepEqual(
     latestFirstMeetingOffer([trigger, reply], owner, luca)?.options,

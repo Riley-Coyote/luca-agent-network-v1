@@ -33,6 +33,8 @@ export type ProgressiveMarkdownSnapshot = Readonly<{
   _blockStart: number;
   _lineStart: number;
   _openFence: Fence | null;
+  _container: "list" | "quote" | null;
+  _containerBlank: boolean;
   _scanOffset: number;
 }>;
 
@@ -65,6 +67,8 @@ function emptySnapshot(): ProgressiveMarkdownSnapshot {
     _blockStart: 0,
     _lineStart: 0,
     _openFence: null,
+    _container: null,
+    _containerBlank: false,
     _scanOffset: 0,
   };
 }
@@ -87,6 +91,8 @@ export function advanceProgressiveMarkdownSnapshot(
   let blockStart = base._blockStart;
   let lineStart = base._lineStart;
   let openFence = base._openFence;
+  let container = base._container;
+  let containerBlank = base._containerBlank;
   const scanOffset = base._scanOffset;
 
   const freezeThrough = (end: number) => {
@@ -106,17 +112,36 @@ export function advanceProgressiveMarkdownSnapshot(
     if (content.charCodeAt(cursor) !== 10) continue;
 
     const line = content.slice(lineStart, cursor);
+    const listLine = /^ {0,3}(?:[-+*]|\d+[.)])\s+/.test(line);
+    const quoteLine = /^ {0,3}>/.test(line);
+    const blank = line.trim().length === 0;
+    // A blank line can belong to a loose list or a multi-paragraph quote.
+    // Wait for the following complete line before declaring that block done.
+    if (container && containerBlank && !blank && !openFence) {
+      const continues =
+        container === "quote" ? quoteLine : listLine || /^(?: +|\t)/.test(line);
+      if (!continues) {
+        container = null;
+        freezeThrough(lineStart);
+      }
+      containerBlank = false;
+    }
+    if (!container && !openFence) {
+      if (listLine) container = "list";
+      else if (quoteLine) container = "quote";
+    }
     if (openFence) {
       if (closesFence(line, openFence)) {
         openFence = null;
-        freezeThrough(cursor + 1);
+        if (!container) freezeThrough(cursor + 1);
       }
     } else {
       const openingFence = openingFenceForLine(line);
       if (openingFence) {
         openFence = openingFence;
-      } else if (line.trim().length === 0) {
-        freezeThrough(cursor + 1);
+      } else if (blank) {
+        if (container) containerBlank = true;
+        else freezeThrough(cursor + 1);
       }
     }
     lineStart = cursor + 1;
@@ -133,6 +158,8 @@ export function advanceProgressiveMarkdownSnapshot(
     _blockStart: blockStart,
     _lineStart: lineStart,
     _openFence: openFence,
+    _container: container,
+    _containerBlank: containerBlank,
     _scanOffset: content.length,
   };
 }

@@ -114,16 +114,15 @@ export function firstMeetingPresentation(
       hasClientMarker(message, FIRST_MEETING_MARKER),
   );
   if (start < 0) return { triggerId: null, responseIds };
-  let replies = 0;
+  // Presentation cleanup outlives the initial offer window: a warm harness can
+  // retain the brief and emit its valid metadata later. Only canonical Luca
+  // replies after the owner-signed trigger are eligible; owner code is untouched.
   for (const message of messages.slice(start + 1)) {
     if (!isFirstMeetingTimelineRow(message)) continue;
     const author = normalizePubkey(
       message.signerPubkey ?? message.pubkey ?? "",
     );
-    if (author === owner) {
-      replies++;
-      if (replies > 5) break;
-    } else if (author === luca) {
+    if (author === luca) {
       responseIds.add(message.id);
     }
   }

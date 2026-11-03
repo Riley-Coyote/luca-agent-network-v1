@@ -567,7 +567,7 @@ export const MessageRow = React.memo(
               // roles, and an alpha on top of near-black ink is what dropped
               // light mode below AA.
               className={cn(
-                "max-w-full text-foreground",
+                "conversation-prose max-w-full text-foreground",
                 emojiOnly
                   ? "text-4xl leading-tight [&_p]:leading-tight [&_img[data-custom-emoji]]:h-[1.45em] [&_img[data-custom-emoji]]:align-middle [&_button:has(img[data-custom-emoji])]:align-middle"
                   : "type-body",

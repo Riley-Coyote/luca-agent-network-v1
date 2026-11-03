@@ -61,6 +61,25 @@ test("terminal headings, lists, quotes, tables, and fences use final geometry", 
   }
 });
 
+test("loose lists and multi-paragraph quotes remain whole while streaming", () => {
+  const list = renderProgressive(
+    "1. First step.\n\n   Supporting paragraph.\n\n2. Second step.\n\nAfterwards.\n",
+  );
+  assert.equal((list.match(/<ol>/g) ?? []).length, 1);
+  assert.match(
+    list,
+    /<li>\s*<p>First step\.<\/p>\s*<p>Supporting paragraph\.<\/p>/,
+  );
+  const quote = renderProgressive(
+    "> First paragraph.\n>\n> Second paragraph.\n\nAfterwards.\n",
+  );
+  assert.equal((quote.match(/<blockquote>/g) ?? []).length, 1);
+  assert.match(
+    quote,
+    /<blockquote>\s*<p>First paragraph\.<\/p>\s*<p>Second paragraph\.<\/p>/,
+  );
+});
+
 test("memo equality ignores fresh value-equal name arrays", () => {
   const previous = {
     ...BASE_PROPS,
