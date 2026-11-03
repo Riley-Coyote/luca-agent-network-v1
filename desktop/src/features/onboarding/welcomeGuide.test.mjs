@@ -143,7 +143,7 @@ test("starter persona activation is serialized to protect the shared store", asy
   let activeWrites = 0;
 
   await activateWelcomeTeamPersonasSequentially(
-    ["builtin:fizz", "builtin:fifty", "builtin:trinity"],
+    WELCOME_TEAM_STARTERS.map((starter) => starter.personaId),
     async (personaId) => {
       assert.equal(activeWrites, 0, "activation writes must never overlap");
       activeWrites += 1;
@@ -153,7 +153,7 @@ test("starter persona activation is serialized to protect the shared store", asy
     },
   );
 
-  assert.deepEqual(calls, ["builtin:fizz", "builtin:fifty", "builtin:trinity"]);
+  assert.deepEqual(calls, ["builtin:fizz", "builtin:honey", "builtin:bumble"]);
 });
 
 test("all Welcome starters use the onboarding runtime preference", async () => {
@@ -201,7 +201,11 @@ test("all Welcome starters use the onboarding runtime preference", async () => {
     assert.equal(input.agentCommand, "claude-code-acp");
     assert.equal(input.harnessOverride, true);
     assert.equal(input.personaId, starter.personaId);
-    assert.equal(input.teamId, WELCOME_TEAM_ID);
+    assert.equal(
+      input.teamId,
+      undefined,
+      "new residents have no retired starter team",
+    );
     assert.equal(input.relayUrl, RELAY_A);
     assert.equal(input.spawnAfterCreate, false);
     assert.equal(input.startOnAppLaunch, false);
@@ -293,12 +297,12 @@ test("welcome team starter definitions and role identities are stable", () => {
   assert.equal(WELCOME_TEAM_ID, "builtin-team:welcome");
   assert.deepEqual(WELCOME_TEAM_STARTERS, [
     { name: "Luca", personaId: "builtin:fizz", role: "lead" },
-    { name: "Fifty", personaId: "builtin:fifty", role: "teammate" },
-    { name: "Trinity", personaId: "builtin:trinity", role: "teammate" },
+    { name: "Vektor", personaId: "builtin:honey", role: "teammate" },
+    { name: "Anima", personaId: "builtin:bumble", role: "teammate" },
   ]);
 });
 
-test("starter matching ignores user agents with a Welcome persona", () => {
+test("starter matching reuses ungrouped residents but leaves custom teams alone", () => {
   const honey = WELCOME_TEAM_STARTERS[1];
   const userHoney = makeAgent({
     personaId: honey.personaId,
@@ -307,6 +311,14 @@ test("starter matching ignores user agents with a Welcome persona", () => {
 
   assert.equal(
     pickWelcomeTeamStarterAgentForRelay([userHoney], honey, RELAY_A),
+    userHoney,
+  );
+  const customTeamAgent = makeAgent({
+    personaId: honey.personaId,
+    teamId: "custom:team",
+  });
+  assert.equal(
+    pickWelcomeTeamStarterAgentForRelay([customTeamAgent], honey, RELAY_A),
     null,
   );
 });

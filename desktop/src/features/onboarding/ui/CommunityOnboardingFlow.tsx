@@ -9,6 +9,7 @@ import {
 } from "@/features/onboarding/communityOnboarding";
 import { initializeStarterChannels } from "@/features/onboarding/hooks";
 import { useClaimInvite } from "@/features/onboarding/useClaimInvite";
+import { WELCOME_TEAM_STARTERS } from "@/features/onboarding/welcomeGuide";
 import { CommunityChangeOverlay } from "@/features/communities/ui/CommunityChangeOverlay";
 import {
   takePendingWelcomeChannelForDirectEntry,
@@ -179,7 +180,7 @@ export function CommunityOnboardingFlow({
     void listPersonas()
       .then((personas) =>
         setStarterPersonas(
-          ["builtin:fizz", "builtin:fifty", "builtin:trinity"].flatMap(
+          WELCOME_TEAM_STARTERS.map((starter) => starter.personaId).flatMap(
             (personaId) => {
               const persona = personas.find(
                 (candidate) => candidate.id === personaId,

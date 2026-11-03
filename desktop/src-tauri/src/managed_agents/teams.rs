@@ -31,23 +31,32 @@ struct BuiltInTeam {
     persona_ids: &'static [&'static str],
 }
 
-const BUILT_IN_TEAMS: &[BuiltInTeam] = &[BuiltInTeam {
-    id: "builtin-team:welcome",
-    name: "Starter Residents",
-    description: Some("Luca, Vektor, and Anima — an optional starting network."),
-    persona_ids: &["builtin:fizz", "builtin:honey", "builtin:bumble"],
-}];
+const BUILT_IN_TEAMS: &[BuiltInTeam] = &[];
 
 // Built-in teams that have been retired. A stored copy that still exactly
 // matches its seed is purged on load (the user never touched it); customized
 // copies are demoted to user-owned teams by the retirement loop in
 // merge_teams_impl.
-const RETIRED_BUILT_IN_TEAMS: &[BuiltInTeam] = &[BuiltInTeam {
-    id: "builtin-team:fizz",
-    name: "Fizz",
-    description: Some("Fizz works carefully and collaboratively."),
-    persona_ids: &["builtin:fizz"],
-}];
+const RETIRED_BUILT_IN_TEAMS: &[BuiltInTeam] = &[
+    BuiltInTeam {
+        id: "builtin-team:fizz",
+        name: "Fizz",
+        description: Some("Fizz works carefully and collaboratively."),
+        persona_ids: &["builtin:fizz"],
+    },
+    BuiltInTeam {
+        id: "builtin-team:welcome",
+        name: "Starter Residents",
+        description: Some("Luca, Vektor, and Anima — an optional starting network."),
+        persona_ids: &["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    },
+    BuiltInTeam {
+        id: "builtin-team:welcome",
+        name: "Welcome Team",
+        description: Some("A friendly starter trio ready to help you plan, create, and ship."),
+        persona_ids: &["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    },
+];
 
 fn built_in_team_records(built_ins: &[BuiltInTeam], now: &str) -> Vec<TeamRecord> {
     built_ins
@@ -92,16 +101,6 @@ fn merge_teams_impl(
     // Seed missing built-ins / re-promote existing ones that were downgraded.
     for built_in in built_in_team_records(built_ins, now) {
         if let Some(existing) = stored.iter_mut().find(|record| record.id == built_in.id) {
-            if existing.id == "builtin-team:welcome"
-                && existing.name == "Welcome Team"
-                && existing.description.as_deref()
-                    == Some("A friendly starter trio ready to help you plan, create, and ship.")
-            {
-                existing.name = built_in.name.clone();
-                existing.description = built_in.description.clone();
-                existing.updated_at = now.to_string();
-                changed = true;
-            }
             if !existing.is_builtin {
                 existing.is_builtin = true;
                 existing.updated_at = now.to_string();
@@ -122,6 +121,7 @@ fn merge_teams_impl(
                 && record.id == seed.id
                 && record.name == seed.name
                 && record.description.as_deref() == seed.description
+                && record.instructions.is_none()
                 && record
                     .persona_ids
                     .iter()

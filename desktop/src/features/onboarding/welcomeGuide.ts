@@ -22,6 +22,7 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 
 export const WELCOME_GUIDE_AGENT_NAME = "Luca";
 export const WELCOME_GUIDE_PERSONA_ID = "builtin:fizz";
+/** Read-only compatibility with instances made before the starter team retired. */
 export const WELCOME_TEAM_ID = "builtin-team:welcome";
 export const WELCOME_GUIDE_INTRO_MARKER = "buzz-welcome-intro.v1";
 const LEGACY_WELCOME_GUIDE_AGENT_NAME = "Kit";
@@ -38,11 +39,11 @@ export type WelcomeTeamStarterDefinition = Readonly<{
   role: WelcomeTeamRole;
 }>;
 
-/** Stable identities used to provision the Rust-seeded Welcome Team. */
+/** Stable identities for the shipped residents; no built-in team is created. */
 export const WELCOME_TEAM_STARTERS = [
   { name: "Luca", personaId: "builtin:fizz", role: "lead" },
-  { name: "Fifty", personaId: "builtin:fifty", role: "teammate" },
-  { name: "Trinity", personaId: "builtin:trinity", role: "teammate" },
+  { name: "Vektor", personaId: "builtin:honey", role: "teammate" },
+  { name: "Anima", personaId: "builtin:bumble", role: "teammate" },
 ] as const satisfies readonly WelcomeTeamStarterDefinition[];
 
 export type WelcomeTeamAgents = [ManagedAgent, ManagedAgent, ManagedAgent];
@@ -113,7 +114,7 @@ export function pickWelcomeTeamStarterAgentForRelay(
   return pickAgentByStatus(
     agents.filter(
       (agent) =>
-        agent.teamId === WELCOME_TEAM_ID &&
+        (agent.teamId == null || agent.teamId === WELCOME_TEAM_ID) &&
         agent.personaId === starter.personaId &&
         isAgentScopedToRelay(agent, relayUrl),
     ),
@@ -128,7 +129,7 @@ export async function getWelcomeTeamAgentPubkeys(relayUrl?: string | null) {
   return (await listManagedAgents())
     .filter(
       (agent) =>
-        agent.teamId === WELCOME_TEAM_ID &&
+        (agent.teamId == null || agent.teamId === WELCOME_TEAM_ID) &&
         agent.personaId !== null &&
         personaIds.has(agent.personaId) &&
         isAgentScopedToRelay(agent, relayUrl),
@@ -221,7 +222,6 @@ export async function buildWelcomeStarterCreateInput(
   return {
     ...(await buildInstanceInputForDefinition(persona, runtime)),
     name: starter.name,
-    teamId: WELCOME_TEAM_ID,
     relayUrl: relayUrl ?? undefined,
     spawnAfterCreate: false,
     startOnAppLaunch: false,
@@ -261,9 +261,9 @@ export function welcomeStarterRuntimeUpdate(
 }
 
 /**
- * Ensure the complete built-in Welcome Team is ready for kickoff.
- * The team itself is Rust-seeded; this only activates personas, creates any
- * missing relay-scoped instances, and adds all three to Welcome as bots.
+ * Ensure the shipped residents are ready for the legacy Welcome kickoff.
+ * This activates personas, reuses or creates relay-scoped instances, and
+ * adds all three to the channel as bots. It does not create a team record.
  */
 async function provisionWelcomeTeam(
   channelId: string,

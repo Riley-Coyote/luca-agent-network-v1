@@ -62,17 +62,37 @@ const BUILT_IN_STOCK_SOULS: &[StockSouls] = &[
         current: resident_packs::LUCA.soul,
         // Luca predates the document packs, so its oldest stock soul is the
         // plain constant above rather than a pack file.
-        previous: &[LUCA_SYSTEM_PROMPT, resident_packs::LUCA_2026_09_13.soul],
+        previous: &[
+            LUCA_SYSTEM_PROMPT,
+            resident_packs::LUCA_2026_09_13.soul,
+            resident_packs::LUCA_2026_09_15.soul,
+        ],
     },
     StockSouls {
         persona_id: "builtin:fifty",
         current: resident_packs::FIFTY.soul,
-        previous: &[resident_packs::FIFTY_2026_09_13.soul],
+        previous: &[
+            resident_packs::FIFTY_2026_09_13.soul,
+            resident_packs::FIFTY_2026_09_15.soul,
+        ],
     },
     StockSouls {
         persona_id: "builtin:trinity",
         current: resident_packs::TRINITY.soul,
-        previous: &[resident_packs::TRINITY_2026_09_13.soul],
+        previous: &[
+            resident_packs::TRINITY_2026_09_13.soul,
+            resident_packs::TRINITY_2026_09_15.soul,
+        ],
+    },
+    StockSouls {
+        persona_id: "builtin:honey",
+        current: resident_packs::VEKTOR.soul,
+        previous: &[VEKTOR_SYSTEM_PROMPT],
+    },
+    StockSouls {
+        persona_id: "builtin:bumble",
+        current: resident_packs::ANIMA.soul,
+        previous: &[ANIMA_SYSTEM_PROMPT],
     },
 ];
 
@@ -111,6 +131,11 @@ pub(crate) fn built_in_resident_self_model(
     persona_id: &str,
     pinned_prompt: Option<&str>,
 ) -> Option<&'static str> {
+    if let Some(pack) = resident_packs::for_unedited_definition(persona_id, pinned_prompt) {
+        return Some(pack.self_model);
+    }
+    // Legacy pins may still be read before their definitions are refreshed.
+    // Only those exact old pins receive the old seed; pack pins use the pack.
     let (canonical_prompt, self_model) = match persona_id {
         LUCA_PERSONA_ID => (LUCA_SYSTEM_PROMPT, LUCA_SELF_MODEL),
         "builtin:honey" => (VEKTOR_SYSTEM_PROMPT, VEKTOR_SELF_MODEL),
@@ -139,7 +164,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         name_pool: &["Fifty"],
         model: None,
         runtime: None,
-        default_active: true,
+        default_active: false,
     },
     BuiltInPersona {
         id: "builtin:trinity",
@@ -149,7 +174,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         name_pool: &["Trinity"],
         model: None,
         runtime: None,
-        default_active: true,
+        default_active: false,
     },
     BuiltInPersona {
         id: "builtin:direct-runtime:claude",
@@ -175,21 +200,21 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         id: "builtin:honey",
         display_name: "Vektor",
         avatar_url: None,
-        system_prompt: VEKTOR_SYSTEM_PROMPT,
+        system_prompt: resident_packs::VEKTOR.soul,
         name_pool: &["Vektor"],
         model: None,
         runtime: None,
-        default_active: false,
+        default_active: true,
     },
     BuiltInPersona {
         id: "builtin:bumble",
         display_name: "Anima",
         avatar_url: None,
-        system_prompt: ANIMA_SYSTEM_PROMPT,
+        system_prompt: resident_packs::ANIMA.soul,
         name_pool: &["Anima"],
         model: None,
         runtime: None,
-        default_active: false,
+        default_active: true,
     },
 ];
 
@@ -294,8 +319,9 @@ fn sort_personas(records: &mut [AgentDefinition]) {
 
 fn merge_personas(mut stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefinition>, bool) {
     let mut changed = false;
+    let fresh_install = stored.is_empty();
 
-    for built_in in built_in_persona_records(now) {
+    for mut built_in in built_in_persona_records(now) {
         if let Some(existing) = stored.iter_mut().find(|record| record.id == built_in.id) {
             let legacy_seed = match existing.id.as_str() {
                 "builtin:fizz" => Some(("Fizz", FIZZ_SYSTEM_PROMPT, FIZZ_AVATAR)),
@@ -334,6 +360,13 @@ fn merge_personas(mut stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefi
                 changed = true;
             }
         } else {
+            // The new starter pair is automatic only for a fresh house.
+            // Older stores without their definitions get catalog entries,
+            // not newly active agents. Existing is_active choices stay above.
+            if !fresh_install && matches!(built_in.id.as_str(), "builtin:honey" | "builtin:bumble")
+            {
+                built_in.is_active = false;
+            }
             stored.push(built_in);
             changed = true;
         }
@@ -540,25 +573,43 @@ mod resident_pack_tests {
     use super::*;
 
     #[test]
-    fn starter_defaults_are_luca_fifty_and_trinity_without_forcing_existing_choices() {
+    fn starter_defaults_are_luca_vektor_and_anima_without_forcing_existing_choices() {
         let (fresh, _) = merge_personas(Vec::new(), "2026-09-13T00:00:00Z");
         let active: Vec<&str> = fresh
             .iter()
             .filter(|record| record.is_active)
             .map(|record| record.id.as_str())
             .collect();
-        assert_eq!(active, ["builtin:fizz", "builtin:fifty", "builtin:trinity"]);
+        assert_eq!(active, ["builtin:fizz", "builtin:honey", "builtin:bumble"]);
 
-        let mut existing_vektor = fresh
-            .iter()
-            .find(|record| record.id == "builtin:honey")
-            .unwrap()
-            .clone();
-        existing_vektor.is_active = true;
-        let (merged, _) = merge_personas(vec![existing_vektor], "2026-09-13T00:00:00Z");
-        assert!(merged
-            .iter()
-            .any(|record| record.id == "builtin:honey" && record.is_active));
+        // Every saved choice survives, even when it opposes the new default.
+        for active_choice in [false, true] {
+            let mut existing = fresh.clone();
+            for record in &mut existing {
+                record.is_active = active_choice;
+            }
+            let (merged, changed) = merge_personas(existing, "2026-11-02T00:00:00Z");
+            assert!(!changed);
+            assert!(merged
+                .iter()
+                .all(|record| record.is_active == active_choice));
+        }
+
+        // Older stores missing the pair receive inactive catalog definitions.
+        let mut older = fresh.clone();
+        older.retain(|record| !matches!(record.id.as_str(), "builtin:honey" | "builtin:bumble"));
+        let (merged, changed) = merge_personas(older, "2026-11-02T00:00:00Z");
+        assert!(changed);
+        for id in ["builtin:honey", "builtin:bumble"] {
+            assert!(
+                !merged
+                    .iter()
+                    .find(|record| record.id == id)
+                    .unwrap()
+                    .is_active
+            );
+        }
+        assert!(!merge_personas(merged, "2026-11-03T00:00:00Z").1);
     }
 
     /// Every bundled resident moves forward from every soul we ever shipped
@@ -566,11 +617,13 @@ mod resident_pack_tests {
     /// is the second row of this: its stored prompt is the 2026-09-13 pack
     /// soul, and it lands on the resident-authored one.
     #[test]
-    fn untouched_stock_definitions_move_forward_from_either_generation() {
+    fn untouched_stock_definitions_move_forward_from_every_generation() {
         for (persona_id, display_name, pack) in [
             (LUCA_PERSONA_ID, "Luca", &resident_packs::LUCA),
             ("builtin:fifty", "Fifty", &resident_packs::FIFTY),
             ("builtin:trinity", "Trinity", &resident_packs::TRINITY),
+            ("builtin:honey", "Vektor", &resident_packs::VEKTOR),
+            ("builtin:bumble", "Anima", &resident_packs::ANIMA),
         ] {
             let seed = built_in_persona_records("2026-09-15T00:00:00Z")
                 .into_iter()
@@ -655,12 +708,57 @@ mod resident_pack_tests {
                 );
             }
         }
-        assert!(previous_stock_souls("builtin:honey").is_empty());
+        assert_eq!(
+            previous_stock_souls("builtin:honey"),
+            &[VEKTOR_SYSTEM_PROMPT]
+        );
+        assert_eq!(
+            previous_stock_souls("builtin:bumble"),
+            &[ANIMA_SYSTEM_PROMPT]
+        );
         assert_eq!(
             stock_soul_upgrade("builtin:honey", VEKTOR_SYSTEM_PROMPT),
-            None
+            Some(resident_packs::VEKTOR.soul)
         );
+        assert!(resident_packs::previous_editions("builtin:honey").is_empty());
+        assert!(resident_packs::previous_editions("builtin:bumble").is_empty());
         assert_eq!(stock_soul_upgrade("custom:mine", LUCA_SYSTEM_PROMPT), None);
+    }
+
+    #[test]
+    fn retired_bee_seeds_move_directly_to_the_new_packs_without_changing_activation() {
+        for (id, name, prompt, avatar, pack) in [
+            (
+                "builtin:honey",
+                "Honey",
+                HONEY_SYSTEM_PROMPT,
+                HONEY_AVATAR,
+                &resident_packs::VEKTOR,
+            ),
+            (
+                "builtin:bumble",
+                "Bumble",
+                BUMBLE_SYSTEM_PROMPT,
+                BUMBLE_AVATAR,
+                &resident_packs::ANIMA,
+            ),
+        ] {
+            for active in [false, true] {
+                let mut stored = built_in_persona_definition(id, "old").unwrap();
+                stored.display_name = name.to_owned();
+                stored.system_prompt = prompt.to_owned();
+                stored.avatar_url = Some(avatar.to_owned());
+                stored.is_active = active;
+                let (merged, _) = merge_personas(vec![stored], "new");
+                let current = merged.iter().find(|record| record.id == id).unwrap();
+                assert_eq!(current.system_prompt, pack.soul);
+                assert_eq!(current.is_active, active);
+                assert_eq!(
+                    built_in_resident_self_model(id, Some(pack.soul)),
+                    Some(pack.self_model)
+                );
+            }
+        }
     }
 
     #[test]

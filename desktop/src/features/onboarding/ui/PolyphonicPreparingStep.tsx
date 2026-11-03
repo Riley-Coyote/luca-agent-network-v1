@@ -41,6 +41,7 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { startStagedOnboardingAgentImports } from "../onboardingBackgroundImport";
+import { WELCOME_TEAM_STARTERS } from "../welcomeGuide";
 import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
@@ -53,7 +54,9 @@ const LUCA_READY_TIMEOUT_MS = 30_000;
  * wakes with the app; these two wake on the first message, like every other
  * resident.
  */
-const STARTER_PERSONA_IDS = ["builtin:fifty", "builtin:trinity"] as const;
+const STARTER_PERSONA_IDS = WELCOME_TEAM_STARTERS.filter(
+  (starter) => starter.role !== "lead",
+).map((starter) => starter.personaId);
 
 /**
  * What the owner is being given, one frame at a time, while Luca wakes. There
@@ -145,7 +148,7 @@ async function waitForLucaToSpeak(
 }
 
 /**
- * Fifty and Trinity, made in the same breath as Luca and on the same runtime.
+ * Vektor and Anima, made in the same breath as Luca and on the same runtime.
  * `create_luca_resident` is persona-agnostic and idempotent, so a second walk
  * through setup recovers the existing records rather than minting duplicates.
  *

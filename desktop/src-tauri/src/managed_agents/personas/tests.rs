@@ -73,12 +73,29 @@ fn merge_personas_adds_missing_built_ins() {
         .collect();
     assert_eq!(
         active_ids,
-        vec!["builtin:fizz", "builtin:fifty", "builtin:trinity"]
+        vec!["builtin:fizz", "builtin:honey", "builtin:bumble"]
     );
 }
 
 #[test]
 fn bundled_self_models_require_the_unedited_built_in_prompt() {
+    for id in [
+        "builtin:fizz",
+        "builtin:honey",
+        "builtin:bumble",
+        "builtin:fifty",
+        "builtin:trinity",
+    ] {
+        let pack = super::resident_packs::for_persona(id).unwrap();
+        assert_eq!(
+            built_in_resident_self_model(id, Some(pack.soul)),
+            Some(pack.self_model)
+        );
+        assert_eq!(
+            built_in_resident_self_model(id, Some("Owner-authored portrait")),
+            None
+        );
+    }
     assert_eq!(
         built_in_resident_self_model("builtin:fizz", Some(LUCA_SYSTEM_PROMPT)),
         Some("I am Luca, Polyphonic's resident concierge and a clear, grounded generalist collaborator.")

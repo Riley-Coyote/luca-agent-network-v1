@@ -320,27 +320,11 @@ fn migration_customized_fizz_is_demoted_to_user_team() {
 }
 
 #[test]
-fn welcome_team_is_seeded_and_idempotent() {
+fn no_starter_team_is_seeded() {
     let (records, changed) = merge_teams(Vec::new(), "2026-07-01T00:00:00Z");
 
-    assert!(changed);
-    assert_eq!(records.len(), 1);
-    let welcome = &records[0];
-    assert_eq!(welcome.id, "builtin-team:welcome");
-    assert_eq!(welcome.name, "Starter Residents");
-    assert_eq!(
-        welcome.description.as_deref(),
-        Some("Luca, Vektor, and Anima — an optional starting network.")
-    );
-    assert_eq!(
-        welcome.persona_ids,
-        vec![
-            "builtin:fizz".to_string(),
-            "builtin:honey".to_string(),
-            "builtin:bumble".to_string(),
-        ]
-    );
-    assert!(welcome.is_builtin);
+    assert!(!changed);
+    assert!(records.is_empty());
 
     let expected = serde_json::to_value(&records).unwrap();
     let (records_after_second_merge, changed) = merge_teams(records, "2026-07-02T00:00:00Z");
@@ -352,19 +336,19 @@ fn welcome_team_is_seeded_and_idempotent() {
 }
 
 #[test]
-fn welcome_team_seed_does_not_overwrite_customization() {
-    let (mut records, _) = merge_teams(Vec::new(), "2026-07-01T00:00:00Z");
+fn welcome_team_retirement_preserves_customization() {
+    let mut records = super::built_in_team_records(super::RETIRED_BUILT_IN_TEAMS, "old");
     let welcome = records
         .iter_mut()
         .find(|team| team.id == "builtin-team:welcome")
-        .expect("welcome team should be seeded");
+        .expect("retired welcome seed exists");
     welcome.name = "My Welcome Team".to_string();
     welcome.description = Some("My customized starter team.".to_string());
     welcome.persona_ids = vec!["builtin:honey".to_string()];
 
     let (records, changed) = merge_teams(records, "2026-07-02T00:00:00Z");
 
-    assert!(!changed);
+    assert!(changed);
     let welcome = records
         .iter()
         .find(|team| team.id == "builtin-team:welcome")
@@ -375,7 +359,36 @@ fn welcome_team_seed_does_not_overwrite_customization() {
         Some("My customized starter team.")
     );
     assert_eq!(welcome.persona_ids, vec!["builtin:honey".to_string()]);
-    assert!(welcome.is_builtin);
+    assert!(!welcome.is_builtin);
+    assert!(!merge_teams(records, "2026-07-03T00:00:00Z").1);
+}
+
+#[test]
+fn starter_residents_retirement_removes_both_untouched_welcome_editions() {
+    let stored = super::built_in_team_records(super::RETIRED_BUILT_IN_TEAMS, "old");
+    let (records, changed) = merge_teams(stored, "new");
+    assert!(changed);
+    assert!(records.is_empty());
+    assert!(!merge_teams(records, "later").1);
+}
+
+#[test]
+fn starter_residents_retirement_preserves_instructions_even_with_stock_name() {
+    let mut stored = super::built_in_team_records(super::RETIRED_BUILT_IN_TEAMS, "old");
+    for record in &mut stored {
+        record.instructions = Some("Our team's own working agreement.".to_owned());
+    }
+    let (records, changed) = merge_teams(stored, "new");
+    assert!(changed);
+    assert_eq!(records.len(), super::RETIRED_BUILT_IN_TEAMS.len());
+    for record in &records {
+        assert!(!record.is_builtin);
+        assert_eq!(
+            record.instructions.as_deref(),
+            Some("Our team's own working agreement.")
+        );
+    }
+    assert!(!merge_teams(records, "later").1);
 }
 
 // ── load_teams_readonly tests ──────────────────────────────────────────
@@ -391,8 +404,7 @@ fn load_teams_readonly_absent_file_performs_no_write() {
     let records = load_teams_readonly(&path).unwrap();
 
     // Returns the merged built-in list without persisting it.
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0].id, "builtin-team:welcome");
+    assert!(records.is_empty());
 
     // The file must still NOT exist — no write-on-load side effect.
     assert!(

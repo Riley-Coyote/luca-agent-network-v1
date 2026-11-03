@@ -330,18 +330,27 @@ fn founding_documents_refresh_only_while_they_are_still_stock() {
             // Learned work, and an owner-edited user model, must survive.
             put(dir.path(), DocumentKind::Lessons, "What I learned.");
             std::fs::write(dir.path().join("MEMORY.md"), "Ours.").unwrap();
-            put(dir.path(), DocumentKind::UserModel, pack.user_model);
+            std::fs::write(dir.path().join("relationship.md"), "Our relationship.").unwrap();
+            put(
+                dir.path(),
+                DocumentKind::UserModel,
+                "What I know about you.",
+            );
 
             let refreshed = refresh_founding_documents(dir.path(), persona_id).unwrap();
+            let expected_changes: Vec<String> = [
+                ("soul.md", edition.soul, pack.soul),
+                ("convictions.md", edition.convictions, pack.convictions),
+                ("self-model.md", edition.self_model, pack.self_model),
+                ("IDENTITY.md", edition.identity, pack.identity),
+            ]
+            .into_iter()
+            .filter(|(_, previous, current)| previous != current)
+            .map(|(name, _, _)| name.to_owned())
+            .collect();
             assert_eq!(
-                refreshed,
-                vec![
-                    "soul.md".to_owned(),
-                    "convictions.md".to_owned(),
-                    "self-model.md".to_owned(),
-                    "IDENTITY.md".to_owned(),
-                ],
-                "{persona_id}: all four founding documents move forward"
+                refreshed, expected_changes,
+                "{persona_id}: only changed founding documents move forward"
             );
             for (name, expected) in [
                 ("soul.md", pack.soul),
@@ -365,8 +374,12 @@ fn founding_documents_refresh_only_while_they_are_still_stock() {
             );
             assert_eq!(
                 std::fs::read_to_string(dir.path().join("user-model.md")).unwrap(),
-                pack.user_model,
+                "What I know about you.",
                 "{persona_id}: the user model is not a founding document"
+            );
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("relationship.md")).unwrap(),
+                "Our relationship."
             );
 
             // Idempotent: a second pass has nothing left to move.
@@ -379,6 +392,11 @@ fn founding_documents_refresh_only_while_they_are_still_stock() {
         let dir = folder();
         put(dir.path(), DocumentKind::Soul, "I rewrote my own soul.");
         put(dir.path(), DocumentKind::Convictions, "Mine.");
+        put(
+            dir.path(),
+            DocumentKind::SelfModel,
+            "My learned self-model.",
+        );
         std::fs::write(dir.path().join("IDENTITY.md"), "Mine too.").unwrap();
         assert!(refresh_founding_documents(dir.path(), persona_id)
             .unwrap()
@@ -394,6 +412,10 @@ fn founding_documents_refresh_only_while_they_are_still_stock() {
         assert_eq!(
             std::fs::read_to_string(dir.path().join("IDENTITY.md")).unwrap(),
             "Mine too."
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("self-model.md")).unwrap(),
+            "My learned self-model."
         );
     }
 }
@@ -415,6 +437,60 @@ fn founding_refresh_never_creates_an_absent_document() {
     }
 }
 
+#[test]
+fn resident_pack_refresh_upgrades_legacy_vektor_and_anima_souls_only() {
+    use crate::managed_agents::{previous_stock_souls, resident_packs};
+
+    for persona_id in ["builtin:honey", "builtin:bumble"] {
+        let pack = resident_packs::for_persona(persona_id).unwrap();
+        for old in previous_stock_souls(persona_id) {
+            let dir = folder();
+            put(dir.path(), DocumentKind::Soul, old);
+            for (name, body) in [
+                ("self-model.md", "Who I have become."),
+                ("lessons.md", "What I learned."),
+                ("user-model.md", "What I know about you."),
+                ("MEMORY.md", "Our memories."),
+                ("relationship.md", "Our relationship."),
+            ] {
+                std::fs::write(dir.path().join(name), body).unwrap();
+            }
+            assert_eq!(
+                refresh_founding_documents(dir.path(), persona_id).unwrap(),
+                vec!["soul.md"]
+            );
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("soul.md")).unwrap(),
+                pack.soul
+            );
+            for (name, body) in [
+                ("self-model.md", "Who I have become."),
+                ("lessons.md", "What I learned."),
+                ("user-model.md", "What I know about you."),
+                ("MEMORY.md", "Our memories."),
+                ("relationship.md", "Our relationship."),
+            ] {
+                assert_eq!(
+                    std::fs::read_to_string(dir.path().join(name)).unwrap(),
+                    body
+                );
+            }
+            assert!(!dir.path().join("IDENTITY.md").exists());
+            assert!(refresh_founding_documents(dir.path(), persona_id)
+                .unwrap()
+                .is_empty());
+            put(
+                dir.path(),
+                DocumentKind::Soul,
+                &format!("{old}\nMy own words."),
+            );
+            assert!(refresh_founding_documents(dir.path(), persona_id)
+                .unwrap()
+                .is_empty());
+        }
+    }
+}
+
 /// A resident that is not one of ours is none of this migration's business.
 #[test]
 fn founding_refresh_ignores_unbundled_personas() {
@@ -423,7 +499,7 @@ fn founding_refresh_ignores_unbundled_personas() {
     assert!(refresh_founding_documents(dir.path(), "custom:mine")
         .unwrap()
         .is_empty());
-    assert!(refresh_founding_documents(dir.path(), "builtin:honey")
+    assert!(refresh_founding_documents(dir.path(), "builtin:unknown")
         .unwrap()
         .is_empty());
     assert_eq!(
@@ -542,6 +618,16 @@ fn resident_pack_seeds_all_files_without_replacing_existing_work() {
             "builtin:trinity",
             &crate::managed_agents::resident_packs::TRINITY,
             true,
+        ),
+        (
+            "builtin:honey",
+            &crate::managed_agents::resident_packs::VEKTOR,
+            false,
+        ),
+        (
+            "builtin:bumble",
+            &crate::managed_agents::resident_packs::ANIMA,
+            false,
         ),
     ] {
         for body in [
