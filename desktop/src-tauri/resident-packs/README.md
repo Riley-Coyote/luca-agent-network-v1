@@ -1,6 +1,8 @@
 # Polyphonic starter residents — review candidate
 
-Cast: Luca, Fifty, Trinity. Council is a separate proposed capability.
+Cast (2026-11-02): Luca, Anima and Vektor are in the house from the start; Fifty and Trinity wait in the Agent Catalog, and Luca suggests them when the work calls for design or careful doubt. Council is a separate proposed capability.
+Each resident has a mark and a shape, written into soul.md and IDENTITY.md: Luca ☉ torus, Anima ⧊ Klein bottle, Vektor ⏀ straight line, Fifty ◐ Möbius strip, Trinity ⟁ triangle within a triangle. A mark is used rarely, never as a signature.
+On 2026-11-02 Luca's, Fifty's and Trinity's founding documents gained the new cast and their marks; the 2026-09-15 editions are kept in each archive/ for the migration.
 On 2026-09-15 each resident rewrote its own soul.md, IDENTITY.md, self-model.md and convictions.md in the first person, with a specialty: Luca the generalist and orchestrator, Fifty design and the creative leap, Trinity the skeptic. Nobody is told who they are. The owner-authored 2026-09-13 portraits they replaced are kept verbatim in each pack's archive/ so the migration can still recognise them. The remaining documents were authored from the owner's approved design discussion and recovered prompt archive, then reviewed through a bounded two-perspective Polyclaude-style council. See docs/luca/resident-cast-review-editorial.md and the delivery record for actual review and runtime acceptance.
 
 ## Document responsibilities
@@ -28,6 +30,8 @@ One migration does run without asking, and its whole safety argument is a byte c
 ## Source lineage
 Recovered Luca: luca-oc-agents-md--b018d6b37a60.txt and luca-oc-identity-md--cb2a5ec93424.txt.
 Recovered Fifty: fifty-backstory-long--555695305359.txt and fifty-personality-profile--ab4b7f82fa2b.txt.
+Vektor: ~/clawd SOUL.md and IDENTITY.md, and the public voice of the earlier Vektor X agent (vektor-twitter-bot). Token, campaign and account-specific rules were left out.
+Anima: the voice, registers and hard lines of the live Anima X agent (polyphonic-twitter-bot/anima/bot.py). Token, campaign and X-only rules were left out.
 Recovered Trinity: perception-node-system-prompt--435de30def2b.txt, procesor-system-prompt--0dec954c8776.txt, expression-node-system-prompt--fc6b7de3730c.txt.
 Archive names identify design sources; none grants tools, authority, personal memories, or runtime capabilities.
 
