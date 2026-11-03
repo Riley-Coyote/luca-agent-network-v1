@@ -156,7 +156,7 @@ for (const mode of ["dark", "light"] as const) {
     );
     await expect(page.locator(".luca-presence-face img")).toHaveAttribute(
       "src",
-      /^data:image\/webp;base64,/,
+      /^data:image\/(webp|png);base64,/,
     );
     await expect(page.getByTestId("composer-agent-ledge")).toHaveCount(0);
     await page.screenshot({
