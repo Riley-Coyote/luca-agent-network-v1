@@ -472,6 +472,72 @@ fn invalid_request_is_not_misreported_as_authorization_denial() {
 }
 
 #[test]
+fn source_note_seals_and_reserved_ids_never_enter_clean_layers_or_wake() {
+    let address = resident_address();
+    let (_, mut active) = retrieval(&address);
+    for (id, tags) in [
+        (
+            "companion-note-reserved",
+            vec![RetrievalText::from("continuity")],
+        ),
+        (
+            "corrected-derived-note",
+            vec![
+                RetrievalText::from("companion-source-note-v1:invalid"),
+                RetrievalText::from("continuity"),
+            ],
+        ),
+    ] {
+        active.push(ContinuityActiveLeaseRecordV1 {
+            record: RetrievalRecord::new(RetrievalRecordInput {
+                address: address.clone(),
+                record_id: OpaqueId::parse(id).unwrap(),
+                record_type: OpaqueId::parse("memory-note").unwrap(),
+                revision: SafeU53::new(1).unwrap(),
+                body: RetrievalText::from("DERIVED-NOTE-MUST-NOT-BE-CLEAN"),
+                tags,
+                confidence_basis_points: 8000,
+                provenance_refs: vec![sha('9')],
+                outgoing_edges: vec![],
+                state: RetrievalRecordState::Active,
+            })
+            .unwrap(),
+            author_kind: OpaqueId::parse("resident").unwrap(),
+            source_event_ids: vec![],
+            canonical_timestamp: CanonicalTimestamp::parse("2026-08-29T00:00:00Z").unwrap(),
+            pinned_owner_correction: false,
+        });
+    }
+    let records = active
+        .iter()
+        .map(|item| item.record.clone())
+        .collect::<Vec<_>>();
+    let hits = InMemoryRetrievalIndex::hydrate(&records)
+        .unwrap()
+        .retrieve(
+            &RetrievalQuery {
+                address: address.clone(),
+                cue: RetrievalText::from("continuity"),
+                query_vector: None,
+            },
+            None,
+        )
+        .unwrap();
+    let (_, wake) = assemble_resident_wake_material(&active, &hits).unwrap();
+    // Both derived records are excluded even from ambient, non-query Wake items.
+    assert_eq!(wake.len(), active.len() - 4); // separate handoff, journal and two derived notes
+    let reader = FakeLeaseReader::ready((hits, active));
+    run(
+        &reader,
+        request(MAX_CONTINUITY_PACKET_BYTES),
+        address,
+        |wire| {
+            assert!(!String::from_utf8_lossy(wire).contains("DERIVED-NOTE-MUST-NOT-BE-CLEAN"));
+        },
+    );
+}
+
+#[test]
 fn ready_records_are_categorized_and_delivered_once_deterministically() {
     fn once() -> ([u8; 32], DesktopContinuityContextOutcomeV1, usize, usize) {
         let address = resident_address();

@@ -26,6 +26,7 @@ use super::{
 
 mod initiative_threads;
 pub(crate) use initiative_threads::*;
+pub(crate) mod source_notes;
 
 /// One exact resident-authored metabolism proposal. Body-bearing by design;
 /// this type never implements `Debug`.
@@ -522,6 +523,9 @@ pub(crate) fn read_resident_notebook(
                 "memory-note" | "journal" | "journal-annotation"
             )
             && lineage.lifecycle != RevisionLifecycle::Forgotten
+            // Source-backed notes have a separate current-permission disclosure
+            // lane. Never return their bodies from this clean notebook reader.
+            && !source_notes::is_source_note_id(&lineage.lineage_root_id)
     }) {
         let record_ids = if include_history {
             lineage.record_ids.clone()
@@ -614,8 +618,9 @@ pub(crate) fn correct_resident_memory_note(
     target_note_id: OpaqueId,
     request_id: OpaqueId,
     note: ResidentMemoryNoteV1,
+    source_guard: &dyn Fn(&source_notes::SourceNoteSealV1) -> bool,
 ) -> ResidentNotebookMutationOutcomeV1 {
-    commit_owner_notebook_record(
+    write::commit_owner_notebook_record_with_source_guard(
         lifecycle,
         runtime_state,
         OwnerNotebookRecordRequest {
@@ -635,6 +640,7 @@ pub(crate) fn correct_resident_memory_note(
             provenance_refs: note.source_event_ids.iter().map(source_ref).collect(),
             operation: RevisionOperation::OwnerCorrection,
         },
+        Some(source_guard),
     )
 }
 

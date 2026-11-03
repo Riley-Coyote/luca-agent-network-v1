@@ -311,6 +311,12 @@ pub(crate) fn configure(
     arguments: Value,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<String, String> {
+    if arguments.get("action").and_then(Value::as_str) == Some("pause_notes") {
+        return super::companion_note_controls::pause(app, scope, arguments, cancelled);
+    }
+    if arguments.get("action").and_then(Value::as_str) == Some("remember_note") {
+        return super::companion_notes::configure(app, scope, arguments, cancelled);
+    }
     if arguments.get("action").and_then(Value::as_str) == Some("meeting_progress") {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -536,7 +542,12 @@ pub(super) fn follow_with_notes_approved(
     if &follow_expected(&state, scope, harness, &root)? != expected {
         return Err("Companion permissions changed. Review this choice again.".into());
     }
-    if already_following(&state, scope, harness, &root) && (!keep_notes || expected.promote) {
+    // Preserve only a still-current explicit note choice. Legacy promotion
+    // alone is not semantic memory consent, even when Follow is already on.
+    let notes_were_allowed = state.companion_awareness.recheck_semantic_note_choice(
+        &scope.owner, &expected.key, &scope.binding,
+    ).is_ok();
+    if already_following(&state, scope, harness, &root) && (!keep_notes || notes_were_allowed) {
         return Ok(None);
     }
     let live = LiveAwarenessOwner::authenticate(&state).map_err(err)?;
@@ -607,7 +618,7 @@ pub(super) fn follow_with_notes_approved(
                 .deny_epoch
                 .unwrap_or(SafeU53::new(0).map_err(|_| "Invalid source epoch.")?),
         )?;
-        state
+        let (history, _) = state
             .companion_awareness
             .set_native_history_choice(
                 &scope.owner,
@@ -620,6 +631,12 @@ pub(super) fn follow_with_notes_approved(
                 &id("follow-history")?,
             )
             .map_err(err)?;
+        if keep_notes || notes_were_allowed {
+            state.companion_awareness.set_semantic_note_choice(
+                &scope.owner, &key, Some(&live), history.revision, true,
+                Some(&scope.binding), &current_canonical_timestamp()?, &id("follow-notes")?,
+            ).map_err(err)?;
+        }
         let resident = state
             .companion_awareness
             .resident_state(&scope.owner, &scope.resident)

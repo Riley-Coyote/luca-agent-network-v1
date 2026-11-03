@@ -21,6 +21,9 @@ pub(crate) struct ReplyLeaseInner {
     node: OpaqueId,
     observations: Vec<AwarenessObservationRefV1>,
     native: Vec<SourceMaterialBindingV1>,
+    retained_note_nodes: Vec<OpaqueId>,
+    retained_observations: Vec<AwarenessObservationRefV1>,
+    raw_observations: Vec<AwarenessObservationRefV1>,
     reserved_at: CanonicalTimestamp,
     expires_at: CanonicalTimestamp,
     expires_unix_secs: u64,
@@ -46,6 +49,15 @@ impl PartialEq for NativeReplyLeaseV1 {
 impl Eq for NativeReplyLeaseV1 {}
 
 impl NativeReplyLeaseV1 {
+    pub(crate) fn is_retained_notes(&self) -> bool {
+        !self.0.retained_note_nodes.is_empty()
+    }
+    pub(crate) fn retains(&self, reference: &AwarenessObservationRefV1) -> bool {
+        self.0.retained_observations.contains(reference)
+    }
+    pub(crate) fn admits_retained_path(&self, node: &OpaqueId) -> bool {
+        !self.0.retained_note_nodes.is_empty() && &self.0.node == node
+    }
     /// Permanently invalidate this reservation; later capture/resume cannot revive it.
     pub(crate) fn cancel(&self) {
         self.0.valid.store(false, Ordering::Release);
@@ -114,7 +126,10 @@ impl NativeReplyLeaseV1 {
         reference: &AwarenessObservationRefV1,
         now: &CanonicalTimestamp,
     ) -> bool {
-        self.current(now) && self.binding(reference).is_some() && reference.captured_at <= *now
+        self.current(now)
+            && self.0.raw_observations.contains(reference)
+            && self.binding(reference).is_some()
+            && reference.captured_at <= *now
     }
     /// Match the immutable persisted receipt, not a renderer-provided reference list.
     pub(crate) fn matches_receipt(&self, receipt: &ManagedTurnAwarenessBindingV1) -> bool {
@@ -182,6 +197,86 @@ impl MaterialBook {
         expires_unix_secs: u64,
         now: &CanonicalTimestamp,
     ) -> Result<NativeReplyLeaseV1, AwarenessStoreError> {
+        self.reserve_reply_lease_inner(
+            receipt,
+            bindings,
+            &[],
+            &[],
+            &receipt.observations,
+            expires_unix_secs,
+            now,
+        )
+    }
+
+    /// Host-only reservation for canonical, sealed source notes. Its caller
+    /// must fence current encrypted heads and all promoted parents at framing;
+    /// this does not make expired raw source bytes readable again.
+    pub(crate) fn reserve_retained_note_reply_lease(
+        &mut self,
+        receipt: &AwarenessTurnReceiptV1,
+        bindings: &[SourceMaterialBindingV1],
+        nodes: &[OpaqueId],
+        expires: u64,
+        now: &CanonicalTimestamp,
+    ) -> Result<NativeReplyLeaseV1, AwarenessStoreError> {
+        if nodes.is_empty()
+            || nodes.len() > 3
+            || nodes
+                .iter()
+                .any(|node| !node.as_str().starts_with("companion-note-derived:"))
+        {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        self.reserve_reply_lease_inner(
+            receipt,
+            bindings,
+            nodes,
+            &receipt.observations,
+            &[],
+            expires,
+            now,
+        )
+    }
+    pub(crate) fn reserve_mixed_note_reply_lease(
+        &mut self,
+        receipt: &AwarenessTurnReceiptV1,
+        bindings: &[SourceMaterialBindingV1],
+        nodes: &[OpaqueId],
+        retained: &[AwarenessObservationRefV1],
+        raw: &[AwarenessObservationRefV1],
+        expires: u64,
+        now: &CanonicalTimestamp,
+    ) -> Result<NativeReplyLeaseV1, AwarenessStoreError> {
+        if nodes.is_empty()
+            || nodes.len() > 3
+            || retained.is_empty()
+            || nodes
+                .iter()
+                .any(|node| !node.as_str().starts_with("companion-note-derived:"))
+            || retained
+                .iter()
+                .chain(raw)
+                .any(|reference| !receipt.observations.contains(reference))
+            || receipt
+                .observations
+                .iter()
+                .any(|reference| !retained.contains(reference) && !raw.contains(reference))
+        {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        self.reserve_reply_lease_inner(receipt, bindings, nodes, retained, raw, expires, now)
+    }
+
+    fn reserve_reply_lease_inner(
+        &mut self,
+        receipt: &AwarenessTurnReceiptV1,
+        bindings: &[SourceMaterialBindingV1],
+        retained_note_nodes: &[OpaqueId],
+        retained_observations: &[AwarenessObservationRefV1],
+        raw_observations: &[AwarenessObservationRefV1],
+        expires_unix_secs: u64,
+        now: &CanonicalTimestamp,
+    ) -> Result<NativeReplyLeaseV1, AwarenessStoreError> {
         let current_secs = chrono::DateTime::parse_from_rfc3339(now.as_str())
             .map_err(|_| AwarenessStoreError::Invalid)?
             .timestamp();
@@ -209,6 +304,13 @@ impl MaterialBook {
                 return Err(AwarenessStoreError::Invalid);
             }
             if !binding.scope.native_reply_scope() {
+                if !retained_note_nodes.is_empty() {
+                    return Err(AwarenessStoreError::Invalid);
+                }
+                continue;
+            }
+            if retained_observations.contains(reference) && !raw_observations.contains(reference) {
+                native.push(binding.clone());
                 continue;
             }
             let record = self
@@ -242,6 +344,9 @@ impl MaterialBook {
             node: receipt.context_node.clone(),
             observations: receipt.observations.clone(),
             native,
+            retained_note_nodes: retained_note_nodes.to_vec(),
+            retained_observations: retained_observations.to_vec(),
+            raw_observations: raw_observations.to_vec(),
             reserved_at: now.clone(),
             expires_at: CanonicalTimestamp::parse(expires_at)
                 .map_err(|_| AwarenessStoreError::Invalid)?,
@@ -283,6 +388,31 @@ impl MaterialBook {
     pub(crate) fn invalidate_all_reply_leases(&self) {
         for inner in self.reply_leases.iter().filter_map(Weak::upgrade) {
             NativeReplyLeaseV1(inner).cancel();
+        }
+    }
+    pub(crate) fn invalidate_retained_note_leases(
+        &self,
+        owner: &Hex64,
+        resident: &Hex64,
+        node: &OpaqueId,
+    ) {
+        for inner in self.reply_leases.iter().filter_map(Weak::upgrade) {
+            if &inner.scope.authority.owner_pubkey == owner
+                && &inner.scope.authority.resident_pubkey == resident
+                && inner.retained_note_nodes.contains(node)
+            {
+                NativeReplyLeaseV1(inner).cancel();
+            }
+        }
+    }
+    pub(crate) fn invalidate_all_retained_note_leases(&self, owner: &Hex64, resident: &Hex64) {
+        for inner in self.reply_leases.iter().filter_map(Weak::upgrade) {
+            if &inner.scope.authority.owner_pubkey == owner
+                && &inner.scope.authority.resident_pubkey == resident
+                && !inner.retained_note_nodes.is_empty()
+            {
+                NativeReplyLeaseV1(inner).cancel();
+            }
         }
     }
     /// Reset under the final metadata lock, including reservations that raced

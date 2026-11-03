@@ -382,6 +382,11 @@ function ReviewAccess({
   });
   const [history, setHistory] = React.useState<CompanionHistory | null>(null);
   const [includeHistory, setIncludeHistory] = React.useState(false);
+  const notesSelected =
+    choices.promote &&
+    choices.observe &&
+    choices.providerEgress &&
+    includeHistory;
   const [failed, setFailed] = React.useState(false);
   React.useEffect(() => {
     let live = true;
@@ -389,6 +394,13 @@ function ReviewAccess({
       .then((result) => {
         if (!live) return;
         setHistory(result);
+        setChoices((current) => ({
+          ...current,
+          promote:
+            grant.grant.choices.promote &&
+            result.choice?.semanticNotes === true &&
+            result.currentBindingConfirmed,
+        }));
         setIncludeHistory(
           result.choice?.allowed === true && result.currentBindingConfirmed,
         );
@@ -399,7 +411,7 @@ function ReviewAccess({
     return () => {
       live = false;
     };
-  }, [grant.source.source_id, residentPubkey]);
+  }, [grant.source.source_id, grant.grant.choices.promote, residentPubkey]);
   const choice = (
     label: string,
     detail: string,
@@ -440,10 +452,10 @@ function ReviewAccess({
           )}
           {choice(
             "Keep meaningful notes",
-            "Allow useful, source-backed material into this companion's own memory.",
-            choices.promote,
+            "Remember useful, source-backed details. Requires selected activity in conversations.",
+            notesSelected,
             (promote) => setChoices({ ...choices, promote }),
-            !choices.observe,
+            !choices.observe || !choices.providerEgress || !includeHistory,
           )}
           {choice(
             "Send selected context to the model",
@@ -483,7 +495,10 @@ function ReviewAccess({
                 disabled={pending}
                 onClick={() =>
                   void operate(async (resident) => {
-                    await setCompanionSource(resident, grant, choices);
+                    await setCompanionSource(resident, grant, {
+                      ...choices,
+                      promote: notesSelected,
+                    });
                     const current = await companionHistory(
                       resident,
                       grant.source.source_id,
@@ -495,6 +510,7 @@ function ReviewAccess({
                       includeHistory &&
                         choices.observe &&
                         choices.providerEgress,
+                      notesSelected,
                     );
                   }).then(onDone)
                 }

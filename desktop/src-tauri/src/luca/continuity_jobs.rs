@@ -74,6 +74,8 @@ pub(crate) fn enqueue_finalized(
     source_event_id: &luca_protocol::Hex64,
     binding_ref: &Sha256Ref,
 ) -> Result<Option<OpaqueId>, String> {
+    crate::commands::companion_notes::finish_final(app, &publish_request.owner_pubkey,
+        &publish_request.resident_pubkey, source_event_id, binding_ref);
     if !automatic_derivatives_allowed(
         app,
         &publish_request.owner_pubkey,
@@ -201,6 +203,14 @@ pub(crate) fn set_continuity_mode(
     mode: ResidentContinuityModeV1,
 ) -> Result<(), String> {
     with_mode_control(&GOAL_RETENTION_MODE_CONTROL, || {
+        if mode == ResidentContinuityModeV1::Disabled {
+            // Invalidate already-framed source notes before saving Disable;
+            // future reads also recheck the durable mode under this gate.
+            app.state::<AppState>()
+                .companion_sources
+                .invalidate_all_retained_note_leases(owner_pubkey, resident_pubkey)
+                .map_err(|_| "invalidate companion note context".to_owned())?;
+        }
         let mut connection = open_store(&job_store_path(app)?)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)

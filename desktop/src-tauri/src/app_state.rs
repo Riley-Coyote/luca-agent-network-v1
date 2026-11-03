@@ -925,19 +925,135 @@ impl AppState {
     }
 
     /// Explicitly disclose notebook items to an owner-facing command.
+    /// Lend source-derived note heads under the existing encrypted notebook
+    /// lifecycle. The caller must perform current source/provider admission.
+    pub(crate) fn consume_resident_source_notes<T>(
+        &self,
+        owner: &luca_protocol::Hex64,
+        resident: &luca_protocol::Hex64,
+        consume: impl FnOnce(
+            &crate::luca::companion_awareness::LiveAwarenessLease<'_>,
+            &crate::luca::continuity_revision_authority::RevisionAuthorityTokenV1,
+            &[crate::luca::resident_notebook::source_notes::SourceNoteViewV1],
+        ) -> T,
+    ) -> Result<T, crate::luca::resident_notebook::source_notes::SourceNoteErrorV1> {
+        self.consume_resident_source_notes_with_limit(owner, resident, false, consume)
+    }
+
+    pub(crate) fn consume_resident_source_notes_for_owner<T>(
+        &self,
+        owner: &luca_protocol::Hex64,
+        resident: &luca_protocol::Hex64,
+        consume: impl FnOnce(
+            &crate::luca::companion_awareness::LiveAwarenessLease<'_>,
+            &crate::luca::continuity_revision_authority::RevisionAuthorityTokenV1,
+            &[crate::luca::resident_notebook::source_notes::SourceNoteViewV1],
+        ) -> T,
+    ) -> Result<T, crate::luca::resident_notebook::source_notes::SourceNoteErrorV1> {
+        self.consume_resident_source_notes_with_limit(owner, resident, true, consume)
+    }
+
+    fn consume_resident_source_notes_with_limit<T>(
+        &self,
+        owner: &luca_protocol::Hex64,
+        resident: &luca_protocol::Hex64,
+        owner_inspection: bool,
+        consume: impl FnOnce(
+            &crate::luca::companion_awareness::LiveAwarenessLease<'_>,
+            &crate::luca::continuity_revision_authority::RevisionAuthorityTokenV1,
+            &[crate::luca::resident_notebook::source_notes::SourceNoteViewV1],
+        ) -> T,
+    ) -> Result<T, crate::luca::resident_notebook::source_notes::SourceNoteErrorV1> {
+        use crate::luca::resident_notebook::source_notes::SourceNoteErrorV1 as Error;
+        let app = self
+            .app_handle
+            .lock()
+            .map_err(|_| Error::Unavailable)?
+            .clone()
+            .ok_or(Error::Unavailable)?;
+        crate::luca::continuity_jobs::with_enabled_goal_retention(&app, owner, resident, || {
+            let live = crate::luca::companion_awareness::LiveAwarenessOwner::authenticate(self)
+                .map_err(|_| "Source note owner unavailable.".to_string())?;
+            if live.owner() != owner {
+                return Err("Source note owner changed.".into());
+            }
+            let lease = live
+                .lease()
+                .map_err(|_| "Source note identity unavailable.".to_string())?;
+            let callback=|authority:&crate::luca::continuity_revision_authority::RevisionAuthorityTokenV1,
+                notes:&[crate::luca::resident_notebook::source_notes::SourceNoteViewV1]|consume(&lease,authority,notes);
+            if owner_inspection {
+                crate::luca::resident_notebook::source_notes::consume_source_notes_for_owner(
+                    &self.continuity_lifecycle,&self.continuity_runtime,owner,resident,callback)
+            } else {
+            crate::luca::resident_notebook::source_notes::consume_source_notes(
+                &self.continuity_lifecycle,
+                &self.continuity_runtime,
+                owner,
+                resident,
+                callback,
+            )
+            }
+            .map_err(|_| "Source notes unavailable.".to_string())
+        })
+        .map_err(|_| Error::Unavailable)?
+        .ok_or(Error::Denied)
+    }
+
+    /// Commit a source note only through the caller's final current promotion
+    /// gate, inside (not around) the existing notebook lifecycle/CAS boundary.
+    pub(crate) fn commit_resident_source_note(
+        &self,
+        request: crate::luca::resident_notebook::source_notes::SourceNoteCommitRequestV1,
+        gate: impl FnOnce(
+            &mut dyn FnMut() -> Result<
+                crate::luca::resident_notebook::ResidentNotebookCommitReceiptV1,
+                crate::luca::resident_notebook::source_notes::SourceNoteErrorV1,
+            >,
+        ) -> Result<
+            crate::luca::resident_notebook::ResidentNotebookCommitReceiptV1,
+            crate::luca::resident_notebook::source_notes::SourceNoteErrorV1,
+        >,
+    ) -> Result<
+        crate::luca::resident_notebook::ResidentNotebookCommitReceiptV1,
+        crate::luca::resident_notebook::source_notes::SourceNoteErrorV1,
+    > {
+        crate::luca::resident_notebook::source_notes::commit_source_note(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            request,
+            gate,
+        )
+    }
+
     pub(crate) fn read_resident_notebook(
         &self,
         owner_pubkey: &luca_protocol::Hex64,
         resident_pubkey: &luca_protocol::Hex64,
         include_history: bool,
     ) -> ResidentNotebookReadOutcomeV1 {
-        crate::luca::resident_notebook::read_resident_notebook(
+        let ordinary = crate::luca::resident_notebook::read_resident_notebook(
             &self.continuity_lifecycle,
             &self.continuity_runtime,
             owner_pubkey,
             resident_pubkey,
             include_history,
-        )
+        );
+        let source = crate::luca::resident_notebook::source_notes::owner_views(
+            self,
+            owner_pubkey,
+            resident_pubkey,
+        );
+        match ordinary {
+            ResidentNotebookReadOutcomeV1::Ready(mut views) => {
+                views.extend(source);
+                ResidentNotebookReadOutcomeV1::Ready(views)
+            }
+            ResidentNotebookReadOutcomeV1::Empty if !source.is_empty() => {
+                ResidentNotebookReadOutcomeV1::Ready(source)
+            }
+            other => other,
+        }
     }
 
     /// Append a pinned owner correction to one resident memory-note lineage.
@@ -949,6 +1065,8 @@ impl AppState {
         request_id: luca_protocol::OpaqueId,
         note: luca_protocol::ResidentMemoryNoteV1,
     ) -> ResidentNotebookMutationOutcomeV1 {
+        let expected_owner = owner_pubkey.clone();
+        let expected_resident = resident_pubkey.clone();
         crate::luca::resident_notebook::correct_resident_memory_note(
             &self.continuity_lifecycle,
             &self.continuity_runtime,
@@ -957,6 +1075,18 @@ impl AppState {
             target_note_id,
             request_id,
             note,
+            &|seal| {
+                seal.owner_pubkey == expected_owner
+                    && seal.resident_pubkey == expected_resident
+                    && self
+                        .companion_sources
+                        .invalidate_retained_note_leases(
+                            &expected_owner,
+                            &expected_resident,
+                            &seal.node,
+                        )
+                        .is_ok()
+            },
         )
     }
 
@@ -991,6 +1121,14 @@ impl AppState {
             lineage_root_id,
             request_id,
             forget,
+            Some(&|seal| {
+                seal.owner_pubkey == *owner_pubkey
+                    && seal.resident_pubkey == *resident_pubkey
+                    && self
+                        .companion_sources
+                        .invalidate_retained_note_leases(owner_pubkey, resident_pubkey, &seal.node)
+                        .is_ok()
+            }),
         )
     }
 

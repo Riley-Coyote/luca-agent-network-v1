@@ -104,6 +104,185 @@ fn observation_memory_and_egress_never_imply_native_history_and_raw_archives_sta
         .recheck_native_history_choice(&f.key, &hash('d'))
         .is_err());
 }
+
+#[test]
+fn semantic_notes_need_explicit_consent_and_legacy_history_defaults_off() {
+    let mut f = fixture();
+    let (history, _) = f
+        .store
+        .set_native_history_choice(
+            &f.key,
+            number(0),
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("history-only"),
+        )
+        .unwrap();
+    assert!(!history.semantic_notes);
+    assert!(f
+        .store
+        .recheck_semantic_note_choice(&f.key, &hash('c'))
+        .is_err());
+    let mut legacy = serde_json::to_value(&history).unwrap();
+    legacy.as_object_mut().unwrap().remove("semanticNotes");
+    f.store
+        .connection
+        .execute(
+            "UPDATE awareness_native_history SET choice=?1",
+            params![super::super::encode(&legacy).unwrap()],
+        )
+        .unwrap();
+    assert!(
+        !f.store
+            .native_history_choice(&f.key)
+            .unwrap()
+            .unwrap()
+            .semantic_notes
+    );
+    let (notes, replayed) = f
+        .store
+        .set_semantic_note_choice(
+            &f.key,
+            history.revision,
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("review-notes"),
+        )
+        .unwrap();
+    assert!(notes.semantic_notes && !replayed);
+    f.store
+        .recheck_semantic_note_choice(&f.key, &hash('c'))
+        .unwrap();
+    let reopened = AwarenessStore::open(&f.path).unwrap();
+    reopened
+        .recheck_semantic_note_choice(&f.key, &hash('c'))
+        .unwrap();
+    let mut other = f.key.clone();
+    other.resident_pubkey = hex('e');
+    assert!(reopened
+        .recheck_semantic_note_choice(&other, &hash('c'))
+        .is_err());
+    assert!(reopened
+        .recheck_semantic_note_choice(&f.key, &hash('d'))
+        .is_err());
+}
+
+#[test]
+fn semantic_note_off_and_history_off_cannot_be_replayed_on() {
+    let mut f = fixture();
+    let (history, _) = f
+        .store
+        .set_native_history_choice(
+            &f.key,
+            number(0),
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("history"),
+        )
+        .unwrap();
+    let (on, _) = f
+        .store
+        .set_semantic_note_choice(
+            &f.key,
+            history.revision,
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("notes-on"),
+        )
+        .unwrap();
+    let (off, _) = f
+        .store
+        .set_semantic_note_choice(&f.key, on.revision, false, None, &now(), &id("notes-off"))
+        .unwrap();
+    assert!(!off.semantic_notes && off.allowed);
+    let (replayed, replay) = f
+        .store
+        .set_semantic_note_choice(
+            &f.key,
+            history.revision,
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("notes-on"),
+        )
+        .unwrap();
+    assert!(replay && !replayed.semantic_notes);
+    let (on, _) = f
+        .store
+        .set_semantic_note_choice(
+            &f.key,
+            off.revision,
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("notes-on-again"),
+        )
+        .unwrap();
+    let (off, _) = f
+        .store
+        .set_native_history_choice(&f.key, on.revision, false, None, &now(), &id("history-off"))
+        .unwrap();
+    assert!(!off.semantic_notes && !off.allowed);
+    assert!(f
+        .store
+        .recheck_semantic_note_choice(&f.key, &hash('c'))
+        .is_err());
+}
+
+#[test]
+fn a_changed_promotion_grant_cannot_inherit_semantic_note_consent() {
+    let mut f = fixture();
+    let (history, _) = f
+        .store
+        .set_native_history_choice(
+            &f.key,
+            number(0),
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("history"),
+        )
+        .unwrap();
+    let (notes, _) = f
+        .store
+        .set_semantic_note_choice(
+            &f.key,
+            history.revision,
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("notes"),
+        )
+        .unwrap();
+    f.grant.grant_revision = number(2);
+    f.store
+        .put_grant(&f.grant, Some(number(1)), &id("grant-refreshed"))
+        .unwrap();
+    assert!(f
+        .store
+        .recheck_semantic_note_choice(&f.key, &hash('c'))
+        .is_err());
+    let (refreshed, _) = f
+        .store
+        .set_native_history_choice(
+            &f.key,
+            notes.revision,
+            true,
+            Some(&hash('c')),
+            &now(),
+            &id("history-refreshed"),
+        )
+        .unwrap();
+    assert!(!refreshed.semantic_notes);
+    assert!(f
+        .store
+        .recheck_semantic_note_choice(&f.key, &hash('c'))
+        .is_err());
+}
 #[test]
 fn changed_grant_runtime_or_principal_requires_new_consent() {
     let mut f = fixture();

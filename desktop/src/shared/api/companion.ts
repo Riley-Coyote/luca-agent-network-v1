@@ -35,7 +35,11 @@ export type CompanionWork = {
   };
 };
 export type CompanionHistory = {
-  choice: { revision: number; allowed: boolean } | null;
+  choice: {
+    revision: number;
+    allowed: boolean;
+    semanticNotes?: boolean;
+  } | null;
   currentBindingConfirmed: boolean;
   consumersReady: boolean;
   disclosureRevision: number;
@@ -194,12 +198,14 @@ export function setCompanionHistory(
   sourceId: string,
   history: CompanionHistory,
   allowed: boolean,
+  semanticNotes?: boolean,
 ) {
   return invokeTauri<CompanionHistory>("set_companion_native_history_choice", {
     residentPubkey,
     sourceId,
     input: {
       allowed,
+      ...(semanticNotes === undefined ? {} : { semanticNotes }),
       expectedRevision: history.choice?.revision ?? 0,
       disclosureRevision: history.disclosureRevision,
       requestId: requestId(),

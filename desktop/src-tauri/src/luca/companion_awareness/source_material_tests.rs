@@ -222,6 +222,112 @@ fn leased_profile() -> (
     (book, facts, reference, lease)
 }
 #[test]
+fn mixed_raw_and_retained_overlap_still_requires_fresh_raw_admission() {
+    let (mut book, _, reference, _) = leased_profile();
+    let receipt = reply_receipt(&reference);
+    let binding = SourceMaterialBindingV1 {
+        reference: reference.clone(),
+        scope: SourceMaterialScopeV1::ProfileChild(id("opaque-child")),
+    };
+    let node = id(&format!("companion-note-derived:{}", "a".repeat(64)));
+    let now = CanonicalTimestamp::parse("2026-10-08T10:00:31Z").unwrap();
+    let expires = seconds("2026-10-08T10:30:00Z");
+    let lease = book
+        .reserve_mixed_note_reply_lease(
+            &receipt,
+            &[binding.clone()],
+            &[node.clone()],
+            &[reference.clone()],
+            &[reference.clone()],
+            expires,
+            &now,
+        )
+        .unwrap();
+    assert!(lease.retains(&reference));
+    assert!(lease.allows(&reference, &now));
+    book.records.clear();
+    assert!(book
+        .reserve_mixed_note_reply_lease(
+            &receipt,
+            &[binding],
+            &[node],
+            &[reference.clone()],
+            &[reference],
+            expires,
+            &now
+        )
+        .is_err());
+}
+
+#[test]
+fn retained_note_reply_lease_does_not_revive_raw_bytes_and_is_cancelled_by_correction() {
+    let (mut book, mut facts, reference, raw_lease) = leased_profile();
+    book.records.clear();
+    facts.raw.records.clear();
+    let receipt = reply_receipt(&reference);
+    let binding = facts.retained_binding(&reference).unwrap();
+    let node = id(&format!("companion-note-derived:{}", "a".repeat(64)));
+    let lease = book
+        .reserve_retained_note_reply_lease(
+            &receipt,
+            &[binding],
+            &[node.clone()],
+            seconds("2026-10-08T10:30:00Z"),
+            &facts.raw.now,
+        )
+        .unwrap();
+    assert!(lease.is_retained_notes());
+    assert!(!raw_lease.is_retained_notes());
+    assert_eq!(
+        facts
+            .resolve_admitted_reply(&reference, true, &raw_lease)
+            .material_state,
+        AwarenessMaterialStateV1::Unavailable
+    );
+    assert_eq!(
+        facts
+            .resolve_admitted_reply(&reference, true, &lease)
+            .material_state,
+        AwarenessMaterialStateV1::Available
+    );
+    assert!(!facts.resolve(&reference, false).source_fresh);
+    book.invalidate_retained_note_leases(
+        &reference.owner_pubkey,
+        &reference.resident_pubkey,
+        &node,
+    );
+    assert_eq!(
+        facts
+            .resolve_admitted_reply(&reference, true, &lease)
+            .material_state,
+        AwarenessMaterialStateV1::Unavailable
+    );
+}
+
+#[test]
+fn retained_note_retention_disable_cancels_only_the_exact_principal() {
+    let (mut book, facts, reference, raw) = leased_profile();
+    let node = id(&format!("companion-note-derived:{}", "a".repeat(64)));
+    let lease = book
+        .reserve_retained_note_reply_lease(
+            &reply_receipt(&reference),
+            &[facts.retained_binding(&reference).unwrap()],
+            &[node],
+            seconds("2026-10-08T10:30:00Z"),
+            &facts.raw.now,
+        )
+        .unwrap();
+    book.invalidate_all_retained_note_leases(
+        &reference.owner_pubkey,
+        &Hex64::parse("e".repeat(64)).unwrap(),
+    );
+    assert!(lease.current(&facts.raw.now));
+    book.invalidate_all_retained_note_leases(&reference.owner_pubkey, &reference.resident_pubkey);
+    assert!(!lease.current(&facts.raw.now));
+    assert!(raw.current(&facts.raw.now));
+}
+
+#[test]
 fn admitted_reply_survives_capture_expiry_supersession_and_bounded_book_eviction() {
     let (mut book, mut facts, reference, lease) = leased_profile();
     for index in 0..MAX_MATERIAL_REFS {

@@ -185,15 +185,26 @@ impl CompanionSourceRuntimeV1 {
         reference: luca_protocol::AwarenessObservationRefV1,
         child: OpaqueId,
     ) -> Result<(), AwarenessStoreError> {
-        let inner = self.inner.lock().map_err(|_| AwarenessStoreError::Unavailable)?;
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| AwarenessStoreError::Unavailable)?;
         let handle = inner.as_ref().ok_or(AwarenessStoreError::Unavailable)?;
-        if handle.owner != reference.owner_pubkey || handle.device != reference.device_id
-            || handle.shared.closing.load(Ordering::Acquire) {
+        if handle.owner != reference.owner_pubkey
+            || handle.device != reference.device_id
+            || handle.shared.closing.load(Ordering::Acquire)
+        {
             return Err(AwarenessStoreError::Invalid);
         }
-        let mut facts = handle.shared.facts.lock().map_err(|_| AwarenessStoreError::Unavailable)?;
+        let mut facts = handle
+            .shared
+            .facts
+            .lock()
+            .map_err(|_| AwarenessStoreError::Unavailable)?;
         let key = material::observation_key(&reference);
-        if !facts.active.contains(&key) { return Err(AwarenessStoreError::Unavailable); }
+        if !facts.active.contains(&key) {
+            return Err(AwarenessStoreError::Unavailable);
+        }
         facts.remember(reference, SourceMaterialScopeV1::ProfileChild(child));
         Ok(())
     }
@@ -421,6 +432,58 @@ impl CompanionSourceRuntimeV1 {
             .lock()
             .map_err(|_| AwarenessStoreError::Unavailable)?
             .reserve_reply_lease(receipt, bindings, expires, now)
+    }
+    pub(crate) fn reserve_retained_note_reply_lease(
+        &self,
+        receipt: &super::turn_context::AwarenessTurnReceiptV1,
+        bindings: &[SourceMaterialBindingV1],
+        nodes: &[OpaqueId],
+        expires: u64,
+        now: &CanonicalTimestamp,
+    ) -> Result<NativeReplyLeaseV1, AwarenessStoreError> {
+        self.facts
+            .lock()
+            .map_err(|_| AwarenessStoreError::Unavailable)?
+            .reserve_retained_note_reply_lease(receipt, bindings, nodes, expires, now)
+    }
+    pub(crate) fn reserve_mixed_note_reply_lease(
+        &self,
+        receipt: &super::turn_context::AwarenessTurnReceiptV1,
+        bindings: &[SourceMaterialBindingV1],
+        nodes: &[OpaqueId],
+        retained: &[luca_protocol::AwarenessObservationRefV1],
+        raw: &[luca_protocol::AwarenessObservationRefV1],
+        expires: u64,
+        now: &CanonicalTimestamp,
+    ) -> Result<NativeReplyLeaseV1, AwarenessStoreError> {
+        self.facts
+            .lock()
+            .map_err(|_| AwarenessStoreError::Unavailable)?
+            .reserve_mixed_note_reply_lease(receipt, bindings, nodes, retained, raw, expires, now)
+    }
+    /// Called before correction/Forget while its canonical lifecycle is held.
+    pub(crate) fn invalidate_retained_note_leases(
+        &self,
+        owner: &Hex64,
+        resident: &Hex64,
+        node: &OpaqueId,
+    ) -> Result<(), AwarenessStoreError> {
+        self.facts
+            .lock()
+            .map_err(|_| AwarenessStoreError::Unavailable)?
+            .invalidate_retained_note_leases(owner, resident, node);
+        Ok(())
+    }
+    pub(crate) fn invalidate_all_retained_note_leases(
+        &self,
+        owner: &Hex64,
+        resident: &Hex64,
+    ) -> Result<(), AwarenessStoreError> {
+        self.facts
+            .lock()
+            .map_err(|_| AwarenessStoreError::Unavailable)?
+            .invalidate_all_retained_note_leases(owner, resident);
+        Ok(())
     }
     fn call<T>(
         &self,

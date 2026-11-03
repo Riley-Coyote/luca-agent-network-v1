@@ -610,6 +610,9 @@ fn assemble_resident_wake_material(
     let mut ambient = Vec::new();
     for active in active_records {
         let record = &active.record;
+        if source_derived_note(record) {
+            continue;
+        }
         let kind = DurableContinuityRecordKind::parse(record.record_type())?;
         if matches!(
             kind,
@@ -696,6 +699,9 @@ fn assemble_resident_layers(
     let mut memory_note_count = 0_usize;
     for hit in &retrieval.hits {
         let record = hit.record();
+        if source_derived_note(record) {
+            continue;
+        }
         let kind = DurableContinuityRecordKind::parse(record.record_type())?;
         if matches!(
             kind,
@@ -773,6 +779,17 @@ fn assemble_resident_layers(
         layer_from_items(hypomnema)?,
         layer_from_items(associative_recall)?,
     ))
+}
+
+/// These records can only cross the dedicated current-grant awareness fence.
+/// A malformed reserved seal is excluded too, never downgraded into clean
+/// continuity merely because the specialized note reader rejects it.
+fn source_derived_note(record: &luca_continuity::RetrievalRecord) -> bool {
+    record.record_id().as_str().starts_with("companion-note-")
+        || record
+            .tags()
+            .iter()
+            .any(|tag| tag.as_str().starts_with("companion-source-note-v1:"))
 }
 
 fn layer_from_items(

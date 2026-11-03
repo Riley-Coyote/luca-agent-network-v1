@@ -100,6 +100,11 @@ export function CompanionSetupPanel({
   const [choices, setChoices] = React.useState<SourceChoices>(initialChoices);
   const [history, setHistory] = React.useState<CompanionHistory | null>(null);
   const [includeHistory, setIncludeHistory] = React.useState(false);
+  const notesSelected =
+    choices.promote &&
+    choices.observe &&
+    choices.providerEgress &&
+    includeHistory;
   const [reviewWork, setReviewWork] = React.useState(false);
   const titleRef = React.useRef<HTMLHeadingElement>(null);
   const generation = React.useRef(0);
@@ -186,6 +191,13 @@ export function CompanionSetupPanel({
         reviewCurrent === reviewGeneration.current
       ) {
         setHistory(result);
+        setChoices((current) => ({
+          ...current,
+          promote:
+            grant.grant.choices.promote &&
+            result.choice?.semanticNotes === true &&
+            result.currentBindingConfirmed,
+        }));
         setIncludeHistory(
           result.choice?.allowed === true && result.currentBindingConfirmed,
         );
@@ -463,9 +475,13 @@ export function CompanionSetupPanel({
                   />
                   <Choice
                     label="Keep meaningful notes"
-                    detail="Allow useful, source-backed material into this companion’s own memory."
-                    checked={choices.promote}
-                    disabled={!choices.observe}
+                    detail="Remember useful, source-backed details. Requires selected activity in conversations."
+                    checked={notesSelected}
+                    disabled={
+                      !choices.observe ||
+                      !choices.providerEgress ||
+                      !includeHistory
+                    }
                     onChange={(promote) => setChoices({ ...choices, promote })}
                   />
                   <Choice
@@ -502,7 +518,10 @@ export function CompanionSetupPanel({
                       onClick={() =>
                         void operate(async (resident) => {
                           const current = generation.current;
-                          await setCompanionSource(resident, grant, choices);
+                          await setCompanionSource(resident, grant, {
+                            ...choices,
+                            promote: notesSelected,
+                          });
                           if (current !== generation.current) return;
                           const currentHistory = await companionHistory(
                             resident,
@@ -516,6 +535,7 @@ export function CompanionSetupPanel({
                             includeHistory &&
                               choices.observe &&
                               choices.providerEgress,
+                            notesSelected,
                           );
                           if (current === generation.current) dismissReview();
                         })

@@ -505,6 +505,92 @@ fn widening_or_resuming_cannot_reauthorize_old_material_and_pause_survives_resta
 }
 
 #[test]
+fn retained_note_requires_exact_complete_parent_graph_and_current_promote_binding() {
+    let mut f = fixture();
+    let now = at("12:01:00");
+    let scope = facts(&f.grant, &now);
+    let note = id("companion-note-derived:fixture");
+    let parent = id("note-parent-context");
+    f.store
+        .register_dependent(
+            &parent,
+            AwarenessDependentKindV1::Context,
+            &[f.observation.observation_id.clone()],
+            &scope,
+            material,
+        )
+        .unwrap();
+    f.store
+        .register_dependent(
+            &note,
+            AwarenessDependentKindV1::Promoted,
+            &[parent.clone()],
+            &scope,
+            material,
+        )
+        .unwrap();
+    let expired = at("12:15:00");
+    let scope = facts(&f.grant, &expired);
+    let binding = f.grant.choices.provider_egress_binding.as_ref().unwrap();
+    assert!(f
+        .store
+        .recheck_retained_note(
+            &note,
+            &[parent.clone()],
+            &[f.observation.clone()],
+            &scope,
+            binding,
+            material
+        )
+        .is_ok());
+    assert!(f
+        .store
+        .recheck_retained_note(&note, &[parent.clone()], &[], &scope, binding, material)
+        .is_err());
+    assert!(f
+        .store
+        .recheck_retained_note(
+            &note,
+            &[id("wrong-parent")],
+            &[f.observation.clone()],
+            &scope,
+            binding,
+            material
+        )
+        .is_err());
+    assert!(f
+        .store
+        .recheck_retained_note(
+            &note,
+            &[parent.clone()],
+            &[f.observation.clone()],
+            &scope,
+            &digest(b"wrong-provider"),
+            material
+        )
+        .is_err());
+    // A canonical note restored without its separate awareness database must
+    // fail closed. Do not corrupt or disable this fixture's foreign keys.
+    let missing_directory = private_fixture_directory();
+    let restored_path = missing_directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join(AWARENESS_STORE_FILENAME);
+    let restored_without_graph = AwarenessStore::open(&restored_path).unwrap();
+    assert!(restored_without_graph
+        .recheck_retained_note(
+            &note,
+            &[parent],
+            &[f.observation.clone()],
+            &scope,
+            binding,
+            material
+        )
+        .is_err());
+}
+
+#[test]
 fn expired_queued_context_rejects_egress_but_a_promoted_canonical_reference_survives() {
     let mut f = fixture();
     let now = at("12:01:00");

@@ -13,7 +13,11 @@ const READS = [
   "list_companion_browser_profiles",
 ];
 
-async function openSettings(page: Page, resident = MARA) {
+async function openSettings(
+  page: Page,
+  resident = MARA,
+  beforeSelect?: (page: Page) => Promise<void>,
+) {
   await installMockBridge(page, {
     managedAgents: [
       {
@@ -33,6 +37,8 @@ async function openSettings(page: Page, resident = MARA) {
     ],
   });
   await page.goto("/?e2e=mock&notebookDemo=1#/agents");
+  await expect(page.getByTestId(`place-row-mind:${resident}`)).toBeVisible();
+  await beforeSelect?.(page);
   await page
     .getByTestId(`place-row-mind:${resident}`)
     .locator(".luca-rail-row-hit")
@@ -98,6 +104,129 @@ test("agent settings opens companion controls for a stopped agent without a chat
     new RegExp(`profile=(?:%22)?${MARA}(?:%22)?(?:&|$)`),
   );
   expect(errors).toEqual([]);
+});
+
+test("legacy promotion never implies note consent; explicit review saves semantic notes", async ({
+  page,
+}, testInfo) => {
+  // Synthetic IPC only: this verifies the actual review's transport, not that
+  // browser fixtures grant native permission or retain any real user data.
+  await openSettings(page, MARA, async (page) => {
+    await page.evaluate((resident) => {
+      const state = window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (
+            command: string,
+            args?: unknown,
+            options?: unknown,
+          ) => Promise<unknown>;
+        };
+        noteConsentCalls: Array<{ command: string; payload: unknown }>;
+      };
+      state.noteConsentCalls = [];
+      const invoke = state.__TAURI_INTERNALS__.invoke;
+      const awareness = {
+        availability: "ready",
+        paused: false,
+        collectionRunning: true,
+        revision: 3,
+        truncated: false,
+        grants: [
+          {
+            source: { source_id: "synthetic-codex", state: "active" },
+            grant: {
+              grant_revision: 1,
+              state: "active",
+              choices: {
+                observe: true,
+                promote: true,
+                retain: false,
+                provider_egress_binding: "synthetic-current-binding",
+              },
+            },
+          },
+        ],
+      };
+      // An older saved choice has no semanticNotes field. Even with promote
+      // set on its source grant, note keeping must remain unchecked.
+      const history = {
+        choice: { revision: 2, allowed: true },
+        currentBindingConfirmed: true,
+        consumersReady: true,
+        disclosureRevision: 1,
+        disclosure: "Synthetic reviewed activity context.",
+      };
+      state.__TAURI_INTERNALS__.invoke = async (command, args, options) => {
+        const input = args as { residentPubkey?: string } | undefined;
+        if (input?.residentPubkey === resident) {
+          if (command === "get_companion_awareness") return awareness;
+          if (command === "list_companion_native_profiles")
+            return [
+              {
+                sourceId: "synthetic-codex",
+                kind: "codex_sessions",
+                class: "visible_excerpts",
+              },
+            ];
+          if (command === "get_companion_native_history_choice") return history;
+          if (
+            command === "set_companion_source_choices" ||
+            command === "set_companion_native_history_choice"
+          ) {
+            state.noteConsentCalls.push({ command, payload: args });
+            return command === "set_companion_native_history_choice"
+              ? history
+              : awareness;
+          }
+        }
+        return invoke(command, args, options);
+      };
+    }, MARA);
+  });
+  await page.getByTestId("mind-row-keeps").click();
+  const keeps = page.getByTestId("mind-keeps-up-with");
+  const review = page.getByTestId("mind-review-access");
+  for (const chooseNotes of [false, true]) {
+    await keeps
+      .getByTestId("mind-follow-codex_sessions")
+      .getByRole("button", { name: "Review access" })
+      .click();
+    const notes = review.getByRole("switch", {
+      name: "Keep meaningful notes",
+      exact: true,
+    });
+    await expect(notes).not.toBeChecked();
+    await expect(notes).toBeEnabled();
+    if (chooseNotes) {
+      await notes.click();
+      await waitForAnimations(page);
+      await page.screenshot({
+        path: testInfo.outputPath("explicit-note-review.png"),
+      });
+    }
+    await review.getByRole("button", { name: "Confirm these choices" }).click();
+    await expect(review).toHaveCount(0);
+    const saves = await page.evaluate(() =>
+      (
+        window as unknown as {
+          noteConsentCalls: Array<{ command: string; payload: unknown }>;
+        }
+      ).noteConsentCalls.filter(
+        ({ command }) => command === "set_companion_native_history_choice",
+      ),
+    );
+    expect(saves).toHaveLength(chooseNotes ? 2 : 1);
+    expect(saves.at(-1)?.payload).toMatchObject({
+      residentPubkey: MARA,
+      sourceId: "synthetic-codex",
+      input: {
+        allowed: true,
+        semanticNotes: chooseNotes,
+        expectedRevision: 2,
+        disclosureRevision: 1,
+      },
+    });
+  }
 });
 
 test("keyboard entry follows the selected resident and restores focus at compact width", async ({

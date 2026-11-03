@@ -344,6 +344,32 @@ impl CompanionAwarenessRuntime {
         self.with_controller(owner, |controller| controller.store.recheck_native_history_choice(key, binding))
     }
 
+    /// Explicit semantic-note permission, independent of older Library
+    /// promotion. Only a reviewed host flow may widen it for a live owner.
+    pub(crate) fn set_semantic_note_choice(
+        &self, owner: &Hex64, key: &AwarenessGrantKeyV1, live: Option<&LiveAwarenessOwner<'_>>,
+        expected: SafeU53, allowed: bool, binding: Option<&luca_protocol::Sha256Ref>,
+        now: &CanonicalTimestamp, operation: &OpaqueId,
+    ) -> Result<(NativeHistoryChoiceV1, bool), AwarenessStoreError> {
+        if owner != &key.source.owner_pubkey { return Err(AwarenessStoreError::Invalid); }
+        let apply = || self.with_controller(owner, |controller| {
+            if key.source.device_id != controller.scope.device { return Err(AwarenessStoreError::Invalid); }
+            controller.store.set_semantic_note_choice(key, expected, allowed, binding, now, operation)
+        });
+        if allowed {
+            let live = live.ok_or(AwarenessStoreError::Invalid)?;
+            if live.owner() != owner { return Err(AwarenessStoreError::Invalid); }
+            live.with_current(apply)
+        } else { apply() }
+    }
+
+    pub(crate) fn recheck_semantic_note_choice(
+        &self, owner: &Hex64, key: &AwarenessGrantKeyV1, binding: &luca_protocol::Sha256Ref,
+    ) -> Result<(), AwarenessStoreError> {
+        if owner != &key.source.owner_pubkey { return Err(AwarenessStoreError::Invalid); }
+        self.with_controller(owner, |controller| controller.store.recheck_semantic_note_choice(key, binding))
+    }
+
     /// Next durable exact-grant sequence. The source driver serializes capture;
     /// this coordinate alone grants nothing and final admission still does CAS.
     pub(crate) fn next_sequence(
@@ -545,6 +571,92 @@ impl CompanionAwarenessRuntime {
             &mut resolve, Some(context_node), Some(binding), sink)
     }
 
+    /// Semantic source-note bodies are lent by the encrypted notebook's current
+    /// lifecycle callback, never fetched from the raw observation buffer here.
+    /// Every sealed parent and current sink grant must pass before framing.
+    pub(crate) fn with_retained_note_history_lease<T>(
+        &self, lease: &LiveAwarenessLease<'_>, facts: &AwarenessHostFactsV1<'_>,
+        binding: &luca_protocol::Sha256Ref,
+        notes: &[(OpaqueId, Vec<OpaqueId>, Vec<AwarenessObservationRefV1>)],
+        raw_references: &[AwarenessObservationRefV1],
+        receipt: &turn_context::AwarenessTurnReceiptV1,
+        reply: &source_runtime::NativeReplyLeaseV1,
+        mut resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
+        effect: impl FnOnce(&[zeroize::Zeroizing<Vec<u8>>]) -> T,
+    ) -> Result<T, AwarenessStoreError> {
+        if lease.owner() != facts.owner_pubkey || notes.is_empty() || notes.len() > 3
+            || !reply.matches_admission(facts.owner_pubkey, facts.resident_pubkey, binding,
+                &[receipt.context_node.clone()], &receipt.observations, facts.now) {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        if raw_references.len()>4
+            || notes.iter().flat_map(|note|note.2.iter()).chain(raw_references).any(|reference|!receipt.observations.contains(reference))
+            || receipt.observations.iter().any(|reference|!raw_references.contains(reference)&&!notes.iter().any(|note|note.2.contains(reference))) {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        self.with_controller(lease.owner(), |controller| {
+            if controller.store.resident_state(facts.owner_pubkey, facts.resident_pubkey)?.paused {
+                return Err(AwarenessStoreError::Paused);
+            }
+            for reference in &receipt.observations {
+                let key = AwarenessGrantKeyV1 {source:AwarenessSourceKeyV1 {owner_pubkey:reference.owner_pubkey.clone(),source_id:reference.source_id.clone(),device_id:reference.device_id.clone()},resident_pubkey:reference.resident_pubkey.clone()};
+                controller.store.recheck_native_history_choice(&key, binding)?;
+                if notes.iter().any(|note|note.2.contains(reference)) {
+                    controller.store.recheck_semantic_note_choice(&key, binding)?;
+                }
+            }
+            for (node, parents, observations) in notes {
+                controller.store.recheck_retained_note(node, parents, observations, facts, binding, &mut resolve)?;
+            }
+            let mut parents = notes.iter().map(|note| note.0.clone()).collect::<Vec<_>>();
+            let mut payloads=Vec::new();
+            for reference in raw_references {
+                let material=resolve(reference,false);
+                let current=AwarenessHostFactsV1 {owner_pubkey:facts.owner_pubkey,resident_pubkey:facts.resident_pubkey,now:facts.now,source_fresh:material.source_fresh,material_state:material.material_state};
+                let intended=AwarenessUseV1 {provider_egress_binding:Some(binding),..Default::default()};
+                controller.store.recheck_raw_observation(reference,&current,intended)?;
+                let key=AwarenessGrantKeyV1 {source:AwarenessSourceKeyV1 {owner_pubkey:reference.owner_pubkey.clone(),source_id:reference.source_id.clone(),device_id:reference.device_id.clone()},resident_pubkey:reference.resident_pubkey.clone()};
+                let authority=controller.store.snapshot(&key)?;
+                let payload=controller.buffer.with_payload(&authority_snapshot(&authority,&current),reference,intended,|bytes|zeroize::Zeroizing::new(bytes.to_vec())).map_err(|_|AwarenessStoreError::Unavailable)?;
+                if payload.len()>256*1024 {return Err(AwarenessStoreError::Capacity);}
+                payloads.push(payload);
+                parents.push(reference.observation_id.clone());
+            }
+            parents.sort();parents.dedup();
+            controller.store.register_dependent(&receipt.context_node, AwarenessDependentKindV1::Context, &parents, facts, &mut resolve)?;
+            controller.store.recheck_leased_reply_dependency(&receipt.context_node, facts, binding, reply, &mut resolve)?;
+            Ok(effect(&payloads))
+        })
+    }
+
+    /// Commit a compact encrypted note only under its separately reviewed
+    /// semantic-retention consent. The notebook owns the outer lifecycle CAS.
+    pub(crate) fn with_semantic_note_promotion_lease<T>(
+        &self, lease: &LiveAwarenessLease<'_>,
+        seal: &crate::luca::resident_notebook::source_notes::SourceNoteSealV1,
+        binding: &luca_protocol::Sha256Ref, facts: &AwarenessHostFactsV1<'_>,
+        mut resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
+        effect: impl FnOnce() -> T,
+    ) -> Result<T, AwarenessStoreError> {
+        if seal.validate().is_err() || lease.owner()!=facts.owner_pubkey
+            || seal.owner_pubkey!=*facts.owner_pubkey || seal.resident_pubkey!=*facts.resident_pubkey {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        self.with_controller(lease.owner(), |controller| {
+            if controller.store.resident_state(facts.owner_pubkey,facts.resident_pubkey)?.paused {
+                return Err(AwarenessStoreError::Paused);
+            }
+            for reference in &seal.observations {
+                let key=AwarenessGrantKeyV1 {source:AwarenessSourceKeyV1 {owner_pubkey:reference.owner_pubkey.clone(),source_id:reference.source_id.clone(),device_id:reference.device_id.clone()},resident_pubkey:reference.resident_pubkey.clone()};
+                controller.store.recheck_semantic_note_choice(&key,binding)?;
+            }
+            controller.store.register_dependent(&seal.node,AwarenessDependentKindV1::Promoted,&seal.parents,facts,&mut resolve)?;
+            let mut references=seal.observations.clone();references.sort_by(|a,b|a.observation_id.cmp(&b.observation_id));
+            controller.store.recheck_retained_note(&seal.node,&seal.parents,&references,facts,binding,&mut resolve)?;
+            Ok(effect())
+        })
+    }
+
     fn with_payloads_for_sink_lease<T>(
         &self,
         lease: &LiveAwarenessLease<'_>,
@@ -714,6 +826,9 @@ impl CompanionAwarenessRuntime {
                             reference.observation_id.as_str(), error);
                         error
                     })?;
+                if reply_lease.is_some_and(|reply| reply.retains(reference)) {
+                    controller.store.recheck_semantic_note_choice(&key, binding)?;
+                }
             }
             for node in nodes {
                 if let Some(reply) = reply_lease {

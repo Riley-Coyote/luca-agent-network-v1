@@ -22,6 +22,10 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
 
+#[cfg(unix)]
+#[path = "managed_source_notes.rs"]
+mod source_notes;
+
 use crate::app_state::AppState;
 
 use super::{
@@ -857,6 +861,16 @@ fn write_optional_awareness_context(
         )
     {
         return None;
+    }
+    if let Some(attempt) = source_notes::write_optional_source_notes(
+        app,
+        writer,
+        intent,
+        binding_ref,
+        expected,
+        result,
+    ) {
+        return Some(attempt);
     }
     let state = app.state::<AppState>();
     let now_ms = unix_time_millis();

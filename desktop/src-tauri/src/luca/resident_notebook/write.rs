@@ -20,6 +20,15 @@ pub(super) fn commit_owner_notebook_record(
     runtime_state: &Mutex<ContinuityRuntimeState>,
     request: OwnerNotebookRecordRequest,
 ) -> ResidentNotebookMutationOutcomeV1 {
+    commit_owner_notebook_record_with_source_guard(lifecycle, runtime_state, request, None)
+}
+
+pub(super) fn commit_owner_notebook_record_with_source_guard(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    mut request: OwnerNotebookRecordRequest,
+    source_guard: Option<&dyn Fn(&source_notes::SourceNoteSealV1) -> bool>,
+) -> ResidentNotebookMutationOutcomeV1 {
     if request.owner_pubkey == request.resident_pubkey
         || request.body.is_none()
         || request.provenance_refs.is_none()
@@ -134,6 +143,44 @@ pub(super) fn commit_owner_notebook_record(
         Ok(value) => value,
         Err(_) => return ResidentNotebookMutationOutcomeV1::Invalid,
     };
+    // The lineage's authenticated source seal survives every owner correction.
+    // An ordinary notebook path cannot invent/drop a reserved classification.
+    if let Some(active) =
+        active.filter(|lineage| source_notes::is_source_note_id(&lineage.lineage_root_id))
+    {
+        if request.body.as_ref().is_none_or(|body| {
+            serde_json::from_str::<ResidentMemoryNoteV1>(body)
+                .ok()
+                .is_none_or(|note| note.body.len() > 1024 || note.validate().is_err())
+        }) {
+            return ResidentNotebookMutationOutcomeV1::Invalid;
+        }
+        let Some(record) = generation.as_ref().and_then(|generation| {
+            generation
+                .snapshot
+                .records
+                .iter()
+                .find(|record| Some(&record.record_id) == active.active_head_record_id.as_ref())
+        }) else {
+            return ResidentNotebookMutationOutcomeV1::Invalid;
+        };
+        let Some(seal) = decrypt_record(record, namespace_key.as_bytes())
+            .and_then(RetrievalMaterialV1::decode)
+            .ok()
+            .and_then(|material| source_notes::seal_from_tags(material.tags()).ok())
+        else {
+            return ResidentNotebookMutationOutcomeV1::Invalid;
+        };
+        if !source_guard.is_some_and(|guard| guard(&seal)) {
+            return ResidentNotebookMutationOutcomeV1::Unavailable;
+        }
+        let Ok(tag) = seal.tag() else {
+            return ResidentNotebookMutationOutcomeV1::Invalid;
+        };
+        request.tags.push(tag);
+    } else if source_notes::is_source_note_id(&request.record_id) {
+        return ResidentNotebookMutationOutcomeV1::Invalid;
+    }
     let prepared = match prepare_revision(
         &address,
         key_version,
@@ -193,6 +240,7 @@ pub(crate) fn change_resident_notebook_lifecycle(
     lineage_root_id: &OpaqueId,
     request_id: &OpaqueId,
     forget: bool,
+    source_guard: Option<&dyn Fn(&source_notes::SourceNoteSealV1) -> bool>,
 ) -> ResidentNotebookMutationOutcomeV1 {
     if owner_pubkey == resident_pubkey {
         return ResidentNotebookMutationOutcomeV1::Invalid;
@@ -201,14 +249,14 @@ pub(crate) fn change_resident_notebook_lifecycle(
         Ok(guard) => guard,
         Err(_) => return ResidentNotebookMutationOutcomeV1::Unavailable,
     };
-    match load_existing_desktop_master_key() {
-        ContinuityMasterKeyState::Ready(_) => {}
+    let root = match load_existing_desktop_master_key() {
+        ContinuityMasterKeyState::Ready(root) => root,
         ContinuityMasterKeyState::Locked => return ResidentNotebookMutationOutcomeV1::Locked,
         ContinuityMasterKeyState::Unavailable => {
             return ResidentNotebookMutationOutcomeV1::Unavailable;
         }
         ContinuityMasterKeyState::Corrupt => return ResidentNotebookMutationOutcomeV1::Invalid,
-    }
+    };
     let mut state = match runtime_state.lock() {
         Ok(state) => state,
         Err(_) => return ResidentNotebookMutationOutcomeV1::Unavailable,
@@ -254,6 +302,29 @@ pub(crate) fn change_resident_notebook_lifecycle(
         || (!forget && lineage.lifecycle != RevisionLifecycle::Active)
     {
         return ResidentNotebookMutationOutcomeV1::Empty;
+    }
+    if source_notes::is_source_note_id(lineage_root_id) {
+        let Some(record) = generation
+            .snapshot
+            .records
+            .iter()
+            .find(|record| record.record_id == lineage.lineage_head_record_id)
+        else {
+            return ResidentNotebookMutationOutcomeV1::Invalid;
+        };
+        let Ok(key) = derive_namespace_key(&root, address.namespace()) else {
+            return ResidentNotebookMutationOutcomeV1::Invalid;
+        };
+        let Some(seal) = decrypt_record(record, key.as_bytes())
+            .and_then(RetrievalMaterialV1::decode)
+            .ok()
+            .and_then(|material| source_notes::seal_from_tags(material.tags()).ok())
+        else {
+            return ResidentNotebookMutationOutcomeV1::Invalid;
+        };
+        if !source_guard.is_some_and(|guard| guard(&seal)) {
+            return ResidentNotebookMutationOutcomeV1::Unavailable;
+        }
     }
     let head_id = lineage.lineage_head_record_id.clone();
     let Some(head_revision) = generation
@@ -374,6 +445,12 @@ pub(super) fn valid_metabolism_request(request: &ResidentMetabolismCommitRequest
             return false;
         }
         let note = mutation_note(mutation);
+        if source_notes::is_source_note_id(&note.note_id)
+            || matches!(mutation, ResidentMemoryNoteMutationV1::Supersede {target_note_id,..}
+                if source_notes::is_source_note_id(target_note_id))
+        {
+            return false;
+        }
         note.source_event_ids
             .binary_search(&request.source_event_id)
             .is_ok()

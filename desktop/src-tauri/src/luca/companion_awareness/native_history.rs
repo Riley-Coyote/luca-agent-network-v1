@@ -22,6 +22,10 @@ pub(crate) struct NativeHistoryChoiceV1 {
     device_id: OpaqueId,
     pub(crate) revision: SafeU53,
     pub(crate) allowed: bool,
+    /// Explicit useful-note consent. Legacy promotion/history choices never
+    /// imply semantic memory; missing fields deserialize OFF without migration.
+    #[serde(default)]
+    pub(crate) semantic_notes: bool,
     grant_ref: Sha256Ref,
     pub(crate) binding_ref: Option<Sha256Ref>,
     disclosure_revision: u32,
@@ -40,6 +44,7 @@ impl NativeHistoryChoiceV1 {
             && self.owner_pubkey != self.resident_pubkey
             && self.disclosure_revision == NATIVE_HISTORY_DISCLOSURE_REVISION
             && (!self.allowed || self.binding_ref.is_some())
+            && (!self.semantic_notes || self.allowed)
     }
 }
 
@@ -104,6 +109,15 @@ impl AwarenessStore {
                         return Err(AwarenessStoreError::Capacity);
                     }
                 }
+                let current_grant_ref = grant_ref(&grant)?;
+                let binding_ref = allowed.then(|| current_binding.cloned()).flatten();
+                let semantic_notes = previous.as_ref().is_some_and(|previous| {
+                    allowed
+                        && previous.allowed
+                        && previous.semantic_notes
+                        && previous.grant_ref == current_grant_ref
+                        && previous.binding_ref == binding_ref
+                });
                 let choice = NativeHistoryChoiceV1 {
                     protocol: PROTOCOL.into(),
                     owner_pubkey: key.source.owner_pubkey.clone(),
@@ -112,8 +126,9 @@ impl AwarenessStore {
                     device_id: key.source.device_id.clone(),
                     revision: super::increment(expected)?,
                     allowed,
-                    grant_ref: grant_ref(&grant)?,
-                    binding_ref: allowed.then(|| current_binding.cloned()).flatten(),
+                    semantic_notes,
+                    grant_ref: current_grant_ref,
+                    binding_ref,
                     disclosure_revision: NATIVE_HISTORY_DISCLOSURE_REVISION,
                     changed_at: now.clone(),
                 };
@@ -132,6 +147,92 @@ impl AwarenessStore {
         // A replay cannot restore an old ON choice after a newer OFF operation.
         let choice = load_choice(&self.connection, key)?.ok_or(AwarenessStoreError::Missing)?;
         Ok((choice, receipt.replayed))
+    }
+
+    /// Host-only reviewed useful-note choice, or preservation of an exact
+    /// previously reviewed choice through an owned unchanged-scope refresh.
+    /// Ordinary promotion and native-history setters cannot newly enable this.
+    pub(crate) fn set_semantic_note_choice(
+        &mut self,
+        key: &AwarenessGrantKeyV1,
+        expected: SafeU53,
+        allowed: bool,
+        binding: Option<&Sha256Ref>,
+        now: &CanonicalTimestamp,
+        operation: &OpaqueId,
+    ) -> Result<(NativeHistoryChoiceV1, bool), AwarenessStoreError> {
+        if key.source.owner_pubkey == key.resident_pubkey {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        let receipt = super::mutate(
+            &mut self.connection,
+            &key.source.owner_pubkey,
+            operation,
+            serde_json::json!([
+                PROTOCOL,
+                "semantic_notes",
+                key,
+                expected,
+                allowed,
+                binding,
+                now
+            ]),
+            |tx| {
+                let mut choice = load_choice(tx, key)?.ok_or(AwarenessStoreError::Missing)?;
+                if choice.revision != expected {
+                    return Err(AwarenessStoreError::Conflict);
+                }
+                let (source, _) = super::load_source(tx, &key.source)?;
+                let grant = super::load_grant(tx, key)?;
+                if allowed
+                    && (!choice.allowed
+                        || binding.is_none()
+                        || choice.binding_ref.as_ref() != binding
+                        || choice.grant_ref != grant_ref(&grant)?
+                        || grant.state != AwarenessGrantStateV1::Active
+                        || !grant.choices.observe
+                        || !grant.choices.promote
+                        || grant.choices.provider_egress_binding.as_ref() != binding
+                        || grant.deny_epoch != source.deny_epoch
+                        || source.state == AwarenessSourceStateV1::Disabled)
+                {
+                    return Err(AwarenessStoreError::Invalid);
+                }
+                choice.revision = super::increment(expected)?;
+                choice.semantic_notes = allowed;
+                choice.changed_at = now.clone();
+                tx.execute(
+                    "UPDATE awareness_native_history SET revision=?5,choice=?6 WHERE owner=?1 AND resident=?2 AND source=?3 AND device=?4",
+                    params![key.source.owner_pubkey.as_str(), key.resident_pubkey.as_str(), key.source.source_id.as_str(), key.source.device_id.as_str(), choice.revision.get(), super::encode(&choice)?],
+                )?;
+                Ok(AwarenessMutationReceiptV1 {
+                    source_revision: None,
+                    deny_epoch: Some(source.deny_epoch),
+                    grant_revision: Some(grant.grant_revision),
+                    resident_revision: None,
+                    quarantined_nodes: 0,
+                    replayed: false,
+                })
+            },
+        )?;
+        let choice = load_choice(&self.connection, key)?.ok_or(AwarenessStoreError::Missing)?;
+        Ok((choice, receipt.replayed))
+    }
+
+    /// Permission only, not a body lease. Effects must also hold the existing
+    /// pause, source ancestry, native binding and retained-material fences.
+    pub(crate) fn recheck_semantic_note_choice(
+        &self,
+        key: &AwarenessGrantKeyV1,
+        binding: &Sha256Ref,
+    ) -> Result<(), AwarenessStoreError> {
+        self.recheck_native_history_choice(key, binding)?;
+        let choice = load_choice(&self.connection, key)?.ok_or(AwarenessStoreError::Invalid)?;
+        let grant = super::load_grant(&self.connection, key)?;
+        if !choice.semantic_notes || !grant.choices.promote {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        Ok(())
     }
 
     /// This proves destination consent only, not capture/material availability,

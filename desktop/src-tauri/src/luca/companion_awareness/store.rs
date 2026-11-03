@@ -543,6 +543,83 @@ impl AwarenessStore {
         }
         self.recheck_dependency(node, facts, AwarenessUseV1::default(), resolve)
     }
+
+    /// The encrypted host seal must match the complete persisted DAG. Missing
+    /// restored parents are denial, never an invitation to rebuild ancestry.
+    pub(crate) fn recheck_retained_note(
+        &self,
+        node: &OpaqueId,
+        parents: &[OpaqueId],
+        observations: &[AwarenessObservationRefV1],
+        facts: &AwarenessHostFactsV1<'_>,
+        binding: &luca_protocol::Sha256Ref,
+        resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
+    ) -> Result<(), AwarenessStoreError> {
+        if node_kind(
+            &self.connection,
+            facts.owner_pubkey,
+            facts.resident_pubkey,
+            node,
+        )? != "promoted"
+            || direct_parents(
+                &self.connection,
+                facts.owner_pubkey,
+                facts.resident_pubkey,
+                node,
+            )? != parents
+            || observations.is_empty()
+            || observations.len() > 4
+        {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        for parent in parents {
+            require_node(
+                &self.connection,
+                facts.owner_pubkey,
+                facts.resident_pubkey,
+                parent,
+            )?;
+        }
+        let missing: u64 = self.connection.query_row(
+            "WITH RECURSIVE ancestors(id) AS (SELECT ?3 UNION SELECT e.parent FROM awareness_edges e JOIN ancestors a ON e.child=a.id WHERE e.owner=?1 AND e.resident=?2) SELECT count(*) FROM ancestors a LEFT JOIN awareness_nodes n ON n.node_id=a.id AND n.owner=?1 AND n.resident=?2 WHERE n.node_id IS NULL",
+            params![facts.owner_pubkey.as_str(), facts.resident_pubkey.as_str(), node.as_str()], |row| row.get(0))?;
+        if missing != 0 {
+            return Err(AwarenessStoreError::Missing);
+        }
+        let mut statement = self.connection.prepare("WITH RECURSIVE ancestors(id) AS (SELECT ?3 UNION SELECT e.parent FROM awareness_edges e JOIN ancestors a ON e.child=a.id WHERE e.owner=?1 AND e.resident=?2) SELECT n.node_id FROM awareness_nodes n JOIN ancestors a ON n.node_id=a.id WHERE n.owner=?1 AND n.resident=?2 AND n.kind='observation' ORDER BY n.node_id")?;
+        let roots = statement
+            .query_map(
+                params![
+                    facts.owner_pubkey.as_str(),
+                    facts.resident_pubkey.as_str(),
+                    node.as_str()
+                ],
+                |row| row.get::<_, String>(0),
+            )?
+            .map(|row| {
+                let id = OpaqueId::parse(row?).map_err(|_| AwarenessStoreError::Invalid)?;
+                load_observation(
+                    &self.connection,
+                    facts.owner_pubkey,
+                    facts.resident_pubkey,
+                    &id,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if roots != observations {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        self.recheck_dependency(
+            node,
+            facts,
+            AwarenessUseV1 {
+                promote: true,
+                provider_egress_binding: Some(binding),
+                ..Default::default()
+            },
+            resolve,
+        )
+    }
 }
 
 fn receipt(
@@ -897,7 +974,7 @@ fn check_dependency(
     let mut roots = 0;
     for row in rows {
         let (id, kind, quarantined, retained) = row?;
-        if retained && reply_lease.is_some() {
+        if retained && reply_lease.is_some_and(|lease| !lease.admits_retained_path(node)) {
             return Err(AwarenessStoreError::Invalid);
         }
         if quarantined == 1 {
@@ -931,7 +1008,7 @@ fn check_dependency(
                     ..intended_use
                 },
                 !retained,
-                reply_lease.filter(|lease| lease.binding(&observation).is_some()),
+                reply_lease.filter(|lease| !retained && lease.binding(&observation).is_some()),
             )?;
         }
     }

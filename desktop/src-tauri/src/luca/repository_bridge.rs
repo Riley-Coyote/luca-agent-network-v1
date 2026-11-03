@@ -723,7 +723,7 @@ fn list_repositories(
     })
 }
 
-fn companion_status(state: &crate::app_state::AppState, context: &BrokerContext) -> serde_json::Value {
+fn companion_status(app: &AppHandle, state: &crate::app_state::AppState, context: &BrokerContext) -> serde_json::Value {
     (|| -> Option<serde_json::Value> {
         let awareness = state.companion_awareness.resident_state(&context.owner_pubkey, &context.resident_pubkey).ok()?;
         let grants = state.companion_awareness.list_grants(&context.owner_pubkey, &context.resident_pubkey, 64).ok()?;
@@ -743,7 +743,7 @@ fn companion_status(state: &crate::app_state::AppState, context: &BrokerContext)
                 crate::luca::companion_awareness::native_profile::NativeProfileKindV1::CodexSessions => "codex",
             }, "observationAllowed":observing,
                 "followingNow":observing && !awareness.paused && live.collecting.contains(key),
-                "keepNotesAllowed":active && grant.is_some_and(|entry| entry.grant.choices.promote),
+                "keepNotesAllowed":state.companion_awareness.recheck_semantic_note_choice(&context.owner_pubkey, key, &context.binding_ref).is_ok(),
                 "activityInChatAllowed":sharing,"resumeOnLaunch":profile.follow_on_launch,
                 "latestAvailableObservationAt":last})
         }).collect::<Vec<_>>();
@@ -753,6 +753,8 @@ fn companion_status(state: &crate::app_state::AppState, context: &BrokerContext)
             "awarenessRevision":awareness.revision,"selectedGrantCount":grants.entries.len(),
             "sources":sources,"sourceListTruncated":grants.truncated,
             "backgroundEnabled":work.enabled,"backgroundPaused":work.paused,"backgroundRevision":work.revision,
+            "memoryEnabled":crate::luca::continuity_jobs::continuity_mode(app, &context.owner_pubkey, &context.resident_pubkey).ok().map(|mode| mode == luca_protocol::ResidentContinuityModeV1::Enabled),
+            "recentNoteReceipt":crate::commands::companion_notes::status(&context.owner_pubkey, &context.resident_pubkey),
             "activityInChatReady":crate::luca::managed_dispatch_store::ordinary_turn_awareness_consumers_ready(),
             "configurationTool":"configure_companion","reviewSurface":"companion",
             "reviewPurpose":"advanced_controls_only","effect":"status_only","observedBodiesIncluded":false,
@@ -833,7 +835,7 @@ fn operator_status(
             "openclaw": openclaw_candidates,
         },
         "brain": brain,
-        "companion": companion_status(&state, context),
+        "companion": companion_status(app, &state, context),
         "recoveryBackup": {
             "state": "not_observable",
             "reason": "Polyphonic does not retain exported-backup destinations or passphrases."

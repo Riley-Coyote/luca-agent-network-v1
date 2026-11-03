@@ -359,6 +359,29 @@ pub(crate) struct RetainedSourceFactsV1 {
     browser: Option<crate::luca::companion_awareness::browser_runtime::BrowserMaterialSnapshotV1>,
 }
 impl RetainedSourceFactsV1 {
+    pub(crate) fn retained_binding(
+        &self,
+        reference: &AwarenessObservationRefV1,
+    ) -> Option<SourceMaterialBindingV1> {
+        if let Some(profile) = self
+            .profiles
+            .iter()
+            .find(|entry| &entry.binding.reference == reference)
+        {
+            return Some(SourceMaterialBindingV1 {
+                reference: reference.clone(),
+                scope: SourceMaterialScopeV1::ProfileChild(profile.binding.child.child_ref.clone()),
+            });
+        }
+        self.raw
+            .known_exact
+            .iter()
+            .find(|(key, _)| *key == observation_key(reference))
+            .map(|(_, class)| SourceMaterialBindingV1 {
+                reference: reference.clone(),
+                scope: SourceMaterialScopeV1::Exact(*class),
+            })
+    }
     /// Combined body-free source candidates prepared before any effect lease.
     pub(crate) fn snapshot(&self) -> &SourceMaterialSnapshotV1 {
         &self.raw
@@ -382,8 +405,14 @@ impl RetainedSourceFactsV1 {
         retained: bool,
         lease: &NativeReplyLeaseV1,
     ) -> AwarenessMaterialFactsV1 {
-        if retained
-            || !lease.contains(reference)
+        if retained {
+            return if lease.retains(reference) && lease.current(&self.raw.now) {
+                self.resolve(reference, true)
+            } else {
+                unavailable()
+            };
+        }
+        if !lease.contains(reference)
             || Instant::now() >= self.deadline
             || !lease.current(&self.raw.now)
         {

@@ -296,14 +296,15 @@ behavior, and candidate readiness must still be verified and recorded separately
 
 ## Local verification checkpoint — 2026-11-03
 
-F1–F4 code and focused regression coverage are implemented; F5 native packaging
-and live-provider walkthrough remain pending. This is not release approval.
+F1–F4 code and focused regression coverage are implemented, including F2's
+encrypted semantic-note path. F5 native packaging and live-provider walkthrough
+remain pending. This is not release approval.
 
 - Native focused checks pass for first-meeting persistence/guidance (26),
   companion awareness/initiative (175), managed permissions (28), initiative
   cognition (3), runtime-task delivery (40), continuity (7), and initial sampling
   (2). Filters overlap; these are not a summed unique test count.
-- MCP tests: 113 pass. Protocol tests: 94 pass. Scoped Codex initiative:
+- MCP tests: 114 pass. Protocol tests: 94 pass. Scoped Codex initiative:
   5 pass, one opt-in native-provider smoke remains ignored, not live proof.
 - Typecheck, fresh shell-enabled frontend build, scoped Biome, text-size checks,
   candidate-script tests (24), and diff checks pass. File-size checks exit zero
@@ -312,7 +313,7 @@ and live-provider walkthrough remain pending. This is not release approval.
   1280, 1024, and 390 pixels, keyboard order, and independent decisions. Visual
   inspection caught long disclosure text overlapping controls; the setup-only
   text now flows normally, without changing the approved card/composer design.
-- All 31 focused browser cases now pass after reconciling older fixtures with
+- All 32 focused browser cases now pass after reconciling older fixtures with
   the shipping agent-page navigation. No production navigation was changed to
   satisfy retired selectors. Recovery uses a real failed-discovery/retry path.
 - A final control review found and repaired a late-Pause race between following
@@ -324,3 +325,29 @@ No real personal-source consent was granted during these checks. A real saved
 note and later recall, live Claude/Codex setup, a real proactive return, native
 rendering, and existing-profile upgrade/restart are still distinct walkthrough
 checks. Browser fixtures and enabled-settings receipts do not prove those paths.
+
+The first packaging run was deliberately stopped: a final F2 trace established
+that existing `promote` permission produced source-linked Library creations, not
+semantic memory notes. No incomplete candidate was launched or called ready.
+The focused completion reuses the encrypted resident notebook, with a narrow
+current-turn note draft, verified-final commit, authenticated source ancestry,
+permission-checked recall, and existing correction/Forget lifecycle. General
+automatic `Changes` and clean-context guards remain closed. A pending draft is
+not a saved note, and forgotten lineage cannot be silently recreated.
+
+The final focused native rerun passes source notes (5), companion (190),
+continuity context (14), continuity jobs (7), first meeting (26), resident notebook
+(16), and runtime delivery (40). These filters overlap. The encrypted lifecycle
+fixture exercises save, decrypted recall, correction CAS with preserved seal,
+physical Forget, and rejected recreation; it is not the keychain-bound native
+AppState/socket walkthrough. Current source-note provider framing has a separate
+untrusted-awareness lane, can include fresh raw context, and does not let retained
+ancestry bypass raw freshness on overlapping references.
+
+Legacy promotion/history settings deserialize semantic-note consent OFF. Only a
+fresh reviewed setup or an explicit owner settings confirmation can authorize
+it. `pause_notes` reuses the existing resident memory/continuity Disabled mode;
+it stops note saving/recall and handoff updates, without deleting notes or changing
+observation/background grants. Recommended setup never silently resumes that
+disabled mode. A replayed owner-settings operation cannot newly complete a stale
+semantic-note phase after a newer OFF choice.
