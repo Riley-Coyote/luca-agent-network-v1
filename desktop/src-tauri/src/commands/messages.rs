@@ -718,7 +718,7 @@ pub async fn cancel_managed_turn(
         "!cancel",
         None,
         std::slice::from_ref(&resident_pubkey),
-        &[],
+        &[vec!["client".into(), "polyphonic-managed-cancel".into()]],
     )
     .and_then(|builder| {
         builder

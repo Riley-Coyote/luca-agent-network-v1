@@ -95,7 +95,10 @@ export function useResidentStopControl({
   }, []);
 
   const stopResidents = React.useCallback(
-    async (residentKeys: readonly string[]) => {
+    async (
+      residentKeys: readonly string[],
+      capturedTurns?: readonly CancellableManagedTurn[],
+    ) => {
       if (!channelId || residentKeys.length === 0) return;
       const targets = [...new Set(residentKeys.map(normalizePubkey))];
       applyStates(new Map(targets.map((key) => [key, "stopping"] as const)));
@@ -103,7 +106,9 @@ export function useResidentStopControl({
       let cancellable: CancellableManagedTurn[] = [];
       let inspectionFailed = false;
       try {
-        cancellable = await listCancellableManagedTurns(channelId);
+        cancellable = capturedTurns
+          ? [...capturedTurns]
+          : await listCancellableManagedTurns(channelId);
       } catch {
         inspectionFailed = true;
       }
@@ -118,7 +123,9 @@ export function useResidentStopControl({
             `${normalizePubkey(turn.residentPubkey)}:${turn.dispatchReceiptId}:${turn.sessionEpoch}`,
         ),
       );
-      for (const key of targets) {
+      // A queued-message interrupt is bound to the earlier captured receipts.
+      // Never broaden it to the resident's newly queued or replacement turn.
+      for (const key of capturedTurns ? [] : targets) {
         const activity = presentationActivity.get(key);
         const turn = activity
           ? getManagedPresentationTurn(activity.uiKey)

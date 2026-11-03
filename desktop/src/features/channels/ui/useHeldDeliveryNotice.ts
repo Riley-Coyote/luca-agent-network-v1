@@ -6,6 +6,7 @@ import {
   subscribeManagedPresentationTurn,
 } from "@/features/messages/managedPresentationStore";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import type { CancellableManagedTurn } from "@/shared/api/types";
 
 /**
  * The held-delivery notice.
@@ -31,6 +32,7 @@ const HELD_NOTICE_MAX_MS = 5 * 60_000;
 
 export type HeldDeliveryNotice = {
   residentPubkeys: string[];
+  turns: CancellableManagedTurn[];
   /** True when at least one held turn is confirmed (cancellable) — the
    * interrupt button is only honest then. */
   canInterrupt: boolean;
@@ -60,6 +62,7 @@ export function useHeldDeliveryNotice({
     uiKeys: string[];
     residentPubkeys: string[];
   } | null>(null);
+  const [, setConfirmationRevision] = React.useState(0);
 
   /** Call BEFORE dispatching a send into the active channel. */
   const recordSend = React.useCallback(() => {
@@ -90,9 +93,25 @@ export function useHeldDeliveryNotice({
       setHeld(null);
       return;
     }
+    let previousSignature = "";
     const evaluate = () => {
       if (!held.uiKeys.some(turnIsLive)) {
         setHeld(null);
+        return;
+      }
+      // Public text can arrive every frame. Only receipt/liveness changes
+      // affect this notice; don't rerender the whole channel on every word.
+      const signature = held.uiKeys
+        .map((key) => {
+          const turn = getManagedPresentationTurn(key);
+          return turn && turnIsLive(key)
+            ? `${key}:${turn.dispatchReceiptId}:${turn.sessionEpoch}`
+            : "terminal";
+        })
+        .join("|");
+      if (signature !== previousSignature) {
+        previousSignature = signature;
+        setConfirmationRevision((revision) => revision + 1);
       }
     };
     evaluate();
@@ -106,18 +125,29 @@ export function useHeldDeliveryNotice({
     };
   }, [held, channelId]);
 
-  const notice = React.useMemo<HeldDeliveryNotice | null>(() => {
+  const notice = ((): HeldDeliveryNotice | null => {
     if (!held) return null;
+    const turns = held.uiKeys.flatMap((uiKey) => {
+      const turn = getManagedPresentationTurn(uiKey);
+      return turn &&
+        turnIsLive(uiKey) &&
+        turn.sessionEpoch !== 0 &&
+        turn.dispatchReceiptId.length > 0
+        ? [
+            {
+              residentPubkey: turn.residentPubkey,
+              dispatchReceiptId: turn.dispatchReceiptId,
+              sessionEpoch: turn.sessionEpoch,
+            },
+          ]
+        : [];
+    });
     return {
       residentPubkeys: held.residentPubkeys,
-      canInterrupt: held.uiKeys.some((uiKey) => {
-        const turn = getManagedPresentationTurn(uiKey);
-        return Boolean(
-          turn && turn.sessionEpoch !== 0 && turn.dispatchReceiptId.length > 0,
-        );
-      }),
+      turns,
+      canInterrupt: turns.length > 0,
     };
-  }, [held]);
+  })();
 
   return { notice, recordSend, dismiss };
 }

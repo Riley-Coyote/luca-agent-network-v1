@@ -801,7 +801,9 @@ test("live tail arrivals stay buffered while reading and release on jump", async
   });
 
   await expect(page.getByText("buffered live tail sentinel")).toHaveCount(0);
-  await expect(page.getByTestId("message-scroll-to-latest")).toContainText("1");
+  await expect(page.getByTestId("message-scroll-to-latest")).toHaveText(
+    "New response",
+  );
   expect(await timeline.evaluate((element) => element.scrollHeight)).toBe(
     frozenHeight,
   );

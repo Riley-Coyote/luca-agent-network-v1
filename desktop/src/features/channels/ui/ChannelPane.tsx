@@ -1521,9 +1521,12 @@ export const ChannelPane = React.memo(function ChannelPane({
                       <HeldDeliveryNotice
                         notice={heldDelivery.notice}
                         onInterrupt={() => {
-                          const keys = heldDelivery.notice?.residentPubkeys;
-                          if (keys && keys.length > 0) {
-                            void residentStop.stopResidents(keys);
+                          const notice = heldDelivery.notice;
+                          if (notice && notice.turns.length > 0) {
+                            void residentStop.stopResidents(
+                              notice.turns.map((turn) => turn.residentPubkey),
+                              notice.turns,
+                            );
                           }
                           heldDelivery.dismiss();
                         }}

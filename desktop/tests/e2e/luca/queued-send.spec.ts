@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 
 /**
  * Queued sends. Residents run in queue mode: a message sent while a turn is
@@ -124,3 +125,124 @@ test("a send during a live turn shows the held notice; signed final clears it", 
   );
   await expect(notice).toHaveCount(0);
 });
+
+test("late confirmation enables interrupt and never targets the queued follow-up", async ({
+  page,
+}) => {
+  await page.getByTestId("message-input").fill("earlier reply");
+  await page.getByTestId("send-message").click();
+  const first = await page
+    .getByTestId("message-row")
+    .filter({ hasText: "earlier reply" })
+    .last()
+    .getAttribute("data-message-id");
+  await page.getByTestId("message-input").fill("queued follow-up");
+  await page.getByTestId("send-message").click();
+  const second = await page
+    .getByTestId("message-row")
+    .filter({ hasText: "queued follow-up" })
+    .last()
+    .getAttribute("data-message-id");
+  const interrupt = page.getByTestId("held-delivery-interrupt");
+  await expect(interrupt).toBeVisible();
+  await expect(interrupt).toBeDisabled();
+  for (const [receipt, epoch] of [
+    [first, 10],
+    [second, 11],
+  ] as const) {
+    await page.evaluate(
+      ({ receipt, epoch, resident, channel }) =>
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("luca://managed-presentation", {
+          protocol: "luca.managed.presentation.v1",
+          resident_pubkey: resident,
+          conversation_id: channel,
+          turn_id: `exact-${epoch}`,
+          dispatch_receipt_id: receipt,
+          session_epoch: epoch,
+          kind: "turn_started",
+          sequence: 1,
+          phase: "thinking",
+        }),
+      { receipt, epoch, resident: LUCA, channel: CHANNEL_ID },
+    );
+  }
+  await expect(interrupt).toBeEnabled();
+  await expect(interrupt).toHaveText("Stop earlier reply");
+  await interrupt.click();
+  const cancels = await page.evaluate(() =>
+    window.__BUZZ_E2E_COMMAND_PAYLOADS__?.filter(
+      (call) => call.command === "cancel_managed_turn",
+    ),
+  );
+  expect(cancels).toHaveLength(1);
+  expect(cancels?.[0].payload).toMatchObject({
+    dispatchReceiptId: first,
+    sessionEpoch: 10,
+    residentPubkey: LUCA,
+  });
+  expect(cancels?.[0].payload).not.toMatchObject({ dispatchReceiptId: second });
+});
+
+for (const mode of ["dark", "light"] as const) {
+  test(`${mode}: queued notice uses the approved plate and keyboard control`, async ({
+    page,
+  }, info) => {
+    await page.addInitScript(
+      ({ key, mode }) => {
+        localStorage.setItem(key, JSON.stringify({ "shell-frame": true }));
+        localStorage.setItem(
+          "buzz-theme",
+          mode === "dark" ? "vitesse-black" : "paper",
+        );
+        localStorage.setItem("buzz-follow-system", "false");
+      },
+      { key: FEATURE_OVERRIDES_STORAGE_KEY, mode },
+    );
+    await page.goto(`/#/channels/${CHANNEL_ID}`);
+    await page.getByTestId("message-input").fill("A short earlier request");
+    await page.getByTestId("send-message").click();
+    const receipt = await page
+      .getByTestId("message-row")
+      .filter({ hasText: "A short earlier request" })
+      .last()
+      .getAttribute("data-message-id");
+    await page.evaluate(
+      ({ receipt, resident, channel }) =>
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("luca://managed-presentation", {
+          protocol: "luca.managed.presentation.v1",
+          resident_pubkey: resident,
+          conversation_id: channel,
+          turn_id: "visual-notice",
+          dispatch_receipt_id: receipt,
+          session_epoch: 20,
+          kind: "turn_started",
+          sequence: 1,
+          phase: "thinking",
+        }),
+      { receipt, resident: LUCA, channel: CHANNEL_ID },
+    );
+    await page
+      .getByTestId("message-input")
+      .fill("One clarification while you work");
+    await page.getByTestId("send-message").click();
+    const notice = page.getByTestId("held-delivery-notice");
+    const interrupt = page.getByTestId("held-delivery-interrupt");
+    await expect(notice).toBeVisible();
+    await interrupt.focus();
+    await expect(interrupt).toBeFocused();
+    await expect(notice.locator(".luca-temporary-notice")).toHaveCSS(
+      "border-top-width",
+      "0px",
+    );
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await notice.screenshot({
+        path: info.outputPath(`queued-${mode}-${width}.png`),
+        animations: "disabled",
+      });
+      expect(
+        await notice.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+      ).toBe(true);
+    }
+  });
+}

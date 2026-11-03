@@ -1,4 +1,5 @@
-import { CornerDownLeft } from "lucide-react";
+import { Square } from "lucide-react";
+import "@/shared/styles/globals/temporary-surfaces.css";
 
 import type { HeldDeliveryNotice as HeldDeliveryNoticeState } from "./useHeldDeliveryNotice";
 
@@ -22,22 +23,24 @@ export function HeldDeliveryNotice({
     <div
       className="luca-measure pointer-events-auto mb-2"
       data-testid="held-delivery-notice"
+      role="status"
+      aria-atomic="true"
     >
-      <div className="flex items-center gap-3 rounded-xl bg-muted/70 px-4 py-2.5">
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+      <div className="luca-temporary-notice flex flex-wrap items-center gap-3 rounded-xl bg-muted/70 px-4 py-2.5">
+        <p className="min-w-[min(100%,16rem)] flex-1 text-sm text-muted-foreground">
           {several ? "Residents are" : `${residentName} is`} still working —
           your message is queued and will be delivered when{" "}
           {several ? "they finish" : "they're done"}.
         </p>
         <button
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-background/80 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-background disabled:cursor-default disabled:opacity-45"
+          className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-background/80 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-background disabled:cursor-default disabled:opacity-45"
           data-testid="held-delivery-interrupt"
           disabled={!notice.canInterrupt}
           onClick={onInterrupt}
           type="button"
         >
-          <CornerDownLeft aria-hidden="true" className="h-3.5 w-3.5" />
-          Interrupt · deliver now
+          <Square aria-hidden="true" className="h-3.5 w-3.5" />
+          Stop earlier reply
         </button>
       </div>
     </div>

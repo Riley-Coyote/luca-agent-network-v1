@@ -6329,11 +6329,25 @@ fn event_to_context_message(event: nostr::Event) -> ContextMessage {
         .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| timestamp_secs.to_string());
+    // Display provenance only: the signed event's author and ID stay intact,
+    // and cancellation authorization still uses the original control event.
+    // A transport frame emitted by desktop must not sound like words the
+    // person typed when a warm session recovers conversation history.
+    let app_cancel = event.content.trim() == "!cancel"
+        && event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.len() == 2 && parts[0] == "client" && parts[1] == "polyphonic-managed-cancel"
+        });
+    let content = if app_cancel {
+        "[Application control: the app sent a cancellation signal for the previous reply. This is not a typed chat message and does not, by itself, revoke companion permissions.]".to_owned()
+    } else {
+        event.content
+    };
     ContextMessage {
         event_id: event.id.to_hex(),
         pubkey: event.pubkey.to_hex(),
         timestamp,
-        content: event.content,
+        content,
     }
 }
 
@@ -8739,6 +8753,28 @@ while read -r _; do :; done
         .custom_created_at(Timestamp::from(created_at))
         .sign_with_keys(keys)
         .expect("signed thread reply")
+    }
+
+    #[test]
+    fn tagged_cancel_control_is_not_presented_as_typed_owner_prose() {
+        let keys = Keys::generate();
+        let event = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+            "!cancel",
+        )
+        .tags([Tag::parse(["client", "polyphonic-managed-cancel"]).expect("valid control marker")])
+        .sign_with_keys(&keys)
+        .expect("signed control event");
+        let id = event.id.to_hex();
+        let context = event_to_context_message(event);
+        assert_eq!(context.event_id, id);
+        assert_eq!(context.pubkey, keys.public_key().to_hex());
+        assert!(context.content.starts_with("[Application control:"));
+        assert!(context.content.contains("not a typed chat message"));
+        let ordinary = signed_room_event(&keys, Uuid::new_v4(), "!cancel", 123);
+        assert_eq!(event_to_context_message(ordinary).content, "!cancel");
+        let code = signed_room_event(&keys, Uuid::new_v4(), "Example: `!cancel`", 124);
+        assert_eq!(event_to_context_message(code).content, "Example: `!cancel`");
     }
 
     fn room_event_batch(event: nostr::Event, channel_id: Uuid) -> FlushBatch {
