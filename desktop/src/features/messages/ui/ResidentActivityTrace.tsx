@@ -11,6 +11,7 @@ import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator
 import { TurnContextReceipt } from "./TurnContextReceipt";
 
 import "./ResidentActivityTrace.css";
+import { companionControlReceiptText } from "../activity/activityTraceProjection";
 
 /** Public activity presented inside the resident's existing message row. */
 export type ResidentActivityTraceProps = {
@@ -238,6 +239,10 @@ export function ResidentActivityTrace({
       {identityNode ?? residentName}
     </span>
   ) : null;
+
+  // Already rendered as a fixed host receipt by the timeline projection, not
+  // a zero-duration model-work summary. The source-informed final stays fenced.
+  if (companionControlReceiptText(trace)) return null;
 
   return (
     <div

@@ -1045,10 +1045,9 @@ impl AppState {
             resident_pubkey,
         );
         match ordinary {
-            ResidentNotebookReadOutcomeV1::Ready(mut views) => {
-                views.extend(source);
-                ResidentNotebookReadOutcomeV1::Ready(views)
-            }
+            ResidentNotebookReadOutcomeV1::Ready(views) => ResidentNotebookReadOutcomeV1::Ready(
+                crate::luca::resident_notebook::source_notes::merge_owner_views(views, source),
+            ),
             ResidentNotebookReadOutcomeV1::Empty if !source.is_empty() => {
                 ResidentNotebookReadOutcomeV1::Ready(source)
             }

@@ -187,6 +187,65 @@ pub(crate) fn note_id(
 pub(crate) fn is_source_note_id(id: &OpaqueId) -> bool {
     id.as_str().starts_with(SOURCE_NOTE_PREFIX)
 }
+
+/// Strict stable-root check for owner denial controls, not disclosure authority.
+pub(crate) fn is_exact_source_note_root(id: &OpaqueId) -> bool {
+    id.as_str()
+        .strip_prefix(SOURCE_NOTE_PREFIX)
+        .is_some_and(|hash| {
+            hash.len() == 64
+                && hash.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+}
+
+/// Owner-only inventory from authenticated lineage metadata. Does not decrypt
+/// note envelopes or consult source/provider access, and is never model recall.
+pub(crate) fn owner_inventory(
+    generation: &StoredRevisionGenerationV1,
+    address: &luca_continuity::NamespaceScope,
+) -> Result<Vec<ResidentNotebookRevisionViewV1>, SourceNoteErrorV1> {
+    generation.snapshot.lineages.iter()
+        .filter(|lineage| {
+            lineage.namespace == *address.namespace().as_protocol()
+                && lineage.scope == *address.as_protocol()
+                && lineage.record_type.as_str() == "memory-note"
+                && is_exact_source_note_root(&lineage.lineage_root_id)
+                && lineage.lifecycle == RevisionLifecycle::Active
+        })
+        .map(|lineage| {
+            let record = generation.snapshot.records.iter().find(|record| {
+                Some(&record.record_id) == lineage.active_head_record_id.as_ref()
+            }).ok_or(SourceNoteErrorV1::Invalid)?;
+            Ok(ResidentNotebookRevisionViewV1 {
+                lineage_root_id: lineage.lineage_root_id.clone(),
+                record_id: record.record_id.clone(),
+                record_type: lineage.record_type.clone(),
+                revision: record.revision,
+                status: ResidentNotebookStatusV1::Active,
+                pinned_owner_correction: lineage.pinned_owner_correction,
+                author_kind: record.author_kind.clone(),
+                provenance_refs: Vec::new(),
+                body: ResidentNotebookBodyV1::WithheldSourceNote {
+                    updated_at: record.created_at.clone(),
+                },
+            })
+        })
+        .collect()
+}
+
+/// A currently admitted owner body replaces, rather than duplicates, its
+/// metadata-only management placeholder. Admission remains in owner_views.
+pub(crate) fn merge_owner_views(
+    mut ordinary: Vec<ResidentNotebookRevisionViewV1>,
+    admitted: Vec<ResidentNotebookRevisionViewV1>,
+) -> Vec<ResidentNotebookRevisionViewV1> {
+    ordinary.retain(|view| {
+        !admitted.iter().any(|source| source.lineage_root_id == view.lineage_root_id)
+    });
+    ordinary.extend(admitted);
+    ordinary
+}
+
 pub(crate) fn seal_from_tags(
     tags: &[luca_continuity::RetrievalText],
 ) -> Result<SourceNoteSealV1, SourceNoteErrorV1> {
@@ -610,6 +669,25 @@ mod tests {
         let generation = store.load_revision_generation(&hex('a')).unwrap().unwrap();
         let views = read_in_generation(&generation, &scope, &KEY).unwrap();
         assert_eq!(views.len(), 1);
+        let inventory = owner_inventory(&generation, &scope).unwrap();
+        assert_eq!(inventory.len(), 1);
+        assert_eq!(inventory[0].lineage_root_id, root);
+        assert!(inventory[0].provenance_refs.is_empty());
+        assert!(matches!(&inventory[0].body, ResidentNotebookBodyV1::WithheldSourceNote { .. }));
+        // Management metadata needs no decrypted envelope. Model recall still
+        // cannot decrypt the same note with an invalid key.
+        assert!(read_in_generation(&generation, &scope, &[0; 32]).is_err());
+        let admitted = ResidentNotebookRevisionViewV1 {
+            lineage_root_id: root.clone(), record_id: views[0].record_id.clone(),
+            record_type: id("memory-note"), revision: views[0].revision,
+            status: ResidentNotebookStatusV1::Active,
+            pinned_owner_correction: false, author_kind: views[0].author_kind.clone(),
+            provenance_refs: Vec::new(),
+            body: ResidentNotebookBodyV1::MemoryNote(views[0].note.clone()),
+        };
+        let merged = merge_owner_views(inventory, vec![admitted]);
+        assert_eq!(merged.len(), 1);
+        assert!(matches!(&merged[0].body, ResidentNotebookBodyV1::MemoryNote(_)));
         assert_eq!(views[0].note.body, request().note.body);
         assert_eq!(views[0].seal, seal);
         assert!(!serde_json::to_string(&generation.snapshot)
@@ -620,6 +698,14 @@ mod tests {
         assert!(read_in_generation(&generation, &other, &KEY)
             .unwrap()
             .is_empty());
+        assert!(owner_inventory(&generation, &other).unwrap().is_empty());
+        let other_owner =
+            resident_notebook_address(&hex('d'), &hex('b'), SafeU53::new(1).unwrap()).unwrap();
+        assert!(owner_inventory(&generation, &other_owner).unwrap().is_empty());
+        let mut archived = generation.snapshot.clone();
+        archived.lineages[0].lifecycle = RevisionLifecycle::Archived;
+        let archived = StoredRevisionGenerationV1 { token: generation.token.clone(), snapshot: archived };
+        assert!(owner_inventory(&archived, &scope).unwrap().is_empty());
         // Owner correction uses the existing canonical operation and preserves
         // the authenticated encrypted source classification, not clean reauthorship.
         let mut note = request().note;
@@ -709,6 +795,7 @@ mod tests {
         assert!(read_in_generation(&generation, &scope, &KEY)
             .unwrap()
             .is_empty());
+        assert!(owner_inventory(&generation, &scope).unwrap().is_empty());
         assert_eq!(
             commit_in_store(&mut store, &scope, &KEY, request(), |commit| commit()).unwrap_err(),
             SourceNoteErrorV1::Forgotten

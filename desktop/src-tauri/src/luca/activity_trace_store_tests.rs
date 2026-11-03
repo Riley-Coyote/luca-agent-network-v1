@@ -58,6 +58,117 @@ fn begin(store: &mut TraceStore) {
 }
 
 #[test]
+fn companion_control_receipts_are_fixed_persistent_and_do_not_publish_or_rewrite_a_failed_turn() {
+    let (_directory, mut store) = fixture();
+    begin(&mut store);
+    store.observe(&scope(), &chunk(2, "REVOKED_SOURCE_FINAL_SENTINEL"), 101);
+    store.observe(&scope(), &frame(3, ManagedPresentationKindV1::Failed), 102);
+    let failed_turn = store.list(&scope())[0].clone();
+    let controls = [
+        (
+            CompanionControlReceipt::AwarenessPaused,
+            "Awareness paused.",
+        ),
+        (
+            CompanionControlReceipt::BackgroundPaused,
+            "Background work paused.",
+        ),
+        (
+            CompanionControlReceipt::BackgroundDisabled,
+            "Background work disabled.",
+        ),
+        (
+            CompanionControlReceipt::MemoryPaused,
+            "Resident memory paused. Existing notes were not deleted.",
+        ),
+    ];
+    for (index, (control, label)) in controls.iter().enumerate() {
+        let request = OpaqueId::parse(format!("companion-control:test-{index}")).unwrap();
+        assert!(store.record_companion_control(
+            &scope(),
+            &"22".repeat(32),
+            "conversation-a",
+            &request,
+            *control,
+            110,
+        ));
+        // Replayed callbacks cannot append or rewrite the already saved receipt.
+        assert!(!store.record_companion_control(
+            &scope(),
+            &"22".repeat(32),
+            "conversation-a",
+            &request,
+            CompanionControlReceipt::MemoryPaused,
+            120,
+        ));
+        let trace = store
+            .list(&scope())
+            .into_iter()
+            .find(|trace| trace.dispatch_receipt_id == request.as_str())
+            .unwrap();
+        assert_eq!(trace.status, TraceStatus::Completed);
+        assert_eq!(trace.ended_at, Some(110));
+        assert!(trace.final_message_id.is_none());
+        assert!(trace.anchor_message_id.is_none());
+        assert!(trace.thread_root_id.is_none());
+        assert_eq!(trace.entries.len(), 1);
+        assert_eq!(trace.entries[0].kind, "companion_control");
+        assert_eq!(trace.entries[0].status, "done");
+        assert_eq!(trace.entries[0].text, *label);
+        assert_eq!(trace.entries[0].room_text, *label);
+    }
+    assert_eq!(store.list(&scope())[0], failed_turn);
+    store.save().unwrap();
+    let encoded = std::fs::read_to_string(&store.path).unwrap();
+    assert!(!encoded.contains("REVOKED_SOURCE_FINAL_SENTINEL"));
+    let restored = TraceStore::load(store.path.clone(), 130).unwrap();
+    assert_eq!(restored.list(&scope()), store.list(&scope()));
+    assert_eq!(restored.list(&scope()).len(), 5);
+}
+
+#[test]
+fn companion_control_receipt_identity_is_exact_owner_relay_resident_and_conversation() {
+    let (_directory, mut store) = fixture();
+    let request = OpaqueId::parse("companion-control:shared-request").unwrap();
+    let mut other_owner = scope();
+    other_owner.owner = "33".repeat(32);
+    let mut other_relay = scope();
+    other_relay.relay = "sha256:other-community".into();
+    for (host, resident, conversation) in [
+        (scope(), "22".repeat(32), "conversation-a"),
+        (other_owner.clone(), "22".repeat(32), "conversation-a"),
+        (other_relay.clone(), "22".repeat(32), "conversation-a"),
+        (scope(), "44".repeat(32), "conversation-a"),
+        (scope(), "22".repeat(32), "conversation-b"),
+    ] {
+        assert!(store.record_companion_control(
+            &host,
+            &resident,
+            conversation,
+            &request,
+            CompanionControlReceipt::AwarenessPaused,
+            110,
+        ));
+    }
+    assert_eq!(store.list(&scope()).len(), 3);
+    assert_eq!(store.list(&other_owner).len(), 1);
+    assert_eq!(store.list(&other_relay).len(), 1);
+    assert!(!store.record_companion_control(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-a",
+        &OpaqueId::parse("dispatch-a").unwrap(),
+        CompanionControlReceipt::AwarenessPaused,
+        120,
+    ));
+    store.save().unwrap();
+    let restored = TraceStore::load(store.path.clone(), 130).unwrap();
+    assert_eq!(restored.list(&scope()), store.list(&scope()));
+    assert_eq!(restored.list(&other_owner), store.list(&other_owner));
+    assert_eq!(restored.list(&other_relay), store.list(&other_relay));
+}
+
+#[test]
 fn tool_updates_keep_order_and_promote_only_interim_public_text() {
     let (_dir, mut store) = fixture();
     begin(&mut store);

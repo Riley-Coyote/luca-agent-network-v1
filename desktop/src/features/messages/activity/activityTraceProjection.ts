@@ -7,6 +7,37 @@ import {
 } from "@/features/profile/lib/identity";
 import { formatTime } from "../lib/dateFormatters";
 
+const CONTROL_RECEIPTS = new Set([
+  "Awareness paused.",
+  "Background work paused.",
+  "Background work disabled.",
+  "Resident memory paused. Existing notes were not deleted.",
+]);
+
+/** Native, local control receipts are not resident replies or publication proof.
+ * Accept only the closed host vocabulary, never arbitrary activity narration.
+ */
+export function companionControlReceiptText(
+  trace: ActivityTrace,
+): string | null {
+  if (
+    !trace.dispatchReceiptId.startsWith("companion-control:") ||
+    trace.status !== "completed" ||
+    trace.finalMessageId ||
+    trace.endedAt === null ||
+    trace.truncated ||
+    trace.entries.length !== 1
+  )
+    return null;
+  const entry = trace.entries[0];
+  return entry.kind === "companion_control" &&
+    entry.status === "done" &&
+    entry.roomText === entry.text &&
+    CONTROL_RECEIPTS.has(entry.text)
+    ? entry.text
+    : null;
+}
+
 /** Resolve only an exact managed key; never substitute a resident's latest turn. */
 export function activityReceiptFromUiKey(
   uiKey: string | undefined,
@@ -82,6 +113,7 @@ export function projectActivityTraceMessages(
       (message) => message.id === trace.anchorMessageId,
     );
     const createdAt = Math.floor(trace.startedAt / 1000);
+    const controlReceipt = companionControlReceiptText(trace);
     const row: TimelineMessage = {
       id: `activity:${key}`,
       renderKey: `managed:${key}`,
@@ -92,7 +124,7 @@ export function projectActivityTraceMessages(
       isAgent: true,
       residentPersonaId: personaIds?.get(resident) ?? null,
       time: formatTime(createdAt),
-      body: "",
+      body: controlReceipt ? `Companion settings: ${controlReceipt}` : "",
       depth: surface === "thread" ? (anchor?.depth ?? 0) + 1 : 0,
       parentId:
         surface === "thread"

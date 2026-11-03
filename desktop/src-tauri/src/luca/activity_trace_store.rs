@@ -71,6 +71,26 @@ pub(crate) struct Scope {
     pub(crate) relay: String,
 }
 
+/// Host-confirmed restrictive settings changes, never resident-authored text.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum CompanionControlReceipt {
+    AwarenessPaused,
+    BackgroundPaused,
+    BackgroundDisabled,
+    MemoryPaused,
+}
+
+impl CompanionControlReceipt {
+    fn label(self) -> &'static str {
+        match self {
+            Self::AwarenessPaused => "Awareness paused.",
+            Self::BackgroundPaused => "Background work paused.",
+            Self::BackgroundDisabled => "Background work disabled.",
+            Self::MemoryPaused => "Resident memory paused. Existing notes were not deleted.",
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct StoredTrace {
     scope: Scope,
@@ -260,7 +280,10 @@ impl TraceStore {
                     || row.trace.entries.iter().any(|e| {
                         e.text.len() > MAX_TEXT_BYTES
                             || e.room_text.len() > MAX_TEXT_BYTES
-                            || !matches!(e.kind.as_str(), "activity" | "narration" | "permission")
+                            || !matches!(
+                                e.kind.as_str(),
+                                "activity" | "narration" | "permission" | "companion_control"
+                            )
                             || !matches!(e.status.as_str(), "active" | "done" | "failed")
                     })
             }) {
@@ -641,6 +664,72 @@ impl TraceStore {
             status: "done".into(),
         });
         self.traces.push(row);
+        true
+    }
+
+    /// A local receipt is not a resident final or a claim about any native turn.
+    /// Its host-generated request ID is also its durable replay key.
+    pub(super) fn record_companion_control(
+        &mut self,
+        scope: &Scope,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        request_id: &luca_protocol::OpaqueId,
+        control: CompanionControlReceipt,
+        now: u64,
+    ) -> bool {
+        if !request_id.as_str().starts_with("companion-control:")
+            || self.traces.iter().any(|row| {
+                &row.scope == scope
+                    && row.trace.resident_pubkey == resident_pubkey
+                    && row.trace.conversation_id == conversation_id
+                    && row.trace.dispatch_receipt_id == request_id.as_str()
+            })
+        {
+            return false;
+        }
+        if self.traces.len() >= MAX_TRACES {
+            let oldest = self
+                .traces
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| row.trace.status != TraceStatus::Working)
+                .min_by_key(|(_, row)| row.trace.started_at)
+                .map(|(index, _)| index);
+            let Some(oldest) = oldest else {
+                return false;
+            };
+            self.traces.remove(oldest);
+        }
+        self.traces.push(StoredTrace {
+            scope: scope.clone(),
+            session_epoch: 0,
+            pending: String::new(),
+            pending_truncated: false,
+            last_sequence: 0,
+            trace: ActivityTrace {
+                conversation_id: conversation_id.into(),
+                resident_pubkey: resident_pubkey.into(),
+                dispatch_receipt_id: request_id.as_str().into(),
+                turn_id: request_id.as_str().into(),
+                final_message_id: None,
+                anchor_message_id: None,
+                response_surface: None,
+                thread_root_id: None,
+                started_at: now,
+                ended_at: Some(now),
+                status: TraceStatus::Completed,
+                entries: vec![TraceEntry {
+                    id: "companion-control".into(),
+                    sequence: 0,
+                    kind: "companion_control".into(),
+                    text: control.label().into(),
+                    room_text: control.label().into(),
+                    status: "done".into(),
+                }],
+                truncated: false,
+            },
+        });
         true
     }
 

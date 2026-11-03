@@ -35,6 +35,8 @@ export type ResidentNotebookItem = {
   authorship: ResidentNotebookAuthorship;
   revision: number;
   pinnedOwnerCorrection: boolean;
+  /** Owner-only metadata placeholder; source text remains permission-gated. */
+  contentWithheld?: boolean;
   title: string | null;
   body: string;
   category: ResidentMemoryNoteCategory | null;

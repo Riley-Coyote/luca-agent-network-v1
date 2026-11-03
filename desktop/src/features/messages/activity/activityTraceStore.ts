@@ -57,6 +57,7 @@ function scheduleRefresh(): void {
         trace.status === "working" ||
         (trace.status === "completed" &&
           !trace.finalMessageId &&
+          !trace.dispatchReceiptId.startsWith("companion-control:") &&
           Date.now() - (trace.endedAt ?? trace.startedAt) < 120_000),
     ),
   );

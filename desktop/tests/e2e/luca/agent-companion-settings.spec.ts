@@ -13,6 +13,111 @@ const READS = [
   "list_companion_browser_profiles",
 ];
 
+test("paused source notes stay manageable without showing content or enabling access", async ({
+  page,
+}, testInfo) => {
+  await openSettings(page, MARA, async (page) => {
+    await page.evaluate((resident) => {
+      const state = window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (
+            command: string,
+            args?: unknown,
+            options?: unknown,
+          ) => Promise<unknown>;
+        };
+        testNoteForgotten: boolean;
+      };
+      const invoke = state.__TAURI_INTERNALS__.invoke;
+      const item = {
+        itemId: "withheld-head",
+        lineageRootId: `companion-note-${"a".repeat(64)}`,
+        kind: "memory_note",
+        status: "active",
+        authorship: "resident",
+        revision: 1,
+        pinnedOwnerCorrection: false,
+        contentWithheld: true,
+        title: null,
+        body: "Source-linked note content is unavailable. You can still forget this note.",
+        category: null,
+        sourceEventIds: [],
+        sourcePageIds: [],
+        createdAt: "2026-11-03T08:00:00Z",
+        updatedAt: "2026-11-03T08:00:00Z",
+      };
+      state.testNoteForgotten = false;
+      state.__TAURI_INTERNALS__.invoke = async (command, args, options) => {
+        const input = args as
+          | { residentPubkey?: string; itemId?: string }
+          | undefined;
+        if (input?.residentPubkey === resident) {
+          if (command === "list_resident_notebook_items")
+            return {
+              availability: "ready",
+              items: state.testNoteForgotten ? [] : [item],
+              nextCursor: null,
+            };
+          if (command === "get_resident_notebook_item")
+            return {
+              availability: "ready",
+              item,
+              revisions: [],
+              annotations: [],
+            };
+          if (command === "forget_resident_notebook_item") {
+            if (input.itemId !== item.itemId)
+              throw new Error("Wrong test note");
+            state.testNoteForgotten = true;
+            return null;
+          }
+        }
+        return invoke(command, args, options);
+      };
+    }, MARA);
+  });
+  await page.getByTestId("mind-back").click();
+  await page
+    .getByTestId(`place-row-mind:${MARA}`)
+    .locator(".luca-rail-row-hit")
+    .click();
+  await page.getByTestId("mind-view-notes").click();
+  await page.getByTestId("mind-notebook-item").click();
+  await expect(
+    page.getByText(
+      "Source-linked note content is unavailable. You can still forget this note.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  for (const label of [
+    "Correct",
+    "Pin correction",
+    "Archive",
+    "Revision history",
+  ])
+    await expect(
+      page.getByRole("button", { name: label, exact: true }),
+    ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Forget", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("paused-note-controls.png"),
+  });
+  await page.getByRole("button", { name: "Forget", exact: true }).click();
+  await page.getByRole("button", { name: "Forget item", exact: true }).click();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { testNoteForgotten: boolean }).testNoteForgotten,
+    ),
+  ).toBe(true);
+  const calls = await companionCalls(page);
+  expect(
+    calls.some(({ command }) => /^(set_|select_|resume_)/.test(command)),
+  ).toBe(false);
+});
+
 async function openSettings(
   page: Page,
   resident = MARA,

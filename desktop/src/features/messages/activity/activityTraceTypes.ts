@@ -3,7 +3,7 @@ export type ActivityTraceEntry = {
   id: string;
   sequence: number;
   /** `permission` records one owner decision about what the resident may do. */
-  kind: "activity" | "narration" | "permission";
+  kind: "activity" | "narration" | "permission" | "companion_control";
   /** Redacted owner-visible text. */
   text: string;
   /** Shared-room projection, with private command arguments and paths omitted. */

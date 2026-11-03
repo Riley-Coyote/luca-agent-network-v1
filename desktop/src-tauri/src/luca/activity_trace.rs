@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{app_state::AppState, data_dir::BuzzPathExt};
 use store::TraceStore;
-pub(crate) use store::{ActivityTrace, Scope};
+pub(crate) use store::{ActivityTrace, CompanionControlReceipt, Scope};
 
 pub(crate) const ACTIVITY_TRACE_EVENT: &str = "luca://activity-trace-changed";
 static STORE: OnceLock<Mutex<TraceStore>> = OnceLock::new();
@@ -231,6 +231,42 @@ pub(crate) fn record_permission(
         Err(_) => luca_log!(
             warn,
             "luca-activity-trace: permission answer could not be saved"
+        ),
+    }
+}
+
+/// Persist a successful host control independently of any resident final.
+/// Call only after the restrictive mutation succeeds. No model text is accepted.
+pub(crate) fn record_companion_control(
+    app: &AppHandle,
+    scope: &Scope,
+    resident: &str,
+    conversation: &str,
+    request_id: &luca_protocol::OpaqueId,
+    control: CompanionControlReceipt,
+) {
+    let result = with_store(app, |store| {
+        let changed = store.record_companion_control(
+            scope,
+            resident,
+            conversation,
+            request_id,
+            control,
+            now_ms(),
+        );
+        if changed {
+            store.save()?;
+        }
+        Ok(changed)
+    });
+    match result {
+        Ok(true) => {
+            let _ = app.emit(ACTIVITY_TRACE_EVENT, ());
+        }
+        Ok(false) => {}
+        Err(_) => luca_log!(
+            warn,
+            "luca-activity-trace: companion control receipt could not be saved"
         ),
     }
 }

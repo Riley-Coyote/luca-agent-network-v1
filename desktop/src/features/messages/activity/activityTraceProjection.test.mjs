@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activityTraceLookupForMessage,
+  companionControlReceiptText,
   projectActivityTraceMessages,
   provisionalReplyAfterNarration,
 } from "./activityTraceProjection.ts";
@@ -30,6 +31,41 @@ const message = (id, fields = {}) => ({
   depth: 0,
   pubkey: "owner",
   ...fields,
+});
+test("only fixed successful host control receipts become local acknowledgments", () => {
+  const control = trace({
+    dispatchReceiptId: "companion-control:test",
+    status: "completed",
+    entries: [
+      {
+        kind: "companion_control",
+        status: "done",
+        text: "Awareness paused.",
+        roomText: "Awareness paused.",
+      },
+    ],
+  });
+  assert.equal(companionControlReceiptText(control), "Awareness paused.");
+  const rows = projectActivityTraceMessages("room", [], [control, control]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].body, "Companion settings: Awareness paused.");
+  assert.equal(rows[0].signerPubkey, undefined);
+  assert.equal(rows[0].managedPresentation, undefined);
+  for (const invalid of [
+    { status: "failed" },
+    { dispatchReceiptId: "ordinary-turn" },
+    { finalMessageId: "signed" },
+    { truncated: true },
+    { endedAt: null },
+    { entries: [{ ...control.entries[0], text: "REVOKED_SOURCE_SENTINEL" }] },
+    { entries: [{ ...control.entries[0], kind: "narration" }] },
+    { entries: [{ ...control.entries[0], status: "failed" }] },
+  ])
+    assert.equal(companionControlReceiptText({ ...control, ...invalid }), null);
+  assert.equal(
+    projectActivityTraceMessages("elsewhere", [], [control]).length,
+    0,
+  );
 });
 test("restores stopped work in time order without repeating represented or other-scope turns", () => {
   const head = message("head");

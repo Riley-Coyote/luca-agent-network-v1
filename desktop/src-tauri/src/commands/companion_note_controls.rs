@@ -29,6 +29,12 @@ pub(super) fn pause(
         return Err("Memory pause cannot configure harnesses or widen access.".into());
     }
     verify_origin(app, &scope)?;
+    let receipt_scope = crate::luca::activity_trace::host_scope(app)
+        .ok()
+        .filter(|host| host.owner == scope.owner.as_str());
+    let request_id =
+        luca_protocol::OpaqueId::parse(format!("companion-control:{}", uuid::Uuid::new_v4()))
+            .map_err(|_| "Invalid memory-pause receipt.")?;
     // Cancel drafts even if durable mode persistence subsequently fails.
     super::companion_notes::cancel_pending_notes(&scope.owner, &scope.resident);
     set_continuity_mode(
@@ -40,6 +46,16 @@ pub(super) fn pause(
     let mode = continuity_mode(app, &scope.owner, &scope.resident)?;
     if mode != ResidentContinuityModeV1::Disabled {
         return Err("The memory setting changed again; inspect current status.".into());
+    }
+    if let Some(host) = receipt_scope.as_ref() {
+        crate::luca::activity_trace::record_companion_control(
+            app,
+            host,
+            scope.resident.as_str(),
+            scope.conversation.as_str(),
+            &request_id,
+            crate::luca::activity_trace::CompanionControlReceipt::MemoryPaused,
+        );
     }
     Ok(json!({
         "status":"paused", "capability":"resident_memory", "deleted":false,

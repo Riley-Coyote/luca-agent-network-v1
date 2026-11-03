@@ -775,9 +775,11 @@ function NotebookItems({
           const sources =
             item.sourceEventIds.length + item.sourcePageIds.length;
           const meta = [
-            item.authorship === "owner"
-              ? "Written by you"
-              : `Written by ${name}`,
+            item.contentWithheld
+              ? "Content withheld"
+              : item.authorship === "owner"
+                ? "Written by you"
+                : `Written by ${name}`,
             item.pinnedOwnerCorrection ? "pinned" : null,
             `revision ${item.revision}`,
             sources > 0 ? `${sources} source${sources === 1 ? "" : "s"}` : null,

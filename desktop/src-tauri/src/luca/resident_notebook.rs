@@ -92,6 +92,10 @@ pub(crate) enum ResidentNotebookBodyV1 {
     MemoryNote(ResidentMemoryNoteV1),
     JournalPage(ResidentJournalPageV1),
     JournalAnnotation(ResidentJournalAnnotationV1),
+    /// Owner management metadata only; never recallable note content.
+    WithheldSourceNote {
+        updated_at: luca_protocol::CanonicalTimestamp,
+    },
 }
 
 /// One effective or historical encrypted notebook revision disclosed only by
@@ -513,7 +517,10 @@ pub(crate) fn read_resident_notebook(
         Ok(value) => value,
         Err(_) => return ResidentNotebookReadOutcomeV1::Invalid,
     };
-    let mut views = Vec::new();
+    let mut views = match source_notes::owner_inventory(&generation, &address) {
+        Ok(views) => views,
+        Err(_) => return ResidentNotebookReadOutcomeV1::Invalid,
+    };
     let mut matched = 0_usize;
     for lineage in generation.snapshot.lineages.iter().filter(|lineage| {
         lineage.namespace == *address.namespace().as_protocol()

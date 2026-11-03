@@ -283,7 +283,7 @@ export function ResidentNotebookDetailView({
         </div>
       ) : null}
 
-      {mode === "correct" ? (
+      {!item.contentWithheld && mode === "correct" ? (
         <CorrectNoteForm
           busy={busy}
           item={item}
@@ -346,7 +346,7 @@ export function ResidentNotebookDetailView({
         />
       ) : null}
 
-      {historyOpen ? (
+      {!item.contentWithheld && historyOpen ? (
         <div data-notebook-detail-anchor="history">
           <RevisionHistory
             currentId={item.itemId}
@@ -356,7 +356,7 @@ export function ResidentNotebookDetailView({
       ) : null}
 
       <div className="grid grid-cols-2 gap-1 border-t border-border/60 pt-3">
-        {page ? (
+        {item.contentWithheld ? null : page ? (
           <>
             <QuietAction
               icon={MessageSquareText}
@@ -389,19 +389,23 @@ export function ResidentNotebookDetailView({
             />
           </>
         )}
-        <QuietAction
-          icon={History}
-          label={historyOpen ? "Hide history" : "Revision history"}
-          onClick={() => {
-            onDetailAnchorChange?.("history");
-            void toggleHistory();
-          }}
-        />
-        <QuietAction
-          icon={Archive}
-          label="Archive"
-          onClick={() => setConfirmAction("archive")}
-        />
+        {!item.contentWithheld ? (
+          <QuietAction
+            icon={History}
+            label={historyOpen ? "Hide history" : "Revision history"}
+            onClick={() => {
+              onDetailAnchorChange?.("history");
+              void toggleHistory();
+            }}
+          />
+        ) : null}
+        {!item.contentWithheld ? (
+          <QuietAction
+            icon={Archive}
+            label="Archive"
+            onClick={() => setConfirmAction("archive")}
+          />
+        ) : null}
         <QuietAction
           destructive
           icon={Trash2}

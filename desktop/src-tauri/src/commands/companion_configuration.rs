@@ -445,6 +445,13 @@ pub(crate) fn configure(
     }
     verify_origin(app, &scope)?;
     let mut results = unavailable;
+    // Capture the verified owner/community before changing settings. The local
+    // receipt is independent of the source-tainted resident reply and turn.
+    let receipt_scope = crate::luca::activity_trace::host_scope(app)
+        .ok()
+        .filter(|host| host.owner == scope.owner.as_str());
+    let control_request_id = OpaqueId::parse(format!("companion-control:{}", uuid::Uuid::new_v4()))
+        .map_err(|_| "Invalid companion-control identifier.")?;
     match request.action {
         Action::Follow => {
             let mut owned_resume = None;
@@ -478,7 +485,7 @@ pub(crate) fn configure(
                 scope.resident.as_str(),
                 request.action == Action::PauseAwareness,
                 current.revision.get(),
-                id("companion-control")?.as_str(),
+                control_request_id.as_str(),
             )?;
             results.push(
                 serde_json::to_value(receipt).map_err(|_| "Could not encode saved settings.")?,
@@ -503,7 +510,7 @@ pub(crate) fn configure(
             let input=serde_json::from_value(json!({"enabled":request.action!=Action::DisableBackground && (current.enabled||request.action==Action::EnableBackground),
                 "paused":matches!(request.action,Action::PauseBackground|Action::DisableBackground),
                 "allowOutreach":false,"allowLocalCreations":current.allow_local_creations||request.action==Action::EnableBackground,
-                "expectedRevision":current.revision.get(),"requestId":id("companion-work")?})).map_err(|_|"Invalid background policy.")?;
+                "expectedRevision":current.revision.get(),"requestId":control_request_id})).map_err(|_|"Invalid background policy.")?;
             let receipt = super::companion_initiative::set_reviewed_companion_initiative_policy(
                 scope.resident.as_str().into(),
                 input,
@@ -514,6 +521,23 @@ pub(crate) fn configure(
                 serde_json::to_value(receipt).map_err(|_| "Could not encode saved settings.")?,
             );
         }
+    }
+    use crate::luca::activity_trace::CompanionControlReceipt;
+    let control = match request.action {
+        Action::PauseAwareness => Some(CompanionControlReceipt::AwarenessPaused),
+        Action::PauseBackground => Some(CompanionControlReceipt::BackgroundPaused),
+        Action::DisableBackground => Some(CompanionControlReceipt::BackgroundDisabled),
+        _ => None,
+    };
+    if let (Some(host), Some(control)) = (receipt_scope.as_ref(), control) {
+        crate::luca::activity_trace::record_companion_control(
+            app,
+            host,
+            scope.resident.as_str(),
+            scope.conversation.as_str(),
+            &control_request_id,
+            control,
+        );
     }
     Ok(json!({"status":if results.iter().any(|r|r["status"]=="incomplete") {"incomplete"} else {"applied"},"action":request.action,"results":results,
         "message":"Report only the applied changes briefly in chat. Do not open a settings page. Advanced controls remain available on request."}).to_string())

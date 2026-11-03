@@ -269,6 +269,8 @@ pub struct ResidentNotebookItemViewV1 {
     pinned_owner_correction: bool,
     title: Option<String>,
     body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_withheld: Option<bool>,
     category: Option<&'static str>,
     source_event_ids: Vec<String>,
     source_page_ids: Vec<String>,
@@ -449,7 +451,7 @@ pub fn correct_resident_memory_note(
     let (owner, resident) = resident_authority(&app, &state, &input.resident_pubkey)?;
     let current = notebook_detail(&app, &state, &input.resident_pubkey, &input.target_note_id)?
         .item
-        .filter(|item| item.kind == "memory_note")
+        .filter(|item| item.kind == "memory_note" && item.content_withheld != Some(true))
         .ok_or_else(|| "resident memory note is unavailable".to_owned())?;
     let target = OpaqueId::parse(current.lineage_root_id)
         .map_err(|_| "invalid resident memory-note lineage".to_owned())?;
@@ -499,7 +501,7 @@ pub fn pin_resident_memory_note(
     let current = detail
         .item
         .as_ref()
-        .filter(|item| item.kind == "memory_note")
+        .filter(|item| item.kind == "memory_note" && item.content_withheld != Some(true))
         .ok_or_else(|| "resident memory note is unavailable".to_owned())?;
     correct_resident_memory_note(
         CorrectResidentMemoryNoteInputV1 {
@@ -792,6 +794,7 @@ fn notebook_item_view(value: ResidentNotebookRevisionViewV1) -> ResidentNotebook
             pinned_owner_correction: value.pinned_owner_correction,
             title: None,
             body: note.body,
+            content_withheld: None,
             category: Some(note_category_name(note.category)),
             source_event_ids: note
                 .source_event_ids
@@ -812,6 +815,7 @@ fn notebook_item_view(value: ResidentNotebookRevisionViewV1) -> ResidentNotebook
             pinned_owner_correction: false,
             title: Some(page.title),
             body: page.markdown_body,
+            content_withheld: None,
             category: None,
             source_event_ids: page
                 .source_event_ids
@@ -836,11 +840,29 @@ fn notebook_item_view(value: ResidentNotebookRevisionViewV1) -> ResidentNotebook
             pinned_owner_correction: false,
             title: None,
             body: annotation.body,
+            content_withheld: None,
             category: None,
             source_event_ids: provenance,
             source_page_ids: vec![annotation.page_id.as_str().to_owned()],
             created_at: annotation.created_at.as_str().to_owned(),
             updated_at: annotation.created_at.as_str().to_owned(),
+        },
+        ResidentNotebookBodyV1::WithheldSourceNote { updated_at } => ResidentNotebookItemViewV1 {
+            item_id: value.record_id.as_str().to_owned(),
+            lineage_root_id: value.lineage_root_id.as_str().to_owned(),
+            kind: "memory_note",
+            status,
+            authorship,
+            revision: value.revision.get(),
+            pinned_owner_correction: value.pinned_owner_correction,
+            title: None,
+            body: "Source-linked note content is unavailable. You can still forget this note.".into(),
+            content_withheld: Some(true),
+            category: None,
+            source_event_ids: Vec::new(),
+            source_page_ids: Vec::new(),
+            created_at: updated_at.as_str().to_owned(),
+            updated_at: updated_at.as_str().to_owned(),
         },
     }
 }
@@ -853,12 +875,19 @@ fn change_notebook_lifecycle(
     forget: bool,
 ) -> Result<(), String> {
     let (owner, resident) = resident_authority(app, state, resident_pubkey)?;
-    let item_id = notebook_detail(app, state, resident_pubkey, item_id)?
-        .item
-        .map(|item| item.lineage_root_id)
-        .ok_or_else(|| "resident notebook item is unavailable".to_owned())?;
-    let item_id = OpaqueId::parse(item_id)
-        .map_err(|_| "invalid resident notebook item lineage".to_owned())?;
+    // Forget is an owner denial, not permission to read source-derived bodies.
+    // An exact source root still passes canonical namespace/seal/CAS checks in
+    // the mutation layer; no model or current promotion lease is needed.
+    let item_id = if let Some(root) = direct_source_note_forget_target(item_id, forget) {
+        root
+    } else {
+        let item = notebook_detail(app, state, resident_pubkey, item_id)?
+            .item
+            .filter(|item| forget || item.content_withheld != Some(true))
+            .ok_or_else(|| "resident notebook item is unavailable".to_owned())?;
+        OpaqueId::parse(item.lineage_root_id)
+            .map_err(|_| "invalid resident notebook item lineage".to_owned())?
+    };
     let request_id = OpaqueId::parse(format!(
         "notebook-lifecycle-{}",
         uuid::Uuid::new_v4().simple()
@@ -871,6 +900,12 @@ fn change_notebook_lifecycle(
         &request_id,
         forget,
     ))
+}
+
+fn direct_source_note_forget_target(item_id: &str, forget: bool) -> Option<OpaqueId> {
+    let target = OpaqueId::parse(item_id.to_owned()).ok()?;
+    (forget && crate::luca::resident_notebook::source_notes::is_exact_source_note_root(&target))
+        .then_some(target)
 }
 
 fn require_notebook_commit(outcome: ResidentNotebookMutationOutcomeV1) -> Result<(), String> {
