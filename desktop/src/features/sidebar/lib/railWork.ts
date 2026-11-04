@@ -10,6 +10,34 @@ import { runtimeRailFamilyFromRuntimeId } from "@/features/runtime-sessions/runt
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 import type { RailSideRow } from "./railHomes";
+import type { AgentInboxPage } from "@/shared/api/agentInbox";
+
+/** IDs supplied by the authorized native inbox query for this exact scope. */
+export type RailCorrespondenceScope = {
+  communityId: string;
+  ownerPubkey: string;
+  correspondenceIds: ReadonlyMap<string, string>;
+  /** Exact task references authorized by loaded native pages, including groups. */
+  authorizedTaskIds?: ReadonlySet<string>;
+};
+
+export type RailInboxSnapshot = {
+  epoch: string;
+  pages: readonly AgentInboxPage[];
+};
+
+/** Keep trusted rows through a refresh, never through scope changes or errors. */
+export function resolveRailInboxSnapshot(
+  previous: RailInboxSnapshot | null,
+  incoming: readonly AgentInboxPage[] | undefined,
+  epoch: string,
+  refreshing: boolean,
+  failed: boolean,
+): RailInboxSnapshot | null {
+  if (failed) return null;
+  if (incoming?.[0]) return { epoch, pages: incoming };
+  return refreshing && previous?.epoch === epoch ? previous : null;
+}
 
 /**
  * The work in the Chats rail (BETA14_RELEASE.md WP-34, Decided 3): what is
@@ -40,34 +68,86 @@ function rowOf(item: SideConversation, label: string): RailSideRow {
 }
 
 /**
- * Each agent's exchanges, by the agent's key (lowercase): every exchange
- * that asks it (it is among the members, and did not open it), for the keys
- * named, or for anyone asked when `agentKeys` is null. The row says
- * who else is in it and where: "Luca · Tidepool"; under the agent's row its
- * own name goes without saying.
+ * Each resident's authorized pair correspondence, reciprocal and grouped by
+ * native identity. Legacy exchanges without an inbox mapping stay inspectable
+ * individually. Group exchanges retain their whole audience, never pair splits.
  */
 export function agentWorkRows(
   items: readonly SideConversation[],
   agentKeys: ReadonlySet<string> | null,
   nameOf: (pubkey: string) => string,
-  roomOf: (conversationId: string) => string,
+  _roomOf: (conversationId: string) => string,
+  scope?: RailCorrespondenceScope,
 ): Map<string, RailSideRow[]> {
   const byAgent = new Map<string, RailSideRow[]>();
   for (const item of items) {
     if (item.kind !== "exchange") continue;
-    for (const asked of item.others) {
-      const key = normalizePubkey(asked);
+    if (scope?.authorizedTaskIds && !scope.authorizedTaskIds.has(item.id))
+      continue;
+    const members = [...new Set(item.members.map(normalizePubkey))].sort();
+    const isPair =
+      members.length === 2 && members.includes(normalizePubkey(item.openedBy));
+    if (
+      scope &&
+      normalizePubkey(item.ownerPubkey) !== normalizePubkey(scope.ownerPubkey)
+    )
+      continue;
+    const correspondenceId =
+      isPair && scope?.communityId
+        ? scope.correspondenceIds.get(item.id)
+        : undefined;
+    for (const key of members) {
       if (agentKeys && !agentKeys.has(key)) continue;
-      const others = item.members.filter((member) => member !== key);
+      const others = members.filter((member) => member !== key);
       const who = namesAsList(others.map(nameOf));
-      const room = roomOf(item.conversationId);
-      const label = who && room ? `${who} · ${room}` : who || room;
-      const rows = byAgent.get(key);
+      const label = isPair ? `With ${who}` : `Group with ${who}`;
+      const rows = byAgent.get(key) ?? [];
       const row = rowOf(item, label);
-      if (rows) rows.push(row);
-      else byAgent.set(key, [row]);
+      row.residentPubkeys = members;
+      row.taskIds = [item.id];
+      row.sourceReferences = [
+        {
+          taskId: item.id,
+          conversationId: item.conversationId,
+          rootEventId: item.rootEventId,
+        },
+      ];
+      if (correspondenceId) {
+        row.correspondenceId = correspondenceId;
+        row.id = `correspondence:${correspondenceId}`;
+        const existing = rows.find((candidate) => candidate.id === row.id);
+        if (existing) {
+          if (!existing.taskIds?.includes(item.id)) {
+            existing.taskIds?.push(item.id);
+            existing.sourceReferences?.push(...row.sourceReferences);
+          }
+          // Deadlines are not activity. Keep a known activity reference even
+          // when a newly loaded zero-turn task has a later expiry date.
+          if (
+            row.shownAt != null &&
+            (existing.shownAt == null || row.shownAt > existing.shownAt)
+          ) {
+            existing.at = row.at;
+            existing.shownAt = row.shownAt;
+            existing.conversationId = row.conversationId;
+            existing.messageId = row.messageId;
+          }
+          existing.live ||= row.live;
+          if (
+            row.word === "talking" ||
+            (existing.word !== "talking" && row.word)
+          )
+            existing.word = row.word;
+          continue;
+        }
+        row.at = row.shownAt ?? 0;
+      }
+      rows.push(row);
+      byAgent.set(key, rows);
     }
   }
+  for (const rows of byAgent.values())
+    rows.sort((a, b) => a.id.localeCompare(b.id));
   return byAgent;
 }
 

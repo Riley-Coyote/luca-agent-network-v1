@@ -113,6 +113,8 @@ type MessageComposerProps = {
     showIdentity: boolean;
   }[];
   audienceContext?: MessageComposerAudienceContext | null;
+  /** Task-scoped send: mentions are text, never invitations, creations or wakes. */
+  fixedAudiencePubkeys?: readonly string[];
   channelId?: string | null;
   /**
    * Part of the caller-facing shape; nothing in the composer reads it. The
@@ -208,6 +210,7 @@ type MessageComposerProps = {
 function MessageComposerImpl({
   ledgeAgents = [],
   audienceContext = null,
+  fixedAudiencePubkeys,
   channelId = null,
   channelType = null,
   conversationContext = null,
@@ -665,6 +668,7 @@ function MessageComposerImpl({
   persistentMentionHydrationRef.current = persistentMentionHydration;
 
   const mentionSendFlow = useMentionSendFlow({
+    fixedAudiencePubkeys,
     channelId,
     channelLinks,
     channelType,
@@ -681,7 +685,10 @@ function MessageComposerImpl({
     setPendingImeta: media.setPendingImeta,
     setSpoileredAttachmentUrls,
     onSuccessfulExplicitAgentAudience:
-      persistentAudience.enabled && audienceContext && ownerPubkey
+      fixedAudiencePubkeys === undefined &&
+      persistentAudience.enabled &&
+      audienceContext &&
+      ownerPubkey
         ? ({ channelId: successfulChannelId, ...promotion }) => {
             const scope = getPersistentAgentAudienceScope({
               ownerPubkey,
@@ -691,7 +698,10 @@ function MessageComposerImpl({
             persistentAudience.promotePubkeys({ ...promotion, scope });
           }
         : undefined,
-    resolvePostSendContent: persistentMentionHydration.resolvePostSendContent,
+    resolvePostSendContent:
+      fixedAudiencePubkeys === undefined
+        ? persistentMentionHydration.resolvePostSendContent
+        : () => "",
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: editTarget?.id is the trigger

@@ -45,6 +45,8 @@ struct BrokerContext {
     resident_pubkey: Hex64,
     session_epoch: SafeU53,
     binding_ref: Sha256Ref,
+    /// Endpoint guard only, never used as persistent correspondence identity.
+    workspace_relay_url: String,
 }
 
 #[derive(Serialize)]
@@ -181,6 +183,9 @@ pub(crate) fn create_broker_lease(
         resident_pubkey: resident_pubkey.clone(),
         session_epoch,
         binding_ref,
+        workspace_relay_url: crate::relay::relay_ws_url_with_override(
+            &app.state::<crate::app_state::AppState>(),
+        ),
     };
     let thread_active = Arc::clone(&active);
     let app = app.clone();
@@ -372,6 +377,58 @@ fn handle_frame(
     }
     if frame.operation == RepositoryToolOperationV1::OperatorOpenSurface {
         return surface_navigation::request(app, context, &frame.conversation_id, frame.arguments, active, caller);
+    }
+    if matches!(frame.operation, RepositoryToolOperationV1::SendAgentInboxMessage | RepositoryToolOperationV1::ReplyAgentInboxTask) {
+        let input: super::agent_inbox_actions::AgentMessageInput = serde_json::from_value(frame.arguments)
+            .map_err(|_| "agent inbox message arguments are invalid")?;
+        let is_reply = frame.operation == RepositoryToolOperationV1::ReplyAgentInboxTask;
+        if is_reply != input.exchange_id.is_some() || is_reply != input.reply_event_id.is_some() {
+            return Err("new requests have no task/reply target; replies require both exact task and message".into());
+        }
+        let content = super::agent_inbox_actions::send(app, &context.owner_pubkey, &context.resident_pubkey,
+            context.session_epoch.get(), &frame.conversation_id, &context.workspace_relay_url, input)?.to_string();
+        if !active.load(Ordering::SeqCst) {
+            return Err("agent inbox publication may have been accepted, but its resident session ended; retry the same idempotency key only".into());
+        }
+        return Ok(RepositoryBrokerResponseV1 { protocol: BROKER_PROTOCOL, ok: true, content, receipt: None });
+    }
+    if matches!(frame.operation, RepositoryToolOperationV1::ReadAgentInbox | RepositoryToolOperationV1::ReadAgentInboxTask) {
+        if crate::relay::relay_ws_url_with_override(&app.state::<crate::app_state::AppState>())
+            != context.workspace_relay_url {
+            return Err("inbox resident session belongs to another workspace".into());
+        }
+        let scope = tauri::async_runtime::block_on(super::agent_inbox::active_scope(app))?;
+        if scope.owner_pubkey != context.owner_pubkey {
+            return Err("inbox resident session belongs to another owner".into());
+        }
+        let content = if frame.operation == RepositoryToolOperationV1::ReadAgentInbox {
+            let query = serde_json::from_value(frame.arguments)
+                .map_err(|_| "inbox query arguments are invalid")?;
+            let page = tauri::async_runtime::block_on(super::agent_inbox::query_for_actor(
+                app, context.resident_pubkey.clone(), query,
+            ))?;
+            serde_json::to_string(&page).map_err(|_| "inbox page could not be encoded")?
+        } else {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct TaskArgs { exchange_id: Hex64, cursor: Option<super::agent_inbox::InboxCursor> }
+            let args: TaskArgs = serde_json::from_value(frame.arguments)
+                .map_err(|_| "inbox task arguments are invalid")?;
+            tauri::async_runtime::block_on(super::agent_inbox::read_task_page_for_actor(
+                app, context.resident_pubkey.clone(), args.exchange_id, args.cursor,
+            ))?.to_string()
+        };
+        let returned: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|_| "inbox response is invalid")?;
+        let returned_scope: super::agent_inbox::InboxScope = serde_json::from_value(returned["scope"].clone())
+            .map_err(|_| "inbox response scope is invalid")?;
+        if !active.load(Ordering::SeqCst)
+            || crate::relay::relay_ws_url_with_override(&app.state::<crate::app_state::AppState>()) != context.workspace_relay_url
+            || returned_scope != scope
+            || tauri::async_runtime::block_on(super::agent_inbox::active_scope(app))? != scope {
+            return Err("inbox resident session ended during read".into());
+        }
+        return Ok(RepositoryBrokerResponseV1 { protocol: BROKER_PROTOCOL, ok: true, content, receipt: None });
     }
     if matches!(frame.operation, RepositoryToolOperationV1::ConfigureCompanion | RepositoryToolOperationV1::ReadConversationImage) {
         let mut probe = caller.try_clone().map_err(|_| "Companion caller unavailable.")?;

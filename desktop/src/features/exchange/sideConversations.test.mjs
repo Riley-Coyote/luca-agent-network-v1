@@ -3,6 +3,9 @@ import test from "node:test";
 
 import {
   buildSideConversations,
+  exchangeStatusLabel,
+  exchangeTaskSubject,
+  exchangeWord,
   exchangeTimesFromMessages,
   isLucas,
   lucaRowLabel,
@@ -122,7 +125,7 @@ test("gathering_joinsExchangesAndTasks_newestFirst", () => {
   assert.equal(byId["x-paused"].atFrom, "deadline");
   assert.deepEqual(
     items.map((item) => item.word),
-    ["working", "talking", "paused", "done", "done"],
+    ["working", "talking", "paused", "done", "closed"],
   );
   assert.deepEqual(
     items.map((item) => item.live),
@@ -132,6 +135,33 @@ test("gathering_joinsExchangesAndTasks_newestFirst", () => {
   assert.equal(
     buildSideConversations({ exchanges: [exchange("x0")], tasks: [] })[0].turns,
     null,
+  );
+});
+
+test("transport closure and expiry never claim successful task completion", () => {
+  assert.equal(exchangeWord("closed"), "closed");
+  assert.equal(exchangeWord("expired"), "expired");
+  assert.equal(exchangeStatusLabel("closed"), "Closed");
+  assert.equal(exchangeStatusLabel("expired"), "Expired");
+  assert.equal(exchangeStatusLabel(undefined), "Status unavailable");
+});
+
+test("task subjects use a bounded first line and neutral missing-brief fallback", () => {
+  assert.equal(
+    exchangeTaskSubject(
+      "\n### **Review** the [onboarding](https://example.com)\nPrivate details",
+      "Anima",
+    ),
+    "Review the onboarding",
+  );
+  assert.equal(
+    exchangeTaskSubject(undefined, "Anima"),
+    "Conversation with Anima",
+  );
+  assert.equal(exchangeTaskSubject("x".repeat(200)).length, 96);
+  assert.equal(
+    exchangeTaskSubject("\u0001\u0002", "Anima"),
+    "Conversation with Anima",
   );
 });
 

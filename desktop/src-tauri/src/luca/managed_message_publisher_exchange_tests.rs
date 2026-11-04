@@ -124,7 +124,14 @@ impl ExchangeRelay for OwnerReturnRelay {
 
     fn owned_residents(&self) -> Result<BTreeSet<Hex64>, ExchangeRelayError> {
         let state = self.0.lock().expect("relay");
-        Ok(state.head.record.members.iter().filter(|key| Some(*key) != state.unowned.as_ref()).cloned().collect())
+        Ok(state
+            .head
+            .record
+            .members
+            .iter()
+            .filter(|key| Some(*key) != state.unowned.as_ref())
+            .cloned()
+            .collect())
     }
 
     fn resolve_resident_name(
@@ -406,20 +413,31 @@ fn cancelled_exchange_delivery_does_not_wake_recipient() {
 fn observed_reply_audience_requires_live_owned_exact_exchange_members() {
     let f = recipient_delivery_fixture();
     let publisher = f.publisher();
-    let guests = publisher.awareness_exchange_guests(&f.base.request, 102).unwrap();
+    let guests = publisher
+        .awareness_exchange_guests(&f.base.request, 102)
+        .unwrap();
     assert_eq!(guests.len(), 1);
     let guest = guests.iter().next().unwrap().clone();
     f.relay.lock().unwrap().unowned = Some(guest);
-    assert!(publisher.awareness_exchange_guests(&f.base.request, 102).is_err());
+    assert!(publisher
+        .awareness_exchange_guests(&f.base.request, 102)
+        .is_err());
     f.relay.lock().unwrap().unowned = None;
     let mut wrong_room = f.base.request.clone();
     wrong_room.conversation_id = OpaqueId::parse("another-room").unwrap();
-    assert!(publisher.awareness_exchange_guests(&wrong_room, 102).is_err());
+    assert!(publisher
+        .awareness_exchange_guests(&wrong_room, 102)
+        .is_err());
     f.relay.lock().unwrap().head.record.state = luca_protocol::ExchangeStateV1::Closed;
-    assert!(publisher.awareness_exchange_guests(&f.base.request, 102).is_err());
+    assert!(publisher
+        .awareness_exchange_guests(&f.base.request, 102)
+        .is_err());
     let mut ordinary = f.base.request.clone();
     ordinary.exchange = None;
-    assert!(publisher.awareness_exchange_guests(&ordinary, 102).unwrap().is_empty());
+    assert!(publisher
+        .awareness_exchange_guests(&ordinary, 102)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

@@ -4039,11 +4039,14 @@ mod agent_draft_prompt_tests {
         let prompt = include_str!("luca_managed_prompt.md");
         let normalized = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(normalized.contains("message, ask, consult, reach out to, or bring in"));
-        assert!(normalized.contains("use its exact supported `@Name` in your next ordinary reply"));
+        assert!(normalized.contains("prefer `send_agent_inbox_message` when advertised"));
+        assert!(normalized.contains("Only when the send tool is not advertised"));
+        assert!(normalized.contains("A delivered receipt proves publication, not a completed answer"));
+        assert!(normalized.contains("never submit the same request again through an action mention"));
         assert!(normalized.contains("An `@Name` requests action in this turn"));
         assert!(normalized.contains("use its plain name without the `@`"));
-        assert!(normalized.contains("A visit does not start a stopped runtime"));
-        assert!(normalized.contains("Do not promise a response from an unavailable resident"));
+        assert!(normalized.contains("the host starts its existing runtime for this bounded exchange"));
+        assert!(normalized.contains("never claim delivery or a response before it arrives"));
         assert!(normalized.contains("Use only capabilities advertised in this session"));
         assert!(normalized.contains(
             "solely responsible for publishing one final signed message after a successful turn"
@@ -4054,6 +4057,10 @@ mod agent_draft_prompt_tests {
             "propose_repository_connection",
             "propose_runtime_task",
             "read_runtime_task_result",
+            "send_agent_inbox_message",
+            "read_agent_inbox",
+            "read_agent_inbox_task",
+            "reply_agent_inbox_task",
         ] {
             assert!(prompt.contains(capability));
         }

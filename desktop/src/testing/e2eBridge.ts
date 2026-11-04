@@ -1,5 +1,6 @@
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { agentInboxFixtureCommand } from "./agentInboxFixture";
 import { decode } from "nostr-tools/nip19";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { parse as yamlParse } from "yaml";
@@ -11429,6 +11430,13 @@ export function maybeInstallE2eTauriMocks() {
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
     switch (command) {
+      case "query_agent_inbox":
+      case "read_agent_inbox_task":
+      case "mark_agent_inbox_task_read":
+      case "get_agent_inbox_read_positions":
+      case "send_agent_inbox_reply":
+      case "send_agent_inbox_message":
+        return agentInboxFixtureCommand(command, payload);
       // ── The app log ────────────────────────────────────────────────────
       // Additive: the webview's error tee has to reach *something* under the
       // mock bridge, and a spec has to be able to see that it did.

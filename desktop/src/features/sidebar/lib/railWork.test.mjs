@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agentWorkRows, appTaskRows } from "./railWork.ts";
+import {
+  agentWorkRows,
+  appTaskRows,
+  resolveRailInboxSnapshot,
+} from "./railWork.ts";
 
 const LUCA = "a".repeat(64);
 const ATLAS = "b".repeat(64);
 const WREN = "c".repeat(64);
+const OWNER = "d".repeat(64);
 
 const names = new Map([
   [LUCA, "Luca"],
@@ -17,6 +22,7 @@ const roomOf = (id) => (id === "tidepool" ? "Tidepool" : "");
 
 const exchange = (id, openedBy, members, fields = {}) => ({
   kind: "exchange",
+  ownerPubkey: OWNER,
   id,
   conversationId: "tidepool",
   at: 1_000,
@@ -46,7 +52,7 @@ const task = (id, runtimeFamily, fields = {}) => ({
   ...fields,
 });
 
-test("an exchange hangs under each agent it asks, never under who opened it", () => {
+test("a group retains its full audience and is not split into pair correspondence", () => {
   const rows = agentWorkRows(
     [exchange("x1", LUCA, [LUCA, ATLAS, WREN])],
     new Set([ATLAS, WREN]),
@@ -57,21 +63,138 @@ test("an exchange hangs under each agent it asks, never under who opened it", ()
   const atlas = rows.get(ATLAS)?.[0];
   assert.equal(atlas?.id, "exchange:x1");
   // Under Atlas's row Atlas goes without saying: who else, then where.
-  assert.equal(atlas?.label, "Luca and Wren · Tidepool");
+  assert.equal(atlas?.label, "Group with Luca and Wren");
+  assert.equal(atlas?.correspondenceId, undefined);
   assert.equal(atlas?.word, "talking");
   assert.equal(atlas?.messageId, "root-x1");
-  assert.equal(rows.get(WREN)?.[0]?.label, "Luca and Atlas · Tidepool");
+  assert.equal(rows.get(WREN)?.[0]?.label, "Group with Luca and Atlas");
 });
 
-test("an exchange asking no agent in the rail hangs nowhere", () => {
+test("the initiating resident sees the reciprocal correspondence too", () => {
   const rows = agentWorkRows(
     [exchange("x2", ATLAS, [ATLAS, LUCA])],
     new Set([ATLAS, WREN]),
     nameOf,
     roomOf,
   );
-  // Luca is asked, and Luca nests nothing; Atlas opened it.
-  assert.equal(rows.size, 0);
+  assert.equal(rows.size, 1);
+  assert.equal(rows.get(ATLAS)?.[0]?.label, "With Luca");
+});
+
+const scope = (ids, ownerPubkey = OWNER, communityId = "house-a") => ({
+  communityId,
+  ownerPubkey,
+  correspondenceIds: new Map(ids),
+});
+
+test("three requests and a reverse request share one authorized reciprocal pair row", () => {
+  const items = [
+    exchange("one", LUCA, [LUCA, ATLAS], { at: 3000 }),
+    exchange("two", LUCA, [LUCA, ATLAS], {
+      conversationId: "other-room",
+      at: 2000,
+    }),
+    exchange("three", ATLAS, [ATLAS, LUCA], { at: 1000 }),
+  ];
+  const rows = agentWorkRows(
+    items,
+    new Set([ATLAS, LUCA]),
+    nameOf,
+    roomOf,
+    scope(items.map((item) => [item.id, "pair-1"])),
+  );
+  assert.equal(rows.get(ATLAS)?.length, 1);
+  assert.equal(rows.get(LUCA)?.length, 1);
+  const row = rows.get(ATLAS)[0];
+  assert.equal(row.id, "correspondence:pair-1");
+  assert.equal(row.id, rows.get(LUCA)[0].id);
+  assert.equal(row.label, "With Luca");
+  assert.deepEqual(row.taskIds, ["one", "two", "three"]);
+  assert.deepEqual(row.sourceReferences[1], {
+    taskId: "two",
+    conversationId: "other-room",
+    rootEventId: "root-two",
+  });
+  assert.equal(rows.get(LUCA)[0].label, "With Atlas");
+  const renamed = agentWorkRows(
+    items,
+    new Set([ATLAS]),
+    () => "Renamed",
+    roomOf,
+    scope(items.map((item) => [item.id, "pair-1"])),
+  );
+  assert.equal(renamed.get(ATLAS)[0].id, row.id);
+  assert.equal(renamed.get(ATLAS)[0].label, "With Renamed");
+});
+
+test("no backend mapping means no invented pair identity or cross-owner merge", () => {
+  const items = [
+    exchange("one", LUCA, [LUCA, ATLAS]),
+    exchange("two", LUCA, [LUCA, ATLAS]),
+  ];
+  assert.equal(
+    agentWorkRows(items, new Set([ATLAS]), nameOf, roomOf).get(ATLAS).length,
+    2,
+  );
+  assert.equal(
+    agentWorkRows(
+      items,
+      new Set([ATLAS]),
+      nameOf,
+      roomOf,
+      scope([["one", "pair"]], WREN),
+    ).size,
+    0,
+  );
+  const rows = agentWorkRows(
+    items,
+    new Set([ATLAS]),
+    nameOf,
+    roomOf,
+    scope(
+      [
+        ["one", "house-b-pair"],
+        ["two", "house-b-pair"],
+      ],
+      OWNER,
+      "house-b",
+    ),
+  );
+  assert.equal(rows.get(ATLAS)[0].id, "correspondence:house-b-pair");
+});
+
+test("pair activity uses actual messages, not future deadlines, and rows have stable order", () => {
+  const items = [
+    exchange("unknown", LUCA, [LUCA, ATLAS], {
+      at: 99999999,
+      atFrom: "deadline",
+    }),
+    exchange("known", LUCA, [LUCA, ATLAS], {
+      at: 1000,
+      live: false,
+      phase: "closed",
+    }),
+    exchange("other", WREN, [WREN, ATLAS], { at: 5000 }),
+  ];
+  const rows = agentWorkRows(
+    items,
+    new Set([ATLAS]),
+    nameOf,
+    roomOf,
+    scope([
+      ["unknown", "pair-a"],
+      ["known", "pair-a"],
+      ["other", "pair-b"],
+    ]),
+  ).get(ATLAS);
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["correspondence:pair-a", "correspondence:pair-b"],
+  );
+  assert.equal(rows[0].at, 1000);
+  assert.equal(rows[0].shownAt, 1000);
+  assert.equal(rows[0].live, true);
+  assert.equal(rows[0].word, "talking");
 });
 
 test("an exchange known only by its deadline says no time", () => {
@@ -110,4 +233,138 @@ test("a runtime task hangs under the app that runs it, live and finished", () =>
   const codex = rows.get("codex")?.[0];
   assert.equal(codex?.word, null);
   assert.equal(codex?.shownAt, 2_000);
+});
+
+test("a thousand task references stay one row without hydrating transcripts", () => {
+  const items = Array.from({ length: 1000 }, (_, i) =>
+    exchange(`task-${i}`, i % 2 ? LUCA : ATLAS, [LUCA, ATLAS], { at: i + 1 }),
+  );
+  const rows = agentWorkRows(
+    items,
+    new Set([ATLAS]),
+    nameOf,
+    roomOf,
+    scope(items.map((item) => [item.id, "pair-1000"])),
+  );
+  assert.equal(rows.get(ATLAS).length, 1);
+  assert.equal(rows.get(ATLAS)[0].taskIds.length, 1000);
+  assert.equal(rows.get(ATLAS)[0].sourceReferences.length, 1000);
+  assert.equal(rows.get(ATLAS)[0].shownAt, 1000);
+});
+
+test("native task authorization filters cached pairs and groups independently of known pair identity", () => {
+  const items = [
+    exchange("allowed-pair", LUCA, [LUCA, ATLAS]),
+    exchange("cached-same-pair", LUCA, [LUCA, ATLAS]),
+    exchange("allowed-group", LUCA, [LUCA, ATLAS, WREN]),
+    exchange("cached-group", LUCA, [LUCA, ATLAS, WREN]),
+  ];
+  const authority = {
+    ...scope([
+      ["allowed-pair", "pair-1"],
+      ["cached-same-pair", "pair-1"],
+    ]),
+    authorizedTaskIds: new Set(["allowed-pair", "allowed-group"]),
+  };
+  const rows = agentWorkRows(
+    items,
+    new Set([ATLAS]),
+    nameOf,
+    roomOf,
+    authority,
+  ).get(ATLAS);
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["correspondence:pair-1", "exchange:allowed-group"],
+  );
+  assert.deepEqual(rows[0].taskIds, ["allowed-pair"]);
+  assert.equal(
+    agentWorkRows(items, null, nameOf, roomOf, {
+      ...authority,
+      authorizedTaskIds: new Set(),
+    }).size,
+    0,
+  );
+});
+
+test("missing pages are unresolved, while a confirmed native empty page is authoritative", () => {
+  assert.equal(
+    resolveRailInboxSnapshot(null, undefined, "owner-house", true, false),
+    null,
+  );
+  assert.equal(
+    resolveRailInboxSnapshot(null, [], "owner-house", false, false),
+    null,
+  );
+  const confirmedEmpty = [
+    { scope: { communityId: "house-a", ownerPubkey: OWNER }, tasks: [] },
+  ];
+  const snapshot = resolveRailInboxSnapshot(
+    null,
+    confirmedEmpty,
+    "owner-house",
+    false,
+    false,
+  );
+  assert.equal(snapshot.pages, confirmedEmpty);
+});
+
+test("only same-scope native authorization survives an in-flight refresh", () => {
+  const previous = {
+    epoch: "owner-a:house-a:revision-1",
+    pages: [
+      {
+        scope: { communityId: "house-a", ownerPubkey: OWNER },
+        tasks: [{ record: { exchangeId: "allowed" } }],
+      },
+    ],
+  };
+  assert.equal(
+    resolveRailInboxSnapshot(previous, undefined, previous.epoch, true, false),
+    previous,
+  );
+  assert.equal(
+    resolveRailInboxSnapshot(
+      previous,
+      undefined,
+      "owner-b:house-a:revision-1",
+      true,
+      false,
+    ),
+    null,
+  );
+  assert.equal(
+    resolveRailInboxSnapshot(
+      previous,
+      undefined,
+      "owner-a:house-b:revision-1",
+      true,
+      false,
+    ),
+    null,
+  );
+  assert.equal(
+    resolveRailInboxSnapshot(
+      previous,
+      undefined,
+      "owner-a:house-a:revision-2",
+      true,
+      false,
+    ),
+    null,
+  );
+  assert.equal(
+    resolveRailInboxSnapshot(
+      previous,
+      previous.pages,
+      previous.epoch,
+      false,
+      true,
+    ),
+    null,
+  );
+  assert.equal(
+    resolveRailInboxSnapshot(previous, undefined, previous.epoch, false, false),
+    null,
+  );
 });

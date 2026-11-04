@@ -1,9 +1,16 @@
 import { getThreadReference } from "@/features/messages/lib/threading";
 import { getEventById } from "@/shared/api/tauri";
+import { queryAgentInbox } from "@/shared/api/agentInbox";
+import { resolveInboxSearchTask } from "./resolveInboxSearchTask";
 import type { SearchHit } from "@/shared/api/types";
-import { KIND_FORUM_COMMENT, KIND_FORUM_POST } from "@/shared/constants/kinds";
+import {
+  KIND_FORUM_COMMENT,
+  KIND_FORUM_POST,
+  KIND_STREAM_MESSAGE,
+} from "@/shared/constants/kinds";
 
 export type SearchHitDestination =
+  | { kind: "agent-task"; exchangeId: string }
   | {
       kind: "channel";
       channelId: string;
@@ -22,6 +29,15 @@ export async function resolveSearchHitDestination(
 ): Promise<SearchHitDestination | null> {
   if (!hit.channelId) {
     return null;
+  }
+
+  if (hit.kind === KIND_STREAM_MESSAGE) {
+    const exchangeId = await resolveInboxSearchTask(
+      hit,
+      getEventById,
+      queryAgentInbox,
+    );
+    if (exchangeId) return { kind: "agent-task", exchangeId };
   }
 
   if (hit.kind === KIND_FORUM_POST) {

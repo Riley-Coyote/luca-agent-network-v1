@@ -24,6 +24,8 @@ type UserAvatarProps = {
   /** Overrides the initials disc's fill, ink and type when the default
    *  secondary surface would vanish into its background. */
   fallbackClassName?: string;
+  /** Use zero when a known missing photo should show initials on first paint. */
+  fallbackDelayMs?: number;
   testId?: string;
 };
 
@@ -34,6 +36,7 @@ export function UserAvatar({
   accent = false,
   className,
   fallbackClassName,
+  fallbackDelayMs = 200,
   testId,
 }: UserAvatarProps) {
   useRelayOrigin();
@@ -74,7 +77,7 @@ export function UserAvatar({
           fallbackClassName,
         )}
         data-testid={testId ? `${testId}-fallback` : undefined}
-        delayMs={200}
+        delayMs={fallbackDelayMs}
       >
         {initials}
       </AvatarFallback>

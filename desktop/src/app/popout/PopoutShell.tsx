@@ -144,7 +144,13 @@ function useWindowDragStrip(stripRef: React.RefObject<HTMLElement | null>) {
  * already states; stacked, the two spent ~92px of a 560px window before the
  * first message.
  */
-export function PopoutShell({ children }: { children: React.ReactNode }) {
+export function PopoutShell({
+  children,
+  title,
+}: {
+  children: React.ReactNode;
+  title?: string;
+}) {
   // The webview manners the main window also keeps: ⌘+/− scales the text,
   // message copy reads at the size chosen in Appearance, and a wheel that
   // reaches the end of the conversation stops there instead of rubber-banding
@@ -162,16 +168,16 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
   // had been handed — and that title is what ⌘-tab, Mission Control and the
   // Window menu read.
   const { selected } = usePopoutConversations(channelId);
-  const channelTitle = selected?.label ?? "Conversation";
+  const channelTitle = title ?? selected?.label ?? "Conversation";
   const stripRef = React.useRef<HTMLDivElement>(null);
   const insetRef = React.useRef<HTMLDivElement>(null);
   const [dockFailed, setDockFailed] = React.useState(false);
   useWindowDragStrip(stripRef);
 
   React.useEffect(() => {
-    if (!channelId) return;
+    if (!channelId && !title) return;
     const url = new URL(window.location.href);
-    if (url.searchParams.get("channel") !== channelId) {
+    if (channelId && url.searchParams.get("channel") !== channelId) {
       url.searchParams.set("channel", channelId);
       window.history.replaceState(window.history.state, "", url);
     }
@@ -183,7 +189,7 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
           console.warn("pop-out title unavailable", error);
         });
     }
-  }, [channelId, channelTitle]);
+  }, [channelId, channelTitle, title]);
 
   React.useEffect(() => {
     if (!dockFailed) return;
@@ -274,6 +280,8 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
             >
               Couldn&rsquo;t reach the main window
             </p>
+          ) : title ? (
+            <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
           ) : (
             <PopoutConversationPicker
               channelId={channelId}
@@ -299,6 +307,7 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
             </Button>
             <Button
               aria-label="Open in Polyphonic"
+              disabled={!channelId}
               className="luca-popout__control"
               data-testid="popout-dock"
               onClick={handleDock}

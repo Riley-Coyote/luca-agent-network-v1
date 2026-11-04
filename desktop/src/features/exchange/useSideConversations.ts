@@ -22,6 +22,7 @@ import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
 import { isGenericDmChannelName } from "@/features/sidebar/lib/railHomes";
 import type { Channel, RelayEvent } from "@/shared/api/types";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 /**
@@ -67,6 +68,7 @@ function useMessageCacheVersion(rooms: ReadonlySet<string>) {
 export function useSideConversations(): SideConversations {
   const queryClient = useQueryClient();
   const exchanges = useAllExchanges();
+  const ownerPubkey = useIdentityQuery().data?.pubkey;
   const liveTurns = useExchangeTurnTimes();
   const tasks = useAllRuntimeTasks();
   const channelsQuery = useChannelsQuery();
@@ -132,6 +134,7 @@ export function useSideConversations(): SideConversations {
   const nameOf = React.useCallback(
     (pubkey: string) => {
       const key = normalizePubkey(pubkey);
+      if (ownerPubkey && key === normalizePubkey(ownerPubkey)) return "You";
       const name = known.get(key);
       if (name) return name;
       const profile = profiles?.[key];
@@ -142,7 +145,7 @@ export function useSideConversations(): SideConversations {
         pubkey: key,
       });
     },
-    [known, profiles],
+    [known, ownerPubkey, profiles],
   );
 
   const channels = channelsQuery.data;

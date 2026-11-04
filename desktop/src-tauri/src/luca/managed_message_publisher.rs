@@ -1005,6 +1005,20 @@ impl ManagedMessagePublisher {
     }
 
     fn settle_owner_return(&self, entry: &ManagedOutboxReconcileEntry) -> bool {
+        if self
+            .dispatch_store
+            .lock()
+            .ok()
+            .and_then(|store| {
+                store.inbox_task_binding(
+                    entry.request.dispatch_receipt_id.as_str(),
+                    entry.request.resident_pubkey.as_str(),
+                )
+            })
+            .is_some()
+        {
+            return true;
+        }
         if entry.request.exchange.is_none()
             || entry.request.resolved_p_tags != [entry.request.owner_pubkey.clone()]
         {
@@ -1196,6 +1210,7 @@ impl ManagedMessagePublisher {
         now_unix_secs: u64,
         timeout: Duration,
     ) -> Result<(), ManagedPublicationAuthorityError> {
+        self.persist_inbox_action_provenance(entry)?;
         if let Err(error) = self.prepare_exchange_delivery(entry, now_unix_secs) {
             if error
                 == ManagedPublicationAuthorityError::ExchangeDenied(
@@ -1229,6 +1244,9 @@ impl ManagedMessagePublisher {
         // Admission is short and source/identity fenced, never held across the
         // network wait. Already-accepted effects remain accepted on replay.
         let awareness_admission = self.admit_awareness_reply(&entry.request, now_unix_secs);
+        let inbox_admission = self.admit_inbox_task_reply(&entry.request, now_unix_secs);
+        let owner_status_admission = self.admit_inbox_owner_status(&entry.request, now_unix_secs);
+        let child_admission = self.admit_inbox_child_action(&entry.request, now_unix_secs);
         let admission_time = std::time::Instant::now();
         let submission = {
             // This lock is deliberately held across the ordinary ingesting
@@ -1252,7 +1270,11 @@ impl ManagedMessagePublisher {
                         Err(ManagedPublicationAuthorityError::Unavailable)
                     ) {
                         SerializedSubmission::Retryable
-                    } else if awareness_admission.is_err() {
+                    } else if awareness_admission.is_err()
+                        || inbox_admission.is_err()
+                        || child_admission.is_err()
+                        || owner_status_admission.is_err()
+                    {
                         SerializedSubmission::Rejected
                     } else if admission_time.elapsed() > Duration::from_millis(250) {
                         SerializedSubmission::Retryable
@@ -1558,8 +1580,11 @@ impl ManagedMessagePublisher {
                 .mark_published(&entry.request.dispatch_receipt_id, &entry.event_id, now)
                 .map_err(Self::map_runtime_task_delivery_error)?;
         }
-        super::companion_initiative::returns::record_published(&authority.app,&entry.request.dispatch_receipt_id)
-            .map_err(|_|ManagedPublicationAuthorityError::Unavailable)?;
+        super::companion_initiative::returns::record_published(
+            &authority.app,
+            &entry.request.dispatch_receipt_id,
+        )
+        .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         self.refresh_runtime_task_delivery_projection(&entry.request);
         outbox
             .mark_accepted(
@@ -1670,16 +1695,33 @@ impl ManagedMessagePublisher {
             }
             RuntimeTaskDeliveryReconciliationV1::Ready => {}
         }
-        let app=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.app.clone();
+        let app = self
+            .runtime_task_delivery
+            .as_ref()
+            .ok_or(ManagedPublicationAuthorityError::Unavailable)?
+            .app
+            .clone();
         let initiative=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.store.lock()
             .map_err(|_|ManagedPublicationAuthorityError::Unavailable)?.approval_for_delivery(&entry.request.dispatch_receipt_id)
             .is_some_and(|approval|approval.operation==super::runtime_task_delivery::RuntimeTaskDeliveryOperationV1::InitiativeReturn);
         // Initiative-only external effects hold the denial fence for at most
         // one second, including connect/write/read. Process the response after
         // releasing every authority lock; ambiguity retains exact outbox bytes.
-        let outcome=super::companion_initiative::returns::with_publication(&app,&entry.request.dispatch_receipt_id,
-            ||Ok(self.transport.submit_exact(&entry.signed_event_json,if initiative {timeout.min(Duration::from_secs(1))}else{timeout})))
-            .map_err(|_|ManagedPublicationAuthorityError::Denied)?;
+        let outcome = super::companion_initiative::returns::with_publication(
+            &app,
+            &entry.request.dispatch_receipt_id,
+            || {
+                Ok(self.transport.submit_exact(
+                    &entry.signed_event_json,
+                    if initiative {
+                        timeout.min(Duration::from_secs(1))
+                    } else {
+                        timeout
+                    },
+                ))
+            },
+        )
+        .map_err(|_| ManagedPublicationAuthorityError::Denied)?;
         match outcome {
             ManagedRelaySubmitOutcome::Response(response)
                 if response.event_id == entry.event_id.as_str() && response.accepted =>
@@ -1746,14 +1788,32 @@ impl ManagedMessagePublisher {
                 .mark_submitted(&entry.idempotency_key, installation_session_id, false)
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         }
-        let app=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.app.clone();
+        let app = self
+            .runtime_task_delivery
+            .as_ref()
+            .ok_or(ManagedPublicationAuthorityError::Unavailable)?
+            .app
+            .clone();
         let initiative=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.store.lock()
             .map_err(|_|ManagedPublicationAuthorityError::Unavailable)?.approval_for_delivery(&entry.request.dispatch_receipt_id)
             .is_some_and(|approval|approval.operation==super::runtime_task_delivery::RuntimeTaskDeliveryOperationV1::InitiativeReturn);
         // Probe sends the exact signed body too: it needs the same live fences.
-        let probe=super::companion_initiative::returns::with_publication(&app,&entry.request.dispatch_receipt_id,||Ok(self.transport.probe_exact(
-            &entry.signed_event_json,entry.event_id.as_str(),if initiative {Duration::from_secs(1)}else{RECONCILE_REQUEST_TIMEOUT})))
-            .map_err(|_|ManagedPublicationAuthorityError::Denied)?;
+        let probe = super::companion_initiative::returns::with_publication(
+            &app,
+            &entry.request.dispatch_receipt_id,
+            || {
+                Ok(self.transport.probe_exact(
+                    &entry.signed_event_json,
+                    entry.event_id.as_str(),
+                    if initiative {
+                        Duration::from_secs(1)
+                    } else {
+                        RECONCILE_REQUEST_TIMEOUT
+                    },
+                ))
+            },
+        )
+        .map_err(|_| ManagedPublicationAuthorityError::Denied)?;
         match probe {
             ManagedRelayProbeOutcome::Present(response)
                 if response.event_id == entry.event_id.as_str() && response.accepted =>
@@ -1895,6 +1955,21 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
         if request.resident_pubkey.as_str() != self.resident_pubkey {
             return Err(ManagedPublicationAuthorityError::Denied);
         }
+        if let Some(authority) = &self.exchange {
+            if let Some(plan) = ExchangeResolver::new(
+                authority.relay.as_ref(),
+                &authority.store,
+                &self.dispatch_store,
+            )
+            .inbox_owner_status_plan(request, now_unix_secs)
+            .map_err(|denial| ManagedPublicationAuthorityError::ExchangeDenied(denial.code()))?
+            {
+                return Ok(plan);
+            }
+        }
+        if self.admit_inbox_task_reply(request, now_unix_secs)? {
+            return self.inbox_task_exchange_plan(request, now_unix_secs);
+        }
         if let Some(scope) = self.runtime_task_delivery_scope(request)? {
             let authority = self
                 .runtime_task_delivery
@@ -2007,6 +2082,7 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
         request: &ManagedMessagePublishRequestV1,
         now_unix_secs: u64,
     ) -> Result<(), ManagedPublicationAuthorityError> {
+        self.admit_inbox_child_action(request, now_unix_secs)?;
         if request.resident_pubkey.as_str() != self.resident_pubkey {
             return Err(ManagedPublicationAuthorityError::Denied);
         }
@@ -2015,8 +2091,11 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
                 .runtime_task_delivery
                 .as_ref()
                 .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
-            super::companion_initiative::returns::admit_publication(&authority.app,&request.dispatch_receipt_id)
-                .map_err(|_|ManagedPublicationAuthorityError::Denied)?;
+            super::companion_initiative::returns::admit_publication(
+                &authority.app,
+                &request.dispatch_receipt_id,
+            )
+            .map_err(|_| ManagedPublicationAuthorityError::Denied)?;
             let reserved = authority
                 .store
                 .lock()

@@ -45,6 +45,8 @@ pub mod relay_members;
 /// Replica freshness fence for keyset-cursor read routing.
 pub mod replica_fence;
 mod sqlite;
+/// Durable task-only replay grants and revocation tombstones.
+pub mod task_history;
 /// Thread metadata persistence.
 pub mod thread;
 /// Per-community usage rollup queries for Prometheus gauges.
@@ -599,7 +601,9 @@ impl Db {
     /// replication lag) result is acceptable to its caller. Keyset-cursor
     /// pagination over immutable history qualifies; head-of-channel fetches,
     /// auth/membership checks, locks, and anything inside a transaction do not.
-    #[sqlite_backend(unsupported = "PostgreSQL read-replica pool; single-node has one SQLite writer")]
+    #[sqlite_backend(
+        unsupported = "PostgreSQL read-replica pool; single-node has one SQLite writer"
+    )]
     pub fn read(&self) -> &PgPool {
         self.read_pool.as_ref().unwrap_or(&self.pool)
     }
@@ -653,7 +657,9 @@ impl Db {
     }
 
     /// Pool utilisation stats for the read-replica pool, when configured.
-    #[sqlite_backend(unsupported = "PostgreSQL read-replica pool; single-node has one SQLite writer")]
+    #[sqlite_backend(
+        unsupported = "PostgreSQL read-replica pool; single-node has one SQLite writer"
+    )]
     pub fn read_pool_stats(&self) -> Option<DbPoolStats> {
         self.read_pool.as_ref().map(|p| DbPoolStats {
             size: p.size(),
@@ -1524,7 +1530,8 @@ impl Db {
                 sqlite::soft_delete_by_coordinate(pool, community_id, kind, pubkey, d_tag).await
             }
             DbBackend::Postgres => {
-        event::soft_delete_by_coordinate(self.pg_pool()?, community_id, kind, pubkey, d_tag).await
+                event::soft_delete_by_coordinate(self.pg_pool()?, community_id, kind, pubkey, d_tag)
+                    .await
             }
         }
     }
@@ -2246,6 +2253,18 @@ impl Db {
         .await
     }
 
+    /// Ordinary member invitation with an atomic previous-task revocation fence.
+    #[sqlite_backend(implemented)]
+    pub async fn add_member_with_task_history(
+        &self, community_id: CommunityId, channel_id: Uuid, pubkey: &[u8],
+        role: channel::MemberRole, invited_by: Option<&[u8]>, previous_exchange: Option<&str>,
+    ) -> Result<channel::MemberRecord> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::add_member_with_task_history(pool, community_id, channel_id, pubkey, role, invited_by, previous_exchange).await;
+        }
+        channel::add_member_with_task_history(self.pg_pool()?, community_id, channel_id, pubkey, role, invited_by, previous_exchange).await
+    }
+
     /// Removes a member from a channel.
     #[sqlite_backend(implemented)]
     pub async fn remove_member(
@@ -2268,6 +2287,83 @@ impl Db {
                     actor_pubkey,
                 )
                 .await
+            }
+        }
+    }
+
+    /// Remove transient membership while preserving only an explicitly proven task grant.
+    /// Ordinary removal passes None and durably revokes all source replay permissions.
+    #[sqlite_backend(implemented)]
+    pub async fn remove_member_with_task_history(
+        &self,
+        community_id: CommunityId,
+        channel_id: Uuid,
+        pubkey: &[u8],
+        actor_pubkey: &[u8],
+        automatic_exchange: Option<&str>,
+    ) -> Result<()> {
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::remove_member_with_task_history(
+                    pool,
+                    community_id,
+                    channel_id,
+                    pubkey,
+                    actor_pubkey,
+                    automatic_exchange,
+                )
+                .await
+            }
+            DbBackend::Postgres => {
+                channel::remove_member_with_task_history(
+                    self.pg_pool()?,
+                    community_id,
+                    channel_id,
+                    pubkey,
+                    actor_pubkey,
+                    automatic_exchange,
+                )
+                .await
+            }
+        }
+    }
+
+    /// Persist immutable replay authority; source removal serializes with this write.
+    #[sqlite_backend(implemented)]
+    pub async fn write_task_history_grant(&self, grant: &task_history::Grant<'_>) -> Result<()> {
+        match &self.backend {
+            DbBackend::SQLite(pool) => task_history::write_sqlite(pool, grant).await,
+            DbBackend::Postgres => task_history::write_pg(self.pg_pool()?, grant).await,
+        }
+    }
+
+    /// Check the durable non-event revocation ledger on the writer database.
+    #[sqlite_backend(implemented)]
+    pub async fn permits_task_history(
+        &self,
+        grant: &task_history::Grant<'_>,
+        reader: &[u8],
+    ) -> Result<bool> {
+        match &self.backend {
+            DbBackend::SQLite(pool) => task_history::permits_sqlite(pool, grant, reader).await,
+            DbBackend::Postgres => task_history::permits_pg(self.pg_pool()?, grant, reader).await,
+        }
+    }
+
+    /// Fail-closed revocation checkpoint before accepting an explicit source removal.
+    #[sqlite_backend(implemented)]
+    pub async fn revoke_task_history_source(
+        &self,
+        community: CommunityId,
+        source: Uuid,
+        reader: &[u8],
+    ) -> Result<()> {
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                task_history::revoke_source_sqlite(pool, community, source, reader).await
+            }
+            DbBackend::Postgres => {
+                task_history::revoke_source_pg(self.pg_pool()?, community, source, reader).await
             }
         }
     }
@@ -4679,7 +4775,7 @@ impl Db {
         match &self.backend {
             DbBackend::SQLite(pool) => sqlite::is_relay_member(pool, community, pubkey).await,
             DbBackend::Postgres => {
-        relay_members::is_relay_member(self.pg_pool()?, community, pubkey).await
+                relay_members::is_relay_member(self.pg_pool()?, community, pubkey).await
             }
         }
     }

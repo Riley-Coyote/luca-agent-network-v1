@@ -1,8 +1,29 @@
 import { Outlet, createRootRoute } from "@tanstack/react-router";
+import * as React from "react";
 
 import { AppShell } from "@/app/AppShell";
 import { PopoutShell } from "@/app/popout/PopoutShell";
-import { isPopoutWindow } from "@/app/popout/popoutMode";
+import { isPopoutWindow, popoutCorrespondence } from "@/app/popout/popoutMode";
+import { CorrespondenceWindow } from "@/features/exchange/ui/CorrespondenceWindow";
+
+function CorrespondenceRoot({
+  correspondenceId,
+  taskId,
+}: {
+  correspondenceId: string;
+  taskId: string | null;
+}) {
+  const [title, setTitle] = React.useState("Agent correspondence");
+  return (
+    <PopoutShell title={title}>
+      <CorrespondenceWindow
+        correspondenceId={correspondenceId}
+        initialTaskId={taskId}
+        onTitleChange={setTitle}
+      />
+    </PopoutShell>
+  );
+}
 
 /**
  * The shell the routed conversation sits in.
@@ -13,6 +34,8 @@ import { isPopoutWindow } from "@/app/popout/popoutMode";
  */
 function RootShell() {
   if (isPopoutWindow()) {
+    const correspondence = popoutCorrespondence();
+    if (correspondence) return <CorrespondenceRoot {...correspondence} />;
     return (
       <PopoutShell>
         <Outlet />

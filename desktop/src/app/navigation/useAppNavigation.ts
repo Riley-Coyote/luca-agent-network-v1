@@ -13,6 +13,7 @@ import {
 
 import { cacheSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { resolveSearchHitDestination } from "@/app/navigation/resolveSearchHitDestination";
+import { openTaskWindow } from "@/features/exchange/openTaskWindow";
 import type { SearchHit } from "@/shared/api/types";
 
 import { rememberLastConversation } from "./lastConversation";
@@ -416,6 +417,11 @@ export function useAppNavigation() {
       const destination = await resolveSearchHitDestination(hit);
       if (!destination) {
         return false;
+      }
+
+      if (destination.kind === "agent-task") {
+        await openTaskWindow(destination.exchangeId);
+        return true;
       }
 
       if (destination.kind === "forum-post") {

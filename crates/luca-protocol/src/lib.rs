@@ -35,6 +35,7 @@ mod owner_identity;
 mod permission_rule;
 mod relay_auth;
 mod runtime_task_delivery;
+mod task_history;
 
 pub use artifact::*;
 pub use awareness::*;
@@ -120,3 +121,4 @@ pub use relay_auth::{
     MAX_RELAY_AUTH_URL_BYTES, RELAY_AUTH_SIGN_PROTOCOL,
 };
 pub use runtime_task_delivery::*;
+pub use task_history::{TaskHistoryGrantV1, TaskHistoryState, TASK_HISTORY_PROTOCOL};

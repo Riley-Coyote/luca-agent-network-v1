@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 
 use luca_protocol::{
     ExchangePhase, ExchangeRecordV1, ExchangeTurnTag, Hex64, ManagedMessagePublishRequestV1,
-    EXCHANGE_BUCKET_CEILING,
+    OpaqueId, EXCHANGE_BUCKET_CEILING,
 };
 
 use super::exchange::ExchangeDenial;
@@ -114,6 +114,113 @@ pub(crate) struct ExchangeResolver<'a> {
 }
 
 impl<'a> ExchangeResolver<'a> {
+    /// An explicit child reply already spent the task turn. The parent's one
+    /// ordinary final may report to its owner, but cannot spend another turn,
+    /// wake the peer again, revive a Stop, or become a completion receipt.
+    pub(crate) fn inbox_owner_status_plan(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+        now: u64,
+    ) -> Result<Option<ExchangePlan>, ExchangeDenial> {
+        let proof = self
+            .dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .accepted_inbox_reply_status(
+                request.dispatch_receipt_id.as_str(),
+                request.resident_pubkey.as_str(),
+            );
+        let Some(proof) = proof else {
+            return Ok(None);
+        };
+        let task = proof.exchange_id.as_ref().ok_or(ExchangeDenial::Unknown)?;
+        let trigger_id = Hex64::parse(request.dispatch_receipt_id.as_str())
+            .map_err(|_| ExchangeDenial::Unknown)?;
+        let trigger = self
+            .relay
+            .fetch_trigger(&trigger_id)
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .ok_or(ExchangeDenial::Unknown)?;
+        let tags: Vec<_> = trigger
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().to_vec())
+            .collect();
+        let incoming = ExchangeTurnTag::find(&tags).map_err(|_| ExchangeDenial::Unknown)?;
+        if !incoming
+            .as_ref()
+            .is_some_and(|tag| &tag.exchange_id == task)
+            || trigger.pubkey.to_hex() != proof.recipient_pubkey.as_str()
+            || !self.resolve_mentions(request)?.is_empty()
+        {
+            return Ok(None);
+        }
+        // This narrow mode is for a sibling-woken invocation. An unrelated
+        // tool task under an owner request cannot redirect that owner's final.
+        if trigger.id.to_hex() != trigger_id.as_str()
+            || trigger.kind != nostr::Kind::Custom(9)
+            || !trigger.verify_id()
+            || !trigger.verify_signature()
+            || trigger.pubkey.to_hex() != proof.recipient_pubkey.as_str()
+            || !incoming.is_some_and(|tag| &tag.exchange_id == task)
+            || tags
+                .iter()
+                .filter(|tag| tag.first().map(String::as_str) == Some("h"))
+                .count()
+                != 1
+            || !tags.iter().any(|tag| {
+                tag.first().map(String::as_str) == Some("h")
+                    && tag.get(1).map(String::as_str) == Some(request.conversation_id.as_str())
+            })
+            || !tags.iter().any(|tag| {
+                tag.first().map(String::as_str) == Some("p")
+                    && tag.get(1).map(String::as_str) == Some(request.resident_pubkey.as_str())
+            })
+            || request
+                .exchange
+                .as_ref()
+                .is_some_and(|tag| &tag.exchange_id != task)
+            || proof.scope.owner_pubkey != request.owner_pubkey
+            || !self.relay.inbox_scope_is_current(&proof.scope)
+        {
+            return Err(ExchangeDenial::Unknown);
+        }
+        let head = self
+            .relay
+            .fetch_head(task, &request.owner_pubkey)
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .ok_or(ExchangeDenial::Unknown)?;
+        if head.record.state != luca_protocol::ExchangeStateV1::Open {
+            return Err(ExchangeDenial::Closed);
+        }
+        if head.record.deadline.get() <= now {
+            return Err(ExchangeDenial::Expired);
+        }
+        let members = self
+            .relay
+            .verified_source_members(&request.conversation_id)
+            .map_err(|_| ExchangeDenial::Unavailable)?;
+        if head.record.owner != request.owner_pubkey
+            || head.record.conversation_id != request.conversation_id
+            || !head.record.members.contains(&request.resident_pubkey)
+            || !head.record.members.contains(&proof.recipient_pubkey)
+            || !members.contains(&request.owner_pubkey)
+            || !members.contains(&request.resident_pubkey)
+            || !members.contains(&proof.recipient_pubkey)
+        {
+            return Err(ExchangeDenial::NotMember);
+        }
+        self.dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .bind_inbox_owner_status(request, &proof, now)
+            .map_err(|_| ExchangeDenial::Unknown)?;
+        Ok(Some(ExchangePlan {
+            exchange: None,
+            granted_p_tags: vec![request.owner_pubkey.clone()],
+            replace_p_tags: true,
+        }))
+    }
     /// Bind one resolution to the owner authority, the exchange store and the
     /// dispatch store.
     pub(crate) fn new(
@@ -134,6 +241,9 @@ impl<'a> ExchangeResolver<'a> {
         request: &ManagedMessagePublishRequestV1,
         now_unix_secs: u64,
     ) -> Result<ExchangePlan, ExchangeDenial> {
+        if let Some(plan) = self.inbox_owner_status_plan(request, now_unix_secs)? {
+            return Ok(plan);
+        }
         let key = decision_key(
             request.dispatch_receipt_id.as_str(),
             request.resident_pubkey.as_str(),
@@ -322,12 +432,67 @@ impl<'a> ExchangeResolver<'a> {
             .map_err(|_| ExchangeDenial::Unavailable)?
             .ok_or(ExchangeDenial::Unknown)?;
         let author = Hex64::parse(trigger.pubkey.to_hex()).map_err(|_| ExchangeDenial::Unknown)?;
-        let origin = self
+        let root_event = self
             .relay
             .fetch_trigger(&record.root_event_id)
             .map_err(|_| ExchangeDenial::Unavailable)?
             .ok_or(ExchangeDenial::Unknown)?;
+        if root_event.id.to_hex() != record.root_event_id.as_str()
+            || !root_event.verify_id()
+            || !root_event.verify_signature()
+            || root_event.kind != nostr::Kind::Custom(9)
+        {
+            return Err(ExchangeDenial::Unknown);
+        }
+        let origin_id = if root_event.pubkey.to_hex() == record.owner.as_str() {
+            record.root_event_id.clone()
+        } else {
+            if root_event.pubkey.to_hex() != record.opened_by.as_str()
+                || routing_from_event(&root_event)
+                    .map_err(|_| ExchangeDenial::Unknown)?
+                    .trigger_p_tags
+                    != [record.owner.as_str().to_owned()]
+            {
+                return Err(ExchangeDenial::Unknown);
+            }
+            self.relay
+                .task_anchor_origin(
+                    &record.root_event_id,
+                    &record.owner,
+                    &record.opened_by,
+                    &record.conversation_id,
+                )
+                .map_err(|_| ExchangeDenial::Unavailable)?
+                .ok_or(ExchangeDenial::Unknown)?
+        };
+        let origin = self
+            .relay
+            .fetch_trigger(&origin_id)
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .ok_or(ExchangeDenial::Unknown)?;
         let origin_routing = routing_from_event(&origin).map_err(|_| ExchangeDenial::Unknown)?;
+        let trigger_routing = routing_from_event(&trigger).map_err(|_| ExchangeDenial::Unknown)?;
+        let exact_origin_route = request.root_event_id.as_ref().map(Hex64::as_str)
+            == origin_routing.root_event_id.as_deref()
+            && request.reply_event_id.as_ref().map(Hex64::as_str)
+                == origin_routing.reply_event_id.as_deref()
+            && request.thread_id.as_ref().map(OpaqueId::as_str)
+                == origin_routing.thread_id.as_deref()
+            && request.response_surface == Some(origin_routing.response_surface);
+        let verified_reply_route = !exact_origin_route
+            && request.root_event_id.as_ref().map(Hex64::as_str)
+                == origin_routing.root_event_id.as_deref()
+            && request.root_event_id.as_ref().map(Hex64::as_str)
+                == trigger_routing.root_event_id.as_deref()
+            && request.reply_event_id.as_ref().map(Hex64::as_str)
+                == trigger_routing.reply_event_id.as_deref()
+            && request.thread_id.as_ref().map(OpaqueId::as_str)
+                == trigger_routing.thread_id.as_deref()
+            && request.response_surface == Some(trigger_routing.response_surface)
+            && self
+                .relay
+                .verified_task_reply_route(record, &trigger, &origin_id)
+                .map_err(|_| ExchangeDenial::Unavailable)?;
         let tags: Vec<Vec<String>> = trigger
             .tags
             .iter()
@@ -359,7 +524,7 @@ impl<'a> ExchangeResolver<'a> {
                 tag.first().is_some_and(|s| s == "p")
                     && tag.get(1).map(String::as_str) == Some(record.opened_by.as_str())
             })
-            || origin.id.to_hex() != record.root_event_id.as_str()
+            || origin.id.to_hex() != origin_id.as_str()
             || origin.kind != nostr::Kind::Custom(9)
             || !origin.verify_id()
             || !origin.verify_signature()
@@ -369,13 +534,7 @@ impl<'a> ExchangeResolver<'a> {
                 .trigger_p_tags
                 .iter()
                 .any(|p| p == record.opened_by.as_str())
-            || request.root_event_id.as_ref().map(|id| id.as_str())
-                != origin_routing.root_event_id.as_deref()
-            || request.reply_event_id.as_ref().map(|id| id.as_str())
-                != origin_routing.reply_event_id.as_deref()
-            || request.thread_id.as_ref().map(|id| id.as_str())
-                != origin_routing.thread_id.as_deref()
-            || request.response_surface != Some(origin_routing.response_surface)
+            || !(exact_origin_route || verified_reply_route)
         {
             return Err(ExchangeDenial::Unknown);
         }
@@ -513,8 +672,20 @@ impl<'a> ExchangeResolver<'a> {
         parent: Option<&ExchangeRecordV1>,
     ) -> Result<Decided, ExchangeDenial> {
         // The dispatch receipt *is* the owner utterance that minted the budget.
-        let root = Hex64::parse(request.dispatch_receipt_id.as_str().to_owned())
-            .map_err(|_| ExchangeDenial::MintRefused)?;
+        let action = self
+            .dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .inbox_child_action(
+                request.dispatch_receipt_id.as_str(),
+                request.resident_pubkey.as_str(),
+            );
+        let root = if let Some(action) = action {
+            action.anchor_event_id.ok_or(ExchangeDenial::MintRefused)?
+        } else {
+            Hex64::parse(request.dispatch_receipt_id.as_str().to_owned())
+                .map_err(|_| ExchangeDenial::MintRefused)?
+        };
         let mut members = addressed.to_vec();
         members.push(request.resident_pubkey.clone());
         let record = if let Some(parent) = parent {
@@ -663,6 +834,18 @@ impl<'a> ExchangeResolver<'a> {
                 );
                 ExchangeDenial::MintRefused
             })?;
+        self.relay
+            .issue_task_history(record, created_at)
+            .map_err(|_| ExchangeDenial::Unavailable)?;
+        self.dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .bind_inbox_child_exchange(
+                request.dispatch_receipt_id.as_str(),
+                request.resident_pubkey.as_str(),
+                &record.exchange_id,
+            )
+            .map_err(|_| ExchangeDenial::Unavailable)?;
         self.store
             .lock()
             .map_err(|_| ExchangeDenial::Unavailable)?
@@ -831,6 +1014,32 @@ impl<'a> ExchangeResolver<'a> {
         &self,
         request: &ManagedMessagePublishRequestV1,
     ) -> Result<Vec<(String, Hex64)>, ExchangeDenial> {
+        if let Some(action) = self
+            .dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .inbox_child_action(
+                request.dispatch_receipt_id.as_str(),
+                request.resident_pubkey.as_str(),
+            )
+        {
+            if action.phase == super::agent_inbox_binding::InboxChildActionPhase::Anchor {
+                return Ok(Vec::new());
+            }
+            if !self
+                .relay
+                .owned_residents()
+                .map_err(|_| ExchangeDenial::Unavailable)?
+                .contains(&action.recipient_pubkey)
+                || action.recipient_pubkey == request.resident_pubkey
+            {
+                return Err(ExchangeDenial::NotMember);
+            }
+            return Ok(vec![(
+                self.relay.display_name(&action.recipient_pubkey),
+                action.recipient_pubkey,
+            )]);
+        }
         if !request.final_draft.match_indices('@').any(|(index, _)| {
             mention_start(&request.final_draft, index, false)
                 && request.final_draft[index + 1..]
@@ -853,8 +1062,19 @@ impl<'a> ExchangeResolver<'a> {
             .map_err(|_| ExchangeDenial::Unavailable)?;
         let mut matched = Vec::new();
         let mut seen = BTreeSet::new();
+        let already_attempted = self
+            .dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .inbox_child_recipients(
+                request.dispatch_receipt_id.as_str(),
+                request.resident_pubkey.as_str(),
+            );
         for (name, pubkey) in resolved {
-            if pubkey == request.resident_pubkey || pubkey == request.owner_pubkey {
+            if pubkey == request.resident_pubkey
+                || pubkey == request.owner_pubkey
+                || already_attempted.contains(&pubkey)
+            {
                 continue;
             }
             if seen.insert(pubkey.clone()) {

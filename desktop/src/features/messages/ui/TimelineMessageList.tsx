@@ -35,6 +35,7 @@ import { attachInkLight } from "@/shared/ui/inkLight";
 import type { InkHeard } from "@/shared/lib/inkHeard";
 import { DayDivider } from "./DayDivider";
 import { ExchangeReceiptRow } from "@/features/exchange/ui/ExchangeReceiptRow";
+import { openTaskWindow } from "@/features/exchange/openTaskWindow";
 import type { ExchangeEntry } from "@/features/exchange/exchangeStore";
 import { MessageRow } from "./MessageRow";
 import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
@@ -187,6 +188,10 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   onVirtualizerRangeChanged,
   onVirtualizerScrollerChange,
 }: TimelineMessageListProps) {
+  const messageBodies = React.useMemo(
+    () => new Map(messages.map((message) => [message.id, message.body])),
+    [messages],
+  );
   const activityAlignmentRef = useWorkingResidentNameAlignment();
   const timelineRef = React.useCallback(
     (element: HTMLDivElement | null) => {
@@ -304,9 +309,15 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
         case "exchange-receipt":
           return onOpenExchange ? (
             <ExchangeReceiptRow
+              onOpenTaskWindow={openTaskWindow}
               currentPubkey={currentPubkey}
               exchange={item.exchange}
               exchangeId={item.exchangeId}
+              subject={
+                item.exchange
+                  ? messageBodies.get(item.exchange.record.rootEventId)
+                  : undefined
+              }
               onOpen={onOpenExchange}
               profiles={profiles}
               turnCount={item.turnCount}
@@ -368,6 +379,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
       entranceMessageId,
       onEntranceMessageComplete,
       messageFooters,
+      messageBodies,
       onDelete,
       onEdit,
       onOpenExchange,

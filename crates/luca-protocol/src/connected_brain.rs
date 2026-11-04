@@ -489,6 +489,14 @@ pub enum RepositoryToolOperationV1 {
     ConfigureCompanion,
     /// Read an image attached by the owner in this conversation, without exposing media credentials.
     ReadConversationImage,
+    /// Passively list this authenticated resident's authorized exchange tasks.
+    ReadAgentInbox,
+    /// Read canonical turns of one exact authorized task, without execution.
+    ReadAgentInboxTask,
+    /// Send one bounded resident request without consuming its normal final.
+    SendAgentInboxMessage,
+    /// Reply to one exact existing task turn under current native authority.
+    ReplyAgentInboxTask,
     ProposeRuntimeTask,
     /// Read exact, granted native-session candidates; creates no work.
     ListRuntimeTaskSessions,

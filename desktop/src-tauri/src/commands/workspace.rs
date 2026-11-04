@@ -191,6 +191,9 @@ pub async fn apply_workspace(
             *keys_guard = keys;
         }
         if workspace_identity_changed {
+            // Task views are scoped to the previous identity/community. They
+            // are passive windows; closing them never stops delegated work.
+            crate::commands::popout_window::close_correspondence_windows(&app);
             if let Err(error) = crate::commands::artifact_preview::stop_all_preview_sessions() {
                 luca_log!(warn,
                     "luca-artifacts: failed to revoke previews during workspace switch: {error}"

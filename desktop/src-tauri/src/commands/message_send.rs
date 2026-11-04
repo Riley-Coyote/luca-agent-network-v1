@@ -34,7 +34,7 @@ fn exact_imeta_field<'a>(tag: &'a [String], field: &str) -> Result<Option<&'a st
 /// the public Nostr event. The original tags remain available to the trusted
 /// command for exact managed-dispatch binding below, while the relay receives
 /// only standard NIP-92 metadata.
-fn relay_media_tags(media: &[Vec<String>]) -> Vec<Vec<String>> {
+pub(crate) fn relay_media_tags(media: &[Vec<String>]) -> Vec<Vec<String>> {
     media
         .iter()
         .map(|tag| {
@@ -264,9 +264,98 @@ pub async fn send_channel_message(
     quick_chat_context: Option<crate::luca::quickchat::QuickChatContext>,
     quick_chat_effort: Option<crate::luca::quickchat::EffortRequest>,
     conversation_efforts: Option<Vec<crate::luca::quickchat::ResidentEffortRequest>>,
+    managed_audience: Option<ManagedAudienceIntentV1>,
+    response_surface: Option<ManagedResponseSurfaceV1>,
+    state: State<'_, AppState>,
+) -> Result<SendChannelMessageResponse, String> {
+    send_channel_message_inner(
+        channel_id,
+        content,
+        parent_event_id,
+        media_tags,
+        emoji_tags,
+        mention_tags,
+        mention_pubkeys,
+        visit_mention_pubkeys,
+        kind,
+        quick_chat_context,
+        quick_chat_effort,
+        conversation_efforts,
+        managed_audience,
+        response_surface,
+        state,
+        None,
+    )
+    .await
+}
+
+/// Reuse ordinary owner dispatch with the exact durable event prepared by the
+/// inbox authority, never generating another signed message on retry.
+pub(crate) async fn send_frozen_agent_inbox_reply(
+    app: &tauri::AppHandle,
+    event: nostr::Event,
+    parent_event_id: Option<String>,
+    recipient: Hex64,
+    media_tags: Vec<Vec<String>>,
+    context: Option<crate::luca::conversation_context::DispatchContextBindingV1>,
+    task_binding: crate::luca::agent_inbox_binding::InboxTaskBinding,
+) -> Result<SendChannelMessageResponse, String> {
+    use tauri::Manager;
+    let source = event
+        .tags
+        .iter()
+        .find_map(|tag| {
+            let values = tag.as_slice();
+            (values.first().map(String::as_str) == Some("h"))
+                .then(|| values.get(1).cloned())
+                .flatten()
+        })
+        .ok_or("inbox reply source is missing")?;
+    send_channel_message_inner(
+        source,
+        event.content.clone(),
+        parent_event_id,
+        Some(media_tags),
+        None,
+        None,
+        Some(vec![recipient.as_str().to_owned()]),
+        Some(Vec::new()),
+        None,
+        None,
+        None,
+        None,
+        Some(ManagedAudienceIntentV1::Directed {
+            resident_pubkeys: vec![recipient],
+        }),
+        Some(ManagedResponseSurfaceV1::Thread),
+        app.state::<AppState>(),
+        Some((event, context, task_binding)),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_channel_message_inner(
+    channel_id: String,
+    content: String,
+    parent_event_id: Option<String>,
+    media_tags: Option<Vec<Vec<String>>>,
+    emoji_tags: Option<Vec<Vec<String>>>,
+    mention_tags: Option<Vec<Vec<String>>>,
+    mention_pubkeys: Option<Vec<String>>,
+    visit_mention_pubkeys: Option<Vec<String>>,
+    kind: Option<u32>,
+    quick_chat_context: Option<crate::luca::quickchat::QuickChatContext>,
+    quick_chat_effort: Option<crate::luca::quickchat::EffortRequest>,
+    conversation_efforts: Option<Vec<crate::luca::quickchat::ResidentEffortRequest>>,
     mut managed_audience: Option<ManagedAudienceIntentV1>,
     response_surface: Option<ManagedResponseSurfaceV1>,
     state: State<'_, AppState>,
+    frozen_owner_event: Option<(
+        nostr::Event,
+        Option<crate::luca::conversation_context::DispatchContextBindingV1>,
+        crate::luca::agent_inbox_binding::InboxTaskBinding,
+    )>,
 ) -> Result<SendChannelMessageResponse, String> {
     state.companion_last_explicit_activity_ms.store(
         chrono::Utc::now().timestamp_millis().max(0) as u64,
@@ -282,6 +371,7 @@ pub async fn send_channel_message(
     let mention_refs_only = mention_tags.unwrap_or_default();
     let kind_num = kind.unwrap_or(buzz_core_pkg::kind::KIND_STREAM_MESSAGE);
     let mut resolved_root = None;
+    let is_inbox_reply = frozen_owner_event.is_some();
 
     if kind_num != buzz_core_pkg::kind::KIND_STREAM_MESSAGE
         && (managed_audience.is_some() || response_surface.is_some())
@@ -301,7 +391,7 @@ pub async fn send_channel_message(
         let _ = state.companion_coordinator.foreground_activity(&app);
     }
 
-    let visit_store = if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
+    let visit_store = if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE && !is_inbox_reply {
         Some(crate::luca::exchange_store::global_exchange_store(&app)?)
     } else {
         None
@@ -397,11 +487,40 @@ pub async fn send_channel_message(
     // The owner event is signed before either visit authority or exact
     // activation authority is staged. Neither model output nor a relay replay
     // can alter this snapshot.
-    let event = state.signing_keys().and_then(|keys| {
-        builder
-            .sign_with_keys(&keys)
-            .map_err(|error| format!("failed to sign event: {error}"))
-    })?;
+    let mut frozen_context = None;
+    let mut inbox_task_binding = None;
+    let event = if let Some((event, context, binding)) = frozen_owner_event {
+        if !event.verify_id()
+            || !event.verify_signature()
+            || event.pubkey != state.signing_keys()?.public_key()
+            || event.kind != nostr::Kind::Custom(9)
+            || event.content != content.trim()
+        {
+            return Err("inbox frozen owner event is invalid".into());
+        }
+        let recipients: Vec<_> = event
+            .tags
+            .iter()
+            .filter_map(|tag| {
+                let raw = tag.as_slice();
+                (raw.first().map(String::as_str) == Some("p"))
+                    .then(|| raw.get(1).cloned())
+                    .flatten()
+            })
+            .collect();
+        if recipients != mentions {
+            return Err("inbox recipient authorization changed before dispatch".into());
+        }
+        frozen_context = Some(context);
+        inbox_task_binding = Some(binding);
+        event
+    } else {
+        state.signing_keys().and_then(|keys| {
+            builder
+                .sign_with_keys(&keys)
+                .map_err(|error| format!("failed to sign event: {error}"))
+        })?
+    };
     let visit_commit_marker = if visit_plan.is_some() {
         Some((
             Hex64::parse(event.id.to_hex())
@@ -471,7 +590,9 @@ pub async fn send_channel_message(
         // Freeze only opaque source coordinates for this exact local dispatch.
         // Canonical paths stay in the native connected-source store and are
         // resolved by the inherited harness channel immediately before session/new.
-        let context_binding = if managed_residents.is_empty() || content.trim() == "!cancel" {
+        let context_binding = if let Some(binding) = frozen_context {
+            binding
+        } else if managed_residents.is_empty() || content.trim() == "!cancel" {
             None
         } else {
             crate::luca::conversation_context::freeze_for_dispatch(&app, &channel_id)?
@@ -497,17 +618,28 @@ pub async fn send_channel_message(
             } else {
                 let now = chrono::Utc::now().timestamp().max(0) as u64;
                 let artifact_bindings = resolve_managed_artifact_bindings(&media, now)?;
-                store.stage_owner_event_with_artifacts_and_context(
+                let staged = store.stage_owner_event_with_artifacts_and_context(
                     &event,
                     &managed_residents,
                     &artifact_bindings,
                     context_binding,
                     now,
-                )?
+                )?;
+                if let Some(binding) = inbox_task_binding {
+                    let [recipient] = managed_residents.as_slice() else {
+                        return Err("inbox reply requires one recipient".into());
+                    };
+                    store.bind_inbox_task(&event, recipient, binding)?;
+                }
+                staged
             }
         } else {
             Vec::new()
         };
+
+        if is_inbox_reply {
+            crate::luca::agent_inbox_send::recheck_before_publication(&app, &event).await?;
+        }
 
         match submit_signed_event(&event, &state).await {
             Ok(result) => Ok(result),

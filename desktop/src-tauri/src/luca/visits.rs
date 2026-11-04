@@ -225,7 +225,7 @@ pub(crate) fn end_visit(
     };
 
     if !visit.membership_removed {
-        relay.remove_conversation_member(conversation_id, resident)?;
+        relay.end_visit_membership(conversation_id, resident, visit.grant.exchange_id.as_ref())?;
         store
             .lock()
             .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
@@ -495,7 +495,7 @@ pub(crate) fn fade_visits(
             continue;
         }
         if !visit.membership_removed {
-            relay.remove_conversation_member(conversation_id, &visit.grant.resident)?;
+            relay.end_visit_membership(conversation_id, &visit.grant.resident, visit.grant.exchange_id.as_ref())?;
             store
                 .lock()
                 .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?

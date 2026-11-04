@@ -18,6 +18,17 @@ use buzz_core::CommunityId;
 use crate::{CommunityRecord, EnsuredCommunityRecord, Result};
 
 const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS task_history_authority (
+    community_id TEXT NOT NULL, owner BLOB NOT NULL, exchange_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL, reader BLOB NOT NULL, grant_event_id BLOB NOT NULL,
+    revoked INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (community_id, owner, exchange_id, reader)
+);
+CREATE INDEX IF NOT EXISTS task_history_source_reader ON task_history_authority (community_id, channel_id, reader);
+CREATE TABLE IF NOT EXISTS task_history_source_revocations (
+    community_id TEXT NOT NULL, channel_id TEXT NOT NULL, reader BLOB NOT NULL,
+    PRIMARY KEY (community_id, channel_id, reader)
+);
 CREATE TABLE IF NOT EXISTS communities (
     id TEXT PRIMARY KEY NOT NULL,
     host TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -3677,11 +3688,34 @@ pub(crate) async fn add_member(
     role: crate::channel::MemberRole,
     invited_by: Option<&[u8]>,
 ) -> Result<crate::channel::MemberRecord> {
+    add_member_with_task_history(pool, community, channel_id, pubkey, role, invited_by, None).await
+}
+
+pub(crate) async fn add_member_with_task_history(
+    pool: &SqlitePool,
+    community: CommunityId,
+    channel_id: Uuid,
+    pubkey: &[u8],
+    role: crate::channel::MemberRole,
+    invited_by: Option<&[u8]>,
+    previous_exchange: Option<&str>,
+) -> Result<crate::channel::MemberRecord> {
     get_channel(pool, community, channel_id).await?;
+    let mut tx = pool.begin().await?;
+    sqlx::query("UPDATE channels SET id=id WHERE community_id=?1 AND id=?2")
+        .bind(community.as_uuid().to_string()).bind(channel_id.to_string()).execute(&mut *tx).await?;
+    if let Some(exchange) = previous_exchange {
+        let owner = invited_by.ok_or_else(|| crate::DbError::AccessDenied("task visit requires owner".into()))?;
+        let allowed: i64 = sqlx::query_scalar("SELECT count(*) FROM task_history_authority t JOIN channels c ON c.id=t.channel_id AND c.community_id=t.community_id JOIN channel_members m ON m.channel_id=c.id AND m.pubkey=t.owner AND m.removed_at IS NULL WHERE t.community_id=?1 AND t.channel_id=?2 AND t.owner=?3 AND t.reader=?4 AND t.exchange_id=?5 AND t.revoked=0 AND c.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM task_history_source_revocations r WHERE r.community_id=t.community_id AND r.channel_id=t.channel_id AND (r.reader=t.owner OR r.reader=t.reader))")
+            .bind(community.as_uuid().to_string()).bind(channel_id.to_string()).bind(owner).bind(pubkey).bind(exchange).fetch_one(&mut *tx).await?;
+        if allowed == 0 { return Err(crate::DbError::AccessDenied("task visit authority revoked or missing".into())); }
+    }
     sqlx::query("INSERT INTO channel_members (channel_id, pubkey, role, invited_by) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(channel_id, pubkey) DO UPDATE SET role = excluded.role, invited_by = excluded.invited_by, removed_at = NULL")
-        .bind(channel_id.to_string()).bind(pubkey).bind(role.as_str()).bind(invited_by).execute(pool).await?;
-    member_record(sqlx::query("SELECT channel_id, pubkey, role, joined_at, invited_by, removed_at FROM channel_members WHERE channel_id = ?1 AND pubkey = ?2")
-        .bind(channel_id.to_string()).bind(pubkey).fetch_one(pool).await?)
+        .bind(channel_id.to_string()).bind(pubkey).bind(role.as_str()).bind(invited_by).execute(&mut *tx).await?;
+    let record = member_record(sqlx::query("SELECT channel_id, pubkey, role, joined_at, invited_by, removed_at FROM channel_members WHERE channel_id = ?1 AND pubkey = ?2")
+        .bind(channel_id.to_string()).bind(pubkey).fetch_one(&mut *tx).await?)?;
+    tx.commit().await?;
+    Ok(record)
 }
 
 pub(crate) async fn is_member(
@@ -3813,9 +3847,34 @@ pub(crate) async fn remove_member(
     pubkey: &[u8],
     actor: &[u8],
 ) -> Result<()> {
+    remove_member_with_task_history(pool, community, channel_id, pubkey, actor, None).await
+}
+
+pub(crate) async fn remove_member_with_task_history(
+    pool: &SqlitePool,
+    community: CommunityId,
+    channel_id: Uuid,
+    pubkey: &[u8],
+    actor: &[u8],
+    automatic_exchange: Option<&str>,
+) -> Result<()> {
     let mut tx = pool.begin().await?;
     let cid = community.as_uuid().to_string();
     let chid = channel_id.to_string();
+    sqlx::query("UPDATE channels SET id=id WHERE community_id=?1 AND id=?2")
+        .bind(&cid)
+        .bind(&chid)
+        .execute(&mut *tx)
+        .await?;
+    if let Some(exchange) = automatic_exchange {
+        let grant: i64 = sqlx::query_scalar("SELECT count(*) FROM task_history_authority WHERE community_id=?1 AND owner=?2 AND exchange_id=?3 AND channel_id=?4 AND reader=?5 AND revoked=0")
+            .bind(&cid).bind(actor).bind(exchange).bind(&chid).bind(pubkey).fetch_one(&mut *tx).await?;
+        if grant != 1 {
+            return Err(crate::DbError::AccessDenied(
+                "automatic visit departure requires active task history authority".into(),
+            ));
+        }
+    }
     let is_self = pubkey == actor;
     if !is_self {
         let actor_role: Option<String> = sqlx::query_scalar("SELECT cm.role FROM channel_members cm JOIN channels c ON c.id=cm.channel_id AND c.community_id=?1 WHERE cm.channel_id=?2 AND cm.pubkey=?3 AND cm.removed_at IS NULL AND c.deleted_at IS NULL")
@@ -3837,6 +3896,16 @@ pub(crate) async fn remove_member(
     .fetch_optional(&mut *tx)
     .await?;
     if target_role.is_none() {
+        if automatic_exchange.is_none() {
+            sqlx::query("INSERT INTO task_history_source_revocations VALUES(?1,?2,?3) ON CONFLICT DO NOTHING")
+                .bind(&cid).bind(&chid).bind(pubkey).execute(&mut *tx).await?;
+            let revoked = sqlx::query("UPDATE task_history_authority SET revoked=1 WHERE community_id=?1 AND channel_id=?2 AND (reader=?3 OR owner=?3)")
+                .bind(&cid).bind(&chid).bind(pubkey).execute(&mut *tx).await?.rows_affected();
+            if revoked > 0 {
+                tx.commit().await?;
+                return Ok(());
+            }
+        }
         return Err(crate::DbError::MemberNotFound(channel_id));
     }
     if target_role.as_deref() == Some("owner") {
@@ -3850,6 +3919,18 @@ pub(crate) async fn remove_member(
     let n = sqlx::query("UPDATE channel_members SET removed_at=unixepoch() WHERE channel_id=?1 AND pubkey=?2 AND removed_at IS NULL").bind(&chid).bind(pubkey).execute(&mut *tx).await?.rows_affected();
     if n == 0 {
         return Err(crate::DbError::MemberNotFound(channel_id));
+    }
+    if automatic_exchange.is_none() {
+        sqlx::query(
+            "INSERT INTO task_history_source_revocations VALUES(?1,?2,?3) ON CONFLICT DO NOTHING",
+        )
+        .bind(&cid)
+        .bind(&chid)
+        .bind(pubkey)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE task_history_authority SET revoked=1 WHERE community_id=?1 AND channel_id=?2 AND (reader=?3 OR owner=?3)")
+            .bind(&cid).bind(&chid).bind(pubkey).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(())

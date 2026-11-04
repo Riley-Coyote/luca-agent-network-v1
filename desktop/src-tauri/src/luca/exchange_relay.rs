@@ -51,6 +51,10 @@ impl std::error::Error for ExchangeRelayError {}
 
 /// The owner-side operations the exchange resolver performs.
 pub(crate) trait ExchangeRelay: Send {
+    /// Exceptional native status finals remain bound to the captured workspace.
+    fn inbox_scope_is_current(&self, _scope: &super::agent_inbox::InboxScope) -> bool {
+        false
+    }
     /// The current owner-authored head for `exchange_id`, or `None` when the
     /// relay holds no record this owner signed.
     fn fetch_head(
@@ -71,6 +75,30 @@ pub(crate) trait ExchangeRelay: Send {
     /// the authority; the dispatch row is bookkeeping derived from it.
     fn fetch_trigger(&self, event_id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError>;
 
+    /// Resolve a host-verified canonical resident task anchor, never a tag-only
+    /// claim. Missing provenance cannot authorize a return to another origin.
+    fn task_anchor_origin(
+        &self,
+        _anchor: &Hex64,
+        _owner: &Hex64,
+        _initiator: &Hex64,
+        _source: &OpaqueId,
+    ) -> Result<Option<Hex64>, ExchangeRelayError> {
+        Ok(None)
+    }
+
+    /// An explicit native task reply may have a new exact reply target while
+    /// retaining its original source thread. No arbitrary resident tag grants
+    /// this exception: production requires durable, signed child provenance.
+    fn verified_task_reply_route(
+        &self,
+        _record: &ExchangeRecordV1,
+        _trigger: &nostr::Event,
+        _origin: &Hex64,
+    ) -> Result<bool, ExchangeRelayError> {
+        Ok(false)
+    }
+
     /// The owner of this house.
     fn owner(&self) -> Result<Hex64, ExchangeRelayError>;
 
@@ -80,6 +108,16 @@ pub(crate) trait ExchangeRelay: Send {
         record: &ExchangeRecordV1,
         created_at: u64,
     ) -> Result<Hex64, ExchangeRelayError>;
+
+    /// Issue additive exact-task replay permission after an explicit mint,
+    /// while all authorized participants still have current source access.
+    fn issue_task_history(
+        &self,
+        _record: &ExchangeRecordV1,
+        _created_at: u64,
+    ) -> Result<(), ExchangeRelayError> {
+        Ok(())
+    }
 
     /// Publish one owner-signed exchange-note into the room.
     fn publish_note(
@@ -100,6 +138,18 @@ pub(crate) trait ExchangeRelay: Send {
     }
 
     /// Remove a visiting resident through the room's ordinary member path.
+    fn add_conversation_member_for_task(
+        &self,
+        _conversation_id: &OpaqueId,
+        _resident: &Hex64,
+        _previous_exchange: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        Err(ExchangeRelayError::Unavailable(
+            "guarded task visit is unavailable".into(),
+        ))
+    }
+
+    /// Remove a visiting resident through the room's ordinary member path.
     fn remove_conversation_member(
         &self,
         _conversation_id: &OpaqueId,
@@ -110,12 +160,32 @@ pub(crate) trait ExchangeRelay: Send {
         ))
     }
 
+    /// Automatic visit cleanup is not an explicit revocation of already-shared
+    /// task history. Production requires the relay's independently checked grant.
+    fn end_visit_membership(
+        &self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+        _exchange_id: Option<&Hex64>,
+    ) -> Result<(), ExchangeRelayError> {
+        self.remove_conversation_member(conversation_id, resident)
+    }
+
     /// Everyone currently in `conversation_id` — channel members and DM
     /// participants alike.
     fn conversation_members(
         &self,
         conversation_id: &OpaqueId,
     ) -> Result<BTreeSet<Hex64>, ExchangeRelayError>;
+
+    /// Current authenticated source membership, never a historical union.
+    /// Offline fixtures may reuse their explicit current membership snapshot.
+    fn verified_source_members(
+        &self,
+        conversation_id: &OpaqueId,
+    ) -> Result<BTreeSet<Hex64>, ExchangeRelayError> {
+        self.conversation_members(conversation_id)
+    }
 
     /// Residents this desktop holds verified keys for.
     fn owned_residents(&self) -> Result<BTreeSet<Hex64>, ExchangeRelayError>;
@@ -192,7 +262,7 @@ impl AppExchangeRelay {
 
 // The HTTP query deserializes full events; it does not authenticate them.
 // Owner-authority decisions must validate the envelope before trusting its body.
-fn verified_exchange_head(
+pub(crate) fn verified_exchange_head(
     event: &nostr::Event,
     exchange_id: &Hex64,
     owner: &Hex64,
@@ -244,6 +314,243 @@ fn verified_exchange_head(
 }
 
 impl ExchangeRelay for AppExchangeRelay {
+    fn inbox_scope_is_current(&self, scope: &super::agent_inbox::InboxScope) -> bool {
+        tauri::async_runtime::block_on(super::agent_inbox::active_scope(&self.app))
+            .is_ok_and(|active| active == *scope)
+    }
+    fn verified_task_reply_route(
+        &self,
+        record: &ExchangeRecordV1,
+        trigger: &nostr::Event,
+        origin: &Hex64,
+    ) -> Result<bool, ExchangeRelayError> {
+        let scope = tauri::async_runtime::block_on(super::agent_inbox::active_scope(&self.app))
+            .map_err(ExchangeRelayError::Unavailable)?;
+        if scope.owner_pubkey != record.owner {
+            return Ok(false);
+        }
+        let mut candidates = vec![trigger.clone()];
+        let receipts: Vec<_> = trigger
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice())
+            .filter(|raw| {
+                raw.first().map(String::as_str) == Some(luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG)
+            })
+            .collect();
+        if receipts.len() == 1 {
+            if let Some(id) = receipts[0].get(1).and_then(|id| Hex64::parse(id).ok()) {
+                if let Some(parent) = self.fetch_trigger(&id)? {
+                    candidates.push(parent);
+                }
+            }
+        }
+        let actual = super::managed_dispatch_routing::routing_from_event(trigger)
+            .map_err(ExchangeRelayError::Unavailable)?;
+        for event in candidates {
+            let author = Hex64::parse(event.pubkey.to_hex())
+                .map_err(|_| ExchangeRelayError::Refused("task reply author invalid".into()))?;
+            let id = Hex64::parse(event.id.to_hex())
+                .map_err(|_| ExchangeRelayError::Refused("task reply id invalid".into()))?;
+            let Some(binding) = super::agent_inbox_anchors::resolve(
+                &self.app,
+                &scope,
+                &id,
+                &author,
+                &record.conversation_id,
+            )
+            .map_err(ExchangeRelayError::Unavailable)?
+            else {
+                continue;
+            };
+            if binding.exchange_id.as_ref() != Some(&record.exchange_id)
+                || &binding.owner_trigger_event_id != origin
+                || !record.members.contains(&binding.initiator)
+                || !record.members.contains(&binding.recipient)
+                || !event.verify_id()
+                || !event.verify_signature()
+                || event.kind != Kind::Custom(9)
+            {
+                continue;
+            }
+            if (event.id == trigger.id && binding.recipient != record.opened_by)
+                || (event.id != trigger.id
+                    && (binding.initiator != record.opened_by
+                        || binding.recipient.as_str() != trigger.pubkey.to_hex()))
+            {
+                continue;
+            }
+            let routing = super::managed_dispatch_routing::routing_from_event(&event)
+                .map_err(ExchangeRelayError::Unavailable)?;
+            let tags: Vec<_> = event
+                .tags
+                .iter()
+                .map(|tag| tag.as_slice().to_vec())
+                .collect();
+            let matches_task = ExchangeTurnTag::find(&tags)
+                .ok()
+                .flatten()
+                .is_some_and(|tag| tag.exchange_id == record.exchange_id);
+            let receipt: Vec<_> = event
+                .tags
+                .iter()
+                .map(|tag| tag.as_slice())
+                .filter(|raw| {
+                    raw.first().map(String::as_str)
+                        == Some(luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG)
+                })
+                .collect();
+            if matches_task
+                && receipt.len() == 1
+                && receipt[0].get(1).map(String::as_str)
+                    == Some(binding.anchor_dispatch_id.as_str())
+                && routing.conversation_id == record.conversation_id.as_str()
+                && routing
+                    .trigger_p_tags
+                    .contains(&binding.recipient.as_str().to_owned())
+                && actual.root_event_id == routing.root_event_id
+                && actual.reply_event_id == routing.reply_event_id
+                && actual.thread_id == routing.thread_id
+                && actual.response_surface == routing.response_surface
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    fn task_anchor_origin(
+        &self,
+        anchor: &Hex64,
+        owner: &Hex64,
+        initiator: &Hex64,
+        source: &OpaqueId,
+    ) -> Result<Option<Hex64>, ExchangeRelayError> {
+        let scope = tauri::async_runtime::block_on(super::agent_inbox::active_scope(&self.app))
+            .map_err(ExchangeRelayError::Unavailable)?;
+        if &scope.owner_pubkey != owner {
+            return Err(ExchangeRelayError::Refused(
+                "task anchor owner changed".into(),
+            ));
+        }
+        let Some(binding) =
+            super::agent_inbox_anchors::resolve(&self.app, &scope, anchor, initiator, source)
+                .map_err(ExchangeRelayError::Unavailable)?
+        else {
+            return Ok(None);
+        };
+        let Some(event) = self.fetch_trigger(anchor)? else {
+            return Ok(None);
+        };
+        let receipt: Vec<_> = event
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice())
+            .filter(|raw| {
+                raw.first().map(String::as_str) == Some(luca_protocol::MANAGED_DISPATCH_RECEIPT_TAG)
+            })
+            .collect();
+        if !event.verify_id()
+            || !event.verify_signature()
+            || event.pubkey.to_hex() != initiator.as_str()
+            || receipt.len() != 1
+            || receipt[0].get(1).map(String::as_str) != Some(binding.anchor_dispatch_id.as_str())
+        {
+            return Err(ExchangeRelayError::Refused(
+                "task anchor provenance does not match its canonical signature".into(),
+            ));
+        }
+        Ok(Some(binding.owner_trigger_event_id))
+    }
+    fn issue_task_history(
+        &self,
+        record: &ExchangeRecordV1,
+        created_at: u64,
+    ) -> Result<(), ExchangeRelayError> {
+        let state = self.app.state::<crate::app_state::AppState>();
+        let advertised = tauri::async_runtime::block_on(async {
+            let response = state
+                .http_client
+                .get(crate::relay::relay_api_base_url_with_override(&state))
+                .header("Accept", "application/nostr+json")
+                .send()
+                .await
+                .map_err(|_| {
+                    ExchangeRelayError::Unavailable(
+                        "task history capability could not be read".into(),
+                    )
+                })?;
+            response.json::<serde_json::Value>().await.map_err(|_| {
+                ExchangeRelayError::Unavailable("task history capability is malformed".into())
+            })
+        })?;
+        if advertised
+            .get("task_history")
+            .and_then(serde_json::Value::as_str)
+            != Some(luca_protocol::TASK_HISTORY_PROTOCOL)
+        {
+            // Compatibility: ordinary delivery remains available on an older
+            // relay; inbox history truthfully reports missing capability.
+            return Ok(());
+        }
+        let scope = tauri::async_runtime::block_on(super::agent_inbox::active_scope(&self.app))
+            .map_err(ExchangeRelayError::Unavailable)?;
+        if scope.owner_pubkey != record.owner {
+            return Err(ExchangeRelayError::Refused(
+                "task history owner changed".into(),
+            ));
+        }
+        let grant = luca_protocol::TaskHistoryGrantV1 {
+            protocol: luca_protocol::TASK_HISTORY_PROTOCOL.into(),
+            community_id: scope.community_id,
+            owner: record.owner.clone(),
+            exchange_id: record.exchange_id.clone(),
+            conversation_id: record.conversation_id.clone(),
+            members: record.members.clone(),
+            state: luca_protocol::TaskHistoryState::Active,
+        };
+        let tags = grant
+            .event_tags()
+            .into_iter()
+            .map(Tag::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ExchangeRelayError::Unavailable("task history tags are invalid".into()))?;
+        self.submit(
+            EventBuilder::new(
+                Kind::Custom(buzz_core_pkg::kind::KIND_LUCA_TASK_HISTORY as u16),
+                serde_json::to_string(&grant).map_err(|_| {
+                    ExchangeRelayError::Unavailable("task history grant is invalid".into())
+                })?,
+            )
+            .tags(tags)
+            .custom_created_at(Timestamp::from(created_at)),
+        )
+        .map(|_| ())
+    }
+
+    fn end_visit_membership(
+        &self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+        exchange_id: Option<&Hex64>,
+    ) -> Result<(), ExchangeRelayError> {
+        let Some(exchange_id) = exchange_id else {
+            return self.remove_conversation_member(conversation_id, resident);
+        };
+        let channel = uuid::Uuid::parse_str(conversation_id.as_str())
+            .map_err(|_| ExchangeRelayError::Unavailable("visit source is invalid".into()))?;
+        let builder = crate::events::build_remove_member(channel, resident.as_str())
+            .map_err(ExchangeRelayError::Unavailable)?;
+        let marker = Tag::parse(["luca-visit-end", exchange_id.as_str()])
+            .map_err(|_| ExchangeRelayError::Unavailable("visit marker is invalid".into()))?;
+        self.submit(builder.tag(marker)).map(|_| ())
+    }
+    fn verified_source_members(
+        &self,
+        conversation_id: &OpaqueId,
+    ) -> Result<BTreeSet<Hex64>, ExchangeRelayError> {
+        super::runtime_task_delivery::verified_conversation_members(&self.app, conversation_id)
+            .map_err(ExchangeRelayError::Unavailable)
+    }
     fn wake_resident(
         &self,
         resident: &Hex64,
@@ -400,6 +707,22 @@ impl ExchangeRelay for AppExchangeRelay {
             .map_err(|error| {
                 ExchangeRelayError::Unavailable(format!("visit membership is invalid: {error}"))
             })?;
+        self.submit(builder).map(|_| ())
+    }
+
+    fn add_conversation_member_for_task(
+        &self,
+        conversation_id: &OpaqueId,
+        resident: &Hex64,
+        previous_exchange: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        let channel_id = uuid::Uuid::parse_str(conversation_id.as_str())
+            .map_err(|e| ExchangeRelayError::Unavailable(e.to_string()))?;
+        let tag = Tag::parse(["luca-visit-resume", previous_exchange.as_str()])
+            .map_err(|e| ExchangeRelayError::Unavailable(e.to_string()))?;
+        let builder = crate::events::build_add_member(channel_id, resident.as_str(), Some("guest"))
+            .map_err(|e| ExchangeRelayError::Unavailable(e.to_string()))?
+            .tags([tag]);
         self.submit(builder).map(|_| ())
     }
 

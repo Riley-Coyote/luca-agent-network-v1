@@ -18,11 +18,24 @@ export function resolveCompleteSendPlan(input: {
   dmParticipantPubkeys: string[];
   hasPrepareSendChannel: boolean;
   capturedChannelId: string | null;
+  fixedAudience?: boolean;
 }): { branch: CompleteSendBranch; sendChannelId: string | null } {
-  if (input.dmParticipantPubkeys.length > 0 && input.hasPrepareSendChannel) {
+  if (
+    !input.fixedAudience &&
+    input.dmParticipantPubkeys.length > 0 &&
+    input.hasPrepareSendChannel
+  ) {
     return { branch: "invite-dm", sendChannelId: null };
   }
   return { branch: "ordinary", sendChannelId: input.capturedChannelId };
+}
+
+/** A scoped task send delegates recipient readiness exclusively to its host. */
+export function shouldPrepareAgentReadiness(
+  branch: CompleteSendBranch,
+  fixedAudience = false,
+): boolean {
+  return !fixedAudience && branch === "ordinary";
 }
 
 /**

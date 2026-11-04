@@ -16,7 +16,9 @@ import { retainedOptimisticSendChannel } from "@/features/messages/lib/retainedO
 import {
   formatAgentReadinessError,
   resolveCompleteSendPlan,
+  shouldPrepareAgentReadiness,
 } from "@/features/messages/ui/completeSendPlan";
+import { resolveFixedAudience } from "./fixedAudiencePlan";
 import type { UseChannelLinksResult } from "@/features/messages/lib/useChannelLinks";
 import type { UseEmojiAutocompleteResult } from "@/features/messages/lib/useEmojiAutocomplete";
 import {
@@ -36,6 +38,7 @@ import { MENTION_REFERENCE_TAG } from "@/shared/lib/resolveMentionNames";
 import { buildCustomEmojiTags } from "@/shared/lib/customEmojiTags";
 
 type PendingNonMemberMentionSend = {
+  fixedAudience?: boolean;
   capturedChannelId: string | null;
   /** Thread context captured at submit time — null for main-timeline sends. */
   capturedThreadContext: {
@@ -71,6 +74,7 @@ type SendMessageWithMentionFlowInput = {
 };
 
 type UseMentionSendFlowOptions = {
+  fixedAudiencePubkeys?: readonly string[];
   channelId: string | null;
   channelLinks: Pick<UseChannelLinksResult, "clearChannels">;
   channelType: ChannelType | null;
@@ -148,6 +152,7 @@ const DM_THREAD_MEMBERS_LOADING_ERROR =
   "Checking conversation members. Try again in a moment.";
 
 export function useMentionSendFlow({
+  fixedAudiencePubkeys,
   channelId,
   channelLinks,
   channelType,
@@ -486,6 +491,7 @@ export function useMentionSendFlow({
           dmParticipantPubkeys,
           hasPrepareSendChannel: Boolean(onPrepareSendChannel),
           capturedChannelId: draft.capturedChannelId,
+          fixedAudience: draft.fixedAudience,
         });
         const effectiveExplicitAgentPubkeys =
           filterEffectiveExplicitAgentPubkeys(
@@ -596,7 +602,7 @@ export function useMentionSendFlow({
             sendContext,
             effectiveExplicitAgentPubkeys,
           );
-          if (plan.branch === "ordinary") {
+          if (shouldPrepareAgentReadiness(plan.branch, draft.fixedAudience)) {
             void runBackgroundAgentReadiness(
               draft,
               mentionPubkeys,
@@ -735,6 +741,39 @@ export function useMentionSendFlow({
       isMentionSendPendingRef.current = true;
       setIsMentionSendPending(true);
       try {
+        const fixed = resolveFixedAudience(fixedAudiencePubkeys);
+        if (fixed) {
+          if (!capturedChannelId)
+            throw new Error("Select an authorized task source before sending.");
+          const { content: finalContent, mediaTags } = buildOutgoingMessage(
+            trimmed,
+            pendingImeta,
+            spoileredAttachmentUrls,
+          );
+          await completeSend(
+            {
+              fixedAudience: true,
+              capturedChannelId,
+              capturedThreadContext,
+              finalContent,
+              mentionPubkeys: fixed,
+              nonMemberPubkeys: [],
+              outgoingTags: mergeOutgoingTags(
+                mediaTags,
+                buildCustomEmojiTags(finalContent, customEmoji),
+              ),
+              savedContent: trimmed,
+              savedImeta: [...pendingImeta],
+              savedSpoileredAttachmentUrls: new Set(spoileredAttachmentUrls),
+              sentDraftKey,
+              audienceGeneration,
+              audienceRevision,
+              explicitAgentPubkeys: [],
+            },
+            fixed,
+          );
+          return;
+        }
         const dmThreadAgentMentionError = getDmThreadAgentMentionError(
           trimmed,
           capturedThreadContext,
@@ -852,6 +891,7 @@ export function useMentionSendFlow({
     },
     [
       completeSend,
+      fixedAudiencePubkeys,
       channelType,
       createMentionedPersonaAgents,
       customEmoji,

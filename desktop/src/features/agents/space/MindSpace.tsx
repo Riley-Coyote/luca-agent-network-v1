@@ -17,6 +17,7 @@ import {
   runtimeLabel,
 } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
+import { AgentInboxMenu } from "@/features/exchange/ui/AgentInboxMenu";
 import { ResidentNotebookDetailView } from "@/features/profile/ui/notebook/ResidentNotebookDetailView";
 import { LogsSheet } from "@/features/agents/ui/AgentLibraryWorkspace";
 import type { ResidentSummaryViewModel } from "@/features/agents/ui/agentLibraryViewModel";
@@ -966,6 +967,9 @@ function MindHeader({
         ) : null}
       </div>
       <div className="luca-mind-head-actions">
+        {resident.pubkey ? (
+          <AgentInboxMenu residentPubkey={resident.pubkey} />
+        ) : null}
         {managedAgent ? (
           <button
             className="luca-mind-talk"

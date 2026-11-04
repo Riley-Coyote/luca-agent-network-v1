@@ -126,6 +126,7 @@ pub(crate) struct ResidentSigningBroker {
     session: LocalBrokerSession,
     capsule_handle: CapsuleBrokerHandle,
     capsule_receiver: CapsuleBrokerReceiver,
+    inbox_actions: super::agent_inbox_actions::ActionReceiver,
     message_outbox: ManagedMessageOutbox,
     publication_authority: Box<dyn ManagedMessagePublicationAuthority>,
 }
@@ -161,11 +162,13 @@ impl ResidentSigningBroker {
         let message_outbox = ManagedMessageOutbox::new(binding.installation_session_id.clone());
         let (capsule_handle, capsule_receiver) =
             capsule_broker_channel(&binding).map_err(|_| SigningBrokerError::EventConstruction)?;
+        let inbox_actions = super::agent_inbox_actions::channel(&binding.resident_pubkey, binding.session_epoch.get());
         Ok(Self {
             resident_keys,
             session: LocalBrokerSession::new(binding)?,
             capsule_handle,
             capsule_receiver,
+            inbox_actions,
             message_outbox,
             publication_authority,
         })
@@ -189,11 +192,13 @@ impl ResidentSigningBroker {
         )?;
         let (capsule_handle, capsule_receiver) =
             capsule_broker_channel(&binding).map_err(|_| SigningBrokerError::EventConstruction)?;
+        let inbox_actions = super::agent_inbox_actions::channel(&binding.resident_pubkey, binding.session_epoch.get());
         Ok(Self {
             resident_keys,
             session: LocalBrokerSession::new(binding)?,
             capsule_handle,
             capsule_receiver,
+            inbox_actions,
             message_outbox,
             publication_authority,
         })
@@ -212,12 +217,13 @@ impl ResidentSigningBroker {
         super::managed_message_publisher::retained_outbox_dispatch_receipt_ids(&self.message_outbox)
     }
 
-    fn service_capsule_requests(&self) {
+    fn service_capsule_requests(&mut self) {
         service_capsule_broker_slice(
             &self.capsule_receiver,
             &self.resident_keys,
             self.session.binding(),
         );
+        self.service_inbox_actions();
     }
 
     /// Reconcile one hard-bounded slice on the sole broker/outbox owner thread.
@@ -706,6 +712,9 @@ impl ResidentSigningBroker {
         .map_err(|_| ManagedMessageOutboxError::Canonicalization)
     }
 }
+
+#[path = "agent_inbox_action_publisher.rs"]
+mod inbox_actions;
 
 fn derive_outbox_passphrase(
     resident_keys: &Keys,

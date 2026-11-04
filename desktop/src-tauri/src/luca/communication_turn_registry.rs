@@ -131,6 +131,17 @@ pub(crate) fn authorize(
         .ok_or(CommunicationTurnAuthorizationError::Unknown)
 }
 
+/// Resolve a broker tool's current turn without accepting model-supplied turn
+/// or dispatch coordinates. Ambiguity is denied rather than picking latest.
+pub(crate) fn authorize_unique(resident: &str, epoch: u64, conversation: &str) -> Result<ActiveCommunicationTurn, CommunicationTurnAuthorizationError> {
+    let turns = lock_registry();
+    let mut matches = turns.values().filter(|turn| turn.resident_pubkey.as_str() == resident
+        && turn.session_epoch.get() == epoch && turn.conversation_id.as_str() == conversation);
+    let turn = matches.next().cloned().ok_or(CommunicationTurnAuthorizationError::Unknown)?;
+    if matches.next().is_some() { return Err(CommunicationTurnAuthorizationError::Conflict); }
+    Ok(turn)
+}
+
 /// Revoke one exact turn before cancellation acknowledgement or replacement
 /// runtime exposure. The dispatch receipt is part of the key so a duplicate
 /// turn label can never revoke a different owner-authorized dispatch.

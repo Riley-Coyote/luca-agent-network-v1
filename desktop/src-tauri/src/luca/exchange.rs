@@ -444,6 +444,12 @@ pub(crate) async fn resolve_exchange(
             now_unix_secs,
         )?;
         if action == "stop" && snapshot.phase == ExchangePhase::Closed {
+            super::managed_dispatch_store::global_dispatch_store(&app)?
+                .lock().map_err(|_| "inbox task dispatch store is unavailable")?
+                .cancel_inbox_task(snapshot.record.owner.as_str(), snapshot.record.conversation_id.as_str(), &snapshot.record.exchange_id)?;
+            super::managed_dispatch_store::global_dispatch_store(&app)?
+                .lock().map_err(|_| "inbox task dispatch store is unavailable")?
+                .cancel_inbox_exchange_actions(snapshot.record.owner.as_str(), snapshot.record.conversation_id.as_str(), &snapshot.record.exchange_id)?;
             fade_visits(
                 &relay,
                 &store,

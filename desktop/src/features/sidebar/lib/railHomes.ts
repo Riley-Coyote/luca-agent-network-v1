@@ -456,6 +456,16 @@ export type RailSideRow = {
   conversationId: string;
   /** Where it opens in its room: an exchange's first message. */
   messageId: string | null;
+  /** Backend-authorized pair identity. Absent on groups and legacy tasks. */
+  correspondenceId?: string;
+  residentPubkeys?: string[];
+  taskIds?: string[];
+  /** Original task/source references, never copied or rewritten transcripts. */
+  sourceReferences?: {
+    taskId: string;
+    conversationId: string;
+    rootEventId: string;
+  }[];
 };
 
 export type RailHomeEntry =

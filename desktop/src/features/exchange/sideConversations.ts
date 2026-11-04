@@ -14,7 +14,7 @@ import type {
  * node; `useSideConversations` feeds it the app's live data.
  */
 
-export type ExchangeWord = "talking" | "paused" | "done";
+export type ExchangeWord = "talking" | "paused" | "closed" | "expired";
 export type TaskWord =
   | "working"
   | "in the app"
@@ -35,6 +35,7 @@ type Common = {
 
 export type ExchangeSide = Common & {
   kind: "exchange";
+  ownerPubkey: string;
   openedBy: string;
   /** Everyone else in it, opener excluded, lowercase. */
   others: string[];
@@ -77,7 +78,42 @@ export function runtimeLabel(family: RuntimeTaskProjection["runtimeFamily"]) {
 export function exchangeWord(phase: ExchangePhase): ExchangeWord {
   if (phase === "open") return "talking";
   if (phase === "paused") return "paused";
-  return "done";
+  return phase;
+}
+
+/** Transport lifecycle, not an inferred execution outcome. */
+export function exchangeStatusLabel(phase: ExchangePhase | undefined): string {
+  switch (phase) {
+    case "open":
+      return "Open";
+    case "paused":
+      return "Paused";
+    case "closed":
+      return "Closed";
+    case "expired":
+      return "Expired";
+    default:
+      return "Status unavailable";
+  }
+}
+
+/** A bounded task subject from the actual brief; no participant-room title. */
+export function exchangeTaskSubject(
+  brief: string | null | undefined,
+  recipient = "agent",
+): string {
+  const line = brief
+    ?.split(/\r?\n/)
+    .map((part) => part.trim())
+    .find(Boolean)
+    ?.replace(/^[#>*\s]+/, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[`*_~]/g, "")
+    .replace(/\p{Cc}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!line) return `Conversation with ${recipient}`;
+  return line.length > 96 ? `${line.slice(0, 95).trimEnd()}…` : line;
 }
 
 export function taskWord(state: RuntimeTaskState): TaskWord {
@@ -121,6 +157,7 @@ export function exchangeSide(
     times?.latestTurnAt ?? times?.rootAt ?? Math.max(0, record.deadline);
   return {
     kind: "exchange",
+    ownerPubkey: record.owner.toLowerCase(),
     id: record.exchangeId,
     conversationId: record.conversationId,
     at: seconds * 1000,

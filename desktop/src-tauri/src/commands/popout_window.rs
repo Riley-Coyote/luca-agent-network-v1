@@ -9,10 +9,12 @@
 //! the de-duplication that turns a second request into a focus, and the reveal
 //! handshake that keeps an unpainted frame off the screen.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use tauri::{Listener, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// Prefix every pop-out window label carries.
 ///
@@ -20,6 +22,33 @@ use tauri::{Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 /// the security boundary between these windows and the main one — not a naming
 /// convention.
 pub const POPOUT_LABEL_PREFIX: &str = "popout-";
+
+// Serialize only window creation, never message delivery. Concurrent receipt
+// clicks must focus one webview rather than racing two builders for its label.
+static OPEN_WINDOW: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static TASK_FOCUS: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub(crate) fn close_correspondence_windows(app: &tauri::AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if label.starts_with("popout-correspondence-v1-") {
+            let _ = window.close();
+        }
+    }
+    if let Ok(mut focus) = TASK_FOCUS.lock() {
+        focus.clear();
+    }
+}
+
+fn emit_task_focus(window: &tauri::WebviewWindow) {
+    let task = TASK_FOCUS
+        .lock()
+        .ok()
+        .and_then(|focus| focus.get(window.label()).cloned());
+    if let Some(task) = task {
+        let _ = window.emit("luca://correspondence-focus", task);
+    }
+}
 
 /// Opening size. Narrow enough to sit beside another app, tall enough to hold a
 /// real exchange.
@@ -196,13 +225,153 @@ pub async fn open_channel_popout(
     channel_id: String,
     title: Option<String>,
 ) -> Result<String, String> {
+    open_popout(
+        app_handle,
+        channel_id.clone(),
+        popout_url(&channel_id),
+        title,
+        None,
+        None,
+    )
+    .await
+}
+
+/// A navigation target is not an execution request. The host resolves every
+/// identifier using the current profile; callers cannot supply a source or owner.
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ChatViewTarget {
+    Channel {
+        #[serde(rename = "channelId")]
+        channel_id: String,
+        title: Option<String>,
+    },
+    Correspondence {
+        #[serde(rename = "exchangeId")]
+        exchange_id: String,
+    },
+    RuntimeTask {
+        #[serde(rename = "taskId")]
+        task_id: String,
+    },
+}
+
+#[tauri::command]
+pub async fn open_chat_view(
+    app_handle: tauri::AppHandle,
+    target: ChatViewTarget,
+) -> Result<Option<String>, String> {
+    match target {
+        ChatViewTarget::Channel { channel_id, title } => {
+            use crate::luca::exchange_relay::{AppExchangeRelay, ExchangeRelay};
+            let scope = crate::luca::agent_inbox::active_scope(&app_handle).await?;
+            let source = luca_protocol::OpaqueId::parse(channel_id.clone())
+                .map_err(|error| error.to_string())?;
+            let app = app_handle.clone();
+            let owner = scope.owner_pubkey.clone();
+            tokio::task::spawn_blocking(move || {
+                let members = AppExchangeRelay::new(app)
+                    .conversation_members(&source)
+                    .map_err(|error| error.to_string())?;
+                members.contains(&owner).then_some(()).ok_or_else(|| {
+                    "This conversation is not available in the current workspace".to_owned()
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())??;
+            let url = popout_url(&channel_id);
+            open_popout(app_handle, channel_id, url, title, None, Some(scope))
+                .await
+                .map(Some)
+        }
+        ChatViewTarget::Correspondence { exchange_id } => {
+            open_correspondence_popout(app_handle, exchange_id)
+                .await
+                .map(Some)
+        }
+        ChatViewTarget::RuntimeTask { task_id } => {
+            // Existing runtime authority checks exact session support. This is
+            // deliberately not a cloned transcript or an invented reply surface.
+            super::runtime_tasks::open_runtime_task_native_session(app_handle, task_id)?;
+            Ok(None)
+        }
+    }
+}
+
+/// Open a passive, authorized task view, reusing one window for the pair.
+/// The caller supplies a task reference, never an authoritative owner/source.
+#[tauri::command]
+pub async fn open_correspondence_popout(
+    app_handle: tauri::AppHandle,
+    exchange_id: String,
+) -> Result<String, String> {
+    let scope = crate::luca::agent_inbox::active_scope(&app_handle).await?;
+    let task_id = luca_protocol::Hex64::parse(exchange_id).map_err(|e| e.to_string())?;
+    let page = crate::luca::agent_inbox::query_for_actor(
+        &app_handle,
+        scope.owner_pubkey.clone(),
+        crate::luca::agent_inbox::InboxQuery {
+            exchange_id: Some(task_id.clone()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let task = page
+        .tasks
+        .first()
+        .ok_or("This task is not available in the current workspace")?;
+    if page.scope != scope || crate::luca::agent_inbox::active_scope(&app_handle).await? != scope {
+        return Err("The active workspace changed; open the task again".into());
+    }
+    let pair = task
+        .correspondence_id
+        .as_ref()
+        .ok_or("Group exchanges remain in their source conversation")?;
+    let url = format!(
+        "index.html?window=popout&correspondence={}&task={}#/",
+        encode_url_component(pair),
+        encode_url_component(task_id.as_str()),
+    );
+    open_popout(
+        app_handle,
+        pair.clone(),
+        url,
+        Some("Agent correspondence".into()),
+        Some(task_id.as_str().to_owned()),
+        Some(scope),
+    )
+    .await
+}
+
+async fn open_popout(
+    app_handle: tauri::AppHandle,
+    channel_id: String,
+    url: String,
+    title: Option<String>,
+    task_focus: Option<String>,
+    expected_scope: Option<crate::luca::agent_inbox::InboxScope>,
+) -> Result<String, String> {
+    let _opening = OPEN_WINDOW.lock().await;
+    if let Some(expected) = &expected_scope {
+        if crate::luca::agent_inbox::active_scope(&app_handle).await? != *expected {
+            return Err("The active workspace changed; open the task again".into());
+        }
+    }
     let live_labels: Vec<String> = app_handle.webview_windows().keys().cloned().collect();
     let plan = plan_popout(&channel_id, &live_labels)?;
+    let is_correspondence = task_focus.is_some();
+    if let Some(task) = task_focus {
+        TASK_FOCUS
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(plan.label.clone(), task);
+    }
 
     if plan.action == PopoutAction::Reveal {
         // The label was live a moment ago; if the window closed in between,
         // fall through and build a fresh one rather than failing the request.
         if let Some(window) = app_handle.get_webview_window(&plan.label) {
+            emit_task_focus(&window);
             reveal_popout_window(&window);
             return Ok(plan.label);
         }
@@ -217,24 +386,21 @@ pub async fn open_channel_popout(
         let _ = ready_tx.send(());
     });
 
-    let builder = WebviewWindowBuilder::new(
-        &app_handle,
-        plan.label.clone(),
-        WebviewUrl::App(popout_url(&channel_id).into()),
-    )
-    .title(title.unwrap_or_default())
-    .inner_size(POPOUT_WIDTH_PX, POPOUT_HEIGHT_PX)
-    .min_inner_size(POPOUT_MIN_WIDTH_PX, POPOUT_MIN_HEIGHT_PX)
-    .resizable(true)
-    .always_on_top(false)
-    // Revealed by the handshake below, never by the window server.
-    .visible(false)
-    // M1 paints an opaque surface on a transparent-capable window: a window
-    // cannot become transparent after creation, so the capability has to be
-    // claimed now even though the material stays opaque until M2 rules on it.
-    .transparent(true)
-    // An overlay chat that stops receiving while unfocused is not an overlay.
-    .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    let builder =
+        WebviewWindowBuilder::new(&app_handle, plan.label.clone(), WebviewUrl::App(url.into()))
+            .title(title.unwrap_or_default())
+            .inner_size(POPOUT_WIDTH_PX, POPOUT_HEIGHT_PX)
+            .min_inner_size(POPOUT_MIN_WIDTH_PX, POPOUT_MIN_HEIGHT_PX)
+            .resizable(true)
+            .always_on_top(false)
+            // Revealed by the handshake below, never by the window server.
+            .visible(false)
+            // M1 paints an opaque surface on a transparent-capable window: a window
+            // cannot become transparent after creation, so the capability has to be
+            // claimed now even though the material stays opaque until M2 rules on it.
+            .transparent(true)
+            // An overlay chat that stops receiving while unfocused is not an overlay.
+            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
 
     // `Overlay` + `hidden_title` stay: they are what give the window native
     // resize edges, shadow and corner radius while leaving the title band to
@@ -248,6 +414,53 @@ pub async fn open_channel_popout(
     let window = builder
         .build()
         .map_err(|error| format!("failed to open the pop-out window: {error}"))?;
+    if let Some(expected) = &expected_scope {
+        if crate::luca::agent_inbox::active_scope(&app_handle)
+            .await
+            .as_ref()
+            != Ok(expected)
+        {
+            let _ = window.close();
+            return Err("The active workspace changed while opening the task".into());
+        }
+    }
+
+    // A new task window opens beside the main app where space permits. Keep
+    // it inside the same display's usable area, including negative origins.
+    if is_correspondence && !crate::has_saved_window_state(&app_handle, &plan.label) {
+        if let Some(main) = app_handle.get_webview_window("main") {
+            if let (Ok(Some(monitor)), Ok(position), Ok(size)) = (
+                main.current_monitor(),
+                main.outer_position(),
+                main.outer_size(),
+            ) {
+                let area = monitor.work_area();
+                let scale = monitor.scale_factor();
+                let (x, y) = beside_position(
+                    (position.x as f64, position.y as f64, size.width as f64),
+                    (
+                        area.position.x as f64,
+                        area.position.y as f64,
+                        area.size.width as f64,
+                        area.size.height as f64,
+                    ),
+                    (POPOUT_WIDTH_PX * scale, POPOUT_HEIGHT_PX * scale),
+                    12.0 * scale,
+                );
+                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+            }
+        }
+    }
+    if is_correspondence {
+        let label = plan.label.clone();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Ok(mut focus) = TASK_FOCUS.lock() {
+                    focus.remove(&label);
+                }
+            }
+        });
+    }
 
     #[cfg(target_os = "macos")]
     set_popout_backing(&window);
@@ -284,6 +497,20 @@ pub async fn open_channel_popout(
             );
         }
 
+        if let Some(expected) = &expected_scope {
+            if crate::luca::agent_inbox::active_scope(&app_handle)
+                .await
+                .as_ref()
+                != Ok(expected)
+            {
+                let _ = window.close();
+                return;
+            }
+        }
+
+        // Re-emit the latest selection after React's listener is mounted. A
+        // second click during cold creation must not be lost before that.
+        emit_task_focus(&window);
         reveal_popout_window(&window);
 
         #[cfg(target_os = "macos")]
@@ -293,11 +520,79 @@ pub async fn open_channel_popout(
     Ok(plan.label)
 }
 
+fn beside_position(
+    main: (f64, f64, f64),
+    area: (f64, f64, f64, f64),
+    size: (f64, f64),
+    gap: f64,
+) -> (i32, i32) {
+    let right = main.0 + main.2 + gap;
+    let x = if right + size.0 <= area.0 + area.2 {
+        right
+    } else {
+        main.0 + gap
+    };
+    (
+        x.clamp(area.0, (area.0 + area.2 - size.0).max(area.0))
+            .round() as i32,
+        main.1
+            .clamp(area.1, (area.1 + area.3 - size.1).max(area.1))
+            .round() as i32,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const CHANNEL_UUID: &str = "5f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8";
+
+    #[test]
+    fn view_target_rejects_caller_supplied_authority() {
+        assert!(serde_json::from_value::<ChatViewTarget>(serde_json::json!({
+            "kind": "correspondence", "exchangeId": "a".repeat(64),
+        }))
+        .is_ok());
+        assert!(serde_json::from_value::<ChatViewTarget>(serde_json::json!({
+            "kind": "correspondence", "exchangeId": "a".repeat(64), "owner": "b".repeat(64),
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<ChatViewTarget>(serde_json::json!({
+            "kind": "runtimeTask", "taskId": "task-1", "providerSessionId": "unverified",
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn correspondence_placement_stays_on_the_current_display() {
+        assert_eq!(
+            beside_position(
+                (100.0, 100.0, 800.0),
+                (0.0, 0.0, 1440.0, 900.0),
+                (380.0, 560.0),
+                12.0
+            ),
+            (912, 100)
+        );
+        assert_eq!(
+            beside_position(
+                (-1400.0, 700.0, 1200.0),
+                (-1440.0, 0.0, 1440.0, 900.0),
+                (380.0, 560.0),
+                12.0
+            ),
+            (-1388, 340)
+        );
+        assert_eq!(
+            beside_position(
+                (1000.0, 500.0, 400.0),
+                (0.0, 0.0, 320.0, 400.0),
+                (380.0, 560.0),
+                12.0
+            ),
+            (0, 0)
+        );
+    }
 
     #[test]
     fn relay_channel_ids_reach_the_label_untouched() {

@@ -1202,14 +1202,22 @@ async fn handle_put_user(
 
     let actor_bytes = event.pubkey.to_bytes().to_vec();
 
+    let resume: Vec<_> = event.tags.iter().map(|t| t.as_slice())
+        .filter(|t| t.first().map(String::as_str) == Some("luca-visit-resume")).collect();
+    let previous_exchange = if resume.is_empty() { None } else {
+        anyhow::ensure!(resume.len() == 1 && resume[0].len() == 2 && luca_protocol::Hex64::parse(&resume[0][1]).is_ok(), "invalid task visit resume");
+        anyhow::ensure!(state.db.is_agent_owner(tenant.community(), &target_pubkey, &actor_bytes).await?, "task visit requires current resident owner");
+        Some(resume[0][1].as_str())
+    };
     state
         .db
-        .add_member(
+        .add_member_with_task_history(
             tenant.community(),
             channel_id,
             &target_pubkey,
             role,
             Some(&actor_bytes),
+            previous_exchange,
         )
         .await?;
     state.invalidate_membership(tenant, channel_id, &target_pubkey);
@@ -1258,6 +1266,19 @@ async fn handle_remove_user(
         extract_h_tag_channel(event).ok_or_else(|| anyhow::anyhow!("missing h tag"))?;
     let target_pubkey = extract_p_tag(event).ok_or_else(|| anyhow::anyhow!("missing p tag"))?;
     let actor_bytes = event.pubkey.to_bytes().to_vec();
+    let cleanup: Vec<_> = event
+        .tags
+        .iter()
+        .map(|tag| tag.as_slice())
+        .filter(|tag| tag.first().map(String::as_str) == Some("luca-visit-end"))
+        .collect();
+    let automatic_exchange = match cleanup.as_slice() {
+        [] => None,
+        [tag] if tag.len() == 2 && luca_protocol::Hex64::parse(&tag[1]).is_ok() => {
+            Some(tag[1].as_str())
+        }
+        _ => anyhow::bail!("malformed automatic visit departure"),
+    };
 
     // Guard: prevent last-owner orphaning on self-removal (kind 9001).
     if target_pubkey == actor_bytes {
@@ -1275,7 +1296,13 @@ async fn handle_remove_user(
 
     state
         .db
-        .remove_member(tenant.community(), channel_id, &target_pubkey, &actor_bytes)
+        .remove_member_with_task_history(
+            tenant.community(),
+            channel_id,
+            &target_pubkey,
+            &actor_bytes,
+            automatic_exchange,
+        )
         .await?;
     state.invalidate_membership(tenant, channel_id, &target_pubkey);
     evict_live_channel_subscriptions(tenant, state, channel_id, &target_pubkey).await;

@@ -197,6 +197,8 @@ pub const KIND_MANAGED_AGENT: u32 = 30177;
 /// record by requiring the author to be the registered `agent_owner_pubkey` of
 /// every listed member. Every member is a `p` tag so residents can REQ by `#p`.
 pub const KIND_LUCA_EXCHANGE: u32 = 30178;
+/// Owner-issued task-only historical replay grant, independent of room membership.
+pub const KIND_LUCA_TASK_HISTORY: u32 = 30179;
 
 // NIP-56 reporting
 /// NIP-56: Report an event, pubkey, or blob to relay moderators (kind:1984).
@@ -542,6 +544,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_TEAM,
     KIND_MANAGED_AGENT,
     KIND_LUCA_EXCHANGE,
+    KIND_LUCA_TASK_HISTORY,
     KIND_REPORT,
     KIND_PRODUCT_FEEDBACK,
     KIND_NIP29_PUT_USER,

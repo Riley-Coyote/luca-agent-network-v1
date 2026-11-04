@@ -205,6 +205,7 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         // Luca exchange records (30178) are owner-authored, user-scoped state
         // keyed by (pubkey, kind, d_tag) — same shape as persona/team/agent.
         | KIND_LUCA_EXCHANGE
+        | buzz_core::kind::KIND_LUCA_TASK_HISTORY
         | super::push_lease::KIND_PUSH_LEASE => {
             Ok(Scope::UsersWrite)
         }
@@ -467,6 +468,7 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
             // (pubkey, kind, d_tag). Residents read it by `#p`, never by room,
             // so a stray `h` tag must not channel-scope it.
             | KIND_LUCA_EXCHANGE
+            | buzz_core::kind::KIND_LUCA_TASK_HISTORY
             // NIP-34: git events use `a` tags (repo reference), not `h` tags (channel scope).
             // Parameterized replaceable kinds are keyed by (pubkey, kind, d_tag).
             | KIND_GIT_REPO_ANNOUNCEMENT
@@ -1973,6 +1975,9 @@ async fn ingest_event_inner(
             .await
             .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
     }
+    if kind_u32 == KIND_NIP29_REMOVE_USER {
+        super::task_history::checkpoint_source_removal(state, tenant, &event).await?;
+    }
 
     // Processed here (verify consent, mutate archived_identities, emit the
     // relay-signed 8002/8003 delta + 13535 snapshot), then — unlike the
@@ -2095,6 +2100,9 @@ async fn ingest_event_inner(
     // mint or re-sign the head, and a depth-2 record needs a real parent.
     if kind_u32 == KIND_LUCA_EXCHANGE {
         super::exchange::validate_exchange_record(state, tenant, &event).await?;
+    }
+    if kind_u32 == buzz_core::kind::KIND_LUCA_TASK_HISTORY {
+        super::task_history::validate_write(state, tenant, &event).await?;
     }
 
     // Luca exchange speech (R2/R3): a turn tag must name an open exchange the

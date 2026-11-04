@@ -1,13 +1,18 @@
 import * as React from "react";
 
-import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { useRoomExchangeHistory } from "@/features/exchange/exchangeStore";
 import { exchangeIdFromTags } from "@/features/exchange/exchangeTags";
-import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
+import {
+  exchangeStatusLabel,
+  exchangeTaskSubject,
+} from "@/features/exchange/sideConversations";
+import { parseImetaTags } from "@/features/messages/lib/parseImeta";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { Markdown } from "@/shared/ui/markdown";
+import { ExchangeIdentityMark } from "./ExchangeIdentityMark";
 
 type ExchangeHistoryProps = {
   channelId: string;
@@ -15,6 +20,7 @@ type ExchangeHistoryProps = {
   messages: TimelineMessage[];
   profiles?: UserProfileLookup;
   requestedExchangeId?: string | null;
+  onOpenTaskWindow?: (exchangeId: string) => void;
 };
 
 function createdAtSeconds(message: TimelineMessage): number {
@@ -46,8 +52,7 @@ function whenLabel(firstTurn: TimelineMessage | null, live: boolean): string {
 /**
  * "Between agents": every exchange that happened in this room, newest first —
  * the permanent record of what the residents said to each other here. Live
- * ones open with their turns; older ones collapse to a gist line. A member who
- * stepped in for the exchange wears `visiting`.
+ * ones open with their turns; older ones collapse to their task subject.
  */
 export function ExchangeHistory({
   channelId,
@@ -55,6 +60,7 @@ export function ExchangeHistory({
   messages,
   profiles,
   requestedExchangeId = null,
+  onOpenTaskWindow,
 }: ExchangeHistoryProps) {
   const entries = useRoomExchangeHistory(channelId);
   const [toggled, setToggled] = React.useState<Record<string, boolean>>({});
@@ -75,10 +81,8 @@ export function ExchangeHistory({
     return () => cancelAnimationFrame(frame);
   }, [requestedExchangeId]);
 
-  // Turns by exchange id, in order; visitors by exchange id.
-  const { turnsByExchange, visitorsByExchange } = React.useMemo(() => {
+  const turnsByExchange = React.useMemo(() => {
     const turns = new Map<string, TimelineMessage[]>();
-    const visitors = new Map<string, Set<string>>();
     for (const message of messages) {
       const exchangeId = exchangeIdFromTags(message.tags);
       if (exchangeId) {
@@ -86,17 +90,11 @@ export function ExchangeHistory({
         list.push(message);
         turns.set(exchangeId, list);
       }
-      const visit = parseVisitEvent(message);
-      if (visit?.type === "visit_arrived" && visit.exchangeId) {
-        const set = visitors.get(visit.exchangeId) ?? new Set<string>();
-        set.add(visit.resident);
-        visitors.set(visit.exchangeId, set);
-      }
     }
     for (const list of turns.values()) {
       list.sort((a, b) => createdAtSeconds(a) - createdAtSeconds(b));
     }
-    return { turnsByExchange: turns, visitorsByExchange: visitors };
+    return turns;
   }, [messages]);
 
   if (entries.length === 0) return null;
@@ -107,26 +105,28 @@ export function ExchangeHistory({
       data-testid="exchange-history"
     >
       {entries.map((entry) => {
-        const { record, spent, phase } = entry;
+        const { record, phase } = entry;
         const live = phase === "open" || phase === "paused";
         const turns = turnsByExchange.get(record.exchangeId) ?? [];
-        const visitors = visitorsByExchange.get(record.exchangeId);
-        const visiting =
-          !!visitors &&
-          record.members.some((member) =>
-            visitors.has(normalizePubkey(member)),
-          );
         const expanded = toggled[record.exchangeId] ?? live;
         const names = record.members.map((member) =>
           resolveUserLabel({ currentPubkey, profiles, pubkey: member }),
         );
         const first = turns[0] ?? null;
+        const root = messages.find(
+          (message) => message.id === record.rootEventId,
+        );
+        const taskMessages = root
+          ? [root, ...turns.filter((turn) => turn.id !== root.id)]
+          : turns;
+        const subject = exchangeTaskSubject(root?.body, names.join(" and "));
+        const markPubkey =
+          record.members.find((member) => member !== record.openedBy) ??
+          record.members[0];
         const meta = [
-          whenLabel(first, live),
-          live
-            ? `${spent} of ${record.bucket}`
-            : `${turns.length || spent} turns`,
-          visiting ? "visiting" : null,
+          whenLabel(first, phase === "open"),
+          names.join(" & "),
+          exchangeStatusLabel(phase),
         ]
           .filter(Boolean)
           .join(" · ");
@@ -151,60 +151,84 @@ export function ExchangeHistory({
                 }
                 type="button"
               >
-                {/* Stacked, not side by side: the pair is one column the
-                    width of a single mark, so the names and the turns keep
-                    the measure in a 360px drawer. */}
-                <span className="flex w-5 shrink-0 flex-col items-center gap-1">
-                  {record.members.map((member, index) => (
-                    <ResidentIdentityMark
-                      accessibleName={names[index] ?? member}
-                      decorative
-                      key={member}
-                      motion={live && visiting ? "ambient" : "still"}
-                      publicKey={member}
-                      size={20}
-                    />
-                  ))}
-                </span>
+                {markPubkey ? (
+                  <ExchangeIdentityMark
+                    name={resolveUserLabel({
+                      currentPubkey,
+                      profiles,
+                      pubkey: markPubkey,
+                    })}
+                    pubkey={markPubkey}
+                    avatarUrl={
+                      profiles?.[normalizePubkey(markPubkey)]?.avatarUrl
+                    }
+                  />
+                ) : null}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-foreground">
-                    {names.join(" · ")}
+                    {subject}
                   </span>
                   <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                     {meta}
                   </span>
-                  {!expanded && first ? (
-                    <span className="mt-1 block truncate text-xs text-ink-faint">
-                      {first.body}
-                    </span>
-                  ) : null}
                 </span>
               </button>
             </div>
-            {expanded && turns.length > 0 ? (
+            {onOpenTaskWindow && record.members.length === 2 ? (
+              <button
+                className="mt-1 pl-8 text-xs text-primary hover:underline focus-visible:underline"
+                onClick={() => onOpenTaskWindow(record.exchangeId)}
+                type="button"
+              >
+                Open task in new window
+              </button>
+            ) : null}
+            {expanded && taskMessages.length > 0 ? (
               <div className="mt-3 flex flex-col gap-2.5 pl-7">
-                {turns.map((turn) => (
+                {taskMessages.map((turn) => (
                   <div className="flex items-start gap-2" key={turn.id}>
                     {turn.pubkey ? (
-                      <ResidentIdentityMark
-                        accessibleName={turn.author}
-                        className="mt-0.5"
-                        decorative
-                        publicKey={turn.pubkey}
-                        size={20}
+                      <ExchangeIdentityMark
+                        name={resolveUserLabel({
+                          currentPubkey,
+                          profiles,
+                          pubkey: turn.pubkey,
+                        })}
+                        pubkey={turn.pubkey}
+                        avatarUrl={
+                          turn.avatarUrl ??
+                          profiles?.[normalizePubkey(turn.pubkey)]?.avatarUrl
+                        }
                       />
                     ) : null}
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <span className="block text-xs font-medium leading-4 text-foreground">
-                        {turn.author}
+                        {turn.pubkey
+                          ? resolveUserLabel({
+                              currentPubkey,
+                              profiles,
+                              pubkey: turn.pubkey,
+                            })
+                          : turn.author}
                       </span>
-                      <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs leading-[1.45] text-ink-muted">
-                        {turn.body}
-                      </span>
+                      <Markdown
+                        className="conversation-prose type-body mt-0.5 max-w-full break-words text-foreground"
+                        content={turn.body}
+                        imetaByUrl={
+                          turn.tags ? parseImetaTags(turn.tags) : undefined
+                        }
+                        progressive={Boolean(turn.managedPresentation)}
+                        streaming={turn.managedPresentation?.streaming ?? false}
+                      />
                     </div>
                   </div>
                 ))}
               </div>
+            ) : null}
+            {expanded && taskMessages.length === 0 ? (
+              <p className="mt-3 pl-8 text-xs text-muted-foreground">
+                No messages loaded for this task.
+              </p>
             ) : null}
           </div>
         );

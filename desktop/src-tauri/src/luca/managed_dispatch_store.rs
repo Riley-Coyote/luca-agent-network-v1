@@ -25,6 +25,15 @@ use tauri::AppHandle;
 
 use super::managed_dispatch_routing::routing_from_event;
 
+#[cfg(test)]
+#[path = "agent_inbox_binding_tests.rs"]
+mod agent_inbox_binding_tests;
+#[cfg(test)]
+#[path = "agent_inbox_child_tests.rs"]
+mod agent_inbox_child_tests;
+#[path = "agent_inbox_child_dispatch.rs"]
+mod inbox_child_dispatch;
+
 const STORE_SCHEMA_V1: &str = "luca.managed-dispatch-store.v1";
 const STORE_SCHEMA_V2: &str = "luca.managed-dispatch-store.v2";
 const STORE_SCHEMA_V3: &str = "luca.managed-dispatch-store.v3";
@@ -76,6 +85,19 @@ pub(crate) const WAKE_REPLAY_GRACE_SECS: u64 = 5;
 /// Public-only dispatch facts derived from one exact signed owner event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ActiveDispatch {
+    /// Additive native-validated logical task lineage, absent on legacy sends.
+    #[serde(default)]
+    pub inbox_task: Option<super::agent_inbox_binding::InboxTaskBinding>,
+    /// Persisted with the initial owner staging write. A crash before lineage
+    /// binding cannot turn a task-tagged trigger into an ordinary invocation.
+    #[serde(default)]
+    pub inbox_binding_required: bool,
+    #[serde(default)]
+    pub inbox_action: Option<super::agent_inbox_binding::InboxChildActionBinding>,
+    /// Exact accepted child-reply provenance for a non-activating owner status
+    /// final. This is not an additional exchange turn or task result receipt.
+    #[serde(default)]
+    pub inbox_owner_status: Option<super::agent_inbox_binding::InboxChildActionBinding>,
     pub trigger_event_id: String,
     pub owner_pubkey: String,
     pub resident_pubkey: String,
@@ -774,6 +796,7 @@ impl ManagedDispatchStore {
         session_epoch: u64,
         now_unix_secs: u64,
     ) -> Result<ContinuityDispatchAuthority, DispatchAuthorizationError> {
+        self.check_inbox_lineage_ready(trigger_event_id, resident_pubkey)?;
         let normalized_resident = resident_pubkey.to_ascii_lowercase();
         let row = self
             .dispatches
@@ -909,6 +932,7 @@ impl ManagedDispatchStore {
         session_epoch: u64,
         now_unix_secs: u64,
     ) -> Result<ActiveDispatch, DispatchAuthorizationError> {
+        self.check_inbox_lineage_ready(trigger_event_id, resident_pubkey)?;
         let normalized_resident = resident_pubkey.to_ascii_lowercase();
         let normalized_trigger = trigger_event_id.to_ascii_lowercase();
         let key = (normalized_trigger.clone(), normalized_resident.clone());
@@ -1269,6 +1293,15 @@ impl ManagedDispatchStore {
                 .map_err(|_| "managed resident pubkey is invalid".to_string())?;
             let key = (event.id.to_hex(), resident.clone());
             let candidate = ActiveDispatch {
+                inbox_task: None,
+                inbox_binding_required: event.tags.iter().any(|tag| {
+                    matches!(
+                        tag.as_slice().first().map(String::as_str),
+                        Some("luca-task-reply" | "luca-task-new")
+                    )
+                }),
+                inbox_action: None,
+                inbox_owner_status: None,
                 trigger_event_id: key.0.clone(),
                 owner_pubkey: event.pubkey.to_hex(),
                 resident_pubkey: resident.clone(),
@@ -1343,6 +1376,125 @@ impl ManagedDispatchStore {
         self.dispatches.contains_key(key)
     }
 
+    /// Body-free exact invocation state for acceptance/wake reconciliation.
+    pub(crate) fn owner_trigger_state(
+        &self,
+        trigger: &str,
+        resident: &str,
+    ) -> Option<ManagedDispatchState> {
+        self.dispatches
+            .get(&(trigger.to_owned(), resident.to_owned()))
+            .map(|row| row.state)
+    }
+
+    /// Freeze host-derived task lineage on the exact staged owner trigger.
+    pub(crate) fn bind_inbox_task(
+        &mut self,
+        event: &Event,
+        recipient: &str,
+        binding: super::agent_inbox_binding::InboxTaskBinding,
+    ) -> Result<(), String> {
+        let previous = self.dispatches.clone();
+        let dispatch = self
+            .dispatches
+            .get_mut(&(event.id.to_hex(), recipient.to_owned()))
+            .ok_or("inbox dispatch is not staged")?;
+        if binding.scope.owner_pubkey.as_str() != event.pubkey.to_hex()
+            || binding.origin_conversation_id.as_str() != dispatch.conversation_id
+            || binding.recipient_pubkey.as_str() != recipient
+            || dispatch.submitted_event_id.is_some()
+            || !binding.matches_owner_event(event)
+        {
+            return Err("inbox dispatch task lineage is invalid".into());
+        }
+        if let Some(existing) = &dispatch.inbox_task {
+            if existing != &binding {
+                return Err("inbox task lineage cannot be changed".into());
+            }
+            return Ok(());
+        }
+        dispatch.inbox_task = Some(binding);
+        if let Err(error) = self.persist() {
+            self.dispatches = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Read body-free task provenance for one exact managed invocation.
+    pub(crate) fn inbox_task_binding(
+        &self,
+        trigger: &str,
+        resident: &str,
+    ) -> Option<super::agent_inbox_binding::InboxTaskBinding> {
+        self.dispatches
+            .get(&(trigger.to_owned(), resident.to_owned()))?
+            .inbox_task
+            .clone()
+    }
+
+    /// Task Stop cancels only its mapped current invocations, never another
+    /// task sharing the same resident or source thread.
+    pub(crate) fn cancel_inbox_task(
+        &mut self,
+        owner: &str,
+        source: &str,
+        exchange: &Hex64,
+    ) -> Result<usize, String> {
+        let previous = self.dispatches.clone();
+        let mut count = 0;
+        for dispatch in self.dispatches.values_mut() {
+            if dispatch.owner_pubkey == owner
+                && dispatch.conversation_id == source
+                && dispatch.inbox_task.as_ref().is_some_and(|binding| {
+                    &binding.attempt_exchange_id == exchange || &binding.logical_task_id == exchange
+                })
+                && matches!(
+                    dispatch.state,
+                    ManagedDispatchState::Pending | ManagedDispatchState::Active
+                )
+            {
+                dispatch.state = ManagedDispatchState::Cancelled;
+                dispatch.interruption_reason = None;
+                dispatch.outbox_finalized = dispatch.session_epoch.is_none();
+                count += 1;
+            }
+        }
+        if count != 0 {
+            if let Err(error) = self.persist() {
+                self.dispatches = previous;
+                return Err(error);
+            }
+        }
+        Ok(count)
+    }
+
+    /// A cancelled or terminal owner trigger must never be revived by an
+    /// inbox retry. An absent trigger may be staged for its first publication.
+    pub(crate) fn owner_trigger_may_submit(
+        &self,
+        event_id: &str,
+        resident: &str,
+    ) -> Result<(), String> {
+        self.check_inbox_lineage_ready(event_id, resident)
+            .map_err(|_| {
+                "inbox dispatch lineage is not bound; refresh/reconcile this exact send"
+            })?;
+        if self
+            .dispatches
+            .get(&(event_id.to_owned(), resident.to_owned()))
+            .is_some_and(|row| {
+                !matches!(
+                    row.state,
+                    ManagedDispatchState::Pending | ManagedDispatchState::Active
+                )
+            })
+        {
+            return Err("inbox_dispatch_terminal: this exact reply was stopped or already handled; it will not be replayed".into());
+        }
+        Ok(())
+    }
+
     /// Stage a dispatch for a turn this store never saw coming — a resident
     /// woken by another resident's message inside an exchange, or an owner
     /// message published from another device.
@@ -1390,7 +1542,19 @@ impl ManagedDispatchStore {
             return Err("wake trigger does not address this resident".into());
         }
         let author_is_owner = author == owner_pubkey.to_ascii_lowercase();
+        if event.tags.iter().any(|tag| {
+            matches!(
+                tag.as_slice().first().map(String::as_str),
+                Some("luca-task-reply" | "luca-task-new")
+            )
+        }) {
+            return Err("inbox trigger needs its durable native task lineage; it cannot be recovered as an ordinary owner send".into());
+        }
         let candidate = ActiveDispatch {
+            inbox_task: None,
+            inbox_binding_required: false,
+            inbox_action: None,
+            inbox_owner_status: None,
             trigger_event_id: key.0.clone(),
             owner_pubkey: owner_pubkey.to_ascii_lowercase(),
             resident_pubkey: resident,
@@ -1659,6 +1823,7 @@ impl ManagedDispatchStore {
                 dispatch.interruption_reason = None;
                 // A frozen event may still need the encrypted-outbox handshake.
                 dispatch.outbox_finalized = !receipt.had_outbox_authority;
+                self.cancel_inbox_children(dispatch_receipt_id);
                 if self.persist().is_err() {
                     self.dispatches = previous;
                     return Err(DispatchAuthorizationError::Persistence);
@@ -1681,6 +1846,7 @@ impl ManagedDispatchStore {
                 dispatch.state = ManagedDispatchState::Cancelled;
                 dispatch.interruption_reason = None;
                 dispatch.outbox_finalized = true;
+                self.cancel_inbox_children(dispatch_receipt_id);
                 if self.persist().is_err() {
                     self.dispatches = previous;
                     return Err(DispatchAuthorizationError::Persistence);
@@ -1785,6 +1951,15 @@ impl ManagedDispatchStore {
         request: &ManagedMessagePublishRequestV1,
         now_unix_secs: u64,
     ) -> Result<ActiveDispatch, DispatchAuthorizationError> {
+        self.check_inbox_lineage_ready(
+            request.dispatch_receipt_id.as_str(),
+            request.resident_pubkey.as_str(),
+        )?;
+        self.check_inbox_child_parent(
+            request.dispatch_receipt_id.as_str(),
+            request.resident_pubkey.as_str(),
+            now_unix_secs,
+        )?;
         let key = (
             request.dispatch_receipt_id.as_str().to_owned(),
             request.resident_pubkey.as_str().to_owned(),
@@ -2147,6 +2322,15 @@ impl ManagedDispatchStore {
         event_id: &str,
         now_unix_secs: u64,
     ) -> Result<ManagedDispatchReconciliation, DispatchAuthorizationError> {
+        self.check_inbox_lineage_ready(
+            request.dispatch_receipt_id.as_str(),
+            request.resident_pubkey.as_str(),
+        )?;
+        self.check_inbox_child_parent(
+            request.dispatch_receipt_id.as_str(),
+            request.resident_pubkey.as_str(),
+            now_unix_secs,
+        )?;
         let dispatch = self
             .dispatches
             .get(&(
@@ -2317,6 +2501,17 @@ impl ManagedDispatchStore {
         dispatch.state = ManagedDispatchState::Published;
         dispatch.interruption_reason = None;
         dispatch.published_event_id = Some(event_id.to_owned());
+        if let Some(binding) = dispatch
+            .inbox_task
+            .as_mut()
+            .filter(|_| dispatch.inbox_owner_status.is_none())
+        {
+            binding.result_event_id =
+                Some(Hex64::parse(event_id).map_err(|_| "inbox result id is invalid")?);
+            // The result's existing canonical source publication is its
+            // return, not another copied message or companion invocation.
+            binding.return_acknowledged = true;
+        }
         dispatch.outbox_finalized = false;
         if let Err(error) = self.persist() {
             self.dispatches = previous;
@@ -2440,6 +2635,24 @@ impl ManagedDispatchStore {
             .dispatches
             .iter()
             .filter(|(_, row)| {
+                // An active parent still owes its single ordinary final. Keep
+                // its bounded child receipts so final mention suppression and
+                // the four-action allowance cannot evaporate under pressure.
+                if row.inbox_action.as_ref().is_some_and(|action| {
+                    self.dispatches
+                        .get(&(
+                            action.parent_dispatch_id.as_str().to_owned(),
+                            row.resident_pubkey.clone(),
+                        ))
+                        .is_some_and(|parent| {
+                            matches!(
+                                parent.state,
+                                ManagedDispatchState::Pending | ManagedDispatchState::Active
+                            )
+                        })
+                }) {
+                    return false;
+                }
                 (matches!(
                     row.state,
                     ManagedDispatchState::Cancelled

@@ -169,6 +169,8 @@ impl ClientMessage {
                     )));
                 }
                 let filter_values = &arr[2..];
+                crate::handlers::task_history::reject_unsupported(filter_values)
+                    .map_err(|error| RelayError::InvalidMessage(error.into()))?;
                 // Enforce NIP-11 advertised max_filters: 10
                 if filter_values.len() > MAX_FILTERS_PER_REQ {
                     return Err(RelayError::InvalidMessage(format!(
@@ -216,6 +218,8 @@ impl ClientMessage {
                     )));
                 }
                 let filter_values = &arr[2..];
+                crate::handlers::task_history::reject_unsupported(filter_values)
+                    .map_err(|error| RelayError::InvalidMessage(error.into()))?;
                 if filter_values.len() > MAX_FILTERS_PER_REQ {
                     return Err(RelayError::InvalidMessage(format!(
                         "COUNT contains {} filters, maximum is {MAX_FILTERS_PER_REQ}",

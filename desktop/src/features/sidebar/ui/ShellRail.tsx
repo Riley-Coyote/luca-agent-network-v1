@@ -588,6 +588,10 @@ export function ShellRail({
     useAppNavigation();
   const newAppConversation = useNewAppConversation();
   const openSide = (side: RailSideRow) => {
+    if (side.correspondenceId && side.taskIds?.[0]) {
+      void openTaskWindow(side.taskIds[0]);
+      return;
+    }
     const [kind, ...rest] = side.id.split(":");
     // A task opens as the work, live or finished, under its app (WP-35).
     if (kind === "task") {
@@ -1409,3 +1413,4 @@ function HomeRow({
     </div>
   );
 }
+import { openTaskWindow } from "@/features/exchange/openTaskWindow";

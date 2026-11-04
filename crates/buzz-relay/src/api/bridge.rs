@@ -1162,6 +1162,21 @@ async fn query_events_authed(
     // depth_limit, feed_types) that nostr::Filter silently drops.
     let raw_filters: Vec<Value> = serde_json::from_slice(body)
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, &format!("invalid filters: {e}")))?;
+    if crate::handlers::task_history::reject_unsupported(&raw_filters).is_err() {
+        if raw_filters.len() != 1 {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "task history requires one exact filter",
+            ));
+        }
+        let events = crate::handlers::task_history::query(state, tenant, &pubkey, &raw_filters[0])
+            .await
+            .map_err(|error| api_error(StatusCode::FORBIDDEN, &error))?;
+        return Ok(Json(serde_json::json!({
+            "protocol": luca_protocol::TASK_HISTORY_PROTOCOL,
+            "events": events,
+        })));
+    }
     let filters: Vec<nostr::Filter> = raw_filters
         .iter()
         .map(|v| serde_json::from_value(v.clone()))
@@ -1629,6 +1644,8 @@ async fn count_events_authed(
     // raw JSON and carried beside the parsed filters.
     let raw_filters: Vec<Value> = serde_json::from_slice(body)
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, &format!("invalid filters: {e}")))?;
+    crate::handlers::task_history::reject_unsupported(&raw_filters)
+        .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
     let filters: Vec<nostr::Filter> = raw_filters
         .iter()
         .map(|v| serde_json::from_value(v.clone()))

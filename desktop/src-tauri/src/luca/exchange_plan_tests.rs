@@ -80,6 +80,9 @@ impl FakeExchangeRelay {
 }
 
 impl ExchangeRelay for FakeExchangeRelay {
+    fn inbox_scope_is_current(&self, _scope: &crate::luca::agent_inbox::InboxScope) -> bool {
+        true
+    }
     fn fetch_trigger(&self, event_id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError> {
         Ok(self
             .triggers
@@ -264,6 +267,8 @@ impl ExchangeRelay for FakeExchangeRelay {
     }
 }
 
+#[path = "exchange_plan_tests/child_actions.rs"]
+mod child_actions;
 #[path = "exchange_plan_tests/multiword_mentions.rs"]
 mod multiword_mentions;
 

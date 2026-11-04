@@ -61,6 +61,8 @@ export function popoutRenderReadyEvent(label: string): string {
 type PopoutMode = {
   channelId: string | null;
   isPopout: boolean;
+  correspondenceId?: string | null;
+  taskId?: string | null;
 };
 
 const NOT_A_POPOUT: PopoutMode = { channelId: null, isPopout: false };
@@ -82,6 +84,8 @@ function readPopoutMode(): PopoutMode {
       mode = {
         channelId: params.get(POPOUT_CHANNEL_PARAM) || null,
         isPopout: true,
+        correspondenceId: params.get("correspondence"),
+        taskId: params.get("task"),
       };
     }
   } catch {
@@ -107,4 +111,15 @@ export function isPopoutWindow(): boolean {
  */
 export function popoutChannelId(): string | null {
   return readPopoutMode().channelId;
+}
+
+/** Passive task target. Native authorization is still required for every read. */
+export function popoutCorrespondence(): {
+  correspondenceId: string;
+  taskId: string | null;
+} | null {
+  const mode = readPopoutMode();
+  return mode.correspondenceId
+    ? { correspondenceId: mode.correspondenceId, taskId: mode.taskId ?? null }
+    : null;
 }

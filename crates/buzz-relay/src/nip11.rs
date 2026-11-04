@@ -23,6 +23,12 @@ pub(crate) const NIP_RELAY_MEMBERSHIP: u32 = 43;
 /// Relay information document served at `GET /` with `Accept: application/nostr+json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayInfo {
+    /// Stable host-resolved tenant identity; never selected by client input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub community_id: Option<String>,
+    /// Exact task-only replay API version. Unsupported read surfaces fail closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_history: Option<String>,
     /// Human-readable relay name.
     pub name: String,
     /// Human-readable relay description.
@@ -151,6 +157,8 @@ impl RelayInfo {
         }
 
         Self {
+            community_id: None,
+            task_history: Some("luca.task-history-grant.v1".into()),
             name: "Polyphonic relay".to_string(),
             description: "The relay inside Polyphonic".to_string(),
             icon: icon.filter(|s| !s.is_empty()).map(|s| s.to_string()),
@@ -242,6 +250,10 @@ pub(crate) async fn nip11_document(state: &crate::state::AppState, raw_host: &st
         state.config.max_frame_bytes,
         state.config.pairing_relay_url.as_deref(),
     );
+    info.community_id = crate::tenant::bind_community(&state.db, raw_host)
+        .await
+        .ok()
+        .map(|tenant| tenant.community().to_string());
     let tenant_host = if state.config.push_gateway_delivery_url.is_some() {
         crate::tenant::bind_community(&state.db, raw_host)
             .await

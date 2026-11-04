@@ -36,6 +36,8 @@ pub mod report;
 pub mod req;
 /// NIP-29 and NIP-25 side-effect handlers.
 pub mod side_effects;
+/// Explicit task-only historical replay and durable revocation.
+pub mod task_history;
 
 /// Extract an optional TTL (in seconds) from a Nostr event's `ttl` tag,
 /// applying the server-side override when configured.

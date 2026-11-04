@@ -1425,6 +1425,12 @@ pub fn run() {
             luca::resident_registry::create_luca_resident,
             luca::exchange::resolve_exchange,
             luca::exchange::get_exchange,
+            luca::agent_inbox::query_agent_inbox,
+            luca::agent_inbox::read_agent_inbox_task,
+            luca::agent_inbox_reads::mark_agent_inbox_task_read,
+            luca::agent_inbox_reads::get_agent_inbox_read_positions,
+            luca::agent_inbox_send::send_agent_inbox_reply,
+            luca::agent_inbox_send::send_agent_inbox_message,
             luca::operator_forge::get_operator_forge_settings,
             managed_agents::native_runtime_selection::get_hermes_runtime_selection,
             managed_agents::native_runtime_selection::choose_hermes_runtime_selection,
@@ -1551,6 +1557,8 @@ pub fn run() {
             is_auto_update_supported,
             set_window_vibrancy,
             open_channel_popout,
+            open_correspondence_popout,
+            open_chat_view,
             first_run::is_first_run,
         ])
         .build(context)

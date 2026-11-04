@@ -27,6 +27,7 @@ import { residentDrawerPresentation } from "@/features/channels/ui/residentDrawe
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { useRoomExchangeHistory } from "@/features/exchange/exchangeStore";
 import { ExchangeHistory } from "@/features/exchange/ui/ExchangeHistory";
+import { openTaskWindow } from "@/features/exchange/openTaskWindow";
 import { openVisitors } from "@/features/messages/lib/visitSpans";
 import { useManagedPresentationActivity } from "@/features/messages/managedPresentationHooks";
 import { useConversationActivityTraces } from "@/features/messages/activity/useActivityTrace";
@@ -584,6 +585,7 @@ export function ConversationContextPanel({
                   <SectionCount>{exchangeHistory.length}</SectionCount>
                 </div>
                 <ExchangeHistory
+                  onOpenTaskWindow={openTaskWindow}
                   channelId={channel.id}
                   currentPubkey={currentPubkey}
                   messages={messages}

@@ -123,7 +123,11 @@ pub(super) fn prepare(
         RepositoryToolOperationV1::OperatorStatus
         | RepositoryToolOperationV1::OperatorOpenSurface
         | RepositoryToolOperationV1::ConfigureCompanion
-        | RepositoryToolOperationV1::ReadConversationImage => {
+        | RepositoryToolOperationV1::ReadConversationImage
+        | RepositoryToolOperationV1::ReadAgentInbox
+        | RepositoryToolOperationV1::ReadAgentInboxTask
+        | RepositoryToolOperationV1::SendAgentInboxMessage
+        | RepositoryToolOperationV1::ReplyAgentInboxTask => {
             Err("operator status is handled by the broker".into())
         }
         RepositoryToolOperationV1::ProposeRepositoryConnection => {
@@ -228,7 +232,11 @@ pub(super) fn execute(
         RepositoryToolOperationV1::OperatorStatus
         | RepositoryToolOperationV1::OperatorOpenSurface
         | RepositoryToolOperationV1::ConfigureCompanion
-        | RepositoryToolOperationV1::ReadConversationImage => {
+        | RepositoryToolOperationV1::ReadConversationImage
+        | RepositoryToolOperationV1::ReadAgentInbox
+        | RepositoryToolOperationV1::ReadAgentInboxTask
+        | RepositoryToolOperationV1::SendAgentInboxMessage
+        | RepositoryToolOperationV1::ReplyAgentInboxTask => {
             Err("operator status is handled by the broker".into())
         }
         RepositoryToolOperationV1::ProposeRepositoryConnection => {

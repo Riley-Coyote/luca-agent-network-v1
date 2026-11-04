@@ -341,6 +341,19 @@ pub async fn add_member(
     role: MemberRole,
     invited_by: Option<&[u8]>,
 ) -> Result<MemberRecord> {
+    add_member_with_task_history(pool, community_id, channel_id, pubkey, role, invited_by, None).await
+}
+
+/// Resume a visit only while its previous task entitlement remains unrevoked.
+pub async fn add_member_with_task_history(
+    pool: &PgPool,
+    community_id: CommunityId,
+    channel_id: Uuid,
+    pubkey: &[u8],
+    role: MemberRole,
+    invited_by: Option<&[u8]>,
+    previous_exchange: Option<&str>,
+) -> Result<MemberRecord> {
     if pubkey.len() != 32 {
         return Err(DbError::InvalidData(format!(
             "pubkey must be 32 bytes, got {}",
@@ -349,6 +362,15 @@ pub async fn add_member(
     }
 
     let mut tx = pool.begin().await?;
+
+    if let Some(exchange) = previous_exchange {
+        sqlx::query("SELECT id FROM channels WHERE community_id=$1 AND id=$2 FOR UPDATE")
+            .bind(community_id.as_uuid()).bind(channel_id).fetch_optional(&mut *tx).await?;
+        let owner = invited_by.ok_or_else(|| DbError::AccessDenied("task visit requires owner".into()))?;
+        let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM task_history_authority t WHERE t.community_id=$1 AND t.channel_id=$2 AND t.owner=$3 AND t.reader=$4 AND t.exchange_id=$5 AND t.revoked=FALSE AND NOT EXISTS(SELECT 1 FROM task_history_source_revocations r WHERE r.community_id=t.community_id AND r.channel_id=t.channel_id AND (r.reader=t.owner OR r.reader=t.reader)))")
+            .bind(community_id.as_uuid()).bind(channel_id).bind(owner).bind(pubkey).bind(exchange).fetch_one(&mut *tx).await?;
+        if !allowed { return Err(DbError::AccessDenied("task visit authority revoked or missing".into())); }
+    }
 
     let channel = get_channel_tx(&mut tx, community_id, channel_id).await?;
 
@@ -453,7 +475,34 @@ pub async fn remove_member(
     pubkey: &[u8],
     actor_pubkey: &[u8],
 ) -> Result<()> {
+    remove_member_with_task_history(pool, community_id, channel_id, pubkey, actor_pubkey, None)
+        .await
+}
+
+/// Membership cleanup and durable history revocation share one transaction.
+pub async fn remove_member_with_task_history(
+    pool: &PgPool,
+    community_id: CommunityId,
+    channel_id: Uuid,
+    pubkey: &[u8],
+    actor_pubkey: &[u8],
+    automatic_exchange: Option<&str>,
+) -> Result<()> {
     let mut tx = pool.begin().await?;
+    sqlx::query("SELECT id FROM channels WHERE community_id=$1 AND id=$2 FOR UPDATE")
+        .bind(community_id.as_uuid())
+        .bind(channel_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if let Some(exchange) = automatic_exchange {
+        let grant: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM task_history_authority WHERE community_id=$1 AND owner=$2 AND exchange_id=$3 AND channel_id=$4 AND reader=$5 AND revoked=FALSE)")
+            .bind(community_id.as_uuid()).bind(actor_pubkey).bind(exchange).bind(channel_id).bind(pubkey).fetch_one(&mut *tx).await?;
+        if !grant {
+            return Err(DbError::AccessDenied(
+                "automatic visit departure requires active task history authority".into(),
+            ));
+        }
+    }
 
     let is_self_remove = pubkey == actor_pubkey;
     if !is_self_remove {
@@ -509,10 +558,22 @@ pub async fn remove_member(
     .execute(&mut *tx)
     .await?;
 
-    if result.rows_affected() == 0 {
+    let mut revoked = 0;
+    if automatic_exchange.is_none() {
+        sqlx::query(
+            "INSERT INTO task_history_source_revocations VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
+        )
+        .bind(community_id.as_uuid())
+        .bind(channel_id)
+        .bind(pubkey)
+        .execute(&mut *tx)
+        .await?;
+        revoked = sqlx::query("UPDATE task_history_authority SET revoked=TRUE WHERE community_id=$1 AND channel_id=$2 AND (reader=$3 OR owner=$3)")
+            .bind(community_id.as_uuid()).bind(channel_id).bind(pubkey).execute(&mut *tx).await?.rows_affected();
+    }
+    if result.rows_affected() == 0 && revoked == 0 {
         return Err(DbError::MemberNotFound(channel_id));
     }
-
     tx.commit().await?;
     Ok(())
 }
