@@ -191,6 +191,21 @@ async function selectStoppedTask(page: Page) {
   await page.getByLabel("Reply recipient").selectOption(ANIMA);
 }
 
+test("mock contract: canonical subjects distinguish tasks before selection", async ({
+  page,
+}) => {
+  await open(page, "light", 0, false, (data) => {
+    Object.assign(data.pages[0].tasks[1] as object, {
+      subject: "Review the deployment plan",
+    });
+  });
+  await expect(
+    page
+      .getByRole("navigation", { name: "Tasks" })
+      .getByRole("button", { name: /Review the deployment plan/ }),
+  ).toBeVisible();
+});
+
 test("mock contract: continuing stopped work requires consent and keeps logical task across a new attempt", async ({
   page,
 }) => {

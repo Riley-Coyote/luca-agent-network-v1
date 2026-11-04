@@ -593,9 +593,7 @@ export function CorrespondenceWindow({
             {tasks.map((item) => (
               <button
                 aria-current={
-                  selectedTaskId === inboxLogicalTaskId(item)
-                    ? "true"
-                    : undefined
+                  taskId === inboxLogicalTaskId(item) ? "true" : undefined
                 }
                 className="shrink-0 rounded-md px-2 py-2 text-left hover:bg-plate focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary aria-[current=true]:bg-plate"
                 key={inboxLogicalTaskId(item)}
@@ -613,7 +611,14 @@ export function CorrespondenceWindow({
                 <span className="block truncate text-sm">
                   {inboxLogicalTaskId(item) === taskId
                     ? subject
-                    : `Conversation with ${nameOf(item.record.members.find((key) => key !== item.record.openedBy) ?? item.record.openedBy)}`}
+                    : exchangeTaskSubject(
+                        item.subject,
+                        nameOf(
+                          item.record.members.find(
+                            (key) => key !== item.record.openedBy,
+                          ) ?? item.record.openedBy,
+                        ),
+                      )}
                 </span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
                   {exchangeStatusLabel(taskState(item))} ·{" "}

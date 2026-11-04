@@ -20,6 +20,7 @@ export type AgentInboxQuery = {
   limit?: number;
 };
 export type AgentInboxTask = {
+  subject?: string | null;
   logicalTaskId?: string;
   correspondenceId: string | null;
   record: ExchangeRecord;
@@ -38,6 +39,8 @@ export type AgentInboxPage = {
   partial: boolean;
 };
 export type AgentInboxTaskRead = {
+  /** Host-verified continuation lineage, not caller-selected aliases. */
+  attemptIds?: string[];
   logicalTaskId?: string;
   currentAttemptId?: string;
   logicalRootEventId?: string;

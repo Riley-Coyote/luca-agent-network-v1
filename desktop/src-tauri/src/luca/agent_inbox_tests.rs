@@ -91,3 +91,67 @@ fn one_thousand_durable_task_refs_do_not_depend_on_head_cache() {
     }
     assert_eq!(tasks.len(), 1000);
 }
+
+#[test]
+fn resident_reads_do_not_present_owner_controls_as_tool_authority() {
+    let controls = serde_json::json!({"reply": false, "continuation": false, "newMessage": false});
+    let mut value = serde_json::json!({
+        "scope": {"ownerPubkey":"owner"},
+        "writeCapabilities": controls,
+        "task": {"writeCapabilities": controls, "historyAccess":"task_history"},
+        "tasks": [{"writeCapabilities":controls}],
+        "events": [{"content":"untouched"}]
+    });
+    let original = value.clone();
+    label_owner_controls_for_resident(&mut value);
+    assert!(value.get("writeCapabilities").is_none());
+    assert!(value["task"].get("writeCapabilities").is_none());
+    assert!(value["tasks"][0].get("writeCapabilities").is_none());
+    assert_eq!(value["ownerWriteCapabilities"], controls);
+    assert_eq!(value["task"]["ownerWriteCapabilities"], controls);
+    assert_eq!(value["tasks"][0]["ownerWriteCapabilities"], controls);
+    assert_eq!(value["scope"], original["scope"]);
+    assert_eq!(value["events"], original["events"]);
+    assert_eq!(value["task"]["historyAccess"], "task_history");
+    assert!(value["residentReplyAuthority"]
+        .as_str()
+        .unwrap()
+        .contains("host revalidates"));
+}
+
+#[test]
+fn inbox_subject_requires_exact_signed_root_and_source() {
+    let keys = nostr::Keys::generate();
+    let event = nostr::EventBuilder::new(nostr::Kind::from(9), "C: Summer\nUnrelated detail")
+        .tags([nostr::Tag::parse(["h", "source-room"]).unwrap()])
+        .sign_with_keys(&keys)
+        .unwrap();
+    let mut record = record();
+    record.owner = Hex64::parse(keys.public_key().to_hex()).unwrap();
+    let mut task = InboxTask {
+        subject: None,
+        logical_task_id: record.exchange_id.clone(),
+        current_attempt_id: record.exchange_id.clone(),
+        logical_root_event_id: Hex64::parse(event.id.to_hex()).unwrap(),
+        write_capabilities: InboxWriteCapabilities {
+            reply: false,
+            continuation: false,
+            new_message: false,
+        },
+        history_access: "current_source",
+        correspondence_id: None,
+        record,
+        record_event_id: key('f'),
+        record_updated_at: 100,
+        outcome: "unknown",
+    };
+    assert_eq!(
+        inbox_root_subject(&task, &event).as_deref(),
+        Some("C: Summer")
+    );
+    task.record.conversation_id = luca_protocol::OpaqueId::parse("another-room").unwrap();
+    assert_eq!(inbox_root_subject(&task, &event), None);
+    task.record.conversation_id = luca_protocol::OpaqueId::parse("source-room").unwrap();
+    task.logical_root_event_id = key('f');
+    assert_eq!(inbox_root_subject(&task, &event), None);
+}

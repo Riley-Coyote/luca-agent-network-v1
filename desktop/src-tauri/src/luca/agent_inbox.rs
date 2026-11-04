@@ -12,6 +12,33 @@ use super::exchange_relay::{verified_exchange_head, AppExchangeRelay, ExchangeRe
 
 const MAX_PAGE: usize = 100;
 
+/// Owner composer affordances are not a resident tool's authorization result.
+/// Keep the distinction explicit without promising a write will be permitted.
+pub(super) fn label_owner_controls_for_resident(value: &mut serde_json::Value) {
+    fn label(value: &mut serde_json::Value) {
+        if let Some(object) = value.as_object_mut() {
+            if let Some(controls) = object.remove("writeCapabilities") {
+                object.insert("ownerWriteCapabilities".into(), controls);
+            }
+        }
+    }
+    label(value);
+    if let Some(task) = value.get_mut("task") {
+        label(task);
+    }
+    if let Some(tasks) = value
+        .get_mut("tasks")
+        .and_then(|tasks| tasks.as_array_mut())
+    {
+        for task in tasks {
+            label(task);
+        }
+    }
+    value["residentReplyAuthority"] = serde_json::json!(
+        "ownerWriteCapabilities describes the owner's window controls, not your tools. Use the advertised reply_agent_inbox_task for the exact incoming task when appropriate; the host revalidates your current task, recipient, permissions and Stop state. A read is not permission to resume closed work."
+    );
+}
+
 /// Stable scope resolved by the relay from the request host, not a URL hash.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -44,6 +71,8 @@ pub(crate) struct InboxQuery {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InboxTask {
+    /// Bounded title from the canonical root, never a copied transcript.
+    pub subject: Option<String>,
     pub logical_task_id: Hex64,
     pub current_attempt_id: Hex64,
     pub logical_root_event_id: Hex64,
@@ -296,6 +325,7 @@ pub(crate) async fn query_for_actor(
             continue;
         };
         tasks.push(InboxTask {
+            subject: None,
             logical_task_id: record.exchange_id.clone(),
             current_attempt_id: record.exchange_id.clone(),
             logical_root_event_id: record.root_event_id.clone(),
@@ -353,6 +383,32 @@ pub(crate) async fn query_for_actor(
     }
     let mut tasks = retained;
     super::agent_inbox_lineage::project_tasks(app, &scope, &mut tasks).await?;
+    // One bounded query for the visible owner page, not one transcript fetch per
+    // row. Resident reads still use their existing task-only history authority.
+    if actor == scope.owner_pubkey {
+        let ids: Vec<_> = tasks
+            .iter()
+            .filter(|task| task.history_access == "current_source")
+            .map(|task| task.logical_root_event_id.as_str())
+            .collect();
+        if !ids.is_empty() {
+            let roots = crate::relay::query_relay(
+                &state,
+                &[serde_json::json!({
+                    "ids": ids, "kinds": [9], "limit": MAX_PAGE
+                })],
+            )
+            .await?;
+            for task in &mut tasks {
+                if task.history_access != "current_source" {
+                    continue;
+                }
+                task.subject = roots
+                    .iter()
+                    .find_map(|event| inbox_root_subject(task, event));
+            }
+        }
+    }
     actor_check(app, &actor, &scope).await?;
     if active_scope(app).await? != scope {
         return Err("inbox workspace changed during read".into());
@@ -366,6 +422,33 @@ pub(crate) async fn query_for_actor(
         partial: unavailable_source_count != 0,
         unavailable_source_count,
     })
+}
+
+fn inbox_root_subject(task: &InboxTask, event: &nostr::Event) -> Option<String> {
+    if event.id.to_hex() != task.logical_root_event_id.as_str()
+        || event.kind.as_u16() != 9
+        || event.verify().is_err()
+        || !source_matches(event, task.record.conversation_id.as_str())
+        || !(event.pubkey.to_hex() == task.record.owner.as_str()
+            || task
+                .record
+                .members
+                .iter()
+                .any(|member| member.as_str() == event.pubkey.to_hex()))
+    {
+        return None;
+    }
+    event
+        .content
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| {
+            line.chars()
+                .filter(|character| !character.is_control())
+                .take(256)
+                .collect()
+        })
 }
 
 /// Owner-facing passive query. The actor comes from native signing identity.

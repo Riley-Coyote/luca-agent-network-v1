@@ -93,7 +93,8 @@ export function validateCorrespondenceRead(
     read.scope.ownerPubkey !== ownerPubkey ||
     read.task.record.owner !== ownerPubkey ||
     read.task.correspondenceId !== correspondenceId ||
-    (read.logicalTaskId ?? inboxLogicalTaskId(read.task)) !== taskId ||
+    ((read.logicalTaskId ?? inboxLogicalTaskId(read.task)) !== taskId &&
+      !read.attemptIds?.includes(taskId)) ||
     (read.logicalTaskId &&
       read.task.logicalTaskId &&
       read.logicalTaskId !== read.task.logicalTaskId) ||

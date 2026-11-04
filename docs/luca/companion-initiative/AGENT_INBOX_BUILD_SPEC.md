@@ -108,6 +108,26 @@ remain unavailable rather than broadening membership.
 
 ### Native walkthrough findings — not a release clearance
 
+- Follow-up candidate `4d3cda8ff` passed the native parallel-send retry: C: Summer
+  and D: Winter were delivered 25 seconds apart, before either result arrived.
+  Each received the correct distinct Anima answer and Luca returned both results
+  to the original home conversation. No project or channel was created.
+- C's reply appeared in its already-open native task window without Refresh.
+  Anima exercised both the task read tool and scoped reply tool; D used the normal
+  signed final path. The misleading owner-only write flags in the resident read
+  response are now relabeled without changing authorization.
+- The live window exposed two remaining presentation/routing defects: unopened
+  tasks lacked canonical subjects, and a rail link to a continuation attempt was
+  rejected by logical-task validation. Both have focused fixes/tests; rebuilt
+  native confirmation is still pending.
+- Final focused checks: 29 native inbox tests, 10 correspondence view tests,
+  changed-file Biome, typecheck/build:e2e and the canonical-subject browser test
+  pass. The final native candidate is being rebuilt from these scoped fixes.
+- Latest browser evidence before those final fixes: 36/36 passing, typecheck and
+  build passing. A 1,000-task fixture (50 rows per page) showed click-handler p95
+  3.0 ms, input-handler p95 4.3 ms, and no observed >50 ms long tasks. This is a
+  browser-only candidate sample, not a baseline comparison or native benchmark.
+
 - The unsigned candidate at `6aee43288` reopened the existing isolated profile.
   Opening and closing its pair window left channel/event/exchange counts unchanged
   (3/178/7 before synthetic sends). Seven historical exchanges grouped into one

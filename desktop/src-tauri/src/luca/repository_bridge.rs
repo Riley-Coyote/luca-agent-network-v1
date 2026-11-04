@@ -418,7 +418,7 @@ fn handle_frame(
                 app, context.resident_pubkey.clone(), args.exchange_id, args.cursor,
             ))?.to_string()
         };
-        let returned: serde_json::Value = serde_json::from_str(&content)
+        let mut returned: serde_json::Value = serde_json::from_str(&content)
             .map_err(|_| "inbox response is invalid")?;
         let returned_scope: super::agent_inbox::InboxScope = serde_json::from_value(returned["scope"].clone())
             .map_err(|_| "inbox response scope is invalid")?;
@@ -428,7 +428,8 @@ fn handle_frame(
             || tauri::async_runtime::block_on(super::agent_inbox::active_scope(app))? != scope {
             return Err("inbox resident session ended during read".into());
         }
-        return Ok(RepositoryBrokerResponseV1 { protocol: BROKER_PROTOCOL, ok: true, content, receipt: None });
+        super::agent_inbox::label_owner_controls_for_resident(&mut returned);
+        return Ok(RepositoryBrokerResponseV1 { protocol: BROKER_PROTOCOL, ok: true, content: returned.to_string(), receipt: None });
     }
     if matches!(frame.operation, RepositoryToolOperationV1::ConfigureCompanion | RepositoryToolOperationV1::ReadConversationImage) {
         let mut probe = caller.try_clone().map_err(|_| "Companion caller unavailable.")?;

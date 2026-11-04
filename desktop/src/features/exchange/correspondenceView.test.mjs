@@ -274,6 +274,49 @@ test("host-verified lineage keeps logical focus while requiring the exact curren
     /no longer belongs/,
   );
   const prior = { ...task("attempt-1", 10), logicalTaskId: "logical-task" };
+  const withLineage = { ...read, attemptIds: ["attempt-1", "attempt-2"] };
+  assert.equal(
+    validateCorrespondenceRead(
+      withLineage,
+      "pair-a",
+      "attempt-2",
+      "owner-a",
+      scope,
+    ),
+    withLineage,
+  );
+  assert.equal(
+    validateCorrespondenceRead(
+      withLineage,
+      "pair-a",
+      "attempt-1",
+      "owner-a",
+      scope,
+    ),
+    withLineage,
+  );
+  assert.throws(
+    () =>
+      validateCorrespondenceRead(
+        withLineage,
+        "pair-a",
+        "unrelated",
+        "owner-a",
+        scope,
+      ),
+    /no longer belongs/,
+  );
+  assert.throws(
+    () =>
+      validateCorrespondenceRead(
+        withLineage,
+        "other-pair",
+        "attempt-2",
+        "owner-a",
+        scope,
+      ),
+    /no longer belongs/,
+  );
   assert.deepEqual(
     correspondenceTasks([page([prior, current])], "pair-a", "owner-a", read),
     [current],
