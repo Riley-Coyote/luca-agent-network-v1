@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { OPEN_TASK_CHAT } from "@/features/exchange/openTaskWindow";
 import { validateCorrespondenceRead } from "@/features/exchange/correspondenceView";
@@ -49,9 +50,20 @@ export function TaskChatPane() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     if (isTauri())
-      void listen<string>(OPEN_TASK_CHAT, ({ payload }) =>
-        open(new CustomEvent(OPEN_TASK_CHAT, { detail: payload })),
-      )
+      void listen<string>(OPEN_TASK_CHAT, ({ payload }) => {
+        open(new CustomEvent(OPEN_TASK_CHAT, { detail: payload }));
+        // The main window already owns these capabilities; detached windows don't.
+        const main = getCurrentWindow();
+        void main
+          .unminimize()
+          .then(() => main.setFocus())
+          .catch((error) =>
+            console.warn(
+              "Task is open; main window could not be focused",
+              error,
+            ),
+          );
+      })
         .then((cleanup) => {
           if (disposed) cleanup();
           else unlisten = cleanup;

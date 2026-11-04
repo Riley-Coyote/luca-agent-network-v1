@@ -1,6 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
-import { getCurrentWindow, Window } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 
 export const OPEN_TASK_CHAT = "polyphonic:open-task-chat";
@@ -10,9 +10,6 @@ export async function openTaskWindow(exchangeId: string): Promise<void> {
   if (isTauri() && getCurrentWindow().label !== "main") {
     try {
       await emitTo("main", OPEN_TASK_CHAT, exchangeId);
-      const main = await Window.getByLabel("main");
-      await main?.unminimize();
-      await main?.setFocus();
     } catch (error) {
       toast.error("Couldn’t open the task in the main window", {
         description: String(error),
