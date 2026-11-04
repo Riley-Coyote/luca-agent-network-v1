@@ -2,7 +2,7 @@
 
 Date: 2026-11-04
 
-Status: implementation in progress. This is not a release-readiness declaration.
+Status: implementation candidate prepared for local walkthrough. This is not a release-readiness declaration.
 See the execution record below for verified checks and remaining gates.
 
 Baseline inspected: `claude/native-rail-glass` at `cb23d847a`, clean before this
@@ -55,7 +55,7 @@ Automatic visit completion is not explicit revocation. Unknown legacy removal
 is not guessed to be consent. Until this capability is verified, affected reads
 remain unavailable rather than broadening membership.
 
-### Evidence so far (not complete stage acceptance)
+### Earlier integration evidence (superseded by native walkthrough findings below)
 
 - Focused projection, naming, task isolation and retry-key unit checks pass.
 - TypeScript and the current E2E bundle have passed during integration; rerun
@@ -68,13 +68,13 @@ remain unavailable rather than broadening membership.
   child publication slots, parent cancellation, continuation authority, fixed
   recipient activation and a pending-task clarification target. Durable accepted
   receipt recovery, cache-pressure retention, indexed continuation roots and
-  exact-actor Stop isolation now pass their focused regressions. No live native inbox
-  end-to-end success is claimed yet.
+  exact-actor Stop isolation now pass their focused regressions. Live native
+  results are recorded below separately.
 - A synthetic HTTP relay fixture now signs 1,000 same-second canonical records,
   reloads them from disk after dropping memory, and pages through the actual
   desktop HTTP query path beyond the 256-head cache. Its native test passes.
   This is distinct from a
-  live production-relay or native-app restart test, which remains required.
+  live production-relay transaction test. The local candidate restart is recorded below.
 - Task-history protocol tests (2), SQLite authority tests (2), and focused relay
   tests (4) pass. The latest SQLite/relay run includes guarded resume after an
   automatic visit ends and refusal after explicit revocation. Relay compile
@@ -96,8 +96,8 @@ remain unavailable rather than broadening membership.
 - Final integration typecheck and changed-file Biome checks pass (39 frontend
   files). New Rust modules were formatted; a whole-module formatting check also
   reports unrelated pre-existing formatting, which this pass leaves untouched.
-- All I0–I6 final gates remain open until their required native/transport evidence
-  is recorded. A partial UI implementation is not a completed inbox system.
+- Gates not exercised natively remain explicit below. Mocked UI evidence is not
+  substituted for delivery or authorization evidence.
 - Pre-build candidate profile backup: `~/Documents/Polyphonic-Candidates/inbox-preflight-backup.G0g7ke/fresh-instance`.
   The candidate quit normally; its relay stopped. The copied SQLite database
   passes `quick_check` and its SHA-256 matches the stopped source database.
@@ -118,11 +118,35 @@ remain unavailable rather than broadening membership.
   response are now relabeled without changing authorization.
 - The live window exposed two remaining presentation/routing defects: unopened
   tasks lacked canonical subjects, and a rail link to a continuation attempt was
-  rejected by logical-task validation. Both have focused fixes/tests; rebuilt
-  native confirmation is still pending.
+  rejected by logical-task validation. Both have focused fixes/tests. The rebuilt
+  native window shows distinct subjects and the full A/A2 continuation history;
+  alternate-attempt link acceptance is also covered by the exact-scope unit test.
 - Final focused checks: 29 native inbox tests, 10 correspondence view tests,
   changed-file Biome, typecheck/build:e2e and the canonical-subject browser test
-  pass. The final native candidate is being rebuilt from these scoped fixes.
+  pass. The final unsigned native candidate was built from `3865742809b823b7c9b9783297f6563f05cc4840`.
+- Final native inspection: the pair window reopens from `Anima > With Luca`,
+  renders C/D's distinct subjects before selection, preserves A and A2 together,
+  and retains an unsent exact-recipient continuation draft across window closure.
+  The walkthrough-only unsent draft was cleared afterward; no message was sent.
+- Restart preserved the same 3 channels and 217 canonical events. C, D and A2's
+  verified reply IDs each remain present exactly once. Opening, switching and
+  closing the correspondence did not create a project/channel or send a task.
+- Remaining limits: the live tasks had closed/expired before the final build,
+  so a fresh native Stop-during-wake race was not generated; focused native Stop,
+  actor isolation and recovery tests pass. PostgreSQL live transactions remain
+  untested. The final capability-label wording has unit/bridge coverage, not a
+  second paid-model comprehension run. No native performance baseline comparison
+  or full release-suite clearance is claimed.
+- Candidate: `~/Library/Caches/luca-build/cargo-target/debug/bundle/macos/Polyphonic Rail Glass Candidate.app`.
+  It remains open on the existing isolated first-meeting profile. Daily app and
+  other profiles are untouched; nothing signed, pushed, tagged or published.
+  Free internal disk after building: approximately 99 GiB.
+- Proof: final build log `/tmp/polyphonic-inbox-final-build.log`, native test log
+  `/tmp/polyphonic-inbox-final-native-tests.log`, final browser log
+  `/tmp/polyphonic-inbox-final-web-test.log`; earlier browser captures and timing
+  are in `desktop/test-results/agent-inbox-window/` and
+  `desktop/test-results/agent-inbox-candidate-timing.json`. Native final screenshots
+  were inspected inline in this chat, not exported as files.
 - Latest browser evidence before those final fixes: 36/36 passing, typecheck and
   build passing. A 1,000-task fixture (50 rows per page) showed click-handler p95
   3.0 ms, input-handler p95 4.3 ms, and no observed >50 ms long tasks. This is a
