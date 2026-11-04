@@ -48,6 +48,9 @@ mod unix {
         /// The broker did not answer before the request deadline.
         #[error("managed signing broker request deadline elapsed")]
         DeadlineElapsed,
+        /// The owned relay-auth exchange stopped before returning its result.
+        #[error("managed signing broker authentication task stopped")]
+        AuthenticationTask(#[source] tokio::task::JoinError),
         /// Transport input/output failed and the session was closed.
         #[error("managed signing broker transport failed")]
         Transport(#[source] io::Error),
@@ -130,6 +133,33 @@ mod unix {
                 return Err(SigningClientError::RelayAuth(error));
             }
             Ok(result)
+        }
+
+        /// Authenticate a cancellable relay read without abandoning its broker frame.
+        ///
+        /// Optional relay reads have shorter caller deadlines than the broker. If
+        /// such a caller goes away, this owned, bounded exchange still consumes
+        /// and validates its exact response before another request uses the stream.
+        /// Invalid replies and transport/deadline failures remain fail-closed.
+        /// The abandoned authentication result is discarded; no HTTP request or
+        /// message publication is performed by this task.
+        pub async fn relay_auth_cancellation_safe(
+            &self,
+            request: RelayAuthSignRequestV1,
+            now_unix_ms: u64,
+        ) -> Result<RelayAuthSignResultV1, SigningClientError> {
+            let client = self.clone();
+            tokio::spawn(async move {
+                // Include time waiting for the shared stream in this bound.
+                timeout(
+                    Duration::from_millis(REQUEST_DEADLINE_MS),
+                    client.relay_auth(request, now_unix_ms),
+                )
+                .await
+                .map_err(|_| SigningClientError::DeadlineElapsed)?
+            })
+            .await
+            .map_err(SigningClientError::AuthenticationTask)?
         }
 
         /// Request publication of one accepted, app-bound final message.
@@ -684,6 +714,84 @@ mod unix {
                 .expect_err("cancelled exchange must leave ambiguous session closed");
             assert!(matches!(error, SigningClientError::SessionClosed));
         }
+
+        #[tokio::test]
+        async fn signing_vectors_cancelled_optional_auth_drains_before_next_exchange() {
+            let (client, mut server, _epoch, resident, _source) = fixture_client();
+            let call_client = client.clone();
+            let request = relay_request(&resident);
+            let call = tokio::spawn(async move {
+                call_client
+                    .relay_auth_cancellation_safe(request, NOW_MS)
+                    .await
+            });
+            let first: SigningFrameV1<RelayAuthSignRequestV1> = read_request(&mut server).await;
+            call.abort();
+            assert!(call
+                .await
+                .expect_err("optional caller cancelled")
+                .is_cancelled());
+
+            let next_client = client.clone();
+            let next_request = relay_request(&resident);
+            let next =
+                tokio::spawn(async move { next_client.relay_auth(next_request, NOW_MS).await });
+            write_response(
+                &mut server,
+                &first,
+                RelayAuthSignResultV1::Denied {
+                    code: opaque("first"),
+                },
+            )
+            .await;
+            let second: SigningFrameV1<RelayAuthSignRequestV1> = read_request(&mut server).await;
+            assert_eq!(second.sequence.get(), first.sequence.get() + 1);
+            assert_ne!(second.request_id, first.request_id);
+            write_response(
+                &mut server,
+                &second,
+                RelayAuthSignResultV1::Denied {
+                    code: opaque("second"),
+                },
+            )
+            .await;
+            assert!(matches!(
+                next.await.expect("next caller").expect("stream remains usable"),
+                RelayAuthSignResultV1::Denied { code } if code == opaque("second")
+            ));
+        }
+
+        #[tokio::test]
+        async fn signing_vectors_cancelled_optional_auth_still_rejects_wrong_binding() {
+            let (client, mut server, _epoch, resident, _source) = fixture_client();
+            let call_client = client.clone();
+            let request = relay_request(&resident);
+            let call = tokio::spawn(async move {
+                call_client
+                    .relay_auth_cancellation_safe(request, NOW_MS)
+                    .await
+            });
+            let mut first: SigningFrameV1<RelayAuthSignRequestV1> = read_request(&mut server).await;
+            call.abort();
+            assert!(call
+                .await
+                .expect_err("optional caller cancelled")
+                .is_cancelled());
+            first.session_epoch = SafeU53::new(99).expect("wrong fixture epoch");
+            write_response(
+                &mut server,
+                &first,
+                RelayAuthSignResultV1::Denied {
+                    code: opaque("wrong-session"),
+                },
+            )
+            .await;
+            let error = client
+                .relay_auth(relay_request(&resident), NOW_MS)
+                .await
+                .expect_err("invalid abandoned response must close the stream");
+            assert!(matches!(error, SigningClientError::SessionClosed));
+        }
     }
 }
 
@@ -732,6 +840,15 @@ mod unsupported {
 
         /// Reject relay authentication on unsupported platforms.
         pub async fn relay_auth(
+            &self,
+            _request: RelayAuthSignRequestV1,
+            _now_unix_ms: u64,
+        ) -> Result<RelayAuthSignResultV1, SigningClientError> {
+            Err(SigningClientError)
+        }
+
+        /// Reject relay authentication on unsupported platforms.
+        pub async fn relay_auth_cancellation_safe(
             &self,
             _request: RelayAuthSignRequestV1,
             _now_unix_ms: u64,

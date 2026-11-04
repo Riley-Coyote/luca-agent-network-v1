@@ -241,7 +241,7 @@ impl RelayIdentity {
                 };
                 let now_ms = unix_now_millis();
                 let result = broker
-                    .relay_auth(request.clone(), now_ms)
+                    .relay_auth_cancellation_safe(request.clone(), now_ms)
                     .await
                     .map_err(|error| RelayError::ManagedBroker(error.to_string()))?;
                 result
@@ -296,7 +296,7 @@ impl RelayIdentity {
                     },
                 };
                 let result = broker
-                    .relay_auth(request.clone(), now_secs.saturating_mul(1000))
+                    .relay_auth_cancellation_safe(request.clone(), now_secs.saturating_mul(1000))
                     .await
                     .map_err(|error| RelayError::ManagedBroker(error.to_string()))?;
                 result
