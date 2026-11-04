@@ -180,7 +180,7 @@ export function ExchangeHistory({
                 onClick={() => onOpenTaskWindow(record.exchangeId)}
                 type="button"
               >
-                Open task in new window
+                Open task chat
               </button>
             ) : null}
             {expanded && taskMessages.length > 0 ? (

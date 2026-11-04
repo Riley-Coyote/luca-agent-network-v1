@@ -86,7 +86,7 @@ export function ExchangeReceiptRow({
           onClick={() => onOpenTaskWindow(exchangeId)}
           type="button"
         >
-          Open task in new window
+          Open task chat
         </button>
       ) : null}
     </div>
