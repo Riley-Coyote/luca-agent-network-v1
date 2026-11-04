@@ -119,6 +119,9 @@ pub struct ChannelInfo {
     pub member_count: i64,
     #[serde(default)]
     pub member_pubkeys: Vec<String>,
+    /// Temporary transport membership must not change the conversation's home.
+    #[serde(default)]
+    pub guest_pubkeys: Vec<String>,
     pub last_message_at: Option<String>,
     pub archived_at: Option<String>,
     #[serde(default)]

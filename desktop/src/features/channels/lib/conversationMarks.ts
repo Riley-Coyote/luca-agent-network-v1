@@ -18,7 +18,10 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
  * still has a stable, deterministic mark rather than an empty gap.
  */
 export function conversationMarkSeeds(
-  channel: Pick<Channel, "id" | "participantPubkeys" | "memberPubkeys"> | null,
+  channel: Pick<
+    Channel,
+    "id" | "participantPubkeys" | "memberPubkeys" | "guestPubkeys"
+  > | null,
   currentPubkey?: string | null,
   limit = 4,
 ): string[] {
@@ -27,6 +30,10 @@ export function conversationMarkSeeds(
   const source = channel.participantPubkeys?.length
     ? channel.participantPubkeys
     : (channel.memberPubkeys ?? []);
-  const others = source.filter((pubkey) => normalizePubkey(pubkey) !== me);
+  const guests = new Set((channel.guestPubkeys ?? []).map(normalizePubkey));
+  const others = source.filter(
+    (pubkey) =>
+      normalizePubkey(pubkey) !== me && !guests.has(normalizePubkey(pubkey)),
+  );
   return (others.length ? others : [channel.id]).slice(0, limit);
 }

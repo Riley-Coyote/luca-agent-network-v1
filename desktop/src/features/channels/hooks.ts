@@ -114,6 +114,9 @@ export function upsertCachedChannelMember(
           channel.memberCount + (member.membershipAdded && !hasMember ? 1 : 0),
         ),
         memberPubkeys,
+        guestPubkeys: channel.guestPubkeys?.filter(
+          (pubkey) => pubkey.toLowerCase() !== normalizedPubkey,
+        ),
       };
     }),
   );

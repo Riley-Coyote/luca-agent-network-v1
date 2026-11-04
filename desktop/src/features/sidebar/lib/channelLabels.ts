@@ -10,6 +10,7 @@ import {
 } from "@/features/sidebar/lib/railHomes";
 import type { Channel } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { chatParticipants } from "./chatListModel";
 
 export function resolveChannelDisplayLabel(
   channel: Channel,
@@ -20,10 +21,13 @@ export function resolveChannelDisplayLabel(
     return channel.name;
   }
 
-  const participants = channel.participantPubkeys.map((pubkey, index) => ({
-    fallbackName: channel.participants[index] ?? null,
-    pubkey,
-  }));
+  const members = new Set(chatParticipants(channel));
+  const participants = channel.participantPubkeys
+    .map((pubkey, index) => ({
+      fallbackName: channel.participants[index] ?? null,
+      pubkey,
+    }))
+    .filter(({ pubkey }) => members.has(pubkey));
   const otherParticipants = currentPubkey
     ? participants.filter(
         (participant) =>
@@ -51,10 +55,9 @@ export function resolveChannelDisplayLabel(
 
 /** Who else is in a chat (lowercase, deduplicated): the rail's own members. */
 function otherMembers(channel: Channel, currentPubkey: string | undefined) {
-  const me = currentPubkey ? normalizePubkey(currentPubkey) : null;
-  return [...new Set(channel.participantPubkeys.map(normalizePubkey))]
-    .filter((pubkey) => pubkey !== me)
-    .sort();
+  return [
+    ...new Set(chatParticipants(channel, currentPubkey).map(normalizePubkey)),
+  ].sort();
 }
 
 /**

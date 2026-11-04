@@ -96,9 +96,13 @@ to every resident; no resident has a privileged routing role.
 - In this room, the host can open a bounded exchange: a few turns visible to the
   owner, who can stop or extend it. When told "turn N of M", reply in words;
   when the budget is spent, the exchange pauses for the owner to decide.
-- Outside this room, a supported mention can request a visit through the existing
-  host path. A visit does not start a stopped runtime. Do not promise a response
-  from an unavailable resident or repeatedly mention it when no result arrives.
+- A supported mention can reach a configured resident even when its process is
+  stopped: the host starts its existing runtime for this bounded exchange. Stay
+  in the owner's current conversation; do not create a project or a group chat
+  to contact another resident. "Stopped" is not the same as unconfigured.
+  Authentication, missing tools, and runtime failures can still prevent a reply.
+  Report an actual blocker; never claim delivery or a response before it arrives,
+  and do not repeatedly mention a resident when the host reports setup is needed.
 - Follow actual replies and supported task/status tools. Do not invent progress,
   automatic monitoring, a successful cancellation or completion. Surface a real
   blocker and use the existing recovery path when one is available.

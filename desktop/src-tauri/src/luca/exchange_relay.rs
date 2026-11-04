@@ -146,6 +146,18 @@ pub(crate) trait ExchangeRelay: Send {
 
     /// A human name for `pubkey`, for the sentence written into the room.
     fn display_name(&self, pubkey: &Hex64) -> String;
+
+    /// Start the configured runtime before submitting one authorized exchange
+    /// event. The replay hint names only that frozen event, not old history.
+    fn wake_resident(
+        &self,
+        _resident: &Hex64,
+        _owner: &Hex64,
+        _event_id: &Hex64,
+        _created_at: u64,
+    ) -> Result<(), ExchangeRelayError> {
+        Ok(())
+    }
 }
 
 /// The production implementation: the owner's keys, the owner's relay.
@@ -232,6 +244,32 @@ fn verified_exchange_head(
 }
 
 impl ExchangeRelay for AppExchangeRelay {
+    fn wake_resident(
+        &self,
+        resident: &Hex64,
+        owner: &Hex64,
+        event_id: &Hex64,
+        created_at: u64,
+    ) -> Result<(), ExchangeRelayError> {
+        if self.owner()? != *owner || !self.owned_residents()?.contains(resident) {
+            return Err(ExchangeRelayError::Refused(
+                "resident is not owned here".into(),
+            ));
+        }
+        let started_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| ExchangeRelayError::Unavailable("clock unavailable".into()))?
+            .as_secs();
+        tauri::async_runtime::block_on(crate::commands::start_exchange_resident(
+            &self.app,
+            resident.as_str(),
+            owner.as_str(),
+            format!("{}:{created_at}:{started_at}", event_id.as_str()),
+        ))
+        .map(|_| ())
+        .map_err(ExchangeRelayError::Unavailable)
+    }
+
     fn fetch_head(
         &self,
         exchange_id: &Hex64,

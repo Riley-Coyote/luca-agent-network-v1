@@ -316,6 +316,77 @@ pub(super) async fn start_local_agent_with_preflight(
     owner_hex: &str,
     allow_fresh_create_start: bool,
 ) -> Result<ManagedAgentSummary, String> {
+    start_local_agent_with_wake(
+        app,
+        state,
+        pubkey,
+        owner_hex,
+        allow_fresh_create_start,
+        None,
+    )
+    .await
+}
+
+/// Host-only wake for an already-authorized, same-owner exchange delivery.
+/// Not exposed as a renderer command or model tool.
+pub(crate) async fn start_exchange_resident(
+    app: &AppHandle,
+    pubkey: &str,
+    owner_hex: &str,
+    wake: String,
+) -> Result<ManagedAgentSummary, String> {
+    use tauri::Manager;
+    let state = app.state::<AppState>();
+    if workspace_owner_hex(&state)? != owner_hex {
+        return Err("exchange owner changed".into());
+    }
+    // A provider-owned runtime is not a local process to spawn. Preserve
+    // delivery to an existing deployment; never provision paid infrastructure
+    // just because a resident mentioned it.
+    {
+        let _guard = state
+            .managed_agents_store_lock
+            .lock()
+            .map_err(|e| e.to_string())?;
+        let records = load_managed_agents(app)?;
+        let record = records
+            .iter()
+            .find(|record| record.pubkey == pubkey)
+            .ok_or_else(|| "recipient is no longer configured".to_owned())?;
+        if record.backend != BackendKind::Local {
+            if record.backend_agent_id.is_none() {
+                return Err("recipient's provider deployment needs setup".into());
+            }
+            let runtimes = state
+                .managed_agent_processes
+                .lock()
+                .map_err(|e| e.to_string())?;
+            return build_managed_agent_summary(app, record, &runtimes, &load_personas(app)?);
+        }
+    }
+    let summary =
+        start_local_agent_with_wake(app, &state, pubkey, owner_hex, false, Some(wake)).await?;
+    let runtimes = state
+        .managed_agent_processes
+        .lock()
+        .map_err(|e| e.to_string())?;
+    if runtimes
+        .get(pubkey)
+        .is_some_and(|runtime| runtime.setup_mode)
+    {
+        return Err("recipient's configured runtime needs setup".into());
+    }
+    Ok(summary)
+}
+
+async fn start_local_agent_with_wake(
+    app: &AppHandle,
+    state: &AppState,
+    pubkey: &str,
+    owner_hex: &str,
+    allow_fresh_create_start: bool,
+    exchange_wake: Option<String>,
+) -> Result<ManagedAgentSummary, String> {
     let record_snapshot = {
         let _store_guard = state
             .managed_agents_store_lock
@@ -372,7 +443,13 @@ pub(super) async fn start_local_agent_with_preflight(
                 record.updated_at = crate::util::now_iso();
             }
         }
-        start_managed_agent_process(&app, record, &mut runtimes, Some(&owner_hex))?;
+        crate::managed_agents::start_managed_agent_process_with_exchange_wake(
+            &app,
+            record,
+            &mut runtimes,
+            Some(&owner_hex),
+            exchange_wake.as_deref(),
+        )?;
         save_managed_agents(&app, &records)?;
         if let Some(saved_record) = records.iter().find(|r| r.pubkey == pubkey) {
             retain_managed_agent_pending(&app, &state, saved_record);

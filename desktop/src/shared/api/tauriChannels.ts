@@ -23,6 +23,7 @@ export type RawChannel = {
   purpose: string | null;
   member_count: number;
   member_pubkeys: string[];
+  guest_pubkeys?: string[];
   last_message_at: string | null;
   archived_at: string | null;
   participants: string[];
@@ -69,6 +70,7 @@ export function fromRawChannel(channel: RawChannel): Channel {
     purpose: channel.purpose,
     memberCount: channel.member_count,
     memberPubkeys: channel.member_pubkeys ?? [],
+    guestPubkeys: channel.guest_pubkeys ?? [],
     lastMessageAt: channel.last_message_at,
     archivedAt: channel.archived_at,
     participants: channel.participants,

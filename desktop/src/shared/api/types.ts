@@ -12,6 +12,8 @@ export type Channel = {
   purpose: string | null;
   memberCount: number;
   memberPubkeys: string[];
+  /** Temporary visitors retain transport access, not permanent rail membership. */
+  guestPubkeys?: string[];
   lastMessageAt: string | null;
   archivedAt: string | null;
   participants: string[];

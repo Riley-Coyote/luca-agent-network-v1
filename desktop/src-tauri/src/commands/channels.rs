@@ -226,6 +226,7 @@ pub async fn get_channels(state: State<'_, AppState>) -> Result<Vec<ChannelInfo>
             if let Some(info) = membership.get(&channel.id) {
                 channel.member_count = info.count;
                 channel.member_pubkeys = info.pubkeys.clone();
+                channel.guest_pubkeys = info.guests.clone();
             }
         }
     }
@@ -338,6 +339,7 @@ pub async fn get_channels(state: State<'_, AppState>) -> Result<Vec<ChannelInfo>
 struct ChannelMembership {
     count: i64,
     pubkeys: Vec<String>,
+    guests: Vec<String>,
 }
 
 /// Build a `channel_id → membership` map from a batch of kind:39002 events.
@@ -365,6 +367,12 @@ fn collect_members_by_channel(
             ChannelMembership {
                 count: pubkeys.len() as i64,
                 pubkeys,
+                guests: resp
+                    .members
+                    .iter()
+                    .filter(|m| m.role == "guest")
+                    .map(|m| m.pubkey.clone())
+                    .collect(),
             },
         );
     }

@@ -9,6 +9,96 @@
 use super::*;
 
 impl ManagedMessagePublisher {
+    /// Wake recipients only after exact dispatch and live exchange checks, with
+    /// no authority/store lock held during runtime startup. Submission rechecks
+    /// cancellation afterwards; a concurrent Stop still prevents the message.
+    pub(super) fn prepare_exchange_delivery(
+        &self,
+        entry: &ManagedOutboxReconcileEntry,
+        now: u64,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        let request = &entry.request;
+        let Some(tag) = &request.exchange else {
+            return Ok(());
+        };
+        if request.resolved_p_tags == [request.owner_pubkey.clone()] {
+            return Ok(());
+        }
+        let readiness = self
+            .dispatch_store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .authorize_reconciliation(request, entry.event_id.as_str(), now)
+            .map_err(Self::map_dispatch_error)?;
+        if !matches!(readiness, ManagedDispatchReconciliation::Ready) {
+            return Ok(());
+        }
+        if self.admit_awareness_reply(request, now).is_err() {
+            // The ordinary serialized publication gate settles the refusal.
+            // This preflight must not start a process for a revoked scope.
+            return Ok(());
+        }
+        let exchange = self
+            .exchange
+            .as_ref()
+            .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+        let head = exchange
+            .relay
+            .fetch_head(&tag.exchange_id, &request.owner_pubkey)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .ok_or(ManagedPublicationAuthorityError::Denied)?;
+        if head.record.owner != request.owner_pubkey
+            || head.record.conversation_id != request.conversation_id
+            || !head.record.members.contains(&request.resident_pubkey)
+            || !head.record.admits_turn(tag.turn, now)
+        {
+            // Leave closed/expired/raced turns to the existing relay refusal
+            // and visible held-reply settlement, without waking anyone.
+            return Ok(());
+        }
+        let owned = exchange
+            .relay
+            .owned_residents()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        // Validate the complete audience before starting any process.
+        let targets: Vec<_> = request
+            .resolved_p_tags
+            .iter()
+            .filter(|key| **key != request.owner_pubkey && **key != request.resident_pubkey)
+            .collect();
+        if targets
+            .iter()
+            .any(|key| !owned.contains(*key) || !head.record.members.contains(key))
+        {
+            return Err(ManagedPublicationAuthorityError::Denied);
+        }
+        let event = Self::parse_exact_event(request, &entry.signed_event_json)?;
+        for target in targets {
+            if exchange
+                .relay
+                .wake_resident(
+                    target,
+                    &request.owner_pubkey,
+                    &entry.event_id,
+                    event.created_at.as_secs(),
+                )
+                .is_err()
+            {
+                // Never claim delivery, switch harnesses, or change approvals.
+                // The caller settles this attempt once, rather than spawning
+                // a broken runtime repeatedly on every outbox sweep.
+                luca_log!(
+                    warn,
+                    "luca-exchange: configured recipient runtime could not be started"
+                );
+                return Err(ManagedPublicationAuthorityError::ExchangeDenied(
+                    "exchange_recipient_unavailable",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// What a publisher with no exchange authority attached may still do.
     ///
     /// Nothing that needs an exchange. A final that claims a turn cannot be

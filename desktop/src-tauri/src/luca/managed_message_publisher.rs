@@ -1194,6 +1194,31 @@ impl ManagedMessagePublisher {
         now_unix_secs: u64,
         timeout: Duration,
     ) -> Result<(), ManagedPublicationAuthorityError> {
+        if let Err(error) = self.prepare_exchange_delivery(entry, now_unix_secs) {
+            if error
+                == ManagedPublicationAuthorityError::ExchangeDenied(
+                    "exchange_recipient_unavailable",
+                )
+            {
+                let decision =
+                    self.settle_probe_terminal_rejection(entry, outbox, now_unix_secs)?;
+                if decision == ManagedDispatchReconciliation::Rejected {
+                    if let Some(exchange) = &self.exchange {
+                        let note = super::exchange::ExchangeNote {
+                            exchange_id: entry.request.exchange.as_ref().map(|tag| tag.exchange_id.clone()),
+                            resident: entry.request.resident_pubkey.clone(),
+                            text: "This exchange could not start because a recipient's configured runtime needs attention. Check that agent's runtime setup, then ask again. No message was sent and permissions are unchanged.".into(),
+                        };
+                        super::exchange::publish_note(
+                            exchange.relay.as_ref(),
+                            &entry.request.conversation_id,
+                            &note,
+                        );
+                    }
+                }
+            }
+            return Err(error);
+        }
         if entry.state == ManagedOutboxState::Prepared {
             outbox
                 .mark_submitted(&entry.idempotency_key, installation_session_id, false)

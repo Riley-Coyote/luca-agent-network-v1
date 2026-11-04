@@ -246,3 +246,33 @@ Three follow-up commits were pushed to this same branch rather than a second one
 Open, deliberately not done here: the branch is not merged, and Codex's three
 implementation commits have empty bodies — the reasoning for that work exists
 only in this brief.
+
+## Beta.14 delivery repair — 2026-11-03
+
+This repair stays on the current beta candidate line; the branch and release
+instructions above are historical, not a new merge or publication request.
+
+- Temporary `guest` membership still grants ordinary room access, but is now
+  carried separately to the desktop. Guests do not rename a DM, change its marks,
+  move it into Projects, or create an additional ordinary chat under the guest.
+  The existing recipient-only exchange shortcut opens the original history.
+- Before submitting an authorized exchange turn, the host starts the recipient's
+  existing local runtime. Identity, model, login, permissions, and conversation
+  stay unchanged. Already-deployed provider agents retain ordinary delivery;
+  this operation does not provision provider infrastructure.
+- A narrow startup replay hint retains the exact signed event that caused the
+  wake, plus new messages arriving during startup. It does not import old turns
+  or bypass normal owner, membership, exchange, or dispatch checks. Room history
+  remains readable under the existing visit contract; this is a wake filter,
+  not a history-access filter.
+- Cancellation is checked before waking and again before submission. Closed,
+  expired, or unauthorized exchanges never wake a recipient. A runtime startup
+  failure settles this attempt and produces one visible blocker, not an endless
+  retry loop or a claim of successful delivery.
+- Existing visitor rendering, exchange budgets, Stop/Go, owner-return summaries,
+  and visit cleanup are reused. No new rooms, projects, protocol, or visual
+  presentation mode are introduced.
+
+Focused regression coverage lives beside the publisher, startup replay helper,
+channel membership parser, and rail model. Native sleeping-agent delivery still
+requires the candidate walkthrough; unit tests alone do not prove it.

@@ -9,6 +9,7 @@ import {
 
 import type { Channel } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { chatParticipants } from "@/features/sidebar/lib/chatListModel";
 
 export function ConversationTypeIcon({
   channel,
@@ -20,7 +21,7 @@ export function ConversationTypeIcon({
   const iconClassName = cn("size-4", className);
 
   if (channel.channelType === "dm") {
-    return channel.participantPubkeys.length > 2 ? (
+    return chatParticipants(channel).length > 2 ? (
       <UsersRound aria-hidden className={iconClassName} />
     ) : (
       <MessageCircle aria-hidden className={iconClassName} />

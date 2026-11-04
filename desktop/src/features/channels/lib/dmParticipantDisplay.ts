@@ -66,10 +66,13 @@ export function buildDirectMessageIntro({
     return null;
   }
 
-  const participants = channel.participantPubkeys.map((pubkey, index) => ({
-    fallbackName: channel.participants[index] ?? null,
-    pubkey,
-  }));
+  const guests = new Set((channel.guestPubkeys ?? []).map(normalizePubkey));
+  const participants = channel.participantPubkeys
+    .map((pubkey, index) => ({
+      fallbackName: channel.participants[index] ?? null,
+      pubkey,
+    }))
+    .filter(({ pubkey }) => !guests.has(normalizePubkey(pubkey)));
   const normalizedCurrentPubkey = currentPubkey
     ? normalizePubkey(currentPubkey)
     : null;

@@ -20,16 +20,23 @@ export type ChatListItem = {
   participants: string[];
 };
 
-/** Full membership minus the owner; participants first, members as fallback. */
+/** Permanent membership minus the owner. Visits never move or rename a chat. */
 export function chatParticipants(
-  channel: Pick<Channel, "participantPubkeys" | "memberPubkeys">,
+  channel: Pick<
+    Channel,
+    "participantPubkeys" | "memberPubkeys" | "guestPubkeys"
+  >,
   currentPubkey?: string | null,
 ): string[] {
   const me = currentPubkey ? normalizePubkey(currentPubkey) : null;
   const source = channel.participantPubkeys?.length
     ? channel.participantPubkeys
     : (channel.memberPubkeys ?? []);
-  return source.filter((pubkey) => normalizePubkey(pubkey) !== me);
+  const guests = new Set((channel.guestPubkeys ?? []).map(normalizePubkey));
+  return source.filter((pubkey) => {
+    const key = normalizePubkey(pubkey);
+    return key !== me && !guests.has(key);
+  });
 }
 
 export function partitionConversationItems(items: readonly ChatListItem[]) {

@@ -2383,14 +2383,23 @@ pub fn spawn_agent_child(
     record: &ManagedAgentRecord,
     owner_hex: Option<&str>,
 ) -> Result<crate::managed_agents::ManagedAgentProcess, String> {
+    spawn_agent_child_with_exchange_wake(app, record, owner_hex, None)
+}
+
+fn spawn_agent_child_with_exchange_wake(
+    app: &AppHandle,
+    record: &ManagedAgentRecord,
+    owner_hex: Option<&str>,
+    exchange_wake: Option<&str>,
+) -> Result<crate::managed_agents::ManagedAgentProcess, String> {
     #[cfg(unix)]
     {
-        spawn_agent_child_unix(app, record, owner_hex)
+        spawn_agent_child_unix(app, record, owner_hex, exchange_wake)
     }
 
     #[cfg(not(unix))]
     {
-        let _ = (app, record, owner_hex);
+        let _ = (app, record, owner_hex, exchange_wake);
         Err("managed residents require the device-local Unix transport".to_owned())
     }
 }
@@ -2400,6 +2409,7 @@ fn spawn_agent_child_unix(
     app: &AppHandle,
     record: &ManagedAgentRecord,
     owner_hex: Option<&str>,
+    exchange_wake: Option<&str>,
 ) -> Result<crate::managed_agents::ManagedAgentProcess, String> {
     // A replacement must never overlap the sole owner of this resident's
     // encrypted outbox. The handle is removed under the registry lock, then
@@ -3157,6 +3167,12 @@ fn spawn_agent_child_unix(
     // ambiguous between two live installs built from the same source; the PID
     // is not. See DESKTOP_OWNER_PID_ENV.
     command.env(DESKTOP_OWNER_PID_ENV, std::process::id().to_string());
+    // A frozen exchange event can predate process startup. Replay only that
+    // exact event, never arbitrary older owner messages or another exchange.
+    command.env_remove("LUCA_EXCHANGE_WAKE");
+    if let Some(wake) = exchange_wake {
+        command.env("LUCA_EXCHANGE_WAKE", wake);
+    }
 
     // Spawn the harness in its own process group so we can kill the entire
     // tree (harness + MCP servers + agent subprocesses) on shutdown.
@@ -3435,7 +3451,9 @@ fn spawn_agent_child_unix(
     resident_start_guard.commit();
     // Restore only after startup is committed, with unchanged grants and model
     // binding. This never starts a reader for an aborted resident launch.
-    let _ = tauri::Manager::state::<crate::app_state::AppState>(app).companion_sources.restore_following(app, &resident_pubkey);
+    let _ = tauri::Manager::state::<crate::app_state::AppState>(app)
+        .companion_sources
+        .restore_following(app, &resident_pubkey);
     crate::luca::runtime_tasks::queue_runtime_task_delivery_recovery(app);
     Ok(process)
 }
@@ -3453,6 +3471,17 @@ pub fn start_managed_agent_process(
     record: &mut ManagedAgentRecord,
     runtimes: &mut HashMap<String, ManagedAgentProcess>,
     owner_hex: Option<&str>,
+) -> Result<(), String> {
+    start_managed_agent_process_with_exchange_wake(app, record, runtimes, owner_hex, None)
+}
+
+/// Start through the ordinary runtime path with one exact exchange replay hint.
+pub(crate) fn start_managed_agent_process_with_exchange_wake(
+    app: &AppHandle,
+    record: &mut ManagedAgentRecord,
+    runtimes: &mut HashMap<String, ManagedAgentProcess>,
+    owner_hex: Option<&str>,
+    exchange_wake: Option<&str>,
 ) -> Result<(), String> {
     if let Some(runtime) = runtimes.get_mut(&record.pubkey) {
         if runtime
@@ -3496,7 +3525,7 @@ pub fn start_managed_agent_process(
         }
     }
 
-    let process = spawn_agent_child(app, record, owner_hex)?;
+    let process = spawn_agent_child_with_exchange_wake(app, record, owner_hex, exchange_wake)?;
 
     let now = now_iso();
     record.updated_at = now.clone();

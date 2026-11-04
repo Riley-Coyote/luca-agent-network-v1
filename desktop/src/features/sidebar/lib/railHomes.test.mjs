@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildChatListItems } from "./chatListModel.ts";
+import {
+  resolveChannelDisplayLabel,
+  resolveGroupChatMembersName,
+} from "./channelLabels.ts";
+import { buildDirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay.ts";
 
 import { readExpandedHomes, railHomesStorageKey } from "./agentRailState.ts";
 import {
@@ -17,6 +23,63 @@ const ATLAS = "b".repeat(64);
 const WREN = "c".repeat(64);
 const PERSON = "e".repeat(64);
 const GONE = "f".repeat(64);
+
+test("a temporary guest never moves Luca's DM into Projects or the guest's chats", () => {
+  const channel = {
+    id: "luca",
+    name: "Luca",
+    channelType: "dm",
+    visibility: "private",
+    participantPubkeys: [PERSON, LUCA, ATLAS],
+    memberPubkeys: [PERSON, LUCA, ATLAS],
+    guestPubkeys: [ATLAS.toUpperCase()],
+  };
+  const items = buildChatListItems({
+    channels: [channel],
+    labels: {},
+    currentPubkey: PERSON,
+  });
+  assert.deepEqual(items[0].participants, [LUCA]);
+  assert.deepEqual(items[0].markPubkeys, [LUCA]);
+  const homes = scene(items);
+  assert.equal(homes.rooms.length, 0);
+  assert.deepEqual(idsOf(homes.luca), ["luca"]);
+  const permanent = buildChatListItems({
+    channels: [{ ...channel, guestPubkeys: [] }],
+    labels: {},
+    currentPubkey: PERSON,
+  });
+  assert.equal(scene(permanent).rooms.length, 1);
+});
+
+test("a temporary guest never renames the DM header or its intro", () => {
+  const channel = {
+    id: "luca",
+    name: "DM",
+    channelType: "dm",
+    visibility: "private",
+    participantPubkeys: [PERSON, LUCA, ATLAS],
+    memberPubkeys: [PERSON, LUCA, ATLAS],
+    participants: ["Riley", "Luca", "Atlas"],
+    guestPubkeys: [ATLAS],
+  };
+  assert.equal(resolveChannelDisplayLabel(channel, PERSON, undefined), "Luca");
+  assert.equal(
+    resolveGroupChatMembersName(channel, {
+      agents: AGENTS,
+      channels: [channel],
+      currentPubkey: PERSON,
+      primaryPubkey: LUCA,
+    }),
+    null,
+  );
+  const intro = buildDirectMessageIntro({ channel, currentPubkey: PERSON });
+  assert.equal(intro.displayName, "Luca");
+  assert.deepEqual(
+    intro.participants.map(({ pubkey }) => pubkey),
+    [LUCA],
+  );
+});
 
 let clock = 0;
 const chat = (

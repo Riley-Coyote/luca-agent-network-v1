@@ -71,6 +71,22 @@ fn counts_unique_p_tags_per_channel() {
 }
 
 #[test]
+fn temporary_guests_are_separate_from_permanent_chat_identity() {
+    let event = ev(
+        39002,
+        "",
+        vec![
+            vec!["d", "dm"],
+            vec!["p", PK_A, "", "member"],
+            vec!["p", PK_B, "", "guest"],
+        ],
+    );
+    let membership = collect_members_by_channel(&[event]);
+    assert_eq!(membership["dm"].guests, vec![PK_B]);
+    assert_eq!(membership["dm"].pubkeys, vec![PK_A, PK_B]);
+}
+
+#[test]
 fn dedupes_repeated_pubkeys() {
     let e = ev(
         39002,
@@ -278,6 +294,7 @@ fn exact_channel_recovery_requires_matching_private_room_metadata() {
         purpose: None,
         member_count: 1,
         member_pubkeys: Vec::new(),
+        guest_pubkeys: Vec::new(),
         last_message_at: None,
         archived_at: None,
         participants: Vec::new(),
@@ -323,6 +340,7 @@ fn starter_match_requires_open_unarchived_stream_by_normalized_name() {
         purpose: None,
         member_count: 0,
         member_pubkeys: Vec::new(),
+        guest_pubkeys: Vec::new(),
         last_message_at: None,
         archived_at: None,
         participants: Vec::new(),

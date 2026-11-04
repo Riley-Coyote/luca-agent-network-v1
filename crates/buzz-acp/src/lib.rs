@@ -63,6 +63,8 @@ use tokio::sync::{mpsc, watch};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
+mod exchange_wake;
+
 /// Check if argv[1] matches a subcommand name, before any clap parsing.
 ///
 /// This avoids clap rejecting harness flags (like `--private-key`) that aren't
@@ -1492,6 +1494,18 @@ async fn tokio_main() -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
+    let exchange_wake = config
+        .identity
+        .is_managed()
+        .then(|| {
+            std::env::var("LUCA_EXCHANGE_WAKE")
+                .ok()
+                .and_then(|value| exchange_wake::ExchangeWake::parse(&value, startup_watermark))
+        })
+        .flatten();
+    let subscription_watermark = exchange_wake
+        .as_ref()
+        .map_or(startup_watermark, |wake| wake.since);
 
     let managed_presentation = managed_presentation::ManagedPresentationPublisher::from_env()?;
     let observer = (config.relay_observer || managed_presentation.is_some())
@@ -1656,7 +1670,7 @@ async fn tokio_main() -> Result<()> {
     // `since = watermark - 5s` on the first REQ instead of `since=now`.
     // Best-effort: a failure here is non-fatal (we just lose the startup window
     // protection, which is the same as the pre-fix behaviour).
-    if let Err(e) = relay.set_startup_watermark(startup_watermark).await {
+    if let Err(e) = relay.set_startup_watermark(subscription_watermark).await {
         tracing::warn!("failed to set startup watermark: {e}");
     }
 
@@ -2254,6 +2268,12 @@ async fn tokio_main() -> Result<()> {
                     match buzz_event {
                         Some(buzz_event) => {
                             let kind_u32 = buzz_event.event.kind.as_u16() as u32;
+
+                            if kind_u32 == KIND_STREAM_MESSAGE && exchange_wake.as_ref().is_some_and(|wake| {
+                                !wake.admits(&buzz_event.event.id.to_hex(), buzz_event.event.created_at.as_secs())
+                            }) {
+                                continue;
+                            }
 
                             if kind_u32 == KIND_STREAM_MESSAGE {
                                 preempt_private_cognition(&mut pool);

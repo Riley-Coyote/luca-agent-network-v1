@@ -4,6 +4,7 @@ import { usePresenceQuery } from "@/features/presence/hooks";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { resolveChannelDisplayLabel } from "@/features/sidebar/lib/channelLabels";
+import { chatParticipants } from "@/features/sidebar/lib/chatListModel";
 import type { SidebarDmParticipant } from "@/features/sidebar/ui/SidebarSection";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
 
@@ -31,9 +32,11 @@ export function useDmSidebarMetadata({
   );
   const dmParticipantPubkeys = React.useMemo(
     () =>
-      directMessages.flatMap((channel) =>
-        channel.participantPubkeys.filter((pubkey, index) => {
+      directMessages.flatMap((channel) => {
+        const members = new Set(chatParticipants(channel));
+        return channel.participantPubkeys.filter((pubkey, index) => {
           const normalizedPubkey = pubkey.toLowerCase();
+          if (!members.has(pubkey)) return false;
           if (normalizedPubkey === currentPubkey?.toLowerCase()) {
             return false;
           }
@@ -41,8 +44,8 @@ export function useDmSidebarMetadata({
           const participantLabel =
             channel.participants[index]?.trim().toLowerCase() ?? null;
           return !participantLabel || !selfDmLabels.has(participantLabel);
-        }),
-      ),
+        });
+      }),
     [currentPubkey, directMessages, selfDmLabels],
   );
   const dmPresenceQuery = usePresenceQuery(dmParticipantPubkeys, {
@@ -56,9 +59,11 @@ export function useDmSidebarMetadata({
     () =>
       Object.fromEntries(
         directMessages.map((channel) => {
+          const members = new Set(chatParticipants(channel));
           const otherParticipantPubkey = channel.participantPubkeys.find(
             (pubkey, index) => {
               const normalizedPubkey = pubkey.toLowerCase();
+              if (!members.has(pubkey)) return false;
               if (normalizedPubkey === currentPubkey?.toLowerCase()) {
                 return false;
               }
@@ -98,12 +103,13 @@ export function useDmSidebarMetadata({
     () =>
       Object.fromEntries(
         directMessages.map((channel) => {
-          const participants = channel.participantPubkeys.map(
-            (pubkey, index) => ({
+          const members = new Set(chatParticipants(channel));
+          const participants = channel.participantPubkeys
+            .map((pubkey, index) => ({
               fallbackName: channel.participants[index] ?? null,
               pubkey,
-            }),
-          );
+            }))
+            .filter(({ pubkey }) => members.has(pubkey));
           const otherParticipants = participants.filter((participant) => {
             if (
               participant.pubkey.toLowerCase() === currentPubkey?.toLowerCase()

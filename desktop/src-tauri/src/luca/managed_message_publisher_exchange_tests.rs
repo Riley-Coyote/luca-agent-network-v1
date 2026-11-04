@@ -15,11 +15,32 @@ struct OwnerReturnRelayState {
     closes: usize,
     removals: usize,
     notes: Vec<String>,
+    wakes: Vec<(Hex64, Hex64, u64)>,
+    fail_wake: bool,
 }
 
 struct OwnerReturnRelay(Arc<Mutex<OwnerReturnRelayState>>);
 
 impl ExchangeRelay for OwnerReturnRelay {
+    fn wake_resident(
+        &self,
+        resident: &Hex64,
+        owner: &Hex64,
+        event_id: &Hex64,
+        at: u64,
+    ) -> Result<(), ExchangeRelayError> {
+        let mut state = self.0.lock().expect("relay");
+        assert_eq!(owner, &state.head.record.owner);
+        assert!(state.head.record.members.contains(resident));
+        state.wakes.push((resident.clone(), event_id.clone(), at));
+        if state.fail_wake {
+            Err(ExchangeRelayError::Unavailable(
+                "synthetic runtime unavailable".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
     fn fetch_head(
         &self,
         id: &Hex64,
@@ -217,6 +238,8 @@ fn owner_return_publisher_fixture() -> OwnerReturnFixture {
         closes: 0,
         removals: 0,
         notes: Vec::new(),
+        wakes: Vec::new(),
+        fail_wake: false,
     }));
     let mut exchanges = ExchangeStore::load(base.dispatch_path.with_file_name("exchanges.json"))
         .expect("exchange store");
@@ -263,6 +286,149 @@ fn owner_return_publisher_fixture() -> OwnerReturnFixture {
         .prepare(&f.base.request, frozen, &f.base.session, 7, false)
         .expect("prepared");
     f
+}
+
+fn recipient_delivery_fixture() -> OwnerReturnFixture {
+    let mut f = owner_return_publisher_fixture();
+    f.base.request = f.original_request.clone();
+    let audience = f
+        .base
+        .store
+        .lock()
+        .unwrap()
+        .grant_exchange_recipients(
+            f.base.request.dispatch_receipt_id.as_str(),
+            f.base.request.resident_pubkey.as_str(),
+            &f.base
+                .request
+                .resolved_p_tags
+                .iter()
+                .map(|key| key.as_str().to_owned())
+                .collect::<Vec<_>>(),
+            102,
+        )
+        .unwrap();
+    f.base.request.resolved_p_tags = audience
+        .into_iter()
+        .map(|key| Hex64::parse(key).unwrap())
+        .collect();
+    let event = EventBuilder::new(Kind::Custom(9), f.base.request.final_draft.clone())
+        .tags(
+            crate::luca::managed_message_event::managed_message_tags(&f.base.request)
+                .expect("tags"),
+        )
+        .custom_created_at(Timestamp::from(102))
+        .sign_with_keys(&f.base.resident)
+        .expect("signed final");
+    f.base.event_id = event.id.to_hex();
+    f.base.exact_event_json = String::from_utf8(canonicalize(&event).unwrap()).unwrap();
+    let frozen = crate::luca::managed_message_outbox::FrozenManagedMessageEvent::parse(
+        f.base.exact_event_json.clone(),
+        &f.base.request,
+    )
+    .unwrap();
+    f.base.outbox = ManagedMessageOutbox::new(f.base.session.clone());
+    f.base
+        .outbox
+        .prepare(&f.base.request, frozen, &f.base.session, 7, false)
+        .unwrap();
+    f
+}
+
+#[test]
+fn exchange_delivery_wakes_exact_recipient_without_changing_conversation() {
+    let mut f = recipient_delivery_fixture();
+    let mut publisher = f.publisher();
+    publisher.authorize_request(&f.base.request, 102).unwrap();
+    // A synthetic transport timeout retains the exact delivery for retry.
+    assert_eq!(
+        publisher.publish_prepared(&f.base.request, &mut f.base.outbox, &f.base.session),
+        Err(ManagedPublicationAuthorityError::Unavailable)
+    );
+    let relay = f.relay.lock().unwrap();
+    assert_eq!(
+        relay.wakes,
+        vec![(
+            f.original_request.resolved_p_tags[0].clone(),
+            Hex64::parse(f.base.event_id.clone()).unwrap(),
+            102
+        )]
+    );
+    assert_eq!(
+        relay.head.record.conversation_id,
+        f.base.request.conversation_id
+    );
+    assert_eq!(
+        f.transport.lock().unwrap().submissions,
+        vec![f.base.exact_event_json.clone()]
+    );
+}
+
+#[test]
+fn unavailable_recipient_is_reported_once_without_sending_or_retrying_startup() {
+    let mut f = recipient_delivery_fixture();
+    f.relay.lock().unwrap().fail_wake = true;
+    let mut publisher = f.publisher();
+    publisher.authorize_request(&f.base.request, 102).unwrap();
+    assert_eq!(
+        publisher.publish_prepared(&f.base.request, &mut f.base.outbox, &f.base.session),
+        Err(ManagedPublicationAuthorityError::ExchangeDenied(
+            "exchange_recipient_unavailable"
+        ))
+    );
+    publisher
+        .reconcile_on_start(&mut f.base.outbox, &f.base.session)
+        .unwrap();
+    assert!(f.transport.lock().unwrap().submissions.is_empty());
+    assert_eq!(f.relay.lock().unwrap().wakes.len(), 1);
+    assert_eq!(f.relay.lock().unwrap().notes.len(), 1);
+    assert!(f.base.outbox.reconciliation_entries().is_empty());
+}
+
+#[test]
+fn cancelled_exchange_delivery_does_not_wake_recipient() {
+    let mut f = recipient_delivery_fixture();
+    let mut publisher = f.publisher();
+    publisher.authorize_request(&f.base.request, 102).unwrap();
+    f.base
+        .store
+        .lock()
+        .unwrap()
+        .cancel_matching(
+            f.base.request.owner_pubkey.as_str(),
+            f.base.request.conversation_id.as_str(),
+            f.base.request.thread_id.as_ref().map(OpaqueId::as_str),
+            &[f.base.request.resident_pubkey.as_str().to_owned()],
+        )
+        .unwrap();
+    publisher
+        .reconcile_on_start(&mut f.base.outbox, &f.base.session)
+        .unwrap();
+    assert!(f.relay.lock().unwrap().wakes.is_empty());
+    assert!(f.transport.lock().unwrap().submissions.is_empty());
+}
+
+#[test]
+fn closed_expired_or_removed_recipient_cannot_be_woken() {
+    for case in ["closed", "expired", "removed"] {
+        let mut f = recipient_delivery_fixture();
+        {
+            let mut relay = f.relay.lock().unwrap();
+            match case {
+                "closed" => relay.head.record.state = luca_protocol::ExchangeStateV1::Closed,
+                "expired" => relay.head.record.deadline = SafeU53::new(1).unwrap(),
+                _ => relay
+                    .head
+                    .record
+                    .members
+                    .retain(|key| key != &f.original_request.resolved_p_tags[0]),
+            }
+        }
+        let mut publisher = f.publisher();
+        publisher.authorize_request(&f.base.request, 102).unwrap();
+        let _ = publisher.publish_prepared(&f.base.request, &mut f.base.outbox, &f.base.session);
+        assert!(f.relay.lock().unwrap().wakes.is_empty(), "{case}");
+    }
 }
 
 #[test]
