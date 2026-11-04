@@ -144,6 +144,38 @@ export function mergeCorrespondenceReads(
   };
 }
 
+/** Hide a generated routing anchor only when its complete brief is also loaded. */
+export function taskConversationEvents(
+  events: readonly RelayEvent[],
+  task: AgentInboxTask | undefined,
+): readonly RelayEvent[] {
+  if (!task || task.record.openedBy === task.record.owner) return events;
+  const anchor = events.find((event) => event.id === task.record.rootEventId);
+  if (
+    !anchor ||
+    anchor.pubkey !== task.record.openedBy ||
+    !anchor.content.startsWith("Task: ") ||
+    !anchor.tags.some(([name]) => name === "luca-managed-dispatch")
+  )
+    return events;
+  const brief = anchor.content.slice("Task: ".length);
+  if (
+    !brief ||
+    !events.some(
+      (event) =>
+        event.id !== anchor.id &&
+        event.pubkey === anchor.pubkey &&
+        event.content.startsWith(brief) &&
+        event.tags.some(
+          ([name, id]) => name === "exchange" && id === task.record.exchangeId,
+        ),
+    )
+  )
+    return events;
+  // Canonical events still drive read markers, paging and reply targeting.
+  return events.filter((event) => event.id !== anchor.id);
+}
+
 /** Only loaded canonical messages after an initialized owner marker count. */
 export function taskUnreadCount(
   events: readonly RelayEvent[],

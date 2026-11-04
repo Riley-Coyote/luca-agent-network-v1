@@ -22,6 +22,7 @@ import {
   correspondenceTitle,
   validateCorrespondenceRead,
   mergeCorrespondenceReads,
+  taskConversationEvents,
   taskUnreadCount,
 } from "@/features/exchange/correspondenceView";
 import {
@@ -332,6 +333,7 @@ export function CorrespondenceWindow({
     onTitleChange?.(title);
   }, [onTitleChange, title]);
   const events = read.data?.events ?? [];
+  const visibleEvents = taskConversationEvents(events, task);
   const latestReadEvent = events.reduce<(typeof events)[number] | undefined>(
     (latest, event) =>
       !latest ||
@@ -735,7 +737,7 @@ export function CorrespondenceWindow({
             <article aria-label={subject} className="pb-6">
               <h2 className="sr-only">{subject}</h2>
               <div className="flex flex-col gap-5">
-                {events.map((event) => (
+                {visibleEvents.map((event) => (
                   <div
                     className={`group/task-message flex gap-2 ${event.pubkey === ownerPubkey ? "justify-end" : ""}`}
                     key={event.id}

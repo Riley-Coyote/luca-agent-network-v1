@@ -9,6 +9,7 @@ import {
   validateCorrespondenceRead,
   mergeCorrespondenceReads,
   taskUnreadCount,
+  taskConversationEvents,
 } from "./correspondenceView.ts";
 
 const scope = { communityId: "community-a", ownerPubkey: "owner-a" };
@@ -18,6 +19,49 @@ const task = (id, at = 1, correspondenceId = "pair-a", owner = "owner-a") => ({
   recordUpdatedAt: at,
 });
 const page = (tasks, overrides = {}) => ({ scope, tasks, ...overrides });
+
+test("task chat projects out only a generated anchor with its full brief loaded", () => {
+  const record = {
+    exchangeId: "task",
+    rootEventId: "anchor",
+    openedBy: "luca",
+    owner: "owner",
+  };
+  const anchor = {
+    id: "anchor",
+    pubkey: "luca",
+    content: "Task: Review onboarding",
+    tags: [["luca-managed-dispatch", "dispatch"]],
+  };
+  const brief = {
+    id: "brief",
+    pubkey: "luca",
+    content: "Review onboarding carefully.",
+    tags: [["exchange", "task", "1"]],
+  };
+  const reply = {
+    id: "reply",
+    pubkey: "peer",
+    content: "It is clear.",
+    tags: [],
+  };
+  const events = [anchor, brief, reply];
+  assert.deepEqual(taskConversationEvents(events, { record }), [brief, reply]);
+  assert.equal(events.length, 3, "canonical history is not mutated");
+  assert.deepEqual(taskConversationEvents([anchor, reply], { record }), [
+    anchor,
+    reply,
+  ]);
+  for (const changed of [
+    { ...record, owner: "luca" },
+    { ...record, openedBy: "another" },
+    { ...record, exchangeId: "other-task" },
+    { ...record, rootEventId: "other-root" },
+  ])
+    assert.equal(taskConversationEvents(events, { record: changed }), events);
+  const userCode = [{ ...anchor, tags: [] }, brief, reply];
+  assert.equal(taskConversationEvents(userCode, { record }), userCode);
+});
 
 test("task pages preserve identity and newest heads without leaking another pair or scope", () => {
   const newest = task("one", 3);

@@ -187,6 +187,40 @@ async function open(
   ).toBeVisible();
 }
 
+test("embedded task chat omits a duplicate transport anchor, not its brief", async ({
+  page,
+}) => {
+  await open(
+    page,
+    "dark",
+    0,
+    false,
+    (data) => {
+      enableOwnerWrites(data);
+      const read = data.reads[TASK];
+      read.task.record.root_event_id = "88".repeat(32);
+      read.events[0].pubkey = LUCA;
+      read.events.push({
+        ...read.events[0],
+        id: "88".repeat(32),
+        content: "Task: Review the onboarding flow",
+        tags: [["luca-managed-dispatch", "99".repeat(32)]],
+      });
+    },
+    true,
+  );
+  const chat = page.getByTestId("correspondence-window");
+  await expect(
+    chat
+      .locator(".conversation-prose")
+      .getByText("Review the onboarding flow", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    chat.getByText("Task: Review the onboarding flow", { exact: true }),
+  ).toHaveCount(0);
+  await expect(chat.getByTestId("message-input")).toBeEditable();
+});
+
 for (const theme of ["dark", "light"]) {
   test(`live delegation stays quiet until the task card is clicked: ${theme}`, async ({
     page,
