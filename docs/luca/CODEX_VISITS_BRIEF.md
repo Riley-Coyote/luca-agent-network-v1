@@ -325,3 +325,12 @@ stale approvals, replay, and legacy records. Audience tests reject foreign guest
 wrong rooms and closed exchanges. Native first-attempt proof remains pending
 until the rebuilt candidate is exercised; terminal failed-visit cleanup is still
 open and must not be described as complete.
+
+Native sharing review was approved in the isolated candidate on Nov 3, 23:29
+CST. The first attempt still hit `private_audience`: relay-authored metadata
+(39000), as well as membership (39002), includes the temporary guest. Both
+snapshots now use the same verified exchange audience. Context retrieval still
+requires the private owner/resident pair; this only admits publication to the
+reviewed exchange. Four focused conversation tests pass, including live-shaped
+relay snapshots and rejection of extra or unapproved recipients. Native retest
+of this correction is pending.

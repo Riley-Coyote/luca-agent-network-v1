@@ -55,6 +55,7 @@ fn private_metadata(
     owner: &Hex64,
     resident: &Hex64,
     conversation: &OpaqueId,
+    exchange_guests: &BTreeSet<Hex64>,
 ) -> bool {
     if event.kind != nostr::Kind::Custom(39000)
         || event.verify().is_err()
@@ -71,7 +72,7 @@ fn private_metadata(
     let participants: BTreeSet<_> = channel.participant_pubkeys.into_iter().collect();
     channel.channel_type == "dm"
         && channel.visibility == "private"
-        && participants == BTreeSet::from([owner.as_str().to_owned(), resident.as_str().to_owned()])
+        && private_exchange_audience(&participants, owner, resident, exchange_guests)
 }
 
 /// Fail-soft optional-context admission, never a group or public-room grant.
@@ -83,7 +84,15 @@ pub(crate) fn verified_private_conversation(
     conversation: &OpaqueId,
     deadline: Instant,
 ) -> bool {
-    current_private_conversation(state, owner, resident, conversation, deadline, &BTreeSet::new()).unwrap_or(false)
+    current_private_conversation(
+        state,
+        owner,
+        resident,
+        conversation,
+        deadline,
+        &BTreeSet::new(),
+    )
+    .unwrap_or(false)
 }
 
 fn current_private_conversation(
@@ -124,36 +133,59 @@ fn current_private_conversation(
     let ([metadata], [members]) = (metadata.as_slice(), members.as_slice()) else {
         return Ok(false);
     };
-    if !private_metadata(metadata, owner, resident, conversation)
+    Ok(private_conversation_snapshot(
+        metadata,
+        members,
+        owner,
+        resident,
+        conversation,
+        exchange_guests,
+    ))
+}
+
+fn private_conversation_snapshot(
+    metadata: &nostr::Event,
+    members: &nostr::Event,
+    owner: &Hex64,
+    resident: &Hex64,
+    conversation: &OpaqueId,
+    exchange_guests: &BTreeSet<Hex64>,
+) -> bool {
+    // The relay includes temporary guests in BOTH NIP-29 snapshots. Apply the
+    // same authenticated exchange audience to each, never to arbitrary guests.
+    if !private_metadata(metadata, owner, resident, conversation, exchange_guests)
         || members.verify().is_err()
         || !members
             .tags
             .iter()
             .any(|tag| tag.as_slice() == ["d", conversation.as_str()])
     {
-        return Ok(false);
+        return false;
     }
     // These are relay-authored NIP-29 snapshots, not owner-authored events.
     // The live owner-signed exchange is checked separately by the publisher.
     let Ok(members) = crate::nostr_convert::channel_members_from_event(members) else {
-        return Ok(false);
+        return false;
     };
     let actual = members
         .members
         .into_iter()
         .map(|member| member.pubkey)
         .collect::<BTreeSet<_>>();
-    Ok(private_exchange_audience(&actual, owner, resident, exchange_guests))
+    private_exchange_audience(&actual, owner, resident, exchange_guests)
 }
 
 fn private_exchange_audience(
-    actual: &BTreeSet<String>, owner: &Hex64, resident: &Hex64,
+    actual: &BTreeSet<String>,
+    owner: &Hex64,
+    resident: &Hex64,
     exchange_guests: &BTreeSet<Hex64>,
 ) -> bool {
     let pair = BTreeSet::from([owner.as_str().to_owned(), resident.as_str().to_owned()]);
-    pair.is_subset(actual) && actual.iter().all(|key| {
-        pair.contains(key) || exchange_guests.iter().any(|guest| guest.as_str() == key)
-    })
+    pair.is_subset(actual)
+        && actual.iter().all(|key| {
+            pair.contains(key) || exchange_guests.iter().any(|guest| guest.as_str() == key)
+        })
 }
 
 /// Linearize admission immediately before issuing a final reply. Old accepted
@@ -299,16 +331,33 @@ mod tests {
         let owner = Hex64::parse("a".repeat(64)).unwrap();
         let resident = Hex64::parse("b".repeat(64)).unwrap();
         let guest = Hex64::parse("c".repeat(64)).unwrap();
-        let mut audience = BTreeSet::from([owner.as_str().to_owned(), resident.as_str().to_owned()]);
+        let mut audience =
+            BTreeSet::from([owner.as_str().to_owned(), resident.as_str().to_owned()]);
         let guests = BTreeSet::from([guest.clone()]);
-        assert!(private_exchange_audience(&audience, &owner, &resident, &BTreeSet::new()));
+        assert!(private_exchange_audience(
+            &audience,
+            &owner,
+            &resident,
+            &BTreeSet::new()
+        ));
         audience.insert(guest.as_str().to_owned());
-        assert!(!private_exchange_audience(&audience, &owner, &resident, &BTreeSet::new()));
-        assert!(private_exchange_audience(&audience, &owner, &resident, &guests));
+        assert!(!private_exchange_audience(
+            &audience,
+            &owner,
+            &resident,
+            &BTreeSet::new()
+        ));
+        assert!(private_exchange_audience(
+            &audience, &owner, &resident, &guests
+        ));
         audience.insert("d".repeat(64));
-        assert!(!private_exchange_audience(&audience, &owner, &resident, &guests));
+        assert!(!private_exchange_audience(
+            &audience, &owner, &resident, &guests
+        ));
         audience.remove(owner.as_str());
-        assert!(!private_exchange_audience(&audience, &owner, &resident, &guests));
+        assert!(!private_exchange_audience(
+            &audience, &owner, &resident, &guests
+        ));
     }
     #[test]
     fn redacted_admission_errors_keep_the_original_fail_closed_mapping() {
@@ -362,13 +411,15 @@ mod tests {
             &event("dm", pair.clone(), &owner),
             &owner_id,
             &resident_id,
-            &conversation
+            &conversation,
+            &BTreeSet::new()
         ));
         assert!(!private_metadata(
             &event("stream", pair.clone(), &owner),
             &owner_id,
             &resident_id,
-            &conversation
+            &conversation,
+            &BTreeSet::new()
         ));
         let mut group = pair.clone();
         group.push(other.public_key().to_hex());
@@ -376,14 +427,92 @@ mod tests {
             &event("dm", group, &owner),
             &owner_id,
             &resident_id,
-            &conversation
+            &conversation,
+            &BTreeSet::new()
         ));
         let foreign = OpaqueId::parse("22222222-2222-4222-8222-222222222222").unwrap();
         assert!(!private_metadata(
             &event("dm", pair, &owner),
             &owner_id,
             &resident_id,
-            &foreign
+            &foreign,
+            &BTreeSet::new()
+        ));
+    }
+
+    #[test]
+    fn relay_snapshots_include_the_authorized_visitor_in_metadata_and_membership() {
+        let relay = Keys::generate();
+        let owner = Hex64::parse(Keys::generate().public_key().to_hex()).unwrap();
+        let resident = Hex64::parse(Keys::generate().public_key().to_hex()).unwrap();
+        let guest = Hex64::parse(Keys::generate().public_key().to_hex()).unwrap();
+        let outsider = Hex64::parse(Keys::generate().public_key().to_hex()).unwrap();
+        let room = OpaqueId::parse("11111111-1111-4111-8111-111111111111").unwrap();
+        let snapshot = |kind, audience: &[Hex64]| {
+            let mut tags = vec![Tag::parse(["d", room.as_str()]).unwrap()];
+            if kind == 39000 {
+                tags.extend([
+                    Tag::parse(["t", "dm"]).unwrap(),
+                    Tag::parse(["private"]).unwrap(),
+                ]);
+            }
+            for key in audience {
+                tags.push(if kind == 39002 {
+                    Tag::parse([
+                        "p",
+                        key.as_str(),
+                        "",
+                        if key == &guest { "guest" } else { "member" },
+                    ])
+                    .unwrap()
+                } else {
+                    Tag::parse(["p", key.as_str()]).unwrap()
+                });
+            }
+            EventBuilder::new(Kind::Custom(kind), "")
+                .tags(tags)
+                .sign_with_keys(&relay)
+                .unwrap()
+        };
+        let audience = [owner.clone(), resident.clone(), guest.clone()];
+        let guests = BTreeSet::from([guest.clone()]);
+        let metadata = snapshot(39000, &audience);
+        let members = snapshot(39002, &audience);
+        assert!(private_conversation_snapshot(
+            &metadata, &members, &owner, &resident, &room, &guests
+        ));
+        assert!(!private_conversation_snapshot(
+            &metadata,
+            &members,
+            &owner,
+            &resident,
+            &room,
+            &BTreeSet::new()
+        ));
+        let wider = [owner.clone(), resident.clone(), guest.clone(), outsider];
+        assert!(!private_conversation_snapshot(
+            &snapshot(39000, &wider),
+            &members,
+            &owner,
+            &resident,
+            &room,
+            &guests
+        ));
+        assert!(!private_conversation_snapshot(
+            &metadata,
+            &snapshot(39002, &wider),
+            &owner,
+            &resident,
+            &room,
+            &guests
+        ));
+        assert!(!private_conversation_snapshot(
+            &snapshot(39000, &audience[1..]),
+            &members,
+            &owner,
+            &resident,
+            &room,
+            &guests
         ));
     }
 }
