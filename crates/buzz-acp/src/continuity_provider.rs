@@ -52,6 +52,9 @@ pub(crate) struct ManagedSessionContextIntentV1 {
     deadline_unix_ms: SafeU53,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) quickchat_report: Option<serde_json::Value>,
+    /// Sibling replies may isolate native history, never retrieve owner context.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) isolate_exchange_history: bool,
 }
 
 impl ManagedSessionContextIntentV1 {
@@ -72,6 +75,7 @@ impl ManagedSessionContextIntentV1 {
             trigger_event_id,
             deadline_unix_ms,
             quickchat_report: None,
+            isolate_exchange_history: false,
         };
         value.is_valid().then_some(value)
     }
@@ -178,6 +182,23 @@ pub(crate) struct QuickChatEffort {
 }
 
 impl ManagedSessionContextResultV1 {
+    /// Exchange turns accept only the body's absence plus a fresh-history
+    /// contract, not an owner-context frame with an isolation flag attached.
+    pub(crate) fn acknowledges_exchange_isolation(&self) -> bool {
+        self.status == ManagedSessionContextStatusV1::Empty
+            && self.isolate_awareness_history
+            && self.snapshot_ref.is_none()
+            && self.cwd.is_none()
+            && self.additional_directories.is_empty()
+            && self.selected_source_ids.is_empty()
+            && self.native_roots_ref.is_none()
+            && self.attached_session_context.is_none()
+            && self.quick_chat_effort.is_none()
+            && self.quick_chat_context.is_none()
+            && self.first_meeting_context.is_none()
+            && self.awareness_context.is_none()
+    }
+
     fn is_valid(&self) -> bool {
         if self
             .quick_chat_context
@@ -1209,6 +1230,31 @@ mod tests {
             awareness_context: None,
             isolate_awareness_history: false,
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exchange_isolation_request_is_explicit_and_body_free() {
+        let mut intent = session_context_intent("exchange-isolation", unix_time_millis() + 1000);
+        let ordinary = serde_json::to_value(&intent).unwrap();
+        assert!(ordinary.get("isolate_exchange_history").is_none());
+        intent.isolate_exchange_history = true;
+        let wire = serde_json::to_value(&intent).unwrap();
+        assert_eq!(wire["isolate_exchange_history"], true);
+        assert!(wire.get("retrieval_cue").is_none());
+        assert!(wire.get("quickchat_report").is_none());
+        let mut result = session_context_result(&intent);
+        assert!(!result.acknowledges_exchange_isolation());
+        result.isolate_awareness_history = true;
+        assert!(result.is_valid_for(&intent));
+        assert!(result.acknowledges_exchange_isolation());
+        assert!(result.awareness_context.is_none());
+        assert!(result.attached_session_context.is_none());
+        result.first_meeting_context = Some("owner-only context".into());
+        assert!(!result.acknowledges_exchange_isolation());
+        result.first_meeting_context = None;
+        result.status = ManagedSessionContextStatusV1::Denied;
+        assert!(!result.acknowledges_exchange_isolation());
     }
 
     #[cfg(unix)]

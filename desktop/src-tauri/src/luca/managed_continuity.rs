@@ -83,6 +83,8 @@ struct ManagedSessionContextIntentV1 {
     deadline_unix_ms: SafeU53,
     #[serde(default)]
     quickchat_report: Option<super::quickchat::RuntimeReport>,
+    #[serde(default)]
+    isolate_exchange_history: bool,
 }
 
 impl ManagedSessionContextIntentV1 {
@@ -550,6 +552,28 @@ fn write_session_context_result(
         isolate_awareness_history: false,
     };
     let now_unix_ms = unix_time_millis();
+    if intent.isolate_exchange_history {
+        // An admitted sibling earns a reply, not access to owner/Brain/activity
+        // context. Use the existing fresh-session contract without delivering
+        // any optional context. Publication still checks the live exchange.
+        let mut result = unavailable(ManagedSessionContextStatusV1::Denied);
+        if now_unix_ms < intent.deadline_unix_ms.get() && intent.quickchat_report.is_none() {
+            if let Ok(store) = global_dispatch_store(app) {
+                super::exchange::ensure_wake_dispatch(
+                    app, &store, intent.trigger_event_id.as_str(),
+                    intent.resident_pubkey.as_str(), now_unix_ms / 1_000,
+                );
+                let bound = store.lock().ok().and_then(|mut store| {
+                    bind_exchange_history_isolation(&mut store, intent, binding_ref, now_unix_ms / 1_000).ok()
+                });
+                if bound.is_some() {
+                    result.status = ManagedSessionContextStatusV1::Empty;
+                    result.isolate_awareness_history = true;
+                }
+            }
+        }
+        return write_session_context_frame(writer, intent, &result);
+    }
     let mut attached_session_context = None;
     let mut quick_chat_effort = None;
     let mut quick_chat_context = None;
@@ -805,6 +829,24 @@ fn write_session_context_result(
         }
     }
     write
+}
+
+/// Body-free binding paired with ACP's mandatory session/new and owner-only
+/// history replay. It must never be used for a warm provider session.
+fn bind_exchange_history_isolation(
+    store: &mut ManagedDispatchStore,
+    intent: &ManagedSessionContextIntentV1,
+    binding_ref: &Sha256Ref,
+    now: u64,
+) -> Result<(), super::managed_dispatch_store::DispatchAuthorizationError> {
+    let authority = store.authorize_continuity_turn(
+        intent.trigger_event_id.as_str(), intent.resident_pubkey.as_str(),
+        intent.conversation_id.as_str(), intent.session_epoch.get(), now,
+    )?;
+    store.bind_isolated_awareness_turn(
+        &authority, intent.session_epoch, binding_ref, None, &[], now,
+    )?;
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -1429,6 +1471,80 @@ mod tests {
             deadline_unix_ms: SafeU53::new(10_000).unwrap(),
             max_packet_bytes: SafeU53::new(MAX_CONTINUITY_PACKET_BYTES as u64).unwrap(),
         }
+    }
+
+    #[test]
+    fn exchange_isolation_binds_only_the_exact_active_turn() {
+        use super::super::managed_dispatch_store::ManagedTurnAwarenessLookupV1;
+        let fixture = active_dispatch();
+        let now = unix_time_millis() / 1_000;
+        let binding = Sha256Ref::parse(format!("sha256:{}", "ab".repeat(32))).unwrap();
+        let mut store = fixture.store.lock().unwrap();
+        let authority = store.authorize_continuity_turn(
+            fixture.trigger_event_id.as_str(), fixture.resident_pubkey.as_str(),
+            fixture.conversation_id.as_str(), fixture.session_epoch.get(), now,
+        ).unwrap();
+        // Persist an awareness-tainted scope from an earlier ordinary turn.
+        let observation = luca_protocol::AwarenessObservationRefV1 {
+            protocol: luca_protocol::AWARENESS_PROTOCOL.into(),
+            observation_id: OpaqueId::parse("observation").unwrap(),
+            owner_pubkey: authority.owner_pubkey.clone(),
+            resident_pubkey: fixture.resident_pubkey.clone(),
+            source_id: OpaqueId::parse("source").unwrap(),
+            device_id: OpaqueId::parse("device").unwrap(),
+            grant_id: OpaqueId::parse("grant").unwrap(),
+            grant_revision: SafeU53::new(1).unwrap(),
+            deny_epoch: SafeU53::new(0).unwrap(),
+            sequence: SafeU53::new(1).unwrap(),
+            evidence_ref: binding.clone(),
+            captured_at: luca_protocol::CanonicalTimestamp::parse("2026-11-04T00:00:00Z").unwrap(),
+            expires_at: luca_protocol::CanonicalTimestamp::parse("2026-11-04T00:05:00Z").unwrap(),
+        };
+        store.bind_turn_awareness_context(&authority, fixture.session_epoch, &binding,
+            &OpaqueId::parse("old-private-context").unwrap(), &[observation], now).unwrap();
+        let sibling = Keys::generate();
+        let trigger = EventBuilder::new(Kind::Custom(9), "hello")
+            .tags([
+                Tag::parse(["h", fixture.conversation_id.as_str()]).unwrap(),
+                Tag::parse(["p", fixture.resident_pubkey.as_str()]).unwrap(),
+            ])
+            .custom_created_at(Timestamp::from(now)).sign_with_keys(&sibling).unwrap();
+        store.stage_wake_from_trigger(&trigger, fixture.resident_pubkey.as_str(),
+            &fixture.owner_pubkey, now).unwrap();
+        let mut intent = ManagedSessionContextIntentV1 {
+            protocol: SESSION_CONTEXT_INTENT_PROTOCOL.into(),
+            request_id: OpaqueId::parse("exchange-isolation").unwrap(),
+            resident_pubkey: fixture.resident_pubkey.clone(),
+            conversation_id: fixture.conversation_id.clone(),
+            session_epoch: fixture.session_epoch,
+            trigger_event_id: Hex64::parse(trigger.id.to_hex()).unwrap(),
+            deadline_unix_ms: SafeU53::new(unix_time_millis() + 1000).unwrap(),
+            quickchat_report: None,
+            isolate_exchange_history: true,
+        };
+        let owner = Hex64::parse(fixture.owner_pubkey.clone()).unwrap();
+        assert!(store.conversation_has_awareness_history(&owner, &fixture.resident_pubkey, &fixture.conversation_id));
+        assert_eq!(store.turn_awareness_context(&owner, &intent.resident_pubkey,
+            &intent.conversation_id, &intent.trigger_event_id), ManagedTurnAwarenessLookupV1::Unknown);
+        intent.session_epoch = SafeU53::new(999).unwrap();
+        assert!(bind_exchange_history_isolation(&mut store, &intent, &binding, now).is_err());
+        intent.session_epoch = fixture.session_epoch;
+        intent.resident_pubkey = Hex64::parse(sibling.public_key().to_hex()).unwrap();
+        assert!(bind_exchange_history_isolation(&mut store, &intent, &binding, now).is_err());
+        intent.resident_pubkey = fixture.resident_pubkey.clone();
+        intent.conversation_id = OpaqueId::parse("wrong-room").unwrap();
+        assert!(bind_exchange_history_isolation(&mut store, &intent, &binding, now).is_err());
+        intent.conversation_id = fixture.conversation_id.clone();
+        bind_exchange_history_isolation(&mut store, &intent, &binding, now).unwrap();
+        assert_eq!(store.turn_awareness_context(&owner, &intent.resident_pubkey,
+            &intent.conversation_id, &intent.trigger_event_id), ManagedTurnAwarenessLookupV1::Untainted);
+        // This turn's isolation cannot launder the earlier warm history.
+        assert!(store.conversation_has_awareness_history(&owner, &fixture.resident_pubkey, &fixture.conversation_id));
+        assert!(matches!(store.turn_awareness_context(&owner, &fixture.resident_pubkey,
+            &fixture.conversation_id, &fixture.trigger_event_id), ManagedTurnAwarenessLookupV1::Bound(_)));
+        store.cancel_exact(&fixture.owner_pubkey, intent.conversation_id.as_str(),
+            intent.resident_pubkey.as_str(), intent.trigger_event_id.as_str(), intent.session_epoch.get()).unwrap();
+        assert!(bind_exchange_history_isolation(&mut store, &intent, &binding, now).is_err());
     }
 
     #[test]

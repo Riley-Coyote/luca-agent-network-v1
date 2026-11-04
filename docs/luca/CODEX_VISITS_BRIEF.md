@@ -276,3 +276,17 @@ instructions above are historical, not a new merge or publication request.
 Focused regression coverage lives beside the publisher, startup replay helper,
 channel membership parser, and rail model. Native sleeping-agent delivery still
 requires the candidate walkthrough; unit tests alone do not prove it.
+
+The native walkthrough on Nov 3 verified a stopped Anima waking, replying in
+Luca's existing conversation, and leaving the Projects list unchanged. It also
+exposed a return-path failure: sibling-triggered turns skipped the owner-only
+context endpoint, so Luca's previously awareness-tainted conversation had no
+current context receipt and final publication correctly denied it.
+
+The follow-up uses a body-free exchange-isolation request on the existing
+inherited endpoint. It binds the exact active dispatch and requires ACP's
+fresh native session plus owner-only history replay. It grants no optional
+activity, first-meeting, attached-session, or Brain context. Unknown receipts
+remain denied; old exposure remains sticky; live exchange and cancellation
+checks still govern publication. Regression coverage exercises tainted history,
+wrong resident/room/epoch, cancellation, and the body-free wire request.

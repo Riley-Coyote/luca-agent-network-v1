@@ -3022,9 +3022,12 @@ async fn managed_session_context(
     let Some(managed) = ctx.managed_final_publisher.as_ref() else {
         return Ok(None);
     };
-    let Some(trigger) = last_eligible_managed_trigger(batch, &managed.owner_pubkey) else {
+    let Some((trigger, admission)) =
+        last_eligible_managed_trigger_with_exchange(batch, &managed.owner_pubkey)
+    else {
         return Ok(None);
     };
+    let exchange_only = admission.is_some();
     let now_unix_ms: u64 = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| AcpError::Protocol("local context clock is unavailable".into()))?
@@ -3048,9 +3051,15 @@ async fn managed_session_context(
     )
     .ok_or_else(|| AcpError::Protocol("local context request is invalid".into()))?;
     intent.quickchat_report = report;
+    intent.isolate_exchange_history = exchange_only;
     let Some(result) =
         crate::continuity_provider::resolve_inherited_managed_session_context(&intent).await
     else {
+        if exchange_only {
+            return Err(AcpError::Protocol(
+                "Exchange history isolation is unavailable; no reply was generated.".into(),
+            ));
+        }
         tracing::warn!(
             target: "luca::continuity",
             conversation_id = %batch.channel_id,
@@ -3058,6 +3067,11 @@ async fn managed_session_context(
         );
         return Ok(None);
     };
+    if exchange_only && !result.acknowledges_exchange_isolation() {
+        return Err(AcpError::Protocol(
+            "Exchange history isolation was not authorized; no reply was generated.".into(),
+        ));
+    }
     tracing::debug!(conversation_id = %batch.channel_id, event_id = %trigger.id.to_hex(), status = ?result.status, effort = ?result.quick_chat_effort.as_ref().map(|item| (&item.config_id, &item.value)), "Quick Chat local context received");
     match managed_session_context_status_is_usable(result.status)? {
         true => Ok(Some(result)),
