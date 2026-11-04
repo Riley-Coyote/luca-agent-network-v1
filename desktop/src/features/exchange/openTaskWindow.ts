@@ -1,15 +1,24 @@
-import { invokeTauri } from "@/shared/api/tauri";
+import { isTauri } from "@tauri-apps/api/core";
+import { emitTo } from "@tauri-apps/api/event";
+import { getCurrentWindow, Window } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 
-/** Reveal one native pair window without navigating or dispatching anything. */
+export const OPEN_TASK_CHAT = "polyphonic:open-task-chat";
+
+/** Reveal the task beside the current conversation. Opening never dispatches. */
 export async function openTaskWindow(exchangeId: string): Promise<void> {
-  try {
-    await invokeTauri("open_chat_view", {
-      target: { kind: "correspondence", exchangeId },
-    });
-  } catch (error) {
-    toast.error("Couldn’t open this task", {
-      description: error instanceof Error ? error.message : String(error),
-    });
+  if (isTauri() && getCurrentWindow().label !== "main") {
+    try {
+      await emitTo("main", OPEN_TASK_CHAT, exchangeId);
+      const main = await Window.getByLabel("main");
+      await main?.unminimize();
+      await main?.setFocus();
+    } catch (error) {
+      toast.error("Couldn’t open the task in the main window", {
+        description: String(error),
+      });
+    }
+    return;
   }
+  window.dispatchEvent(new CustomEvent(OPEN_TASK_CHAT, { detail: exchangeId }));
 }

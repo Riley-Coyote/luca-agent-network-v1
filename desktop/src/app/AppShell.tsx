@@ -2,6 +2,7 @@ import { QuickChatRoot } from "@/features/quickchat/QuickChatRoot";
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation } from "@tanstack/react-router";
+import { TaskChatPane } from "@/features/exchange/ui/TaskChatPane";
 import { AppErrorBoundary } from "@/app/AppErrorBoundary";
 import { toast } from "sonner";
 
@@ -1452,6 +1453,7 @@ export function AppShell() {
                                           </AppErrorBoundary>
                                         </BuzzTheme.ContentSurface>
                                         <RightCardsSlot />
+                                        <TaskChatPane />
                                       </div>
                                     </ResidentHarnessProvider>
                                   </ArtifactCanvasProvider>

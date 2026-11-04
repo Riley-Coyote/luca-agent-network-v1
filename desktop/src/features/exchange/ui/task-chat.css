@@ -1,0 +1,48 @@
+.luca-task-chat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  background: hsl(var(--mn-surface));
+}
+/* One right-hand conversation at a time. The inspector keeps its state. */
+[data-luca-right-cards]:has(> .luca-task-chat) > :not(.luca-task-chat) {
+  display: none;
+}
+[data-luca-right-cards]:has(> .luca-task-chat[data-overlay]) {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 40;
+  max-width: 100%;
+}
+.luca-task-chat[data-overlay] {
+  width: min(480px, calc(100vw - 72px));
+}
+.luca-task-chat .luca-measure {
+  width: 100%;
+  padding-inline: 24px;
+}
+.luca-task-chat [data-testid="correspondence-window"] {
+  background: transparent;
+}
+.luca-task-chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+}
+.luca-task-chat__header button {
+  padding: 6px;
+  border-radius: 6px;
+}
+.luca-task-chat__header button:hover {
+  background: hsl(var(--mn-raised));
+}
+.luca-task-chat__header button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

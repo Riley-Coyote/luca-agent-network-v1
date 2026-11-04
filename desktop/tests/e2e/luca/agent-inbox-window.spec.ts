@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 import type { AgentInboxFixture } from "../../../src/testing/agentInboxFixture";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 
 const OWNER = "deadbeef".repeat(8);
 const LUCA = TEST_IDENTITIES.bob.pubkey;
@@ -106,6 +107,7 @@ async function open(
   sendFailures = 0,
   omitSelectedFromPage = false,
   configure?: (data: AgentInboxFixture) => void,
+  embedded = false,
 ) {
   const data = fixture();
   if (omitSelectedFromPage) data.pages[0].tasks = data.pages[0].tasks.slice(1);
@@ -153,13 +155,124 @@ async function open(
       },
     ],
   });
-  await page.goto(
-    `/?e2e=mock&window=popout&correspondence=${PAIR}&task=${TASK}`,
-  );
+  if (embedded) {
+    await page.addInitScript((key) => {
+      const flags = JSON.parse(localStorage.getItem(key) ?? "{}");
+      localStorage.setItem(
+        key,
+        JSON.stringify({ ...flags, "shell-frame": true }),
+      );
+    }, FEATURE_OVERRIDES_STORAGE_KEY);
+    await page.goto(`/?e2e=mock#/channels/${CHANNEL}`);
+    await expect(page.locator("[data-luca-right-cards]")).toBeAttached();
+    await page.evaluate(
+      (id) =>
+        window.dispatchEvent(
+          new CustomEvent("polyphonic:open-task-chat", { detail: id }),
+        ),
+      TASK,
+    );
+  } else {
+    await page.goto(
+      `/?e2e=mock&window=popout&correspondence=${PAIR}&task=${TASK}`,
+    );
+  }
   await expect(page.getByTestId("correspondence-window")).toBeVisible();
   await expect(
     page.getByRole("article", { name: "Review the onboarding flow" }),
   ).toBeVisible();
+}
+
+test("embedded task chat keeps the main route and composer, defaults recipient, and opens no native window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, "dark", 0, false, enableOwnerWrites, true);
+  const pane = page.getByTestId("task-chat-pane");
+  await expect(pane.getByTestId("message-input")).toBeVisible();
+  await expect(
+    pane.getByTestId("message-input").locator("[data-placeholder]"),
+  ).toHaveAttribute("data-placeholder", "Message Anima…");
+  await expect(pane.getByLabel("Reply recipient")).toHaveCount(0);
+  await expect(pane.getByRole("navigation", { name: "Tasks" })).toBeHidden();
+  const route = page.url();
+  await pane.getByTestId("message-input").fill("A draft for this task");
+  await pane.getByRole("button", { name: "Close task conversation" }).click();
+  await expect(pane).toHaveCount(0);
+  expect(page.url()).toBe(route);
+  expect(await sends(page)).toEqual([]);
+  await page.evaluate(
+    (id) =>
+      window.dispatchEvent(
+        new CustomEvent("polyphonic:open-task-chat", { detail: id }),
+      ),
+    TASK,
+  );
+  await expect(pane.getByTestId("message-input")).toHaveText(
+    "A draft for this task",
+  );
+  await pane.getByTestId("send-message").click();
+  await expect.poll(async () => (await sends(page)).length).toBe(1);
+  expect((await sends(page))[0]).toMatchObject({
+    exchangeId: TASK,
+    recipientPubkey: ANIMA,
+    continuationIntent: false,
+  });
+  expect(
+    await page.evaluate(() =>
+      (window.__BUZZ_E2E_COMMAND_LOG__ ?? []).filter(
+        (entry) => entry.command === "open_chat_view",
+      ),
+    ),
+  ).toEqual([]);
+});
+
+test("embedded task sends explicit continuation only on Send and preserves task-specific drafts", async ({
+  page,
+}) => {
+  await open(page, "light", 0, false, enableOwnerWrites, true);
+  const pane = page.getByTestId("task-chat-pane");
+  await pane.getByTestId("message-input").fill("First task draft");
+  await pane.getByLabel("Task", { exact: true }).selectOption(OTHER_TASK);
+  await expect(pane.getByTestId("message-input")).toHaveText("");
+  await expect(
+    pane.getByText("Sending a message resumes this task with Anima."),
+  ).toBeVisible();
+  expect(await sends(page)).toEqual([]);
+  await pane.getByTestId("message-input").fill("Please continue this task.");
+  await pane.getByTestId("send-message").click();
+  await expect.poll(async () => (await sends(page)).length).toBe(1);
+  expect((await sends(page))[0]).toMatchObject({
+    exchangeId: OTHER_TASK,
+    recipientPubkey: ANIMA,
+    continuationIntent: true,
+  });
+  await pane.getByLabel("Task", { exact: true }).selectOption(TASK);
+  await expect(pane.getByTestId("message-input")).toHaveText(
+    "First task draft",
+  );
+});
+
+for (const theme of ["dark", "light"]) {
+  test(`embedded task desktop layout ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await open(page, theme, 0, false, enableOwnerWrites, true);
+    const pane = page.getByTestId("task-chat-pane");
+    for (const width of [1440, 1280, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(pane.getByTestId("message-input")).toBeVisible();
+      await expect
+        .poll(async () =>
+          page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        )
+        .toBe(true);
+      await page.screenshot({
+        path: `test-results/task-chat/embedded-${theme}-${width}.png`,
+      });
+    }
+  });
 }
 
 async function sends(page: Page) {

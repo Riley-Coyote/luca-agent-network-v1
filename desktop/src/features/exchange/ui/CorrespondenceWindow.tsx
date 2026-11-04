@@ -4,6 +4,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import * as React from "react";
+import { TaskChatHeader } from "./TaskChatHeader";
+import { useTaskChatScroll } from "../useTaskChatScroll";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
 
@@ -59,6 +61,8 @@ export type CorrespondenceWindowProps = {
   initialTaskId?: string | null;
   residentPubkeys?: readonly string[];
   onTitleChange?: (title: string) => void;
+  embedded?: boolean;
+  onClose?: () => void;
 };
 
 const errorText = (error: unknown) =>
@@ -77,6 +81,8 @@ export function CorrespondenceWindow({
   initialTaskId = null,
   residentPubkeys,
   onTitleChange,
+  embedded = false,
+  onClose,
 }: CorrespondenceWindowProps) {
   const queryClient = useQueryClient();
   const identity = useIdentityQuery().data;
@@ -336,6 +342,7 @@ export function CorrespondenceWindow({
     undefined,
   );
   const latestReadEventId = latestReadEvent?.id;
+  useTaskChatScroll(embedded, scrollRef, taskId, latestReadEventId);
   const unreadCount = taskId
     ? taskUnreadCount(events, ownerPubkey, readPosition.data?.[taskId])
     : null;
@@ -404,6 +411,11 @@ export function CorrespondenceWindow({
   const defaultResponder = task?.record.members.find(
     (key) => key !== task.record.openedBy,
   );
+  // The task's addressee is the default, never whichever participant spoke last.
+  React.useEffect(() => {
+    if (embedded && defaultResponder && !recipient)
+      setRecipient(defaultResponder);
+  }, [embedded, defaultResponder, recipient]);
   const subject = exchangeTaskSubject(
     root?.content,
     recipient
@@ -421,7 +433,8 @@ export function CorrespondenceWindow({
     composeMode === "new-message"
       ? capabilities?.newMessage === true
       : needsContinuation
-        ? capabilities?.continuation === true && continuationRequested
+        ? capabilities?.continuation === true &&
+          (embedded || continuationRequested)
         : capabilities?.reply !== false;
   const validRecipient = task?.record.members.includes(recipient) ?? false;
   const draftKey =
@@ -552,25 +565,81 @@ export function CorrespondenceWindow({
       className="flex h-full min-h-0 flex-col bg-background text-foreground"
       data-testid="correspondence-window"
     >
-      <header className="luca-measure shrink-0 pb-3 pt-4">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-sm font-medium">Tasks</h1>
-          <button
-            className="text-xs text-primary hover:underline"
-            onClick={() =>
-              void queryClient.invalidateQueries({ queryKey: queryPrefix })
-            }
-            type="button"
-          >
-            Refresh
-          </button>
-        </div>
-        {partial ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Some task history is not loaded or is unavailable.
-          </p>
-        ) : null}
-      </header>
+      {embedded ? (
+        <TaskChatHeader
+          title={title}
+          taskId={taskId}
+          tasks={tasks.map((item) => ({
+            id: inboxLogicalTaskId(item),
+            title:
+              inboxLogicalTaskId(item) === taskId
+                ? subject
+                : exchangeTaskSubject(
+                    item.subject,
+                    nameOf(
+                      item.record.members.find(
+                        (key) => key !== item.record.openedBy,
+                      ) ?? item.record.openedBy,
+                    ),
+                  ),
+          }))}
+          sending={sending}
+          onSelect={(id) => {
+            setSelectedTaskId(id);
+            setComposeMode("reply");
+            setRecipient("");
+            setReplyEventId(undefined);
+            setSendError(null);
+            setStopError(null);
+          }}
+          onRefresh={() =>
+            void queryClient.invalidateQueries({ queryKey: queryPrefix })
+          }
+          onNewMessage={
+            !sending && capabilities?.newMessage
+              ? () => {
+                  setComposeMode("new-message");
+                  setReplyEventId(undefined);
+                  setSendError(null);
+                }
+              : undefined
+          }
+          onStop={
+            !stopping &&
+            !sending &&
+            exchangeState.data &&
+            ["open", "paused"].includes(exchangeState.data.phase)
+              ? () => void stopSelectedExchange()
+              : undefined
+          }
+          onLoadOlder={
+            pages.hasNextPage && !pages.isFetchingNextPage
+              ? () => void pages.fetchNextPage()
+              : undefined
+          }
+          onClose={onClose}
+        />
+      ) : (
+        <header className="luca-measure shrink-0 pb-3 pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-sm font-medium">Tasks</h1>
+            <button
+              className="text-xs text-primary hover:underline"
+              onClick={() =>
+                void queryClient.invalidateQueries({ queryKey: queryPrefix })
+              }
+              type="button"
+            >
+              Refresh
+            </button>
+          </div>
+          {partial ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Some task history is not loaded or is unavailable.
+            </p>
+          ) : null}
+        </header>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef}>
         <div className="luca-measure">
           {pages.isPending && pairFilter ? (
@@ -587,6 +656,7 @@ export function CorrespondenceWindow({
             </p>
           ) : null}
           <nav
+            hidden={embedded}
             aria-label="Tasks"
             className="mb-4 flex max-h-40 flex-col gap-1 overflow-y-auto overscroll-contain"
           >
@@ -630,7 +700,7 @@ export function CorrespondenceWindow({
               </button>
             ))}
           </nav>
-          {pages.hasNextPage ? (
+          {!embedded && pages.hasNextPage ? (
             <button
               className="mb-4 text-sm text-primary hover:underline"
               disabled={pages.isFetchingNextPage}
@@ -666,14 +736,25 @@ export function CorrespondenceWindow({
               <h2 className="sr-only">{subject}</h2>
               <div className="flex flex-col gap-5">
                 {events.map((event) => (
-                  <div className="flex gap-2" key={event.id}>
-                    <ExchangeIdentityMark
-                      name={nameOf(event.pubkey)}
-                      pubkey={event.pubkey}
-                      avatarUrl={profiles?.[event.pubkey]?.avatarUrl}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="mb-1 text-xs font-medium">
+                  <div
+                    className={`group/task-message flex gap-2 ${event.pubkey === ownerPubkey ? "justify-end" : ""}`}
+                    key={event.id}
+                  >
+                    {!embedded ? (
+                      <ExchangeIdentityMark
+                        name={nameOf(event.pubkey)}
+                        pubkey={event.pubkey}
+                        avatarUrl={profiles?.[event.pubkey]?.avatarUrl}
+                      />
+                    ) : null}
+                    <div
+                      className={
+                        embedded && event.pubkey === ownerPubkey
+                          ? "min-w-0 max-w-[90%] rounded-2xl bg-plate px-4 py-2"
+                          : "min-w-0 flex-1"
+                      }
+                    >
+                      <p className="mb-1 text-xs font-medium text-muted-foreground">
                         {nameOf(event.pubkey)}
                       </p>
                       <Markdown
@@ -683,7 +764,11 @@ export function CorrespondenceWindow({
                       />
                       {task.record.members.includes(event.pubkey) ? (
                         <button
-                          className="mt-1 text-xs text-primary hover:underline"
+                          className={
+                            embedded
+                              ? "mt-1 text-xs text-muted-foreground opacity-0 hover:underline focus-visible:opacity-100 group-hover/task-message:opacity-100"
+                              : "mt-1 text-xs text-primary hover:underline"
+                          }
                           onClick={() => {
                             setRecipient(event.pubkey);
                             setComposeMode("reply");
@@ -723,131 +808,169 @@ export function CorrespondenceWindow({
       </div>
       {task && read.data ? (
         <footer className="shrink-0 pb-3 pt-2">
-          <div className="luca-measure grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2">
-            <div className="col-start-2 row-start-1 mb-2 text-xs">
+          {embedded ? (
+            <div className="luca-measure mb-2 text-xs text-muted-foreground">
+              {partial ? <p>Some history is unavailable.</p> : null}
+              {needsContinuation && mayCompose ? (
+                <p>
+                  Sending a message resumes this task with {nameOf(recipient)}.
+                </p>
+              ) : null}
+              {!mayCompose ? (
+                <p>This task is read-only under its current permissions.</p>
+              ) : null}
               {composeMode === "new-message" ? (
                 <button
-                  className="text-primary hover:underline"
-                  disabled={sending}
+                  type="button"
                   onClick={() => {
                     setComposeMode("reply");
                     setReplyEventId(undefined);
-                    setSendError(null);
                   }}
-                  type="button"
                 >
-                  Back to task
+                  New topic · Back to task
                 </button>
-              ) : (
+              ) : null}
+              {replyEventId ? (
                 <button
-                  className="text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
-                  disabled={sending || capabilities?.newMessage !== true}
-                  onClick={() => {
-                    setComposeMode("new-message");
-                    setContinuationRequested(false);
+                  type="button"
+                  onClick={() => setReplyEventId(undefined)}
+                >
+                  Replying to {nameOf(recipient)} · Cancel reply
+                </button>
+              ) : null}
+              {sendError || stopError ? (
+                <p role="alert" className="text-destructive">
+                  {sendError ?? stopError} Your draft is kept.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="luca-measure grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2">
+              <div className="col-start-2 row-start-1 mb-2 text-xs">
+                {composeMode === "new-message" ? (
+                  <button
+                    className="text-primary hover:underline"
+                    disabled={sending}
+                    onClick={() => {
+                      setComposeMode("reply");
+                      setReplyEventId(undefined);
+                      setSendError(null);
+                    }}
+                    type="button"
+                  >
+                    Back to task
+                  </button>
+                ) : (
+                  <button
+                    className="text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
+                    disabled={sending || capabilities?.newMessage !== true}
+                    onClick={() => {
+                      setComposeMode("new-message");
+                      setContinuationRequested(false);
+                      setReplyEventId(undefined);
+                      setSendError(null);
+                    }}
+                    title={
+                      capabilities?.newMessage
+                        ? undefined
+                        : "New topics are not available from this host yet."
+                    }
+                    type="button"
+                  >
+                    New message
+                  </button>
+                )}
+              </div>
+              <label className="col-start-1 row-start-1 mb-2 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                {composeMode === "new-message" ? "Message to" : "Reply to"}
+                <select
+                  aria-label="Reply recipient"
+                  className="min-w-0 rounded-md bg-plate px-2 py-1 text-sm text-foreground"
+                  onChange={(event) => {
+                    setRecipient(event.target.value);
                     setReplyEventId(undefined);
-                    setSendError(null);
                   }}
-                  title={
-                    capabilities?.newMessage
-                      ? undefined
-                      : "New topics are not available from this host yet."
-                  }
+                  value={recipient}
+                >
+                  <option value="">Choose an agent</option>
+                  {task.record.members.map((key) => (
+                    <option key={key} value={key}>
+                      {nameOf(key)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="col-start-1 row-start-2 mb-2 min-w-0 truncate text-xs text-muted-foreground">
+                {composeMode === "new-message"
+                  ? `Source: ${subject}`
+                  : `${subject} · ${exchangeStatusLabel(state)}`}
+              </p>
+              {composeMode === "reply" &&
+              exchangeState.data &&
+              ["open", "paused"].includes(exchangeState.data.phase) ? (
+                <button
+                  className="col-start-2 row-start-2 mb-2 text-xs text-destructive hover:underline disabled:opacity-50"
+                  disabled={stopping || sending}
+                  onClick={() => void stopSelectedExchange()}
                   type="button"
                 >
-                  New message
+                  {stopping ? "Stopping exchange…" : "Stop exchange"}
                 </button>
-              )}
+              ) : null}
+              {stopError ? (
+                <p
+                  className="col-span-2 mb-2 text-xs text-destructive"
+                  role="alert"
+                >
+                  {stopError}
+                </p>
+              ) : null}
+              {composeMode === "reply" &&
+              needsContinuation &&
+              capabilities?.continuation ? (
+                <label className="col-span-2 mb-2 flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={continuationRequested}
+                    onChange={(event) =>
+                      setContinuationRequested(event.target.checked)
+                    }
+                    disabled={sending}
+                  />
+                  Continue this task with a new bounded attempt
+                </label>
+              ) : composeMode === "reply" && needsContinuation ? (
+                <p className="col-span-2 mb-2 text-xs text-muted-foreground">
+                  This task is {state}. Continuing it is not available here yet.
+                </p>
+              ) : null}
+              {sendError ? (
+                <p
+                  className="col-span-2 mb-2 text-xs text-destructive"
+                  role="alert"
+                >
+                  {sendError} Your draft is kept. Sending it again uses the same
+                  request identity.
+                </p>
+              ) : null}
             </div>
-            <label className="col-start-1 row-start-1 mb-2 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              {composeMode === "new-message" ? "Message to" : "Reply to"}
-              <select
-                aria-label="Reply recipient"
-                className="min-w-0 rounded-md bg-plate px-2 py-1 text-sm text-foreground"
-                onChange={(event) => {
-                  setRecipient(event.target.value);
-                  setReplyEventId(undefined);
-                }}
-                value={recipient}
-              >
-                <option value="">Choose an agent</option>
-                {task.record.members.map((key) => (
-                  <option key={key} value={key}>
-                    {nameOf(key)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="col-start-1 row-start-2 mb-2 min-w-0 truncate text-xs text-muted-foreground">
-              {composeMode === "new-message"
-                ? `Source: ${subject}`
-                : `${subject} · ${exchangeStatusLabel(state)}`}
-            </p>
-            {composeMode === "reply" &&
-            exchangeState.data &&
-            ["open", "paused"].includes(exchangeState.data.phase) ? (
-              <button
-                className="col-start-2 row-start-2 mb-2 text-xs text-destructive hover:underline disabled:opacity-50"
-                disabled={stopping || sending}
-                onClick={() => void stopSelectedExchange()}
-                type="button"
-              >
-                {stopping ? "Stopping exchange…" : "Stop exchange"}
-              </button>
-            ) : null}
-            {stopError ? (
-              <p
-                className="col-span-2 mb-2 text-xs text-destructive"
-                role="alert"
-              >
-                {stopError}
-              </p>
-            ) : null}
-            {composeMode === "reply" &&
-            needsContinuation &&
-            capabilities?.continuation ? (
-              <label className="col-span-2 mb-2 flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={continuationRequested}
-                  onChange={(event) =>
-                    setContinuationRequested(event.target.checked)
-                  }
-                  disabled={sending}
-                />
-                Continue this task with a new bounded attempt
-              </label>
-            ) : composeMode === "reply" && needsContinuation ? (
-              <p className="col-span-2 mb-2 text-xs text-muted-foreground">
-                This task is {state}. Continuing it is not available here yet.
-              </p>
-            ) : null}
-            {sendError ? (
-              <p
-                className="col-span-2 mb-2 text-xs text-destructive"
-                role="alert"
-              >
-                {sendError} Your draft is kept. Sending it again uses the same
-                request identity.
-              </p>
-            ) : null}
-          </div>
+          )}
           {validRecipient &&
           draftKey &&
-          mayCompose &&
+          (mayCompose || embedded) &&
           draftStoreScope === workspace ? (
             <MessageComposer
               fixedAudiencePubkeys={[recipient]}
               channelId={task.record.conversationId}
               channelName={subject}
               containerClassName="px-0"
-              disabled={sending || stopping}
+              disabled={sending || stopping || !mayCompose}
               draftKey={draftKey}
               isSending={sending}
               key={draftKey}
               onPrepareSendChannel={async () => task.record.conversationId}
               onSend={send}
-              placeholder={`${composeMode === "new-message" ? "Message" : needsContinuation ? "Continue with" : "Reply to"} ${nameOf(recipient)}`}
+              placeholder={`${embedded || composeMode === "new-message" ? "Message" : needsContinuation ? "Continue with" : "Reply to"} ${nameOf(recipient)}…`}
               profiles={profiles}
             />
           ) : null}
