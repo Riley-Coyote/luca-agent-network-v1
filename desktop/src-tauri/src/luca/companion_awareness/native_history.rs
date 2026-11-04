@@ -26,6 +26,10 @@ pub(crate) struct NativeHistoryChoiceV1 {
     /// imply semantic memory; missing fields deserialize OFF without migration.
     #[serde(default)]
     pub(crate) semantic_notes: bool,
+    /// Relevant excerpts may be carried into bounded exchanges with this
+    /// owner's agents and their configured models. Never grants source access.
+    #[serde(default)]
+    pub(crate) owned_agent_sharing: bool,
     grant_ref: Sha256Ref,
     pub(crate) binding_ref: Option<Sha256Ref>,
     disclosure_revision: u32,
@@ -45,10 +49,59 @@ impl NativeHistoryChoiceV1 {
             && self.disclosure_revision == NATIVE_HISTORY_DISCLOSURE_REVISION
             && (!self.allowed || self.binding_ref.is_some())
             && (!self.semantic_notes || self.allowed)
+            && (!self.owned_agent_sharing || self.allowed)
     }
 }
 
 impl AwarenessStore {
+    /// A reviewed destination choice, separate from permission to read a source.
+    /// Legacy records remain private; a stale approval cannot undo a later OFF.
+    pub(crate) fn set_owned_agent_sharing(
+        &mut self,
+        key: &AwarenessGrantKeyV1,
+        expected: SafeU53,
+        allowed: bool,
+        binding: &Sha256Ref,
+        now: &CanonicalTimestamp,
+        operation: &OpaqueId,
+    ) -> Result<NativeHistoryChoiceV1, AwarenessStoreError> {
+        if allowed {
+            self.recheck_native_history_choice(key, binding)?;
+        }
+        super::mutate(
+            &mut self.connection, &key.source.owner_pubkey, operation,
+            serde_json::json!([PROTOCOL, "owned_agent_sharing", key, expected, allowed, binding, now]),
+            |tx| {
+                let mut choice = load_choice(tx, key)?.ok_or(AwarenessStoreError::Missing)?;
+                if choice.revision != expected {
+                    return Err(AwarenessStoreError::Conflict);
+                }
+                choice.revision = super::increment(expected)?;
+                choice.owned_agent_sharing = allowed;
+                choice.changed_at = now.clone();
+                tx.execute(
+                    "UPDATE awareness_native_history SET revision=?5,choice=?6 WHERE owner=?1 AND resident=?2 AND source=?3 AND device=?4",
+                    params![key.source.owner_pubkey.as_str(),key.resident_pubkey.as_str(),key.source.source_id.as_str(),key.source.device_id.as_str(),choice.revision.get(),super::encode(&choice)?],
+                )?;
+                Ok(AwarenessMutationReceiptV1 {
+                    source_revision: None, deny_epoch: None, grant_revision: None,
+                    resident_revision: None, quarantined_nodes: 0, replayed: false,
+                })
+            },
+        )?;
+        load_choice(&self.connection, key)?.ok_or(AwarenessStoreError::Missing)
+    }
+
+    pub(crate) fn recheck_owned_agent_sharing(
+        &self, key: &AwarenessGrantKeyV1, binding: &Sha256Ref,
+    ) -> Result<(), AwarenessStoreError> {
+        self.recheck_native_history_choice(key, binding)?;
+        if !load_choice(&self.connection, key)?.is_some_and(|choice| choice.owned_agent_sharing) {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        Ok(())
+    }
+
     /// Inspect metadata only. Missing consent is OFF, never inferred from
     /// Observe, meaningful-note promotion or ordinary provider egress.
     pub(crate) fn native_history_choice(
@@ -127,6 +180,11 @@ impl AwarenessStore {
                     revision: super::increment(expected)?,
                     allowed,
                     semantic_notes,
+                    owned_agent_sharing: previous.as_ref().is_some_and(|previous| {
+                        allowed && previous.allowed && previous.owned_agent_sharing
+                            && previous.grant_ref == current_grant_ref
+                            && previous.binding_ref == binding_ref
+                    }),
                     grant_ref: current_grant_ref,
                     binding_ref,
                     disclosure_revision: NATIVE_HISTORY_DISCLOSURE_REVISION,

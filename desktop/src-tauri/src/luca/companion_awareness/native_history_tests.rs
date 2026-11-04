@@ -75,6 +75,36 @@ fn fixture() -> Fixture {
         grant,
     }
 }
+
+#[test]
+fn owned_agent_sharing_is_explicit_persisted_revocable_and_grant_bound() {
+    let mut f = fixture();
+    let (history, _) = f.store.set_native_history_choice(&f.key, number(0), true, Some(&hash('c')), &now(), &id("history")).unwrap();
+    assert!(!history.owned_agent_sharing);
+    assert!(f.store.recheck_owned_agent_sharing(&f.key, &hash('c')).is_err());
+    let shared = f.store.set_owned_agent_sharing(&f.key, history.revision, true, &hash('c'), &now(), &id("share")).unwrap();
+    f.store = AwarenessStore::open(&f.path).unwrap();
+    f.store.recheck_owned_agent_sharing(&f.key, &hash('c')).unwrap();
+    assert!(f.store.recheck_owned_agent_sharing(&f.key, &hash('d')).is_err());
+    let off = f.store.set_owned_agent_sharing(&f.key, shared.revision, false, &hash('c'), &now(), &id("private")).unwrap();
+    assert!(!off.owned_agent_sharing);
+    assert!(!f.store.set_owned_agent_sharing(&f.key, history.revision, true, &hash('c'), &now(), &id("share")).unwrap().owned_agent_sharing);
+    assert!(f.store.set_owned_agent_sharing(&f.key, shared.revision, true, &hash('c'), &now(), &id("stale" )).is_err());
+    let shared = f.store.set_owned_agent_sharing(&f.key, off.revision, true, &hash('c'), &now(), &id("share-again")).unwrap();
+    let (disabled, _) = f.store.set_native_history_choice(&f.key, shared.revision, false, None, &now(), &id("history-off")).unwrap();
+    assert!(!disabled.owned_agent_sharing);
+    assert!(f.store.recheck_owned_agent_sharing(&f.key, &hash('c')).is_err());
+}
+
+#[test]
+fn legacy_native_history_never_gains_agent_sharing_from_deserialization() {
+    let mut f = fixture();
+    let (history, _) = f.store.set_native_history_choice(&f.key, number(0), true, Some(&hash('c')), &now(), &id("history")).unwrap();
+    let mut value = serde_json::to_value(history).unwrap();
+    value.as_object_mut().unwrap().remove("ownedAgentSharing");
+    let legacy: NativeHistoryChoiceV1 = serde_json::from_value(value).unwrap();
+    assert!(!legacy.owned_agent_sharing);
+}
 #[test]
 fn observation_memory_and_egress_never_imply_native_history_and_raw_archives_stay_off() {
     let mut f = fixture();

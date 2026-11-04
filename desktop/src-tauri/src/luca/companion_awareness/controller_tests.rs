@@ -373,6 +373,24 @@ fn conversation_sink_requires_separate_consent_and_does_not_enable_raw_archives(
         )
     };
     assert!(reply().is_ok());
+    let shared_reply = || {
+        let lease = live.lease().unwrap();
+        runtime.admit_native_history_reply_with_sharing(
+            &lease, &facts, &binding, &[operation("chat-context")],
+            &[reference.clone()], Some(&reply_lease), true, resolve,
+        )
+    };
+    assert!(shared_reply().is_err());
+    let revision = runtime.native_history_choice(&owner, &key).unwrap().unwrap().revision;
+    let shared = runtime.set_owned_agent_sharing(
+        &live, &key, revision, true, &binding, &now, &operation("share-owned-agent-context"),
+    ).unwrap();
+    assert!(shared_reply().is_ok());
+    runtime.set_owned_agent_sharing(
+        &live, &key, shared.revision, false, &binding, &now, &operation("withdraw-owned-agent-context"),
+    ).unwrap();
+    assert!(shared_reply().is_err());
+    assert!(reply().is_ok());
     let long_reply = CanonicalTimestamp::parse("2026-10-08T10:06:00Z").unwrap();
     let lease = live.lease().unwrap();
     assert!(runtime
@@ -468,12 +486,13 @@ fn conversation_sink_requires_separate_consent_and_does_not_enable_raw_archives(
         .is_err());
     drop(lease);
     // The sink rechecks consent after preparation, immediately before delivery.
+    let current_revision = runtime.native_history_choice(&owner, &key).unwrap().unwrap().revision;
     runtime
         .set_native_history_choice(
             &owner,
             &key,
             None,
-            SafeU53::new(1).unwrap(),
+            current_revision,
             false,
             None,
             &now,
@@ -488,7 +507,7 @@ fn conversation_sink_requires_separate_consent_and_does_not_enable_raw_archives(
             &owner,
             &key,
             Some(&live),
-            SafeU53::new(2).unwrap(),
+            SafeU53::new(current_revision.get() + 1).unwrap(),
             true,
             Some(&binding),
             &now,

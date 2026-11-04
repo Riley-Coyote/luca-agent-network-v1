@@ -9,6 +9,29 @@
 use super::*;
 
 impl ManagedMessagePublisher {
+    /// Only a current owner-authorized bounded exchange can widen the reply
+    /// audience. Source consent is checked separately for every dependency.
+    pub(super) fn awareness_exchange_guests(
+        &self, request: &ManagedMessagePublishRequestV1, now: u64,
+    ) -> Result<std::collections::BTreeSet<luca_protocol::Hex64>, ManagedPublicationAuthorityError> {
+        let Some(tag) = &request.exchange else { return Ok(Default::default()); };
+        let authority = self.exchange.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+        let relay = authority.relay.as_ref();
+        let head = relay.fetch_head(&tag.exchange_id, &request.owner_pubkey)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .ok_or(ManagedPublicationAuthorityError::Denied)?;
+        let owned = relay.owned_residents().map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        if relay.owner().map_err(|_| ManagedPublicationAuthorityError::Unavailable)? != request.owner_pubkey
+            || head.record.owner != request.owner_pubkey
+            || head.record.conversation_id != request.conversation_id
+            || !head.record.admits_turn(tag.turn, now)
+            || !head.record.members.contains(&request.resident_pubkey)
+            || head.record.members.iter().any(|key| key != &request.owner_pubkey && !owned.contains(key))
+            || request.resolved_p_tags.iter().any(|key| key != &request.owner_pubkey && !head.record.members.contains(key))
+        { return Err(ManagedPublicationAuthorityError::Denied); }
+        Ok(head.record.members.into_iter().filter(|key| key != &request.owner_pubkey && key != &request.resident_pubkey).collect())
+    }
+
     /// Wake recipients only after exact dispatch and live exchange checks, with
     /// no authority/store lock held during runtime startup. Submission rechecks
     /// cancellation afterwards; a concurrent Stop still prevents the message.

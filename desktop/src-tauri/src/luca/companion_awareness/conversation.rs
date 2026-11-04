@@ -83,7 +83,7 @@ pub(crate) fn verified_private_conversation(
     conversation: &OpaqueId,
     deadline: Instant,
 ) -> bool {
-    current_private_conversation(state, owner, resident, conversation, deadline).unwrap_or(false)
+    current_private_conversation(state, owner, resident, conversation, deadline, &BTreeSet::new()).unwrap_or(false)
 }
 
 fn current_private_conversation(
@@ -92,6 +92,7 @@ fn current_private_conversation(
     resident: &Hex64,
     conversation: &OpaqueId,
     deadline: Instant,
+    exchange_guests: &BTreeSet<Hex64>,
 ) -> Result<bool, ReplyAdmissionError> {
     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
         return Err(ReplyAdmissionError::Unavailable);
@@ -132,15 +133,27 @@ fn current_private_conversation(
     {
         return Ok(false);
     }
+    // These are relay-authored NIP-29 snapshots, not owner-authored events.
+    // The live owner-signed exchange is checked separately by the publisher.
     let Ok(members) = crate::nostr_convert::channel_members_from_event(members) else {
         return Ok(false);
     };
-    Ok(members
+    let actual = members
         .members
         .into_iter()
         .map(|member| member.pubkey)
-        .collect::<BTreeSet<_>>()
-        == BTreeSet::from([owner.as_str().to_owned(), resident.as_str().to_owned()]))
+        .collect::<BTreeSet<_>>();
+    Ok(private_exchange_audience(&actual, owner, resident, exchange_guests))
+}
+
+fn private_exchange_audience(
+    actual: &BTreeSet<String>, owner: &Hex64, resident: &Hex64,
+    exchange_guests: &BTreeSet<Hex64>,
+) -> bool {
+    let pair = BTreeSet::from([owner.as_str().to_owned(), resident.as_str().to_owned()]);
+    pair.is_subset(actual) && actual.iter().all(|key| {
+        pair.contains(key) || exchange_guests.iter().any(|guest| guest.as_str() == key)
+    })
 }
 
 /// Linearize admission immediately before issuing a final reply. Old accepted
@@ -150,6 +163,7 @@ pub(crate) fn admit_reply(
     receipt: &ManagedTurnAwarenessBindingV1,
     binding: &Sha256Ref,
     reply_lease: &super::source_runtime::NativeReplyLeaseV1,
+    exchange_guests: &BTreeSet<Hex64>,
 ) -> Result<(), ReplyAdmissionError> {
     if !receipt.fresh_native_history
         || !reply_lease.matches_receipt(receipt)
@@ -191,6 +205,7 @@ pub(crate) fn admit_reply(
         &receipt.resident_pubkey,
         &receipt.conversation_id,
         deadline,
+        exchange_guests,
     )
     .map_err(|error| rejected(receipt, "private_audience", error, None))?
     {
@@ -253,13 +268,14 @@ pub(crate) fn admit_reply(
     };
     state
         .companion_awareness
-        .admit_native_history_reply(
+        .admit_native_history_reply_with_sharing(
             &lease,
             &facts,
             binding,
             &receipt.context_nodes,
             &receipt.observations,
             Some(reply_lease),
+            !exchange_guests.is_empty(),
             |reference, retained| {
                 let facts = material.resolve_admitted_reply(reference, retained, reply_lease);
                 if !facts.source_fresh || facts.material_state != AwarenessMaterialStateV1::Available {
@@ -278,6 +294,22 @@ pub(crate) fn admit_reply(
 mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag};
+    #[test]
+    fn only_exact_verified_exchange_guests_may_join_the_private_pair() {
+        let owner = Hex64::parse("a".repeat(64)).unwrap();
+        let resident = Hex64::parse("b".repeat(64)).unwrap();
+        let guest = Hex64::parse("c".repeat(64)).unwrap();
+        let mut audience = BTreeSet::from([owner.as_str().to_owned(), resident.as_str().to_owned()]);
+        let guests = BTreeSet::from([guest.clone()]);
+        assert!(private_exchange_audience(&audience, &owner, &resident, &BTreeSet::new()));
+        audience.insert(guest.as_str().to_owned());
+        assert!(!private_exchange_audience(&audience, &owner, &resident, &BTreeSet::new()));
+        assert!(private_exchange_audience(&audience, &owner, &resident, &guests));
+        audience.insert("d".repeat(64));
+        assert!(!private_exchange_audience(&audience, &owner, &resident, &guests));
+        audience.remove(owner.as_str());
+        assert!(!private_exchange_audience(&audience, &owner, &resident, &guests));
+    }
     #[test]
     fn redacted_admission_errors_keep_the_original_fail_closed_mapping() {
         use super::super::AwarenessStoreError;

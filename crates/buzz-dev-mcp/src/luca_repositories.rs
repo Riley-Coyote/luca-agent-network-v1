@@ -46,7 +46,16 @@ struct OpenSurfaceParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-enum CompanionAction { Setup, MeetingProgress, RememberNote, PauseNotes, Follow, PauseAwareness, ResumeAwareness, EnableBackground, PauseBackground, ResumeBackground, DisableBackground }
+enum CompanionAction {
+    Setup, MeetingProgress, RememberNote, PauseNotes, Follow,
+    /// One reviewed opt-in lets this companion share relevant already-approved
+    /// activity with the owner's agents and their models during exchanges.
+    /// No new sources or direct source access for recipients. No per-task asks.
+    ShareActivityWithAgents,
+    /// Stop future activity sharing with agents; cannot recall delivered copies.
+    KeepActivityPrivate,
+    PauseAwareness, ResumeAwareness, EnableBackground, PauseBackground, ResumeBackground, DisableBackground,
+}
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum FollowHarness { ClaudeCode, Codex }
@@ -59,6 +68,10 @@ struct CompanionSetupOptions {
     /// Retain useful source-linked notes for this companion, never a raw archive.
     #[serde(default)]
     keep_notes: bool,
+    /// Share relevant approved context with owned agents and their configured
+    /// models during exchanges. No direct source grants; reviewed once.
+    #[serde(default)]
+    share_activity_with_agents: bool,
     /// Bounded private background work using the connected subscription.
     #[serde(default)]
     background_work: bool,
@@ -992,8 +1005,13 @@ mod tests {
         })).unwrap();
         let serialized = serde_json::to_value(selected).unwrap();
         assert_eq!(serialized["options"]["keep_notes"], true);
-        for scope in ["initial_context","background_work","proactive_returns"] {
+        for scope in ["initial_context","background_work","proactive_returns","share_activity_with_agents"] {
             assert_eq!(serialized["options"][scope], false);
+        }
+        for action in ["share_activity_with_agents", "keep_activity_private"] {
+            assert!(serde_json::from_value::<ConfigureCompanionParams>(
+                serde_json::json!({"action":action})
+            ).is_ok());
         }
         for invalid in [
             serde_json::json!({"action":"setup","options":{"provider":"other"}}),

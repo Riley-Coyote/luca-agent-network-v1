@@ -541,6 +541,7 @@ impl ManagedMessagePublisher {
                 ManagedPublicationAuthorityError::Denied,
             )),
             ManagedTurnAwarenessLookupV1::Bound(receipt) => {
+                let guests = self.awareness_exchange_guests(request, now_unix_secs)?;
                 super::companion_awareness::conversation::admit_reply(
                     &scheduler.app.state::<crate::app_state::AppState>(),
                     &receipt,
@@ -552,6 +553,7 @@ impl ManagedMessagePublisher {
                             ManagedPublicationAuthorityError::Denied,
                         )
                     })?,
+                    &guests,
                 )
                 .map_err(|error| {
                     publication_failure(request, "awareness_admission", match error {

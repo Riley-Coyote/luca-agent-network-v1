@@ -309,6 +309,25 @@ impl CompanionAwarenessRuntime {
     }
 
     /// Exact saved native-history destination choice. Does not read source data.
+    pub(crate) fn set_owned_agent_sharing(
+        &self, live: &LiveAwarenessOwner<'_>, key: &AwarenessGrantKeyV1,
+        expected: SafeU53, allowed: bool, binding: &luca_protocol::Sha256Ref,
+        now: &CanonicalTimestamp, operation: &OpaqueId,
+    ) -> Result<NativeHistoryChoiceV1, AwarenessStoreError> {
+        if live.owner() != &key.source.owner_pubkey { return Err(AwarenessStoreError::Invalid); }
+        live.with_current(|| self.with_controller(live.owner(), |controller| {
+            if key.source.device_id != controller.scope.device { return Err(AwarenessStoreError::Invalid); }
+            controller.store.set_owned_agent_sharing(key, expected, allowed, binding, now, operation)
+        }))
+    }
+
+    pub(crate) fn recheck_owned_agent_sharing(
+        &self, owner: &Hex64, key: &AwarenessGrantKeyV1, binding: &luca_protocol::Sha256Ref,
+    ) -> Result<(), AwarenessStoreError> {
+        if owner != &key.source.owner_pubkey { return Err(AwarenessStoreError::Invalid); }
+        self.with_controller(owner, |controller| controller.store.recheck_owned_agent_sharing(key, binding))
+    }
+
     pub(crate) fn native_history_choice(
         &self, owner: &Hex64, key: &AwarenessGrantKeyV1,
     ) -> Result<Option<NativeHistoryChoiceV1>, AwarenessStoreError> {
@@ -790,6 +809,20 @@ impl CompanionAwarenessRuntime {
         nodes: &[OpaqueId],
         references: &[AwarenessObservationRefV1],
         reply_lease: Option<&source_runtime::NativeReplyLeaseV1>,
+        resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
+    ) -> Result<(), AwarenessStoreError> {
+        self.admit_native_history_reply_with_sharing(lease, facts, binding, nodes, references, reply_lease, false, resolve)
+    }
+
+    pub(crate) fn admit_native_history_reply_with_sharing(
+        &self,
+        lease: &LiveAwarenessLease<'_>,
+        facts: &AwarenessHostFactsV1<'_>,
+        binding: &luca_protocol::Sha256Ref,
+        nodes: &[OpaqueId],
+        references: &[AwarenessObservationRefV1],
+        reply_lease: Option<&source_runtime::NativeReplyLeaseV1>,
+        share_with_owned_agents: bool,
         mut resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
     ) -> Result<(), AwarenessStoreError> {
         if lease.owner() != facts.owner_pubkey || nodes.is_empty() || references.is_empty() {
@@ -828,6 +861,9 @@ impl CompanionAwarenessRuntime {
                     })?;
                 if reply_lease.is_some_and(|reply| reply.retains(reference)) {
                     controller.store.recheck_semantic_note_choice(&key, binding)?;
+                }
+                if share_with_owned_agents {
+                    controller.store.recheck_owned_agent_sharing(&key, binding)?;
                 }
             }
             for node in nodes {

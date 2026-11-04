@@ -290,3 +290,38 @@ activity, first-meeting, attached-session, or Brain context. Unknown receipts
 remain denied; old exposure remains sticky; live exchange and cancellation
 checks still govern publication. Regression coverage exercises tainted history,
 wrong resident/room/epoch, cancellation, and the body-free wire request.
+
+Native retest on `8693e944b` (Nov 3, 22:01 CST): Anima started from stopped,
+answered in the existing Luca DM, and Luca published the return confirmation.
+The exchange reached three turns. The room count remained three and Projects
+was unchanged. The fresh-history return fix is therefore exercised in the app,
+not just unit tests (8 managed-context and 44 ACP exchange tests passed).
+
+Still open: initiating an exchange on an owner turn that actually received
+optional observed activity fails `private_audience` after guest admission.
+That denial is correct: Luca-only observation consent does not authorize
+sharing its context with a guest. Retrying while the guest is present omits
+optional activity and isolates native history, which is why the subsequent
+round trip succeeds. This is not an acceptable final first-attempt UX. Do not
+weaken the audience gate or claim this case is fixed. Riley was asked whether
+delegation should use a task-only brief (recommended) or explicitly consented
+shared activity. Failed attempts also leave a zero-turn visit/shortcut, so
+terminal cleanup and its visible error need to be included in that follow-up.
+
+Riley selected shared activity on Nov 3: owned agents should collaborate without
+per-exchange approval. The follow-up adds one reviewed destination choice,
+`share_activity_with_agents`, to conversational setup, and chat actions
+`share_activity_with_agents` / `keep_activity_private` for existing setups.
+Missing legacy choices remain private; no new source/tool access is inferred.
+The host checks the exact live owner-signed exchange and owned recipients, then
+checks every observed dependency's current sharing consent at publication.
+Recipients receive relevant context in the exchange, not direct source grants.
+Provider/harness history and relay visibility are disclosed in that one review.
+Withdrawal stops future sharing but cannot recall delivered copies. First-meeting
+guidance recommends sharing with the other useful companion defaults.
+
+Store tests cover explicit consent, restart, revocation, provider binding,
+stale approvals, replay, and legacy records. Audience tests reject foreign guests,
+wrong rooms and closed exchanges. Native first-attempt proof remains pending
+until the rebuilt candidate is exercised; terminal failed-visit cleanup is still
+open and must not be described as complete.

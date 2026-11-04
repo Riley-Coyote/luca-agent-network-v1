@@ -30,6 +30,8 @@ struct SetupOptions {
     #[serde(default)]
     keep_notes: bool,
     #[serde(default)]
+    share_activity_with_agents: bool,
+    #[serde(default)]
     background_work: bool,
     #[serde(default)]
     proactive_returns: bool,
@@ -76,10 +78,11 @@ impl SetupRequest {
     fn disclosure(&self, quiet_hours: (u16, u16)) -> String {
         let choice = |on| if on { "yes" } else { "no" };
         format!(
-            "Follow {} until paused (also on launch). Add recent sample: {}; notes: {}; background work: {}; proactive returns: {}. Unselected options preserve current settings. Excerpts go to your model and may stay in provider/harness history. Notes stay with this companion. Returns enter your Polyphonic chat, readable by its relay (max 1/day; quiet {:02}:{:02}–{:02}:{:02} local). Background uses your subscription. No raw archive, Brain, browser or screen access. Decline or ask Luca to customize.",
+            "Follow {} until paused/on launch. recent sample: {}; notes: {}; background work: {}; proactive returns: {}; agent sharing: {}. Excerpts reach this model and, if shared, your agents' models; provider/harness history persists. Exchanges/returns are relay-readable. Notes stay here. Background uses subscription. Returns max 1/day; quiet {:02}:{:02}–{:02}:{:02} local. Unselected choices unchanged. No raw archive, Brain, browser or screen. Decline/customize.",
             self.harnesses.iter().map(|h| h.label()).collect::<Vec<_>>().join(" and "),
             choice(self.options.initial_context), choice(self.options.keep_notes),
             choice(self.options.background_work), choice(self.options.proactive_returns),
+            choice(self.options.share_activity_with_agents),
             quiet_hours.0 / 60, quiet_hours.0 % 60, quiet_hours.1 / 60, quiet_hours.1 % 60,
         )
     }
@@ -220,6 +223,7 @@ pub(super) fn configure(
             root,
             &expected,
             request.options.keep_notes,
+            request.options.share_activity_with_agents,
         ) {
             Ok(resumed) => {
                 if resumed.is_some() {
@@ -339,6 +343,7 @@ mod tests {
         request.validate().unwrap();
         assert!(
             !request.options.keep_notes
+                && !request.options.share_activity_with_agents
                 && !request.options.background_work
                 && !request.options.initial_context
                 && !request.options.proactive_returns
@@ -361,6 +366,7 @@ mod tests {
             options: SetupOptions {
                 initial_context: true,
                 keep_notes: true,
+                share_activity_with_agents: true,
                 background_work: true,
                 proactive_returns: true,
                 quiet_hours: None,
@@ -374,6 +380,7 @@ mod tests {
             "notes: yes",
             "background work: yes",
             "proactive returns: yes",
+            "agent sharing: yes",
             "provider/harness history",
             "subscription",
             "customize",

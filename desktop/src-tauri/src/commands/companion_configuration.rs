@@ -206,6 +206,8 @@ pub(super) fn follow_expected(
 #[serde(rename_all = "snake_case")]
 enum Action {
     Follow,
+    ShareActivityWithAgents,
+    KeepActivityPrivate,
     PauseAwareness,
     ResumeAwareness,
     EnableBackground,
@@ -236,6 +238,7 @@ impl Request {
     }
     fn disclosure(&self) -> String {
         match self.action {
+            Action::ShareActivityWithAgents => "Let this companion share relevant approved activity during bounded exchanges with your other agents? Their configured models may receive it and retain it in provider/harness history; the exchange is readable by your Polyphonic relay. This grants no direct source access, new observation sources, or extra tool permissions. You can say keep activity private to stop future sharing; already delivered copies cannot be recalled.".into(),
             Action::Follow=>format!("Follow {} for this companion? Read recent visible messages from new or changed sessions across the selected profiles, and use them in chat with this companion's current model. Shared excerpts may remain in provider/harness chat history. Following resumes when Polyphonic opens until you pause or change it. No old-history import, Brain connection, raw archive, note retention, browser access, or background work is enabled.",self.harnesses.iter().map(|h|h.label()).collect::<Vec<_>>().join(" and ")),
             Action::ResumeAwareness=>"Resume this companion's previously approved awareness sources and their saved sharing choices? No new sources or permissions will be added. Background work stays paused.".into(),
             Action::EnableBackground=>"Allow bounded background work and local creations for this companion while this Mac is available? This uses the current harness subscription. It does not add observation sources, external posting, or broader tool access.".into(),
@@ -389,6 +392,7 @@ pub(crate) fn configure(
     let widening = matches!(
         request.action,
         Action::Follow
+            | Action::ShareActivityWithAgents
             | Action::ResumeAwareness
             | Action::EnableBackground
             | Action::ResumeBackground
@@ -453,6 +457,32 @@ pub(crate) fn configure(
     let control_request_id = OpaqueId::parse(format!("companion-control:{}", uuid::Uuid::new_v4()))
         .map_err(|_| "Invalid companion-control identifier.")?;
     match request.action {
+        Action::ShareActivityWithAgents | Action::KeepActivityPrivate => {
+            let live = LiveAwarenessOwner::authenticate(&state).map_err(err)?;
+            if live.owner() != &scope.owner { return Err("The active owner changed.".into()); }
+            let grants = state.companion_awareness.list_grants(&scope.owner, &scope.resident, 64).map_err(err)?;
+            if grants.truncated { return Err("Review this unusually large source collection in advanced controls.".into()); }
+            for entry in grants.entries {
+                if cancelled() {
+                    return Ok(json!({"status":"interrupted","results":results,"message":"Sharing setup stopped. Only the listed sources were changed."}).to_string());
+                }
+                verify_origin(app, &scope)?;
+                let key = AwarenessGrantKeyV1 {
+                    source: AwarenessSourceKeyV1 { owner_pubkey: scope.owner.clone(), source_id: entry.grant.source_id.clone(), device_id: entry.grant.device_id.clone() },
+                    resident_pubkey: scope.resident.clone(),
+                };
+                let Some(choice) = state.companion_awareness.native_history_choice(&scope.owner, &key).map_err(err)? else { continue; };
+                let allowed = request.action == Action::ShareActivityWithAgents;
+                if allowed && state.companion_awareness.recheck_native_history_choice(&scope.owner, &key, &scope.binding).is_err() { continue; }
+                if choice.owned_agent_sharing != allowed {
+                    state.companion_awareness.set_owned_agent_sharing(&live, &key, choice.revision, allowed, &scope.binding, &current_canonical_timestamp()?, &id("agent-sharing")?).map_err(err)?;
+                }
+                results.push(json!({"sourceId":key.source.source_id,"ownedAgentSharing":allowed}));
+            }
+            if results.is_empty() {
+                return Ok(json!({"status":"not_changed","results":results,"message":"No currently approved activity sources were eligible. Nothing changed; following must be approved before activity can be shared."}).to_string());
+            }
+        }
         Action::Follow => {
             let mut owned_resume = None;
             for ((harness, root), mut expected) in roots.into_iter().zip(follow_states) {
@@ -550,7 +580,7 @@ pub(super) fn follow_approved(
     root: PathBuf,
     expected: &FollowExpected,
 ) -> Result<Option<(SafeU53, SafeU53)>, String> {
-    follow_with_notes_approved(app, scope, harness, root, expected, false)
+    follow_with_notes_approved(app, scope, harness, root, expected, false, false)
 }
 
 /// Only a reviewed setup may add note retention; ordinary Follow preserves it.
@@ -561,6 +591,7 @@ pub(super) fn follow_with_notes_approved(
     root: PathBuf,
     expected: &FollowExpected,
     keep_notes: bool,
+    share_activity_with_agents: bool,
 ) -> Result<Option<(SafeU53, SafeU53)>, String> {
     let state = app.state::<AppState>();
     if &follow_expected(&state, scope, harness, &root)? != expected {
@@ -571,7 +602,9 @@ pub(super) fn follow_with_notes_approved(
     let notes_were_allowed = state.companion_awareness.recheck_semantic_note_choice(
         &scope.owner, &expected.key, &scope.binding,
     ).is_ok();
-    if already_following(&state, scope, harness, &root) && (!keep_notes || notes_were_allowed) {
+    let sharing_was_allowed = state.companion_awareness.recheck_owned_agent_sharing(&scope.owner, &expected.key, &scope.binding).is_ok();
+    if already_following(&state, scope, harness, &root) && (!keep_notes || notes_were_allowed)
+        && (!share_activity_with_agents || sharing_was_allowed) {
         return Ok(None);
     }
     let live = LiveAwarenessOwner::authenticate(&state).map_err(err)?;
@@ -660,6 +693,10 @@ pub(super) fn follow_with_notes_approved(
                 &scope.owner, &key, Some(&live), history.revision, true,
                 Some(&scope.binding), &current_canonical_timestamp()?, &id("follow-notes")?,
             ).map_err(err)?;
+        }
+        if share_activity_with_agents || sharing_was_allowed {
+            let current = state.companion_awareness.native_history_choice(&scope.owner, &key).map_err(err)?.ok_or("Activity sharing choice is unavailable.")?;
+            state.companion_awareness.set_owned_agent_sharing(&live, &key, current.revision, true, &scope.binding, &current_canonical_timestamp()?, &id("follow-agent-sharing")?).map_err(err)?;
         }
         let resident = state
             .companion_awareness
@@ -798,7 +835,7 @@ fn approval_state(
     scope: &FollowTarget,
     action: Action,
 ) -> Result<String, String> {
-    let value = if matches!(action, Action::Follow | Action::ResumeAwareness) {
+    let value = if matches!(action, Action::Follow | Action::ResumeAwareness | Action::ShareActivityWithAgents | Action::KeepActivityPrivate) {
         let resident = state
             .companion_awareness
             .resident_state(&scope.owner, &scope.resident)
