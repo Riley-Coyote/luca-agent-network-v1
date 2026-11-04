@@ -4,6 +4,60 @@ use crate::luca::agent_inbox_binding::{InboxChildActionBinding, InboxChildAction
 use std::collections::BTreeSet;
 
 impl ManagedDispatchStore {
+    /// Source audiences already granted by accepted tool requests from this
+    /// exact live invocation. Receipts from other turns/sessions never count.
+    pub(crate) fn inbox_awareness_task_proofs(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+    ) -> Vec<InboxChildActionBinding> {
+        let Some(row) = self.dispatches.get(&(
+            request.dispatch_receipt_id.as_str().to_owned(),
+            request.resident_pubkey.as_str().to_owned(),
+        )) else {
+            return Vec::new();
+        };
+        let parent_id = row
+            .inbox_action
+            .as_ref()
+            .map(|action| action.parent_dispatch_id.as_str())
+            .unwrap_or(request.dispatch_receipt_id.as_str());
+        let Some(parent) = self.dispatches.get(&(
+            parent_id.to_owned(),
+            request.resident_pubkey.as_str().to_owned(),
+        )) else {
+            return Vec::new();
+        };
+        if parent.state != ManagedDispatchState::Active
+            || parent.inbox_action.is_some()
+            || parent.owner_pubkey != request.owner_pubkey.as_str()
+            || parent.conversation_id != request.conversation_id.as_str()
+            || parent.session_epoch != Some(request.cancellation_epoch.get())
+            || row.owner_pubkey != parent.owner_pubkey
+            || row.conversation_id != parent.conversation_id
+            || row.session_epoch != parent.session_epoch
+        {
+            return Vec::new();
+        }
+        self.dispatches
+            .values()
+            .filter_map(|child| {
+                let action = child.inbox_action.as_ref()?;
+                (child.state == ManagedDispatchState::Published
+                    && child.published_event_id.is_some()
+                    && child.submitted_event_id == child.published_event_id
+                    && child.resident_pubkey == parent.resident_pubkey
+                    && child.owner_pubkey == parent.owner_pubkey
+                    && child.conversation_id == parent.conversation_id
+                    && child.session_epoch == parent.session_epoch
+                    && action.parent_dispatch_id.as_str() == parent_id
+                    && action.scope.owner_pubkey.as_str() == parent.owner_pubkey
+                    && action.phase == InboxChildActionPhase::Request
+                    && action.anchor_event_id.is_some()
+                    && action.exchange_id.is_some())
+                .then(|| action.clone())
+            })
+            .collect()
+    }
     pub(crate) fn has_inbox_owner_status(&self, parent: &str, actor: &str) -> bool {
         self.dispatches
             .get(&(parent.to_owned(), actor.to_owned()))

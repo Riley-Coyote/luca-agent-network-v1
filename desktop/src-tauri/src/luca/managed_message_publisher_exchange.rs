@@ -392,8 +392,19 @@ impl ManagedMessagePublisher {
         now: u64,
     ) -> Result<std::collections::BTreeSet<luca_protocol::Hex64>, ManagedPublicationAuthorityError>
     {
+        let mut guests = if let Some(authority) = &self.exchange {
+            ExchangeResolver::new(
+                authority.relay.as_ref(),
+                &authority.store,
+                &self.dispatch_store,
+            )
+            .inbox_awareness_guests(request, now)
+            .map_err(|denial| ManagedPublicationAuthorityError::ExchangeDenied(denial.code()))?
+        } else {
+            Default::default()
+        };
         let Some(tag) = &request.exchange else {
-            return Ok(Default::default());
+            return Ok(guests);
         };
         let authority = self
             .exchange
@@ -427,12 +438,13 @@ impl ManagedMessagePublisher {
         {
             return Err(ManagedPublicationAuthorityError::Denied);
         }
-        Ok(head
-            .record
-            .members
-            .into_iter()
-            .filter(|key| key != &request.owner_pubkey && key != &request.resident_pubkey)
-            .collect())
+        guests.extend(
+            head.record
+                .members
+                .into_iter()
+                .filter(|key| key != &request.owner_pubkey && key != &request.resident_pubkey),
+        );
+        Ok(guests)
     }
 
     /// Wake recipients only after exact dispatch and live exchange checks, with

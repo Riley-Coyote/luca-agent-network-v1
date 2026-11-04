@@ -114,6 +114,72 @@ pub(crate) struct ExchangeResolver<'a> {
 }
 
 impl<'a> ExchangeResolver<'a> {
+    /// Accepted sibling tasks can temporarily widen this invocation's source
+    /// audience. Re-prove each exact grant now; never infer consent from room
+    /// membership or from another invocation's historical receipt.
+    pub(crate) fn inbox_awareness_guests(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+        now: u64,
+    ) -> Result<BTreeSet<Hex64>, ExchangeDenial> {
+        let proofs = self
+            .dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .inbox_awareness_task_proofs(request);
+        if proofs.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let members = self
+            .relay
+            .verified_source_members(&request.conversation_id)
+            .map_err(|_| ExchangeDenial::Unavailable)?;
+        let owned = self
+            .relay
+            .owned_residents()
+            .map_err(|_| ExchangeDenial::Unavailable)?;
+        let mut guests = BTreeSet::new();
+        for proof in proofs {
+            if !self.relay.inbox_scope_is_current(&proof.scope) {
+                return Err(ExchangeDenial::Unknown);
+            }
+            let task = proof.exchange_id.as_ref().ok_or(ExchangeDenial::Unknown)?;
+            let Some(head) = self
+                .relay
+                .fetch_head(task, &request.owner_pubkey)
+                .map_err(|_| ExchangeDenial::Unavailable)?
+            else {
+                continue;
+            };
+            let mut audience = vec![
+                request.resident_pubkey.clone(),
+                proof.recipient_pubkey.clone(),
+            ];
+            audience.sort();
+            audience.dedup();
+            if head.record.state != luca_protocol::ExchangeStateV1::Open
+                || head.record.deadline.get() <= now
+            {
+                continue;
+            }
+            if head.record.owner != request.owner_pubkey
+                || head.record.conversation_id != request.conversation_id
+                || head.record.members != audience
+                || head.record.opened_by != request.resident_pubkey
+                || Some(&head.record.root_event_id) != proof.anchor_event_id.as_ref()
+                || head.record.depth != 1
+                || head.record.parent_exchange_id.is_some()
+                || !members.contains(&request.owner_pubkey)
+                || !members.contains(&request.resident_pubkey)
+                || !members.contains(&proof.recipient_pubkey)
+                || !owned.contains(&proof.recipient_pubkey)
+            {
+                return Err(ExchangeDenial::NotMember);
+            }
+            guests.insert(proof.recipient_pubkey);
+        }
+        Ok(guests)
+    }
     /// An explicit child reply already spent the task turn. The parent's one
     /// ordinary final may report to its owner, but cannot spend another turn,
     /// wake the peer again, revive a Stop, or become a completion receipt.

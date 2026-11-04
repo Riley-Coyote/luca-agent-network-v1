@@ -341,6 +341,167 @@ test("mock contract: explicit host capability denial cannot expose write control
   expect(await sends(page)).toEqual([]);
 });
 
+test("canonical kind9 relay final refreshes the selected transcript without the Refresh button", async ({
+  page,
+}) => {
+  await open(page);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+          channelName: "general",
+          kind: 9,
+        }),
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(
+    ({ taskId, pubkey, channelId }) => {
+      const id = "de".repeat(32);
+      window.__BUZZ_E2E_AGENT_INBOX__?.reads[taskId].events.push({
+        id,
+        pubkey,
+        content: "Live canonical continuation reply.",
+        created_at: Math.floor(Date.now() / 1000),
+        kind: 9,
+        tags: [
+          ["h", channelId],
+          ["exchange", taskId, "1"],
+        ],
+        sig: "",
+      });
+      const event = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        id,
+        kind: 9,
+        channelId,
+        pubkey,
+        content: "Untrusted relay hint body must not render.",
+        extraTags: [["exchange", taskId, "1"]],
+      });
+      if (!event) throw new Error("Mock relay emission unavailable");
+    },
+    { taskId: TASK, pubkey: ANIMA, channelId: CHANNEL },
+  );
+  await expect(
+    page.getByText("Live canonical continuation reply.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Untrusted relay hint body must not render.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  expect(await sends(page)).toEqual([]);
+});
+
+test("candidate timing sample: cached selection and typing with1000 paginated tasks", async ({
+  page,
+}, testInfo) => {
+  await open(page, "light", 0, false, (data) => {
+    const [first, second] = data.pages[0].tasks;
+    const rest = Array.from({ length: 998 }, (_, index) => {
+      const copy = structuredClone(first) as {
+        record: { exchange_id: string };
+        recordUpdatedAt: number;
+      };
+      copy.record.exchange_id = (index + 1000).toString(16).padStart(64, "0");
+      copy.recordUpdatedAt -= index + 1;
+      return copy;
+    });
+    const all = [first, second, ...rest];
+    const base = data.pages[0];
+    data.pages = Array.from({ length: 20 }, (_, index) => ({
+      ...base,
+      tasks: all.slice(index * 50, (index + 1) * 50),
+      nextCursor:
+        index < 19 ? { scope, until: 1, beforeId: `page-${index}` } : null,
+    }));
+  });
+  const rows = page
+    .getByRole("navigation", { name: "Tasks" })
+    .getByRole("button");
+  await expect(rows).toHaveCount(50);
+  await rows.nth(1).click();
+  await expect(
+    page.getByText("No messages available for this task."),
+  ).toBeVisible();
+  await rows.first().click();
+  await page.getByLabel("Reply recipient").selectOption(ANIMA);
+  await expect(page.getByTestId("message-input")).toBeVisible();
+  await page.evaluate(() => {
+    const samples: Array<{ name: string; handlerMs: number }> = [];
+    const longTasks: number[] = [];
+    const events = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const timing = entry as PerformanceEventTiming;
+        samples.push({
+          name: timing.name,
+          handlerMs: timing.processingEnd - timing.processingStart,
+        });
+      }
+    });
+    events.observe({
+      type: "event",
+      durationThreshold: 16,
+    } as PerformanceObserverInit);
+    const tasks = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) longTasks.push(entry.duration);
+    });
+    tasks.observe({ type: "longtask" });
+    Object.assign(window, {
+      __inboxTimingSample: {
+        samples,
+        longTasks,
+        stop: () => {
+          events.disconnect();
+          tasks.disconnect();
+        },
+      },
+    });
+  });
+  for (let index = 0; index < 5; index++) {
+    await rows.nth(1).click();
+    await rows.first().click();
+  }
+  await page.getByLabel("Reply recipient").selectOption(ANIMA);
+  await page
+    .getByTestId("message-input")
+    .pressSequentially("Cached task typing remains local and scoped.");
+  await expect(page.getByTestId("message-input")).toHaveText(
+    "Cached task typing remains local and scoped.",
+  );
+  const timing = await page.evaluate(() => {
+    const sample = (
+      window as unknown as {
+        __inboxTimingSample: {
+          samples: Array<{ name: string; handlerMs: number }>;
+          longTasks: number[];
+          stop: () => void;
+        };
+      }
+    ).__inboxTimingSample;
+    sample.stop();
+    return {
+      handlerSamples: sample.samples,
+      longTasksOver50Ms: sample.longTasks.filter((duration) => duration > 50),
+    };
+  });
+  await testInfo.attach("candidate-cached-selection-typing-timings", {
+    body: JSON.stringify(
+      {
+        taskFixtureCount: 1000,
+        pageSize: 50,
+        selectedTasksWarmed: 2,
+        scope:
+          "EventTiming JS processing only; not network latency; candidate-only, no baseline",
+        ...timing,
+      },
+      null,
+      2,
+    ),
+    contentType: "application/json",
+  });
+});
+
 test("opening reads only the selected task and uses production rich text without spheres", async ({
   page,
 }) => {

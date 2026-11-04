@@ -13,7 +13,7 @@ WP-34, only for the changes explicitly scoped here. It does not authorize a rele
 
 ## Execution record — 2026-11-04
 
-Baseline remains `cb23d847a`; changes are local and uncommitted during integration.
+Baseline remains `cb23d847a`; implementation checkpoint `6aee43288` is local only.
 No daily app, personal history or source permission has been replaced.
 
 ### I0 live-path map and decisions
@@ -105,6 +105,29 @@ remain unavailable rather than broadening membership.
   alongside their semantic task link. The relay does not support arbitrary
   multi-letter tag filters. This avoids scanning a long-lived conversation's
   unrelated owner messages to find continuation attempts.
+
+### Native walkthrough findings — not a release clearance
+
+- The unsigned candidate at `6aee43288` reopened the existing isolated profile.
+  Opening and closing its pair window left channel/event/exchange counts unchanged
+  (3/178/7 before synthetic sends). Seven historical exchanges grouped into one
+  `With Luca` rail entry. The daily app was not launched or replaced.
+- A real Claude-backed Luca invocation resolved Anima, used the registered inbox
+  send tool, woke Anima, and read the signed task through both inbox read tools.
+  Anima answered and Luca returned the result in the original conversation.
+- The simultaneous second task was refused: the awareness privacy guard did not
+  recognize the first task's already-authorized visitor for sibling sends or the
+  original final. A narrow exact-parent accepted-task proof fixes this without
+  bypassing current audience or sharing-consent checks. Its new native regression
+  passes; live repetition against the rebuilt candidate is still required.
+- An owner-authored continuation from the native pair window reached Anima and
+  received a reply in the same logical task, with a new bounded attempt. The
+  persisted dispatch reports the actual result event and return acknowledgement.
+  No new channel was created. The view needed manual Refresh to show the reply;
+  live canonical-event invalidation is being corrected and must be retested.
+- A settled native process sample was idle (0% instantaneous CPU; sampled physical
+  footprint approximately 126 MB). This is not a baseline/candidate performance
+  comparison or a claim about harness/provider cost.
 
 ## 1. The experience
 

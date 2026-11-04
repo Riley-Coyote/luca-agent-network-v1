@@ -86,7 +86,9 @@ export function agentInboxFixtureCommand(
         ""
     ];
   if (!task) throw new Error("Inbox task is unavailable or unauthorized.");
-  if (command === "read_agent_inbox_task") return task;
+  // A native invoke serializes a new snapshot; never share mutable fixture
+  // arrays with React Query's structural-sharing cache.
+  if (command === "read_agent_inbox_task") return structuredClone(task);
   if (command === "mark_agent_inbox_task_read") {
     const event = task.events.find((event) => event.id === args.eventId);
     if (!event) throw new Error("Read marker is not a task message.");

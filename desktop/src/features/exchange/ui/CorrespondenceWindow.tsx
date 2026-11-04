@@ -51,6 +51,8 @@ import type { AgentInboxTask } from "@/shared/api/agentInbox";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Markdown } from "@/shared/ui/markdown";
 import { ExchangeIdentityMark } from "./ExchangeIdentityMark";
+import { relayClient } from "@/shared/api/relayClient";
+import { subscribeCorrespondenceUpdates } from "@/features/exchange/correspondenceLive";
 
 export type CorrespondenceWindowProps = {
   correspondenceId: string;
@@ -237,6 +239,50 @@ export function CorrespondenceWindow({
       ),
     [correspondenceId, ownerPubkey, pages.data, read.data],
   );
+  const liveSources = [
+    ...new Set(tasks.map((item) => item.record.conversationId)),
+  ]
+    .sort()
+    .join(":");
+  const liveMembers = pair.join(":");
+  React.useEffect(() => {
+    if (!ownerPubkey || !liveMembers) return;
+    let disposed = false;
+    let dispose: (() => Promise<void>) | undefined;
+    void subscribeCorrespondenceUpdates(
+      relayClient,
+      ownerPubkey,
+      liveMembers.split(":"),
+      liveSources ? liveSources.split(":") : [],
+      () => {
+        if (!disposed)
+          return queryClient.invalidateQueries(
+            {
+              queryKey: ["agent-inbox-window", workspace, correspondenceId],
+            },
+            { cancelRefetch: false },
+          );
+      },
+    )
+      .then((cleanup) => {
+        if (disposed) void cleanup();
+        else dispose = cleanup;
+      })
+      .catch((error) =>
+        console.warn("Correspondence live updates unavailable", error),
+      );
+    return () => {
+      disposed = true;
+      void dispose?.();
+    };
+  }, [
+    ownerPubkey,
+    liveMembers,
+    liveSources,
+    workspace,
+    correspondenceId,
+    queryClient,
+  ]);
   const readPosition = useQuery({
     queryKey: [
       "agent-inbox-read-position",

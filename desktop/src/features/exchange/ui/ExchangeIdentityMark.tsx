@@ -3,6 +3,7 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { AgentDendrite } from "@/shared/ui/dendrite/AgentDendrite";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { isCustomAgentPhotoUrl } from "@/shared/ui/characters/characterAppearance";
 
 /** Exchange authors use their uploaded picture or the approved static mark. */
 export function ExchangeIdentityMark({
@@ -29,7 +30,8 @@ export function ExchangeIdentityMark({
         testId="exchange-owner-avatar"
       />
     );
-  const picture = chatPicture ?? avatarUrl;
+  const picture =
+    chatPicture ?? (isCustomAgentPhotoUrl(avatarUrl) ? avatarUrl : null);
   return picture ? (
     <UserAvatar avatarUrl={picture} displayName={name} size="xs" />
   ) : (
