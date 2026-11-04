@@ -107,6 +107,7 @@ export function exchangeTaskSubject(
     .map((part) => part.trim())
     .find(Boolean)
     ?.replace(/^[#>*\s]+/, "")
+    .replace(/^Task:\s*/i, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/[`*_~]/g, "")
     .replace(/\p{Cc}/gu, "")

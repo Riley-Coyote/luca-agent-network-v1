@@ -61,9 +61,8 @@ export function readStagedOnboardingAgentImports(): readonly DiscoveredResidentC
 
 /**
  * The real import: the same native path the Agents page uses. The resident
- * record is written first and the process is not spawned, so the agent is in
- * the rail from the moment it exists and wakes on its first message like
- * every other resident.
+ * record is written first, then its configured harness starts. Startup only
+ * makes the resident ready; it does not send a prompt or begin model work.
  */
 const importNativeAgent: NativeImportRunner = async (
   candidate,
@@ -77,8 +76,8 @@ const importNativeAgent: NativeImportRunner = async (
     harnessOverride: true,
     parallelism: 1,
     nativeRuntimeBinding: candidate.bindingPreview,
-    spawnAfterCreate: false,
-    startOnAppLaunch: false,
+    spawnAfterCreate: true,
+    startOnAppLaunch: true,
   });
   try {
     const { setResidentContinuityEnabled } = await import(

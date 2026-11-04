@@ -50,9 +50,8 @@ const LUCA_READY_TIMEOUT_MS = 30_000;
 /**
  * The other two who live here from the first launch. Polyphonic ships three
  * residents, so all three exist by the time the application opens — there is
- * nothing for the owner to add and nothing for them to do about it. Only Luca
- * wakes with the app; these two wake on the first message, like every other
- * resident.
+ * nothing for the owner to add and nothing for them to do about it. All three
+ * wake with the app, ready for a direct message or delegation.
  */
 const STARTER_PERSONA_IDS = WELCOME_TEAM_STARTERS.filter(
   (starter) => starter.role !== "lead",
@@ -187,12 +186,10 @@ async function createOtherStarters({
           persona,
           runtime,
         );
-        // Only Luca wakes with the app. These two wake on send, which is the
-        // rule every resident after Luca already lives by.
         await createLucaResident({
           ...baseInput,
-          spawnAfterCreate: false,
-          startOnAppLaunch: false,
+          spawnAfterCreate: true,
+          startOnAppLaunch: true,
         });
       } else {
         const request: NativeProvisioningRequestV1 = {
@@ -349,8 +346,7 @@ export function PolyphonicPreparingStep({
           persona,
           runtime,
         );
-        // Luca wakes with the app: the first message of a session should
-        // never wait on a cold start. Every other resident wakes on send.
+        // Residents wake with the app; starting a harness sends no model prompt.
         const created = await createLucaResident({
           ...baseInput,
           spawnAfterCreate: true,

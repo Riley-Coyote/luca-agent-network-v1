@@ -17,10 +17,8 @@ import { openVisitors } from "@/features/messages/lib/visitSpans";
 import { ChannelPane } from "@/features/channels/ui/ChannelPane";
 import { WelcomeAgentCreateDialog } from "@/features/channels/ui/WelcomeAgentCreateDialog";
 import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent";
-import {
-  latestLiveExchangeAfter,
-  useRoomExchangeHistory,
-} from "@/features/exchange/exchangeStore";
+import { openTaskWindow } from "@/features/exchange/openTaskWindow";
+import { getExchangeEntry } from "@/features/exchange/exchangeStore";
 import { MembersSidebar } from "@/features/channels/ui/MembersSidebar";
 import {
   useManagedAgentsQuery,
@@ -186,7 +184,6 @@ export function ChannelScreen({
   );
   const currentPubkey = currentIdentity?.pubkey;
   const activeChannelId = activeChannel?.id ?? null;
-  const roomExchangeHistory = useRoomExchangeHistory(activeChannelId);
   const relaySelfPubkey = useRelaySelfQuery(activeChannel !== null).data;
   const effectiveOpenThreadHeadId =
     optimisticOpenThreadHeadId === undefined
@@ -791,55 +788,15 @@ export function ChannelScreen({
     isConversationContextOpen,
   ]);
 
-  const handleOpenExchange = React.useCallback(
-    (exchangeId: string) => {
-      setExpandedThreadReplyIds(new Set());
-      setThreadScrollTargetId(null);
-      setThreadReplyTargetId(null);
-      clearAgentSessionReturnTarget();
-      setIsMembersSidebarOpen(false);
+  const handleOpenExchange = React.useCallback((exchangeId: string) => {
+    // A legacy group exchange is not a private pair inbox.
+    if ((getExchangeEntry(exchangeId)?.record.members.length ?? 2) > 2) {
       setRequestedExchangeId(exchangeId);
       setIsConversationContextOpen(true);
-      // A resident arriving is the flicker's origin: four setters here meant
-      // four URL patches, and every one of them was a whole-document view
-      // transition. One patch, no transition (see useHistorySearchState).
-      applyPanelState({
-        agentSession: null,
-        channelManagement: false,
-        profile: null,
-        thread: null,
-      });
-    },
-    [applyPanelState, clearAgentSessionReturnTarget],
-  );
-
-  const exchangeObservationRef = React.useRef<{
-    channelId: string | null;
-    watermark: number;
-  } | null>(null);
-  React.useEffect(() => {
-    const watermark = roomExchangeHistory.reduce(
-      (maximum, entry) => Math.max(maximum, entry.liveObservedAt ?? 0),
-      0,
-    );
-    const previous = exchangeObservationRef.current;
-    if (!previous || previous.channelId !== activeChannelId) {
-      exchangeObservationRef.current = {
-        channelId: activeChannelId,
-        watermark,
-      };
       return;
     }
-
-    const newlyLive = latestLiveExchangeAfter(
-      roomExchangeHistory,
-      previous.watermark,
-    );
-    previous.watermark = Math.max(previous.watermark, watermark);
-    if (newlyLive && !popoutWindow) {
-      handleOpenExchange(newlyLive.record.exchangeId);
-    }
-  }, [activeChannelId, handleOpenExchange, popoutWindow, roomExchangeHistory]);
+    void openTaskWindow(exchangeId);
+  }, []);
 
   // Intentionally reset a transient drawer selection whenever the room key
   // changes; the dependency is the trigger rather than an effect input.

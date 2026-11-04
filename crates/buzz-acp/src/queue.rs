@@ -1132,7 +1132,10 @@ pub(crate) fn exchange_prompt_line(
     };
     format!(
         "Exchange: this message is turn {} of {} in an exchange with {asker}, {origin}. Reply in \
-         words; when the budget is spent the exchange pauses for your owner to decide.",
+         words; when the budget is spent the exchange pauses for your owner to decide. \
+         Polyphonic inbox tasks use this same exchange transport; an @mention event label \
+         does not mean a fallback or failed inbox delivery. Do the assigned work and return \
+         the useful result, not transport diagnostics unless the owner asked for them.",
         exchange.turn, exchange.bucket
     )
 }
@@ -1247,13 +1250,17 @@ fn append_reply_instruction(s: &mut String, event_id: &str, managed_publication:
         s.push_str(&format!(
             "\nIMPORTANT: Return your ordinary response normally. The Luca host will \
              preserve reply anchor {event_id} and publish exactly one final signed \
-             message. Do not invoke a publication tool. If the human explicitly \
+             message. Do not invoke a publication tool for this ordinary final. If the human explicitly \
              requests a channel-root, top-level, or broadcast post, describe that \
              intent in the response; the host remains responsible for publication. \
-             To speak to another resident who is in this room, address them as @Name \
-             inside your response — the host opens a bounded exchange and they \
-             answer here; never use the Buzz CLI, a shell, or any tool to reach a \
-             resident — the relay refuses it."
+             For a separate task for another Polyphonic resident, use the available \
+             send_agent_inbox_message tool. A configured sleeping resident is woken \
+             automatically; stopped presence alone is not a delivery failure. For a \
+             brief in-room visit, @Name in your response remains supported. Never use \
+             the Buzz CLI or shell to bypass these host-owned routes. Keep successful \
+             delegation quiet: a short acknowledgment, then the useful result when ready. \
+             Do not open panels or narrate wake, membership, receipts or routing unless \
+             the owner asks or an actual failure needs their attention."
         ));
     } else {
         s.push_str(&format!(
@@ -1277,10 +1284,13 @@ fn append_new_thread_reply_instruction(s: &mut String, event_id: &str, managed_p
             "\nIMPORTANT: This is a new top-level message. Return your ordinary \
              response normally. The Luca host will preserve reply anchor {event_id} \
              as the thread root and publish exactly one final signed message. Do not \
-             invoke a publication tool or target an older thread. To speak to another \
-             resident who is in this room, address them as @Name inside your response \
-             — the host opens a bounded exchange and they answer here; never use the \
-             Buzz CLI, a shell, or any tool to reach a resident — the relay refuses it."
+             invoke a publication tool for this ordinary final or target an older thread. For a separate task \
+             for another Polyphonic resident, use the available send_agent_inbox_message \
+             tool; the host wakes configured sleeping residents automatically. For a brief \
+             in-room visit, @Name remains supported. Never use the Buzz CLI or shell to \
+             bypass these host-owned routes. Keep successful delegation quiet: a short \
+             acknowledgment, then the useful result. Do not open panels or narrate wake, \
+             membership, receipts or routing unless asked or an actual failure needs attention."
         ));
     } else {
         s.push_str(&format!(
@@ -1913,6 +1923,8 @@ mod tests {
             "the resident must be told whose turn this is and how much budget is left: {block}"
         );
         assert!(block.contains("the exchange pauses for your owner to decide"));
+        assert!(block.contains("inbox tasks use this same exchange transport"));
+        assert!(block.contains("not transport diagnostics unless the owner asked"));
 
         // With no profile to name the asker, the line still renders — with a
         // pubkey prefix instead of a display name.
@@ -4505,9 +4517,11 @@ mod tests {
         assert!(prompt.contains("publish exactly one final signed message"));
         assert!(prompt.contains("Do not invoke a publication tool"));
         assert!(!prompt.contains("`buzz messages send`"));
-        // The house rule for reaching a sibling: speech, never a tool.
-        assert!(prompt.contains("address them as @Name"));
-        assert!(prompt.contains("never use the Buzz CLI, a shell, or any tool"));
+        // Task delegation uses inbox tools; brief visits may still use a mention.
+        assert!(prompt.contains("in-room visit"));
+        assert!(prompt.contains("Never use the Buzz CLI or shell"));
+        assert!(prompt.contains("send_agent_inbox_message"));
+        assert!(prompt.contains("Do not open panels"));
     }
 
     #[test]

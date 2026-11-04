@@ -223,8 +223,8 @@ export async function buildWelcomeStarterCreateInput(
     ...(await buildInstanceInputForDefinition(persona, runtime)),
     name: starter.name,
     relayUrl: relayUrl ?? undefined,
-    spawnAfterCreate: false,
-    startOnAppLaunch: false,
+    spawnAfterCreate: true,
+    startOnAppLaunch: true,
     respondTo: "owner-only",
   };
 }

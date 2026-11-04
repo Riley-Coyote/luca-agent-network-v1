@@ -207,8 +207,8 @@ test("all Welcome starters use the onboarding runtime preference", async () => {
       "new residents have no retired starter team",
     );
     assert.equal(input.relayUrl, RELAY_A);
-    assert.equal(input.spawnAfterCreate, false);
-    assert.equal(input.startOnAppLaunch, false);
+    assert.equal(input.spawnAfterCreate, true);
+    assert.equal(input.startOnAppLaunch, true);
   }
 });
 

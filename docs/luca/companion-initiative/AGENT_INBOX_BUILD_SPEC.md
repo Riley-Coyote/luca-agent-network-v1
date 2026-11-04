@@ -321,8 +321,11 @@ completed inbox implementation.
 - Keep the main conversation, draft, selection and scroll position unchanged.
 - Show one compact receipt per logical task, updated in place. Primary text is
   the useful subject; secondary text identifies the agent and actual state.
-- Clicking the receipt body opens its minimal drawer preview. Provide a clear
-  `Open task in new window` action on the receipt and in the drawer.
+- Clicking the receipt opens the task as a normal second chat inside the app,
+  with its composer ready. Delegation itself never opens a drawer or chat pane.
+  Routine visits, membership changes and internal task anchors stay in canonical
+  history, not as duplicate notices in the owner's conversation. Failures and
+  requests that actually need the owner remain visible. (Riley, Nov 4.)
 - The drawer uses the real message renderer for Markdown, code, links, choices,
   attachments and streaming. Do not expose raw internal formatting tokens.
 - Replace black sphere characters in exchange surfaces with the existing agent
@@ -346,9 +349,9 @@ completed inbox implementation.
   Do not redesign the agent page or add a new global inbox dashboard.
 - Direct owner-to-agent task/topic chats remain separate and keep their titles.
   Pair correspondence rows must be distinguishable from those chats.
-- Clicking a correspondence row opens/focuses its dedicated window; keep the
-  main companion chat in place. The window shows the correspondence history,
-  grouped by task. Task receipt links focus the exact task in that same window.
+- Clicking a correspondence row opens/focuses its in-app chat pane; keep the
+  main companion chat in place. Task receipt links select the exact task in
+  that pane, using the existing transcript and normal composer.
 - Existing search should discover authorized correspondence/tasks and deep-link
   correctly. Reuse it; do not add a second search field to the rail.
 - New activity updates an unread indicator without reshuffling a focused row
@@ -401,9 +404,10 @@ Never build titles by concatenating the source room's participant list.
 - One window per owner/community/correspondence. Reopening focuses it; selecting
   another task changes its focus, not the window count. No automatic new windows
   on delegation, reply, startup reconciliation or completion.
-- On first open, prefer space to the right of the main app; clamp to the visible
-  display and use normal cascading when necessary. Never move/resize the main
-  app. Respect remembered valid window placement thereafter.
+- Pair tasks use the main app's right-hand chat surface, not separate OS windows.
+  Borrow space by widening the main window only when the full extra pane fits
+  the current display; otherwise remain contained. Never resize fullscreen or
+  maximized windows, and never undo an owner's subsequent move or resize.
 - Preserve minimize, close, keyboard shortcuts, approved composer, drafts and
   attachments. Drafts are keyed by scope/task/recipient, not a shared global box.
 - Window closure never cancels work. App/profile/community changes invalidate
@@ -429,6 +433,10 @@ execution receipts before retrying after a lost acknowledgement.
 
 - Delivery, wake and processing are separate states. Queued is not working;
   delivered is not completed; expired is not done.
+- New local residents, including the shipped starters, wake with the app by
+  default. Existing explicit wake preferences remain editable; Riley enabled
+  all three current candidate residents on Nov 4. Startup readies the harness,
+  not autonomous model work. An explicit Stop is not immediately undone.
 - Wake a configured idle recipient only after authority checks. Recheck stop
   and consent after startup and before publication. Never hold the store lock
   while a harness starts.

@@ -108,6 +108,7 @@ async function open(
   omitSelectedFromPage = false,
   configure?: (data: AgentInboxFixture) => void,
   embedded = false,
+  openTask = true,
 ) {
   const data = fixture();
   if (omitSelectedFromPage) data.pages[0].tasks = data.pages[0].tasks.slice(1);
@@ -165,22 +166,134 @@ async function open(
     }, FEATURE_OVERRIDES_STORAGE_KEY);
     await page.goto(`/?e2e=mock#/channels/${CHANNEL}`);
     await expect(page.locator("[data-luca-right-cards]")).toBeAttached();
-    await page.evaluate(
-      (id) =>
-        window.dispatchEvent(
-          new CustomEvent("polyphonic:open-task-chat", { detail: id }),
-        ),
-      TASK,
-    );
+    if (openTask) {
+      await page.evaluate(
+        (id) =>
+          window.dispatchEvent(
+            new CustomEvent("polyphonic:open-task-chat", { detail: id }),
+          ),
+        TASK,
+      );
+    }
   } else {
     await page.goto(
       `/?e2e=mock&window=popout&correspondence=${PAIR}&task=${TASK}`,
     );
   }
+  if (embedded && !openTask) return;
   await expect(page.getByTestId("correspondence-window")).toBeVisible();
   await expect(
     page.getByRole("article", { name: "Review the onboarding flow" }),
   ).toBeVisible();
+}
+
+for (const theme of ["dark", "light"]) {
+  test(`live delegation stays quiet until the task card is clicked: ${theme}`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, theme, 0, false, enableOwnerWrites, true, false);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName: "general",
+            }) ?? false,
+        ),
+      )
+      .toBe(true);
+    await page.evaluate(
+      ({ task, owner, luca, peer, channel }) => {
+        const now = Math.floor(Date.now() / 1000);
+        window.__BUZZ_E2E_EMIT_MOCK_EXCHANGE__?.({
+          exchangeId: task,
+          owner,
+          members: [luca, peer],
+          conversationId: channel,
+          rootEventId: "44".repeat(32),
+          openedBy: luca,
+          bucket: 3,
+          spent: 1,
+        });
+        const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+        emit?.({
+          channelName: "general",
+          id: "44".repeat(32),
+          pubkey: luca,
+          content: "Task: Review the onboarding flow",
+          createdAt: now,
+        });
+        emit?.({
+          channelName: "general",
+          pubkey: owner,
+          kind: 40099,
+          content: JSON.stringify({
+            type: "member_joined",
+            actor: owner,
+            target: peer,
+          }),
+          createdAt: now,
+        });
+        emit?.({
+          channelName: "general",
+          pubkey: owner,
+          kind: 40099,
+          content: JSON.stringify({
+            type: "visit_arrived",
+            resident: peer,
+            exchange_id: task,
+          }),
+          createdAt: now,
+        });
+        emit?.({
+          channelName: "general",
+          pubkey: luca,
+          content: "Please review the onboarding flow",
+          extraTags: [["exchange", task, "1"]],
+          createdAt: now + 1,
+        });
+      },
+      {
+        task: OTHER_TASK,
+        owner: OWNER,
+        luca: LUCA,
+        peer: ANIMA,
+        channel: CHANNEL,
+      },
+    );
+    const card = page.getByTestId(`exchange-receipt-${OTHER_TASK}`);
+    await expect(card).toHaveCount(1);
+    await expect(card).toBeVisible();
+    await expect(page.getByTestId("task-chat-pane")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Close panel", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", {
+        name: "Open conversation details",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Anima stepped in", { exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByText("was added by", { exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.locator(`[data-message-id="${"44".repeat(32)}"]`),
+    ).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(`quiet-delegation-${theme}.png`),
+    });
+    await card.click();
+    await expect(page.getByTestId("task-chat-pane")).toBeVisible();
+    await expect(
+      page.getByTestId("task-chat-pane").getByTestId("message-input"),
+    ).toBeVisible();
+    expect(await sends(page)).toEqual([]);
+  });
 }
 
 test("embedded task chat keeps the main route and composer, defaults recipient, and opens no native window", async ({

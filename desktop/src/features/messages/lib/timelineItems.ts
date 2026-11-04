@@ -31,6 +31,7 @@ import {
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 import type { InkHeard } from "@/shared/lib/inkHeard";
 import { inkAnnotations } from "@/features/messages/lib/inkAnnotations";
+import { delegationPresentation } from "./delegationPresentation";
 
 /**
  * Visit annotations shared by every row kind: where the row sits in a visit
@@ -217,13 +218,19 @@ export function buildTimelineItems(
   context?: { ownerPubkey?: string; channelId?: string | null },
 ): TimelineItemsResult {
   const items: TimelineItem[] = [];
+  const delegation = delegationPresentation(entries, exchanges, context);
+  const anchoredExchanges = new Set(delegation.anchors.values());
   const renderedEntryKeys = new Set<string>();
   // Relay echoes can briefly overlap an optimistic row during reconciliation.
   // Virtua requires unique data keys or it can leave duplicate DOM rows.
   const deduplicatedEntries = entries.filter((entry) => {
     // A note the timeline has no words for makes no day and no row
     // (systemNotes.ts).
-    if (isWordlessSystemNote(entry.message)) return false;
+    if (
+      isWordlessSystemNote(entry.message) ||
+      delegation.hidden.has(entry.message.id)
+    )
+      return false;
     const key = entryRenderKey(entry);
     if (renderedEntryKeys.has(key)) return false;
     renderedEntryKeys.add(key);
@@ -238,7 +245,9 @@ export function buildTimelineItems(
   const exchangeTurnCounts = new Map<string, number>();
   const ownerReturnKeys = new Set<string>();
   deduplicatedEntries.forEach((entry, index) => {
-    const exchangeId = exchangeIdFromTags(entry.message.tags);
+    const exchangeId =
+      delegation.anchors.get(entry.message.id) ??
+      exchangeIdFromTags(entry.message.tags);
     if (!exchangeId) return;
     if (
       isExchangeOwnerReturn(
@@ -261,11 +270,15 @@ export function buildTimelineItems(
   // room keeps a receipt at the last internal turn. A verified owner return
   // keeps its own ordinary row; it still counts and remains in exchange history.
   const uniqueEntries = deduplicatedEntries.filter((entry, index) => {
-    const exchangeId = exchangeIdFromTags(entry.message.tags);
+    const anchorExchange = delegation.anchors.get(entry.message.id);
+    const exchangeId = anchorExchange ?? exchangeIdFromTags(entry.message.tags);
+    const hasAnchor = exchangeId && anchoredExchanges.has(exchangeId);
     return (
       !exchangeId ||
       ownerReturnKeys.has(entryRenderKey(entry)) ||
-      exchangeLastIndex.get(exchangeId) === index
+      (hasAnchor
+        ? Boolean(anchorExchange)
+        : exchangeLastIndex.get(exchangeId) === index)
     );
   });
   let previousGroupEntry: MainTimelineEntry | null = null;
@@ -296,7 +309,8 @@ export function buildTimelineItems(
     const entry = uniqueEntries[i];
     const { message } = entry;
     const renderKey = entryRenderKey(entry);
-    const exchangeId = exchangeIdFromTags(message.tags);
+    const exchangeId =
+      delegation.anchors.get(message.id) ?? exchangeIdFromTags(message.tags);
 
     const dayBoundary = dayBoundariesByStartIndex.get(i);
     if (dayBoundary) {
