@@ -334,3 +334,28 @@ requires the private owner/resident pair; this only admits publication to the
 reviewed exchange. Four focused conversation tests pass, including live-shaped
 relay snapshots and rejection of extra or unapproved recipients. Native retest
 of this correction is pending.
+
+Native proof completed Nov 4, 00:04 CST on candidate `2613c11c0`:
+
+- Sharing approval survived the rebuild/restart; both source choices remain
+  `allowed=true`, `ownedAgentSharing=true`.
+- First post-restart attempt woke Anima and completed three turns but had no
+  buffered observed activity. It proves wake/routing, not observed sharing.
+- A second attempt received four fresh Claude Code observations (`mode=observed`
+  on Luca's dispatch). Luca shared one relevant detail; Anima answered it;
+  Luca returned that answer. All three dispatches are `published`.
+- Exchange `8f510de8464818325b8b24713305bf86f617437cab79e7fa7a77fb743517febf`
+  closed, Anima automatically stepped out, and both relay snapshots returned
+  to owner + Luca. No manual cleanup was used for this successful exchange.
+- The UI stayed in the original Luca DM; distinct room count stayed three;
+  Projects stayed unchanged. The recipient rail gained an exchange shortcut,
+  not a new room. No per-exchange approval was needed.
+- Native screenshots/AX verified the inline exchange, Luca's return, and
+  departure. The daily app/profile was not touched; nothing published or signed.
+
+Remaining issues: failed zero-turn attempts retain visit/shortcut state until
+explicitly ended or later cleanup; one such older open head delayed cleanup of
+the first successful retry. Status does not yet expose sharing consent with
+friendly source labels, so Luca can sound uncertain despite persisted approval.
+Codex sharing consent is verified; a Codex-specific excerpt round trip was not
+separately exercised in this pass. The live excerpt proof above is Claude Code.
