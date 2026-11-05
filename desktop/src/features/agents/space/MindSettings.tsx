@@ -62,6 +62,7 @@ import {
 import { configRowOf, groupConfigRows } from "./mindConfigGroups";
 import { MindDocPane } from "./MindDocPane";
 import { AgentChatPicture } from "./AgentChatPicture";
+import { AgentRailToggle } from "./AgentRailToggle";
 import { MindKeepsUpWith } from "./MindKeepsUpWith";
 import { MindGroup, MindPageHead, MindRow } from "./MindPageKit";
 import { useMindPlace } from "./mindPlaceContext";
@@ -408,6 +409,12 @@ function SettingsRoot({
 
       {resident.pubkey ? (
         <MindGroup title="Appearance">
+          <AgentRailToggle
+            agent={{
+              pubkey: resident.pubkey,
+              personaId: managedAgent?.personaId ?? persona?.id,
+            }}
+          />
           <AgentChatPicture
             key={resident.pubkey}
             pubkey={resident.pubkey}

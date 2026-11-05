@@ -60,6 +60,12 @@ import {
 import { relayClient, setVisibleChannel } from "@/shared/api/relayClient";
 import { customEmojiQueryKey } from "@/features/custom-emoji/hooks";
 import { channelsQueryKey } from "@/features/channels/hooks";
+import { useCommunities } from "@/features/communities/useCommunities";
+import {
+  agentRailVisibilityKey,
+  directlyAddressedRailAgents,
+} from "@/features/sidebar/lib/agentRailVisibility";
+import { setAgentsVisibleInRail } from "@/features/sidebar/lib/useAgentRailVisibility";
 import { reactionEmojiUrl } from "@/shared/api/customEmoji";
 import type { CustomEmoji } from "@/shared/lib/remarkCustomEmoji";
 import {
@@ -524,6 +530,12 @@ export function useSendMessageMutation(
   visitorPubkeys?: ReadonlySet<string>,
 ) {
   const queryClient = useQueryClient();
+  const { activeCommunity } = useCommunities();
+  const railKey = agentRailVisibilityKey(
+    identity?.pubkey,
+    activeCommunity?.relayUrl,
+    activeCommunity?.id,
+  );
 
   const mutation = useMutation<
     RelayEvent,
@@ -635,6 +647,18 @@ export function useSendMessageMutation(
         quickChatContext,
         quickChatEffort,
         activatedEfforts,
+      );
+      // Only this successful owner send reveals agents. Relay traffic and
+      // Luca's delegated tasks never pass through this display preference.
+      setAgentsVisibleInRail(
+        railKey,
+        directlyAddressedRailAgents(
+          effectiveChannel,
+          identity.pubkey,
+          explicitMentionPubkeys ?? [],
+          queryClient.getQueryData<ManagedAgent[]>(managedAgentsQueryKey) ?? [],
+        ),
+        true,
       );
       onEffortSent?.(
         result.eventId,

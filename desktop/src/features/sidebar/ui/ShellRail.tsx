@@ -4,6 +4,7 @@ import { useRouter, useRouterState } from "@tanstack/react-router";
 import {
   BookOpen,
   ChevronRight,
+  EyeOff,
   Folder,
   FolderCog,
   Hand,
@@ -47,6 +48,7 @@ import {
   useOpenSideId,
 } from "@/features/exchange/openSide";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
+import { useCurrentAgentRailVisibility } from "@/features/sidebar/lib/useAgentRailVisibility";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectDetailsDialog } from "@/features/projects/ui/ProjectRoomWorkspace";
 import { usePublishFieldAnchor } from "@/features/onboarding/polyphonicOnboardingGeometry";
@@ -294,6 +296,7 @@ export function ShellRail({
   onMarkChannelUnread,
   onLeave,
 }: ShellRailProps) {
+  const railVisibility = useCurrentAgentRailVisibility();
   // Everyone in the rail's chats who is not one of this Mac's agents, from
   // their profiles: their names, so a group is named by its members and never
   // by a chat, and whether they are an agent (Agents) or a person.
@@ -584,8 +587,15 @@ export function ShellRail({
   // room column's footer when rooms sit in a column, and on the project
   // row's menu here, so the keyboard and the pointer reach them from the
   // rail whichever way the rooms are listed.
-  const { goApp, goAppTask, goBrain, goChannel, goNeedsYou, goSettings } =
-    useAppNavigation();
+  const {
+    goAgents,
+    goApp,
+    goAppTask,
+    goBrain,
+    goChannel,
+    goNeedsYou,
+    goSettings,
+  } = useAppNavigation();
   const newAppConversation = useNewAppConversation();
   const openSide = (side: RailSideRow) => {
     if (side.correspondenceId && side.taskIds?.[0]) {
@@ -752,6 +762,18 @@ export function ShellRail({
   return (
     <>
       <ChatRowContextMenu
+        agentMenuItems={(pubkey) => (
+          <ContextMenuItem
+            onSelect={() =>
+              deferMenuAction(() => railVisibility.setVisible(pubkey, false))
+            }
+          >
+            <ContextMenuIconSlot>
+              <EyeOff className="h-4 w-4" />
+            </ContextMenuIconSlot>
+            Remove from Chats
+          </ContextMenuItem>
+        )}
         items={items}
         onMarkChannelRead={onMarkChannelRead}
         onMarkChannelUnread={onMarkChannelUnread}
@@ -839,8 +861,26 @@ export function ShellRail({
             </button>
           </RailSection>
           {homes.agents.length > 0 ? (
-            <RailSection kind="agent" title="Agents">
-              {homes.agents.map(row)}
+            <RailSection
+              kind="agent"
+              title="Agents"
+              add={{
+                label: "Browse agents",
+                onAdd: () => {
+                  void goAgents();
+                  onLeave?.();
+                },
+                testId: "rail-browse-agents",
+              }}
+            >
+              {homes.agents
+                .filter((home) => {
+                  const agent = agentsByPubkey.get(home.pubkey ?? "");
+                  return railVisibility.isVisible(
+                    agent ?? { pubkey: home.pubkey ?? "" },
+                  );
+                })
+                .map(row)}
             </RailSection>
           ) : null}
           <RailSection
@@ -1213,6 +1253,7 @@ function HomeRow({
       <div
         className="luca-rail-row"
         data-active={active ? "true" : undefined}
+        data-agent-pubkey={home.kind === "agent" ? home.pubkey : undefined}
         data-channel-id={home.main?.channel.id}
         data-home={home.id}
         data-home-kind={home.kind}

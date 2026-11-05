@@ -19,6 +19,7 @@ import {
   type ChatListItem,
 } from "@/features/sidebar/lib/chatListModel";
 import { readExpandedAgents } from "@/features/sidebar/lib/agentRailState";
+import { useCurrentAgentRailVisibility } from "@/features/sidebar/lib/useAgentRailVisibility";
 import type { RoomProject } from "@/features/channels/lib/roomProjects";
 import { cn } from "@/shared/lib/cn";
 
@@ -98,6 +99,7 @@ export const AgentRail = React.memo(function AgentRail({
   storageKey: string;
   projectByChannelId: ReadonlyMap<string, RoomProject>;
 }) {
+  const railVisibility = useCurrentAgentRailVisibility();
   const [expanded, setExpanded] = React.useState(() =>
     readExpandedAgents(localStorage, storageKey),
   );
@@ -295,7 +297,11 @@ export const AgentRail = React.memo(function AgentRail({
         }
       />
       {agents
-        .filter((agent) => agent.pubkey.toLowerCase() !== primaryPubkey)
+        .filter(
+          (agent) =>
+            agent.pubkey.toLowerCase() !== primaryPubkey &&
+            railVisibility.isVisible(agent),
+        )
         .map((agent) => agentRow(agent, false))}
     </div>
   );

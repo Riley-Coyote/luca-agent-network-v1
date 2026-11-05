@@ -116,6 +116,11 @@ or access grants. Catalog Add uses the existing owner-initiated resident setup
 and configured runtime; do not silently pin a model or start every template.
 Roles, copy-only example prompts and working methods share
 `shared/content/starterSpecialists.json`. Examples never send or run on click.
+Chats shows Luca, Vektor and Anima by default, not every installed specialist.
+Owner/relay/workspace-scoped display choices live in `sidebar/lib/agentRailVisibility`;
+agent Settings can show or hide a resident. Successful direct owner conversations
+and explicit owner tags reveal them again; delegated work and incoming traffic do
+not. Visibility never changes installation, runtime state, permissions or history.
 Native working-method supplements apply only to exact stock portraits and
 instructions, never edited or native-imported identities.
 

@@ -33,6 +33,14 @@ import type {
   UpdateChannelInput,
 } from "@/shared/api/types";
 import { useCommunities } from "@/features/communities/useCommunities";
+import { useIdentityQuery } from "@/shared/api/hooks";
+import { managedAgentsQueryKey } from "@/features/agents/hooks";
+import type { ManagedAgent } from "@/shared/api/types";
+import {
+  agentRailVisibilityKey,
+  directlyAddressedRailAgents,
+} from "@/features/sidebar/lib/agentRailVisibility";
+import { setAgentsVisibleInRail } from "@/features/sidebar/lib/useAgentRailVisibility";
 import {
   readChannelSnapshot,
   writeChannelSnapshot,
@@ -245,9 +253,31 @@ export function useCreateChannelMutation() {
 
 export function useOpenDmMutation() {
   const queryClient = useQueryClient();
+  const { activeCommunity } = useCommunities();
+  const owner = useIdentityQuery().data?.pubkey;
+  const railKey = agentRailVisibilityKey(
+    owner,
+    activeCommunity?.relayUrl,
+    activeCommunity?.id,
+  );
 
   return useMutation({
-    mutationFn: (input: OpenDmInput) => openDm(input),
+    mutationFn: async (input: OpenDmInput) => {
+      const opened = await openDm(input);
+      if (owner)
+        setAgentsVisibleInRail(
+          railKey,
+          directlyAddressedRailAgents(
+            opened,
+            owner,
+            [],
+            queryClient.getQueryData<ManagedAgent[]>(managedAgentsQueryKey) ??
+              [],
+          ),
+          true,
+        );
+      return opened;
+    },
     onSuccess: (openedChannel) => {
       queryClient.setQueryData<Channel[]>(channelsQueryKey, (current) =>
         upsertCachedChannel(current, openedChannel),

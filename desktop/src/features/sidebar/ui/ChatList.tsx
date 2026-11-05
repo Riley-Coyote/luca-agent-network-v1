@@ -17,6 +17,7 @@ import { cn } from "@/shared/lib/cn";
 import {
   ContextMenu,
   ContextMenuContent,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/shared/ui/context-menu";
 
@@ -225,6 +226,7 @@ export function ChatRowContextMenu({
   onMarkChannelRead,
   onMarkChannelUnread,
   projectMenuItems,
+  agentMenuItems,
 }: ChatRowMenuProps & {
   children: React.ReactElement;
   items: readonly ChatListItem[];
@@ -232,23 +234,39 @@ export function ChatRowContextMenu({
   /** A project row's own menu (the shell's rail): rows carrying
    *  `data-project-id` open it. Without it, only chat rows have a menu. */
   projectMenuItems?: (projectId: string) => React.ReactNode;
+  /** A resident's display actions, independent of their conversation menu. */
+  agentMenuItems?: (pubkey: string) => React.ReactNode;
 }) {
   const [row, setRow] = React.useState<{
-    kind: "channel" | "project";
+    kind: "channel" | "project" | "agent";
     id: string;
+    channelId?: string;
   } | null>(null);
   const item =
-    row?.kind === "channel"
-      ? (items.find((candidate) => candidate.channel.id === row.id) ?? null)
+    row?.kind === "channel" || row?.channelId
+      ? (items.find(
+          (candidate) => candidate.channel.id === (row.channelId ?? row.id),
+        ) ?? null)
       : null;
   const rowUnder = (event: React.SyntheticEvent) => {
     if (!(event.target instanceof Element)) return null;
     const found = event.target.closest(
-      projectMenuItems
-        ? "[data-channel-id], [data-project-id]"
-        : "[data-channel-id]",
+      [
+        "[data-channel-id]",
+        projectMenuItems && "[data-project-id]",
+        agentMenuItems && "[data-agent-pubkey]",
+      ]
+        .filter(Boolean)
+        .join(", "),
     );
     const channelId = found?.getAttribute("data-channel-id");
+    const agent = found?.getAttribute("data-agent-pubkey");
+    if (agent && agentMenuItems)
+      return {
+        kind: "agent" as const,
+        id: agent,
+        channelId: channelId ?? undefined,
+      };
     if (channelId) return { kind: "channel" as const, id: channelId };
     const projectId = found?.getAttribute("data-project-id");
     return projectId ? { kind: "project" as const, id: projectId } : null;
@@ -282,6 +300,12 @@ export function ChatRowContextMenu({
           />
         ) : row?.kind === "project" && projectMenuItems ? (
           projectMenuItems(row.id)
+        ) : null}
+        {row?.kind === "agent" && agentMenuItems ? (
+          <>
+            {item ? <ContextMenuSeparator /> : null}
+            {agentMenuItems(row.id)}
+          </>
         ) : null}
       </ContextMenuContent>
     </ContextMenu>
