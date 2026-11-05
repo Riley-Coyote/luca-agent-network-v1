@@ -309,6 +309,20 @@ fn requires_exchange(admission: AuthorAdmission) -> bool {
     admission == AuthorAdmission::Sibling
 }
 
+fn classify_task_return(
+    managed_identity: bool,
+    respond_to: &RespondTo,
+    cache: &exchange_cache::ExchangeCache,
+    event: &nostr::Event,
+    channel: Uuid,
+    now: Option<u64>,
+) -> Option<AuthorAdmission> {
+    (managed_identity
+        && !matches!(respond_to, RespondTo::Nobody)
+        && cache.authorizes_task_return(event, channel, now))
+        .then_some(AuthorAdmission::Sibling)
+}
+
 /// Current wall clock in unix seconds — the `now` an exchange's deadline and
 /// turn budget are judged against.
 ///
@@ -2554,14 +2568,34 @@ async fn tokio_main() -> Result<()> {
                             // it never revokes same-owner team bots.
                             let admission = {
                                 let author = buzz_event.event.pubkey.to_hex();
-                                let admission = classify_author(
-                                    &config.respond_to,
-                                    &config.respond_to_allowlist,
-                                    &author,
-                                    &owner_cache,
-                                    &ctx.rest_client,
-                                )
-                                .await;
+                                // The owner's signed, currently open pair task
+                                // is exact authority for this recipient's
+                                // return. A profile lookup can time out while
+                                // a send is in progress and cache false for the
+                                // process lifetime. Never let that unrelated
+                                // lookup silently discard an authorized reply.
+                                // Nobody still means nobody; Sibling keeps the
+                                // normal exchange gate and all later checks.
+                                let admission = if let Some(admission) = classify_task_return(
+                                        config.identity.is_managed(),
+                                        &config.respond_to,
+                                        &exchange_cache,
+                                        &buzz_event.event,
+                                        buzz_event.channel_id,
+                                        unix_now_secs(),
+                                    )
+                                {
+                                    admission
+                                } else {
+                                    classify_author(
+                                        &config.respond_to,
+                                        &config.respond_to_allowlist,
+                                        &author,
+                                        &owner_cache,
+                                        &ctx.rest_client,
+                                    )
+                                    .await
+                                };
                                 if admission == AuthorAdmission::Denied {
                                     tracing::debug!(
                                         channel_id = %buzz_event.channel_id,

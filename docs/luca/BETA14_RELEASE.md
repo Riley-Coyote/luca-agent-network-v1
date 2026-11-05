@@ -1445,3 +1445,15 @@ main chat and new chat keep that correction's 46 px capsule.
   in-place approval/answer flow, typecheck, scoped Biome, frontend build, and
   diff checks passed. Native walkthrough evidence is recorded separately in
   the isolated instance's `STARTER_SPECIALISTS_CHECK.md` after rebuilding.
+- A concurrent native run exposed a second delivery race: the inbound
+  ownership-profile lookup timed out and cached a negative result for a
+  configured specialist. Replies were present in their tasks but Luca dropped
+  them until restart. Managed pair-task returns now use the already verified,
+  current owner-signed task head to classify that exact signed recipient reply;
+  the normal exchange and dispatch gates still run. This is cached-head-only,
+  turn 2 only, with exact pair membership, channel, audience and signature.
+  It does not grant source/tool access, admit arbitrary agent messages, override
+  Nobody, change legacy admission, or enable sibling-triggered new delegation.
+- All 37 exchange-cache checks pass, including a cached-negative ownership
+  lookup, closed/expired/stale/wrong-owner heads, wrong sender/audience/channel,
+  invalid signatures, exact turn limits, Nobody, and legacy isolation.

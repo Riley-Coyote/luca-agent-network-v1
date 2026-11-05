@@ -399,6 +399,62 @@ impl ExchangeCache {
         trusted.then(|| head.record.clone())
     }
 
+    /// The owner's verified pair-task head already authorizes its exact
+    /// recipient's signed reply to the opener. Do not depend on a separate
+    /// profile lookup here: a transient lookup timeout must not turn a task
+    /// the owner authorized into a permanently untrusted sender.
+    ///
+    /// Cached heads only; no network or new membership is introduced. This
+    /// only classifies the sender. The normal exchange gate still runs before
+    /// queueing, and tool/dispatch/consent checks remain independent.
+    pub(crate) fn authorizes_task_return(
+        &self,
+        event: &nostr::Event,
+        channel: uuid::Uuid,
+        now: Option<u64>,
+    ) -> bool {
+        let Some(now) = now else { return false };
+        let tags: Vec<Vec<String>> = event
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().to_vec())
+            .collect();
+        let Ok(Some(turn)) = ExchangeTurnTag::find(&tags) else {
+            return false;
+        };
+        let Some(record) = self.fresh_head(turn.exchange_id.as_str()) else {
+            return false;
+        };
+        let channels: Vec<_> = tags
+            .iter()
+            .filter(|tag| tag.first().map(String::as_str) == Some("h"))
+            .collect();
+        let recipients: Vec<_> = tags
+            .iter()
+            .filter(|tag| tag.first().map(String::as_str) == Some("p"))
+            .collect();
+        self.owner.as_ref() == Some(&record.owner)
+            && record.depth == 1
+            && record.members.len() == 2
+            && record.opened_by == self.self_pubkey
+            && record.is_member(&self.self_pubkey)
+            && event.pubkey.to_hex() != self.self_pubkey.as_str()
+            && record
+                .members
+                .iter()
+                .any(|member| member.as_str() == event.pubkey.to_hex())
+            && turn.turn == 2
+            && record.admits_turn(turn.turn, now)
+            && event.kind == nostr::Kind::Custom(9)
+            && channels.len() == 1
+            && channels[0].get(1).map(String::as_str) == Some(record.conversation_id.as_str())
+            && record.conversation_id.as_str() == channel.to_string()
+            && recipients.len() == 1
+            && recipients[0].get(1).map(String::as_str) == Some(self.self_pubkey.as_str())
+            && event.verify_id()
+            && event.verify_signature()
+    }
+
     /// Look up a head regardless of age. Test-only: the grant path reads
     /// [`Self::fresh_head`], never this.
     #[cfg(test)]
@@ -845,6 +901,163 @@ mod tests {
 
     fn resident_cache() -> ExchangeCache {
         ExchangeCache::new(hex_of(&resident_keys()), Some(hex_of(&owner_keys())))
+    }
+
+    fn task_return_fixture() -> (ExchangeCache, ExchangeRecordV1, nostr::Event, uuid::Uuid) {
+        let cache = resident_cache();
+        let mut record = pair_record(None);
+        record.opened_by = hex_of(&resident_keys());
+        assert!(cache.ingest_head(&head_event(&record, &owner_keys(), NOW)));
+        let event = turn_event(
+            &sibling_keys(),
+            vec![
+                turn_tag(&record.exchange_id, 2),
+                Tag::parse(["h", record.conversation_id.as_str()]).unwrap(),
+                Tag::public_key(resident_keys().public_key()),
+            ],
+        );
+        let channel = uuid::Uuid::parse_str(record.conversation_id.as_str()).unwrap();
+        (cache, record, event, channel)
+    }
+
+    #[tokio::test]
+    async fn owner_authorized_task_return_does_not_depend_on_a_failed_profile_lookup() {
+        let (cache, record, event, channel) = task_return_fixture();
+        let owners = crate::OwnerCache::new(Some(hex_of(&owner_keys()).as_str().to_owned()));
+        owners.cache_sibling(event.pubkey.to_hex(), false);
+        let relay = FakeRelay::hanging().await;
+        assert_eq!(
+            crate::classify_author(
+                &crate::config::RespondTo::OwnerOnly,
+                &std::collections::HashSet::new(),
+                &event.pubkey.to_hex(),
+                &owners,
+                &relay.rest_client(),
+            )
+            .await,
+            crate::AuthorAdmission::Denied,
+        );
+        let admission = crate::classify_task_return(
+            true,
+            &crate::config::RespondTo::OwnerOnly,
+            &cache,
+            &event,
+            channel,
+            Some(NOW + 1),
+        )
+        .expect("exact owner task proof");
+        assert!(crate::requires_exchange(admission));
+        assert_eq!(
+            cache
+                .admit(&event, Some(NOW + 1), None)
+                .await
+                .unwrap()
+                .exchange_id,
+            record.exchange_id
+        );
+        assert_eq!(
+            relay.request_count(),
+            0,
+            "no lookup needed for a signed task return"
+        );
+        assert_eq!(
+            crate::classify_task_return(
+                true,
+                &crate::config::RespondTo::Nobody,
+                &cache,
+                &event,
+                channel,
+                Some(NOW + 1),
+            ),
+            None,
+            "Nobody remains a hard stop"
+        );
+        assert_eq!(
+            crate::classify_task_return(
+                false,
+                &crate::config::RespondTo::OwnerOnly,
+                &cache,
+                &event,
+                channel,
+                Some(NOW + 1),
+            ),
+            None,
+            "legacy unmanaged admission is unchanged"
+        );
+    }
+
+    #[test]
+    fn task_return_proof_rejects_wrong_sender_audience_channel_and_signature() {
+        let (cache, record, event, channel) = task_return_fixture();
+        assert!(cache.authorizes_task_return(&event, channel, Some(NOW + 1)));
+        assert!(!cache.authorizes_task_return(&event, uuid::Uuid::new_v4(), Some(NOW + 1)));
+        let tags = |recipient| {
+            vec![
+                turn_tag(&record.exchange_id, 2),
+                Tag::parse(["h", record.conversation_id.as_str()]).unwrap(),
+                Tag::public_key(recipient),
+            ]
+        };
+        for wrong in [
+            turn_event(&stranger_keys(), tags(resident_keys().public_key())),
+            turn_event(&sibling_keys(), tags(owner_keys().public_key())),
+            turn_event(&resident_keys(), tags(resident_keys().public_key())),
+            turn_event(&sibling_keys(), vec![turn_tag(&record.exchange_id, 2)]),
+            turn_event(&sibling_keys(), {
+                let mut many = tags(resident_keys().public_key());
+                many.push(Tag::public_key(stranger_keys().public_key()));
+                many
+            }),
+        ] {
+            assert!(!cache.authorizes_task_return(&wrong, channel, Some(NOW + 1)));
+        }
+        let mut tampered = event.clone();
+        tampered.content.push_str("tampered");
+        assert!(!cache.authorizes_task_return(&tampered, channel, Some(NOW + 1)));
+        let mut forged = event.clone();
+        forged.sig = turn_event(&stranger_keys(), tags(resident_keys().public_key())).sig;
+        assert!(forged.verify_id());
+        assert!(!cache.authorizes_task_return(&forged, channel, Some(NOW + 1)));
+        assert!(!cache.authorizes_task_return(&event, channel, None));
+    }
+
+    #[test]
+    fn task_return_proof_requires_current_open_owner_head_and_exact_turn() {
+        let (cache, record, event, channel) = task_return_fixture();
+        assert!(!resident_cache().authorizes_task_return(&event, channel, Some(NOW + 1)));
+        assert!(!cache.authorizes_task_return(&event, channel, Some(record.deadline.get() + 1)));
+        let wrong_turn = turn_event(
+            &sibling_keys(),
+            vec![
+                turn_tag(&record.exchange_id, 3),
+                Tag::parse(["h", record.conversation_id.as_str()]).unwrap(),
+                Tag::public_key(resident_keys().public_key()),
+            ],
+        );
+        assert!(!cache.authorizes_task_return(&wrong_turn, channel, Some(NOW + 1)));
+        let other_owner = resident_cache();
+        assert!(!other_owner.ingest_head(&head_event(&record, &stranger_keys(), NOW)));
+        assert!(!other_owner.authorizes_task_return(&event, channel, Some(NOW + 1)));
+        assert!(cache.ingest_head(&head_event(&record.stopped(), &owner_keys(), NOW + 2)));
+        assert!(!cache.authorizes_task_return(&event, channel, Some(NOW + 3)));
+    }
+
+    #[test]
+    fn task_return_proof_cannot_promote_a_stale_head_or_another_members_task() {
+        let (cache, record, event, channel) = task_return_fixture();
+        cache
+            .heads
+            .lock()
+            .unwrap()
+            .get_mut(record.exchange_id.as_str())
+            .unwrap()
+            .seen_at = Instant::now() - HEAD_MAX_AGE - Duration::from_secs(1);
+        assert!(!cache.authorizes_task_return(&event, channel, Some(NOW + 1)));
+        let other_opener = resident_cache();
+        let mut other = record;
+        other.opened_by = hex_of(&sibling_keys());
+        assert!(other_opener.ingest_head(&head_event(&other, &owner_keys(), NOW)));
+        assert!(!other_opener.authorizes_task_return(&event, channel, Some(NOW + 1)));
     }
 
     /// A head body as the HTTP bridge returns it: the owner's event with the
