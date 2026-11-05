@@ -58,6 +58,7 @@ export default defineConfig({
         "**/shell-mind-space.spec.ts",
         "**/shell-agents-pages.spec.ts",
         "**/shell-agent-place.spec.ts",
+        "**/starter-specialists.spec.ts",
         "**/shell-brain.spec.ts",
         "**/shell-activity.spec.ts",
         "**/shell-one-state.spec.ts",

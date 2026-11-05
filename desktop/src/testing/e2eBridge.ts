@@ -2873,6 +2873,18 @@ function resetMockPersonas(config?: E2eConfig) {
       avatar_url: null,
       system_prompt: "You are Bumble.",
     },
+    {
+      id: "builtin:mira",
+      display_name: "Mira",
+      avatar_url: null,
+      system_prompt: "Mira investigates questions using original sources and calibrated evidence.",
+    },
+    {
+      id: "builtin:coda",
+      display_name: "Coda",
+      avatar_url: null,
+      system_prompt: "Coda writes and edits while preserving the person's voice and factual intent.",
+    },
   ];
   mockPersonas = builtInPersonas.map((persona) => ({
     id: persona.id,

@@ -192,7 +192,7 @@ export function useManagedAgentActions() {
 
   async function handleAddResident(persona: AgentPersona) {
     if (startingPersonaIdsRef.current.has(persona.id)) {
-      return;
+      return false;
     }
     setPersonaStartPending(persona.id, true);
     clearFeedback();
@@ -233,10 +233,12 @@ export function useManagedAgentActions() {
       void managedAgentsQuery.refetch();
       void relayAgentsQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
+      return !created.spawnError;
     } catch (error) {
       setActionErrorMessage(
         error instanceof Error ? error.message : "Failed to add resident.",
       );
+      return false;
     } finally {
       setPersonaStartPending(persona.id, false);
     }

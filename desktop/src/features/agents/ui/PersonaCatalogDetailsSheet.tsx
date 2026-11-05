@@ -12,6 +12,7 @@ import {
 } from "@/shared/ui/sheet";
 
 import { PersonaCatalogSelectionBadge } from "./PersonaCatalogSelectionBadge";
+import { StarterAgentExamples } from "./StarterAgentExamples";
 import {
   getPersonaCatalogDetailSelectionCopy,
   getPersonaCatalogSelectionAriaLabel,
@@ -69,6 +70,7 @@ export function PersonaCatalogDetailsSheet({
               </div>
             </SheetHeader>
             <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
+              <StarterAgentExamples persona={persona} />
               <button
                 aria-label={getPersonaCatalogSelectionAriaLabel(
                   persona.displayName,

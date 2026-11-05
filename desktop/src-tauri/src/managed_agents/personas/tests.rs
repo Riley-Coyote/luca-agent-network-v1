@@ -60,6 +60,8 @@ fn merge_personas_adds_missing_built_ins() {
             "Luca",
             "Fifty",
             "Trinity",
+            "Mira",
+            "Coda",
             "Claude Code",
             "Codex",
             "Vektor",
@@ -85,6 +87,8 @@ fn bundled_self_models_require_the_unedited_built_in_prompt() {
         "builtin:bumble",
         "builtin:fifty",
         "builtin:trinity",
+        "builtin:mira",
+        "builtin:coda",
     ] {
         let pack = super::resident_packs::for_persona(id).unwrap();
         assert_eq!(
@@ -126,6 +130,33 @@ fn merge_personas_preserves_custom_records() {
 
     assert!(changed);
     assert!(records.iter().any(|record| record.id == custom.id));
+}
+
+#[test]
+fn specialist_catalog_upgrade_is_inactive_idempotent_and_preserves_edits() {
+    for stored in [Vec::new(), vec![custom_persona("custom:mine", "Mine")]] {
+        let (records, _) = merge_personas(stored, "2026-11-05T00:00:00Z");
+        for id in ["builtin:mira", "builtin:coda"] {
+            let record = records.iter().find(|record| record.id == id).unwrap();
+            assert!(!record.is_active);
+            assert!(record.runtime.is_none());
+            assert!(record.model.is_none());
+            assert!(record.env_vars.is_empty());
+            assert!(record.avatar_url.is_none());
+        }
+        let (again, changed) = merge_personas(records, "2026-11-05T00:01:00Z");
+        assert!(!changed);
+        for id in ["builtin:mira", "builtin:coda"] {
+            assert_eq!(again.iter().filter(|record| record.id == id).count(), 1);
+        }
+    }
+    let mut edited = custom_persona("builtin:mira", "My researcher");
+    edited.is_builtin = true;
+    let (records, _) = merge_personas(vec![edited.clone()], "2026-11-05T00:00:00Z");
+    let actual = records.iter().find(|record| record.id == edited.id).unwrap();
+    assert_eq!(actual.display_name, edited.display_name);
+    assert_eq!(actual.system_prompt, edited.system_prompt);
+    assert_eq!(actual.is_active, edited.is_active);
 }
 
 #[test]

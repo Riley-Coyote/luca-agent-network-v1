@@ -2364,7 +2364,33 @@ fn assembled_documents_prompt(app: &AppHandle, record: &ManagedAgentRecord) -> O
         }
     };
     match crate::luca::resident_documents::load(&dir) {
-        Ok(loaded) => crate::luca::resident_documents::assemble_system_prompt(&loaded),
+        Ok(loaded) => {
+            let mut prompt = crate::luca::resident_documents::assemble_system_prompt(&loaded)?;
+            // Starter methods are versioned product guidance, never a write
+            // over the resident's documents or a native runtime's identity.
+            if record.native_runtime_binding.is_none() {
+                if let Some(guidance) = record.persona_id.as_deref().and_then(|id| {
+                    super::starter_specialists::for_stock_documents(
+                        id,
+                        record.system_prompt.as_deref(),
+                        loaded
+                            .by_kind
+                            .get(&crate::luca::resident_documents::DocumentKind::Soul)
+                            .map(String::as_str),
+                        loaded
+                            .by_kind
+                            .get(&crate::luca::resident_documents::DocumentKind::Instructions)
+                            .map(String::as_str),
+                    )
+                }) {
+                    if prompt.len() + guidance.len() + 2 <= 60 * 1024 {
+                        prompt.push_str("\n\n");
+                        prompt.push_str(&guidance);
+                    }
+                }
+            }
+            Some(prompt)
+        }
         Err(error) => {
             luca_log!(
                 warn,

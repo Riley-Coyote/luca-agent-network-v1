@@ -29,6 +29,7 @@ pub(crate) mod reconcile;
 mod relay_mesh;
 mod repos;
 pub(crate) mod resident_packs;
+mod starter_specialists;
 mod restore;
 pub mod retention;
 mod runtime;

@@ -12,6 +12,7 @@ import { Markdown } from "@/shared/ui/markdown";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 import { PersonaAddedBy } from "./PersonaAddedBy";
+import { StarterAgentExamples } from "./StarterAgentExamples";
 import { personaCatalogCopy } from "./personaLibraryCopy";
 
 type PersonaCatalogDialogProps = {
@@ -278,6 +279,8 @@ function PersonaCatalogDetail({ persona }: { persona: AgentPersona }) {
         </div>
       </div>
 
+      <StarterAgentExamples persona={persona} />
+
       <PersonaCatalogMetaGroup
         items={[
           {
@@ -295,16 +298,16 @@ function PersonaCatalogDetail({ persona }: { persona: AgentPersona }) {
         ]}
       />
 
-      <div className="pt-3">
-        <p className="text-base font-semibold text-foreground">
-          Agent instruction
-        </p>
+      <details className="pt-3">
+        <summary className="cursor-pointer text-sm font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
+          Agent instructions
+        </summary>
         <Markdown
           className={agentInstructionMarkdownClassName}
           content={persona.systemPrompt}
           interactive={false}
         />
-      </div>
+      </details>
     </div>
   );
 }

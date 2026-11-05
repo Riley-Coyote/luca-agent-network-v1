@@ -7,6 +7,7 @@ import { Card } from "@/shared/ui/card";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { PersonaCatalogSelectionBadge } from "./PersonaCatalogSelectionBadge";
 import { PersonaIdentity } from "./PersonaIdentity";
+import { starterSpecialist } from "../lib/starterSpecialists";
 import {
   getPersonaCatalogSelectionActionCopy,
   getPersonaCatalogSelectionAriaLabel,
@@ -68,7 +69,9 @@ export function PersonaCatalogSection({
       {!isLoading && personas.length > 0 ? (
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
           {personas.map((persona) => {
-            const preview = promptPreview(persona.systemPrompt);
+            const preview =
+              starterSpecialist(persona)?.summary ??
+              promptPreview(persona.systemPrompt);
             const isSelected = isCatalogPersonaSelected(persona);
 
             return (

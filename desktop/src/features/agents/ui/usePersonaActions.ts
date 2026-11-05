@@ -366,6 +366,7 @@ export function usePersonaActions() {
           ? `Selected ${persona.displayName} for My Agents.`
           : `Deselected ${persona.displayName} from My Agents.`,
       );
+      return true;
     } catch (error) {
       setPersonaErrorMessage(
         error instanceof Error
@@ -374,6 +375,7 @@ export function usePersonaActions() {
             ? "Failed to select agent for My Agents."
             : "Failed to deselect agent from My Agents.",
       );
+      return false;
     }
   }
 

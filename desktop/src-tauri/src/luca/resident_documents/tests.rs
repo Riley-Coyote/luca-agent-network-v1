@@ -46,6 +46,48 @@ fn assembly_slots_exclude_lessons() {
 }
 
 #[test]
+fn research_and_writing_packs_seed_complete_folders_without_overwriting() {
+    for id in ["builtin:mira", "builtin:coda"] {
+        let dir = folder();
+        let pack = crate::managed_agents::resident_packs::for_persona(id).unwrap();
+        seed_pack_if_absent(dir.path(), pack).unwrap();
+        for name in [
+            "soul.md",
+            "instructions.md",
+            "convictions.md",
+            "self-model.md",
+            "user-model.md",
+            "lessons.md",
+            "IDENTITY.md",
+            "AGENTS.md",
+            "MEMORY.md",
+            "relationship.md",
+            "examples.md",
+            "presentation.json",
+        ] {
+            assert!(std::fs::metadata(dir.path().join(name)).unwrap().len() > 0);
+        }
+        let loaded = load(dir.path()).unwrap();
+        let prompt = assemble_system_prompt(&loaded).unwrap();
+        assert_eq!(loaded.by_kind[&DocumentKind::Instructions], pack.instructions);
+        assert!(prompt.contains(pack.instructions.trim()));
+        assert!(!prompt.contains("Invented examples"));
+        put(dir.path(), DocumentKind::Instructions, "The owner's own method");
+        put(dir.path(), DocumentKind::UserModel, "A real saved preference");
+        seed_pack_if_absent(dir.path(), pack).unwrap();
+        let after = load(dir.path()).unwrap();
+        assert_eq!(
+            after.by_kind[&DocumentKind::Instructions],
+            "The owner's own method"
+        );
+        assert_eq!(
+            after.by_kind[&DocumentKind::UserModel],
+            "A real saved preference"
+        );
+    }
+}
+
+#[test]
 fn wire_shapes_match_the_typescript_contract() {
     let kind = serde_json::to_value(kind_target(DocumentKind::SelfModel)).unwrap();
     assert_eq!(kind, serde_json::json!({ "kind": "selfModel" }));

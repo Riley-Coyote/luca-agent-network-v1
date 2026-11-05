@@ -575,6 +575,24 @@ export function AgentsView({
             <DialogTitle>Add an agent</DialogTitle>
           </DialogHeader>
           <div className="space-y-6 py-2">
+            <section className="space-y-2">
+              <h3 className="text-sm font-medium">Start with a specialist</h3>
+              <p className="text-sm text-muted-foreground">
+                Research, writing, design and more. Use a starter as it is or
+                make it your own.
+              </p>
+              <Button
+                data-testid="open-starter-agent-catalog"
+                onClick={() => {
+                  setIsAddOpen(false);
+                  personas.openCatalog();
+                }}
+                size="sm"
+                type="button"
+              >
+                Browse starter agents
+              </Button>
+            </section>
             <NativeResidentImportSection residents={agents.managedAgents} />
             <section className="space-y-3">
               <div>
@@ -882,13 +900,25 @@ export function AgentsView({
               : null
           }
           isLoading={personas.personasQuery.isLoading}
-          isPending={personas.setPersonaActiveMutation.isPending}
+          isPending={isActionPending}
           onClearFeedback={() => {
             personas.clearFeedback("catalog");
           }}
           onOpenChange={personas.setIsCatalogDialogOpen}
           onSelectPersona={(persona, active) => {
-            void personas.handleSetActive(persona, active, "catalog");
+            void (async () => {
+              const selected = await personas.handleSetActive(
+                persona,
+                active,
+                "catalog",
+              );
+              if (!selected || !active) return;
+              // Reuse the ordinary owner-initiated provisioning path, including
+              // the configured runtime and existing identity reuse safeguards.
+              if (await agents.handleAddResident(persona)) {
+                personas.setIsCatalogDialogOpen(false);
+              }
+            })();
           }}
           open={personas.isCatalogDialogOpen}
           personas={personas.catalogPersonas}

@@ -94,6 +94,16 @@ const BUILT_IN_STOCK_SOULS: &[StockSouls] = &[
         current: resident_packs::ANIMA.soul,
         previous: &[ANIMA_SYSTEM_PROMPT],
     },
+    StockSouls {
+        persona_id: "builtin:mira",
+        current: resident_packs::MIRA.soul,
+        previous: &[],
+    },
+    StockSouls {
+        persona_id: "builtin:coda",
+        current: resident_packs::CODA.soul,
+        previous: &[],
+    },
 ];
 
 fn stock_souls(persona_id: &str) -> Option<&'static StockSouls> {
@@ -172,6 +182,26 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         avatar_url: None,
         system_prompt: resident_packs::TRINITY.soul,
         name_pool: &["Trinity"],
+        model: None,
+        runtime: None,
+        default_active: false,
+    },
+    BuiltInPersona {
+        id: "builtin:mira",
+        display_name: "Mira",
+        avatar_url: None,
+        system_prompt: resident_packs::MIRA.soul,
+        name_pool: &["Mira"],
+        model: None,
+        runtime: None,
+        default_active: false,
+    },
+    BuiltInPersona {
+        id: "builtin:coda",
+        display_name: "Coda",
+        avatar_url: None,
+        system_prompt: resident_packs::CODA.soul,
+        name_pool: &["Coda"],
         model: None,
         runtime: None,
         default_active: false,

@@ -111,6 +111,14 @@ must not hide working activity or the agent's top-of-chat presence. A custom
 chat picture is a bounded local raster, scoped by owner and resident, and
 does not alter runtime configuration, network identity, or the grown mark.
 
+Starter specialists are editable catalog definitions, not additional harnesses
+or access grants. Catalog Add uses the existing owner-initiated resident setup
+and configured runtime; do not silently pin a model or start every template.
+Roles, copy-only example prompts and working methods share
+`shared/content/starterSpecialists.json`. Examples never send or run on click.
+Native working-method supplements apply only to exact stock portraits and
+instructions, never edited or native-imported identities.
+
 Claude version pins are supplied by the native `claude_model_bridge` launcher,
 not a frontend list. Its documented active versions supplement live aliases;
 they do not claim account entitlement. Explicit allowlists and custom-provider

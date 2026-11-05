@@ -99,6 +99,38 @@ pub(crate) const ANIMA: ResidentPack = ResidentPack {
     cognition: None,
 };
 
+pub(crate) const MIRA: ResidentPack = ResidentPack {
+    soul: include_str!("../../resident-packs/mira/soul.md"),
+    convictions: include_str!("../../resident-packs/mira/convictions.md"),
+    self_model: include_str!("../../resident-packs/mira/self-model.md"),
+    user_model: include_str!("../../resident-packs/shared/user-model.md"),
+    lessons: include_str!("../../resident-packs/shared/lessons.md"),
+    instructions: include_str!("../../resident-packs/mira/instructions.md"),
+    identity: include_str!("../../resident-packs/mira/IDENTITY.md"),
+    agents: include_str!("../../resident-packs/mira/AGENTS.md"),
+    memory: include_str!("../../resident-packs/shared/MEMORY.md"),
+    relationship: include_str!("../../resident-packs/shared/relationship.md"),
+    examples: include_str!("../../resident-packs/mira/examples.md"),
+    presentation: include_str!("../../resident-packs/mira/presentation.json"),
+    cognition: None,
+};
+
+pub(crate) const CODA: ResidentPack = ResidentPack {
+    soul: include_str!("../../resident-packs/coda/soul.md"),
+    convictions: include_str!("../../resident-packs/coda/convictions.md"),
+    self_model: include_str!("../../resident-packs/coda/self-model.md"),
+    user_model: include_str!("../../resident-packs/shared/user-model.md"),
+    lessons: include_str!("../../resident-packs/shared/lessons.md"),
+    instructions: include_str!("../../resident-packs/coda/instructions.md"),
+    identity: include_str!("../../resident-packs/coda/IDENTITY.md"),
+    agents: include_str!("../../resident-packs/coda/AGENTS.md"),
+    memory: include_str!("../../resident-packs/shared/MEMORY.md"),
+    relationship: include_str!("../../resident-packs/shared/relationship.md"),
+    examples: include_str!("../../resident-packs/coda/examples.md"),
+    presentation: include_str!("../../resident-packs/coda/presentation.json"),
+    cognition: None,
+};
+
 /// One earlier edition of a built-in's founding documents — the four files
 /// that say who a resident is, as some previous build shipped them.
 ///
@@ -181,6 +213,8 @@ pub(crate) fn for_persona(persona_id: &str) -> Option<&'static ResidentPack> {
         "builtin:trinity" => Some(&TRINITY),
         "builtin:honey" => Some(&VEKTOR),
         "builtin:bumble" => Some(&ANIMA),
+        "builtin:mira" => Some(&MIRA),
+        "builtin:coda" => Some(&CODA),
         _ => None,
     }
 }
