@@ -133,12 +133,28 @@ pub(crate) fn authorize(
 
 /// Resolve a broker tool's current turn without accepting model-supplied turn
 /// or dispatch coordinates. Ambiguity is denied rather than picking latest.
-pub(crate) fn authorize_unique(resident: &str, epoch: u64, conversation: &str) -> Result<ActiveCommunicationTurn, CommunicationTurnAuthorizationError> {
+pub(crate) fn authorize_unique(
+    resident: &str,
+    epoch: u64,
+    conversation: &str,
+) -> Result<ActiveCommunicationTurn, CommunicationTurnAuthorizationError> {
     let turns = lock_registry();
-    let mut matches = turns.values().filter(|turn| turn.resident_pubkey.as_str() == resident
-        && turn.session_epoch.get() == epoch && turn.conversation_id.as_str() == conversation);
-    let turn = matches.next().cloned().ok_or(CommunicationTurnAuthorizationError::Unknown)?;
-    if matches.next().is_some() { return Err(CommunicationTurnAuthorizationError::Conflict); }
+    let mut matches = turns.values().filter(|turn| {
+        turn.resident_pubkey.as_str() == resident
+            && turn.session_epoch.get() == epoch
+            && turn.conversation_id.as_str() == conversation
+    });
+    let turn = matches.next().cloned().ok_or_else(|| {
+        luca_log!(warn, "inbox turn authority missing: resident={resident} epoch={epoch} conversation={conversation} resident_turns={:?}",
+            turns.values().filter(|turn| turn.resident_pubkey.as_str() == resident)
+                .map(|turn| (turn.session_epoch.get(), turn.conversation_id.as_str(), turn.turn_id.as_str()))
+                .collect::<Vec<_>>());
+        CommunicationTurnAuthorizationError::Unknown
+    })?;
+    if matches.next().is_some() {
+        luca_log!(warn, "inbox turn authority ambiguous: resident={resident} epoch={epoch} conversation={conversation}");
+        return Err(CommunicationTurnAuthorizationError::Conflict);
+    }
     Ok(turn)
 }
 
