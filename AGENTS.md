@@ -42,6 +42,10 @@ Buzz product assumptions in the upstream guide below. In particular:
   through each runtime's own supported store. Credentials are never displayed,
   retained, or copied into Luca; a credential may only be set directly into the
   runtime-owned store. See `docs/luca/agent-config/RUNTIME_CONFIG_ATLAS.md`.
+- For resident-facing prompts, app-operation guidance, or tool descriptions,
+  read `docs/luca/LUCA_OPERATING_GUIDE.md`. Verify the active runtime wiring,
+  keep managed and legacy CLI guidance separate, and distinguish live prompt
+  slots from seed-only reference files before claiming an instruction changed.
 - The shipped app line is `codex/first-meeting-finish` (see "Where the work is"
   above). Historical branches, including `luca/v1`, `luca/v1.1`,
   `agent/runtime-reliability` and `agent/vision-demo`, are reference coordinates
@@ -208,10 +212,14 @@ check existing reply handlers for the pattern.
 
 ## Agent CLI (`buzz-cli`)
 
-`buzz` is the agent-first CLI. Auth env vars
-(`BUZZ_RELAY_URL`, `BUZZ_PRIVATE_KEY`, `BUZZ_AUTH_TAG`) are auto-injected
-by the ACP harness into managed agent subprocesses. In development, set
-`BUZZ_PRIVATE_KEY` and `BUZZ_RELAY_URL` in your environment manually.
+`buzz` is the upstream agent-first CLI. The commands below apply to separately
+provisioned legacy Buzz sessions, whose harness can supply relay configuration
+and credentials. Polyphonic managed residents receive no `BUZZ_PRIVATE_KEY` or
+`BUZZ_AUTH_TAG`; do not restore them or teach the CLI as a fallback for missing
+scoped tools. Use the host's exact-mention route for resident contact and its
+sole signed-publication path. See [Luca operating guidance](docs/luca/LUCA_OPERATING_GUIDE.md)
+for the current desktop contract. Independent legacy development environments
+configure their own relay identity through the supported legacy setup.
 
 ### Building the CLI
 

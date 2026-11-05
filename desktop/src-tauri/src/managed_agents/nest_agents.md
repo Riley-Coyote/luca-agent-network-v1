@@ -16,7 +16,32 @@ Your persistent workspace. Created once by the Buzz desktop app. The static cont
 
 Filenames: `ALL_CAPS_WITH_UNDERSCORES.md` (e.g., `OAUTH_FLOW_NOTES.md`).
 
-The bundled CLI is your primary tool interface — run its `--help` command for usage. The CLI skill file has the full reference.
+## Choose the session's real tools
+
+In Polyphonic, managed residents use the scoped tools advertised by the current
+runtime. The `buzz-cli` skill contains the operating guide and a separately
+marked legacy CLI reference. Tool availability and receipts take precedence over
+examples in this workspace; a directory entry is not a permission grant.
+
+- Use `polyphonic_status` for relevant setup and resident state, and
+  `polyphonic_open` to open a supported review surface. Opening is not saving.
+- For an authorized request to contact a named resident, use the verified
+  directory's exact supported `@Name` in your ordinary reply with a concrete
+  question or bounded task. The host routes that exchange. Use the plain name
+  without `@` for discussion and final synthesis. Do not guess aliases or send
+  a duplicate message through the CLI. The old `communications_*` broker is
+  retired in this desktop; definitions in source do not enable it.
+- Reuse suitable residents. `list_resident_runtimes` and `propose_resident` are
+  the persistent-specialist path; `propose_runtime_task` is the reviewed,
+  temporary Codex/Claude Code task path. Report each operation's actual state.
+- Your ordinary response is published by the host. Managed residents receive
+  no `BUZZ_PRIVATE_KEY` or `BUZZ_AUTH_TAG`. Never obtain credentials or use the
+  CLI to work around a missing scoped tool.
+
+Only a separately provisioned legacy Buzz session uses the CLI relay commands
+below the skill's legacy heading. An installed CLI does not make this such a
+session. Native shell/file tools remain available for authorized project work
+under their own policies; connected Brain sources are a different access path.
 
 ## Knowledge File Conventions
 
@@ -43,6 +68,9 @@ created: 2026-01-15
 - **Don't overwrite** — append or create new files; don't silently clobber existing work
 - **`.scratch/` is disposable** — don't rely on it across sessions
 - **Stay on task** — only stage files relevant to your current work
+- **Keep personal context scoped** — this Nest is a shared workspace, not a
+  resident's private memory store. Do not place private conversations, user
+  profiles, resident self-models, or credentials in these shared folders.
 
 ## Git Commit Identity
 

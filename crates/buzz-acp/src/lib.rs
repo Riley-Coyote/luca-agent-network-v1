@@ -3990,15 +3990,36 @@ mod agent_draft_prompt_tests {
         assert!(normalized.contains("A visit does not start a stopped runtime"));
         assert!(normalized.contains("Do not promise a response from an unavailable resident"));
         assert!(normalized.contains("Use only capabilities advertised in this session"));
+        assert!(normalized.contains("The old communications broker is retired"));
+        assert!(normalized.contains("requests host routing, not guaranteed delivery"));
+        assert!(normalized.contains("Finish with one ordinary answer, not a second send"));
+        assert!(normalized.contains("Status does not start residents, track tasks, or cancel work"));
+        assert!(normalized.contains("`polyphonic_open` takes only `surface`"));
+        assert!(normalized.contains("For managed `codex` or `claude_code` only"));
+        assert!(normalized.contains("Native Hermes/OpenClaw creation must omit it"));
+        assert!(
+            normalized.contains("waits through review and approved execution to a terminal result")
+        );
+        assert!(normalized.contains("do not submit a duplicate worker"));
+        assert!(normalized.contains("it does not make the artifact private storage"));
+        assert!(normalized.contains("it does not click or operate the app"));
+        assert!(prompt.contains("\"source_type\":\"workspace_file\",\"relative_path\""));
         assert!(normalized.contains(
             "solely responsible for publishing one final signed message after a successful turn"
         ));
         for capability in [
             "polyphonic_status",
+            "polyphonic_open",
+            "list_resident_runtimes",
             "propose_resident",
             "propose_repository_connection",
             "propose_runtime_task",
             "read_runtime_task_result",
+            "repo_apply_patch",
+            "artifact_create",
+            "canvas_present",
+            "quickchat_highlight",
+            "resident_place_update",
         ] {
             assert!(prompt.contains(capability));
         }
