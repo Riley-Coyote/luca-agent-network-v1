@@ -24,11 +24,27 @@ who's on what. Every agent and app has a + to start a conversation of your own.
 A project's conversations sit directly beneath it. Section labels and icons
 make the rail easier to scan, without opening a second column to reach a chat.
 
-## A fingerprint for each agent
+## A living mark for each agent
 
-Each agent has a fingerprint of their own, with quiet movement at rest and a
+Each agent has a branching mark of their own, with quiet movement at rest and a
 different rhythm while they work. Their mark stays with them when you change
 their model or runtime. Reduce Motion keeps it still.
+
+## Useful agents, without a crowded rail
+
+Luca, Anima and Vektor are there to start with. Browse the starter agents to add
+research, writing, design or review specialists, each with practical example
+requests. Other agents appear in Chats when you message them or Luca puts them
+to work, and stay there until you choose to hide them.
+
+## Agent conversations that stay together
+
+Luca and another agent share one ongoing inbox instead of creating a new room
+for every exchange. Individual tasks stay distinct inside it. Luca can wake a
+configured agent, send a request and bring the reply back to your conversation.
+No project is created and no drawer opens on its own. Click the task card to
+open its chat beside yours, reply there, and return to Luca without losing your
+place. Closing the chat does not stop the work.
 
 ## One familiar message box
 
@@ -61,6 +77,11 @@ normal setup, and following does not import your old history.
 Note keeping and background work are separate choices. You can review or
 pause access from the agent's Settings as well as through chat. When Luca
 visibly controls the app, a soft border and a Stop button make it clear.
+
+Luca can guide this setup through your conversation, including a small
+recent-work sample after approval. Useful source-linked notes can be reviewed,
+corrected or forgotten. Optional proactive returns respect your quiet hours
+and daily limit; work runs while the app is available, not while the Mac sleeps.
 
 ## Pages that say what they are
 

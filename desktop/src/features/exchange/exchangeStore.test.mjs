@@ -39,6 +39,35 @@ beforeEach(() => {
   resetExchangeStore();
 });
 
+test("a durable reply clears work/attention without changing the transport or history", () => {
+  const head = record();
+  applyExchangeSnapshot({
+    record: head,
+    spent: 3,
+    phase: "paused",
+    replyReceived: true,
+  });
+  assert.equal(getRoomExchanges(ROOM).length, 0);
+  assert.equal(getPausedExchangeChannelIds().size, 0);
+  assert.equal(getRoomExchangeHistory(ROOM)[0].phase, "paused");
+  assert.equal(getRoomExchangeHistory(ROOM)[0].replyReceived, true);
+  upsertExchangeRecord(head);
+  assert.equal(getRoomExchangeHistory(ROOM)[0].replyReceived, true);
+  applyExchangeSnapshot({
+    record: head,
+    spent: 3,
+    phase: "open",
+    replyReceived: false,
+  });
+  assert.equal(
+    getRoomExchanges(ROOM).length,
+    1,
+    "an active continuation can work again",
+  );
+  resetExchangeStore();
+  assert.equal(getRoomExchangeHistory(ROOM).length, 0);
+});
+
 test("a room's exchanges are scoped to that conversation", () => {
   upsertExchangeRecord(record());
   upsertExchangeRecord(

@@ -30,6 +30,7 @@ type RawExchangeSnapshot = {
   spent?: unknown;
   remaining?: unknown;
   phase?: unknown;
+  replyReceived?: unknown;
 };
 
 /** What `resolve_exchange`/`get_exchange` hand back, normalised. */
@@ -38,6 +39,8 @@ export type ExchangeSnapshot = {
   /** Turns already spoken — counted by the relay, never by loaded history. */
   spent: number;
   phase: ExchangePhase;
+  /** Durable recipient reply, not a claim that its task succeeded. */
+  replyReceived?: boolean;
 };
 
 /** Payload of the backend's `exchange-updated` event. */
@@ -46,6 +49,7 @@ export type ExchangeUpdatedEvent = {
   record?: RawExchangeRecord;
   spent?: unknown;
   phase?: unknown;
+  replyReceived?: unknown;
 };
 
 const EXCHANGE_PHASES: readonly ExchangePhase[] = [
@@ -140,7 +144,13 @@ function normalizeSnapshot(
   const phase = EXCHANGE_PHASES.includes(raw?.phase as ExchangePhase)
     ? (raw?.phase as ExchangePhase)
     : deriveExchangePhase(record, spent, Math.floor(Date.now() / 1000));
-  return { record, spent, phase };
+  return {
+    record,
+    spent,
+    phase,
+    replyReceived:
+      typeof raw?.replyReceived === "boolean" ? raw.replyReceived : undefined,
+  };
 }
 
 /**

@@ -80,7 +80,7 @@ export function ExchangeReceiptRow({
           </span>
           <span className="mt-0.5 block text-xs text-ink-faint">
             {members.length > 2 ? names.join(" & ") : recipientName} ·{" "}
-            {exchangeStatusLabel(exchange?.phase)}
+            {exchangeStatusLabel(exchange?.phase, exchange?.replyReceived)}
           </span>
         </span>
       </button>

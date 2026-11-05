@@ -18,6 +18,8 @@ export type ExchangeEntry = {
   record: ExchangeRecord;
   spent: number;
   phase: ExchangePhase;
+  /** Verified local publication receipt; separate from transport phase. */
+  replyReceived?: boolean;
   /** First-seen ordinal — the strip renders the most recent exchange first. */
   observedAt: number;
   /**
@@ -68,6 +70,7 @@ function sameEntry(a: ExchangeEntry | undefined, b: ExchangeEntry): boolean {
   return (
     a.spent === b.spent &&
     a.phase === b.phase &&
+    a.replyReceived === b.replyReceived &&
     a.liveObservedAt === b.liveObservedAt &&
     a.record.bucket === b.record.bucket &&
     a.record.state === b.record.state &&
@@ -114,6 +117,7 @@ export function upsertExchangeRecord(
       record,
       spent,
       phase: deriveExchangePhase(record, spent, Math.floor(Date.now() / 1000)),
+      replyReceived: existing?.replyReceived,
     },
     options.liveObservation,
   );
@@ -137,7 +141,11 @@ export function getExchangeEntry(
 }
 
 function isLive(entry: ExchangeEntry): boolean {
-  return entry.phase !== "closed" && entry.phase !== "expired";
+  return (
+    !entry.replyReceived &&
+    entry.phase !== "closed" &&
+    entry.phase !== "expired"
+  );
 }
 
 /**
@@ -228,7 +236,8 @@ export function getPausedExchangeChannelIds(): ReadonlySet<string> {
   if (pausedChannelIdsCache) return pausedChannelIdsCache;
   const paused = new Set<string>();
   for (const entry of entries.values()) {
-    if (entry.phase === "paused") paused.add(entry.record.conversationId);
+    if (entry.phase === "paused" && !entry.replyReceived)
+      paused.add(entry.record.conversationId);
   }
   const result = paused.size === 0 ? EMPTY_CHANNEL_IDS : paused;
   pausedChannelIdsCache = result;

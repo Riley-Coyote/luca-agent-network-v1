@@ -3,6 +3,50 @@
 Riley, 2026-10-26: "Yes, go with the plan: call it beta.14, the shell on by default with the old layout as a switch for
 one release, leave the Obsidian WIP out, cut the five Buzz ties and keep the license notice."
 
+## Current finish gates — November 5, 2026
+
+This section is the active closeout; dated implementation records below are
+historical evidence, not fresh release clearance. The new public/shared-agent
+idea is deferred. Mnemos, Ghost and new harness integrations remain out of scope.
+
+- **Verified in the isolated native candidate:** approved shell/conversation/mini
+  chat work; chat-led reviewed setup; authorized recent-work sample; encrypted
+  note save, correction, recall and Forget; same-profile restart and Pause;
+  persistent pair inboxes, exact-task continuation, recipient wake, delegated
+  approvals and automatic returned results; starter specialists; persistent rail
+  reveal on owner contact, delegation or real work. See the first-meeting,
+  inbox and starter walkthrough records for each checkpoint and its limits.
+- **Task status cleanup implemented:** distinguish a durably accepted recipient
+  reply from the exchange's Open/Closed transport state. Never label a reply as
+  a successful task without evidence. Preserve original records and transcripts.
+  Replied tasks no longer appear as active conversation/attention solely because
+  their transport is open or turn-limited. Active continuation overrides an old
+  reply; absent/evicted receipts remain unknown. No signed exchange is rewritten.
+- **Current checks:** all 4,514 frontend units pass; focused native inbox (30),
+  initiative (47), delivery (40), dispatch (58), source-note (5) and first-meeting
+  (26) checks pass (filters overlap). All 44 existing inbox browser cases passed;
+  both new status cases passed after correcting their test-only recipient/input
+  selectors. Typecheck/build, scoped Biome, text-size/file-size and diff checks
+  pass. The first-meeting prompt exceeded its existing 10 KiB test budget;
+  repeated wording was shortened without raising the limit or dropping consent.
+  Browser screenshots were inspected in both themes. Final native rebuild and
+  same-profile inspection are the next gate, not claimed by these unit checks.
+- **Separate decision:** new delegation during a sibling-triggered return turn
+  is still refused. Removing that guard alone is not a safe workflow feature;
+  shared budgets, cancellation and origin authority must be specified together.
+  Independent owner-requested specialist tasks are verified, not unattended chains.
+- **Native proactive-return gate remains open:** the existing profile has two
+  real background `no_change` outcomes, not a successful unsolicited return.
+  Quiet hours and rolling stage budgets must not be reset or bypassed to force
+  a result. No-change remains a valid agent decision, not a failure to fix.
+- **Upgrade/final regressions:** recheck the preserved candidate profile at the
+  final frozen source and reconcile remaining historical test failures by path.
+  A production-identity beta.13 upgrade on the daily profile is not claimed by
+  the isolated-profile checks.
+- **Owner/release gates:** Riley's final walkthrough, release packaging and
+  artifact validation are still required. No push, tag, signing, notarization,
+  publication or replacement of the daily app is authorized by these checks.
+
 ## Where the release comes from
 
 - **The release line is `claude/native-rail-glass`.** It already holds the whole of the October 22 beta.14 consolidation

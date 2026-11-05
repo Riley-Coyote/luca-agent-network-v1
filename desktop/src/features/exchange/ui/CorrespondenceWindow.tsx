@@ -693,8 +693,11 @@ export function CorrespondenceWindow({
                       )}
                 </span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  {exchangeStatusLabel(taskState(item))} ·{" "}
-                  {new Date(item.recordUpdatedAt * 1000).toLocaleDateString()}
+                  {exchangeStatusLabel(
+                    taskState(item),
+                    item.outcome === "reply_received",
+                  )}{" "}
+                  · {new Date(item.recordUpdatedAt * 1000).toLocaleDateString()}
                   {inboxLogicalTaskId(item) === taskId && unreadCount
                     ? ` · ${unreadCount} unread in loaded history`
                     : ""}
@@ -905,7 +908,7 @@ export function CorrespondenceWindow({
               <p className="col-start-1 row-start-2 mb-2 min-w-0 truncate text-xs text-muted-foreground">
                 {composeMode === "new-message"
                   ? `Source: ${subject}`
-                  : `${subject} · ${exchangeStatusLabel(state)}`}
+                  : `${subject} · ${exchangeStatusLabel(state, exchangeState.data?.replyReceived ?? task.outcome === "reply_received")}`}
               </p>
               {composeMode === "reply" &&
               exchangeState.data &&

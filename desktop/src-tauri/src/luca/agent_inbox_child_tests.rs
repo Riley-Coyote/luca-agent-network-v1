@@ -322,3 +322,101 @@ fn agent_inbox_child_stop_does_not_cancel_another_actor_on_shared_owner_trigger(
         ManagedDispatchState::Active
     );
 }
+
+#[test]
+fn agent_inbox_reply_status_uses_exact_durable_receipts_not_transport_state() {
+    let (directory, mut store, event, owner, actor) = fixture();
+    let source = "11111111-1111-4111-8111-111111111111";
+    let child = Hex64::parse("e".repeat(64)).unwrap();
+    let mut binding = action(&owner, &event, InboxChildActionPhase::Request);
+    let recipient = binding.recipient_pubkey.clone();
+    let mut record = luca_protocol::ExchangeRecordV1::open(
+        owner.clone(),
+        vec![actor.clone(), recipient.clone()],
+        OpaqueId::parse(source).unwrap(),
+        binding.anchor_event_id.clone().unwrap(),
+        actor.clone(),
+        None,
+        100,
+    )
+    .unwrap();
+    binding.exchange_id = Some(record.exchange_id.clone());
+    store
+        .stage_inbox_child_action(
+            &event.id.to_hex(),
+            &child,
+            actor.as_str(),
+            source,
+            1,
+            binding,
+            vec![recipient.as_str().to_owned()],
+            110,
+        )
+        .unwrap();
+    assert!(
+        !store.inbox_reply_received(&record),
+        "a staged request is not a reply"
+    );
+    let request_id = "7".repeat(64);
+    store
+        .begin_submission(child.as_str(), actor.as_str(), 1, &request_id)
+        .unwrap();
+    store
+        .mark_published(child.as_str(), actor.as_str(), &request_id)
+        .unwrap();
+    assert!(
+        !store.inbox_reply_received(&record),
+        "relay acceptance is not execution"
+    );
+    let mut reply =
+        store.dispatches[&(child.as_str().to_owned(), actor.as_str().to_owned())].clone();
+    reply.trigger_event_id = request_id.clone();
+    reply.resident_pubkey = recipient.as_str().to_owned();
+    reply.inbox_action = None;
+    reply.state = ManagedDispatchState::Active;
+    reply.published_event_id = None;
+    reply.submitted_event_id = None;
+    let key = (request_id, recipient.as_str().to_owned());
+    store.activate_session(recipient.as_str(), 1).unwrap();
+    store.dispatches.insert(key.clone(), reply);
+    assert!(!store.inbox_reply_received(&record));
+    let reply_id = "8".repeat(64);
+    store
+        .begin_submission(&key.0, &key.1, 1, &reply_id)
+        .unwrap();
+    store.mark_published(&key.0, &key.1, &reply_id).unwrap();
+    assert!(store.inbox_reply_received(&record));
+    store.persist().unwrap();
+    let restored = ManagedDispatchStore::load(directory.path().join("dispatches.json")).unwrap();
+    assert!(
+        restored.inbox_reply_received(&record),
+        "restart retains receipt"
+    );
+    store.dispatches.get_mut(&key).unwrap().state = ManagedDispatchState::Active;
+    assert!(
+        !store.inbox_reply_received(&record),
+        "active work takes precedence"
+    );
+    store.dispatches.get_mut(&key).unwrap().state = ManagedDispatchState::Failed;
+    assert!(
+        !store.inbox_reply_received(&record),
+        "failure is not a reply"
+    );
+    store.dispatches.get_mut(&key).unwrap().state = ManagedDispatchState::Published;
+    record.state = luca_protocol::ExchangeStateV1::Closed;
+    assert!(
+        store.inbox_reply_received(&record),
+        "closure does not erase a reply"
+    );
+    record.owner = Hex64::parse("9".repeat(64)).unwrap();
+    assert!(
+        !store.inbox_reply_received(&record),
+        "foreign owner never inherits it"
+    );
+    record.owner = owner;
+    record.conversation_id = OpaqueId::parse("other-source").unwrap();
+    assert!(!store.inbox_reply_received(&record));
+    record.conversation_id = OpaqueId::parse(source).unwrap();
+    record.exchange_id = Hex64::parse("9".repeat(64)).unwrap();
+    assert!(!store.inbox_reply_received(&record));
+}

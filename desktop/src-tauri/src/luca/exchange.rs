@@ -200,6 +200,8 @@ pub(crate) struct ExchangeSnapshot {
     pub remaining: u8,
     /// The lived phase this renders as.
     pub phase: ExchangePhase,
+    /// A local durable recipient publication receipt, never an inferred success.
+    pub reply_received: bool,
 }
 
 fn now_unix_secs() -> Result<u64, String> {
@@ -364,6 +366,7 @@ fn snapshot_for(
         phase: record.phase(spent, now),
         spent,
         record,
+        reply_received: false,
     })
 }
 
@@ -435,7 +438,7 @@ pub(crate) async fn resolve_exchange(
         let relay = AppExchangeRelay::new(app.clone());
         let store = global_exchange_store(&app)?;
         let now_unix_secs = now_unix_secs()?;
-        let snapshot = apply_owner_decision(
+        let mut snapshot = apply_owner_decision(
             &relay,
             &store,
             &exchange_id,
@@ -445,11 +448,21 @@ pub(crate) async fn resolve_exchange(
         )?;
         if action == "stop" && snapshot.phase == ExchangePhase::Closed {
             super::managed_dispatch_store::global_dispatch_store(&app)?
-                .lock().map_err(|_| "inbox task dispatch store is unavailable")?
-                .cancel_inbox_task(snapshot.record.owner.as_str(), snapshot.record.conversation_id.as_str(), &snapshot.record.exchange_id)?;
+                .lock()
+                .map_err(|_| "inbox task dispatch store is unavailable")?
+                .cancel_inbox_task(
+                    snapshot.record.owner.as_str(),
+                    snapshot.record.conversation_id.as_str(),
+                    &snapshot.record.exchange_id,
+                )?;
             super::managed_dispatch_store::global_dispatch_store(&app)?
-                .lock().map_err(|_| "inbox task dispatch store is unavailable")?
-                .cancel_inbox_exchange_actions(snapshot.record.owner.as_str(), snapshot.record.conversation_id.as_str(), &snapshot.record.exchange_id)?;
+                .lock()
+                .map_err(|_| "inbox task dispatch store is unavailable")?
+                .cancel_inbox_exchange_actions(
+                    snapshot.record.owner.as_str(),
+                    snapshot.record.conversation_id.as_str(),
+                    &snapshot.record.exchange_id,
+                )?;
             fade_visits(
                 &relay,
                 &store,
@@ -461,6 +474,10 @@ pub(crate) async fn resolve_exchange(
             )
             .map_err(|error| error.to_string())?;
         }
+        snapshot.reply_received = super::managed_dispatch_store::global_dispatch_store(&app)?
+            .lock()
+            .map_err(|_| "inbox task dispatch store is unavailable")?
+            .inbox_reply_received(&snapshot.record);
         let _ = app.emit(
             EXCHANGE_UPDATED_EVENT,
             serde_json::json!({
@@ -468,6 +485,7 @@ pub(crate) async fn resolve_exchange(
                 "record": &snapshot.record,
                 "spent": snapshot.spent,
                 "phase": snapshot.phase,
+                "replyReceived": snapshot.reply_received,
             }),
         );
         Ok(snapshot)
@@ -487,13 +505,20 @@ pub(crate) async fn get_exchange(
         let exchange_id = Hex64::parse(exchange_id)
             .map_err(|error| format!("exchange id is invalid: {error}"))?;
         let relay = AppExchangeRelay::new(app.clone());
-        read_exchange(
+        let mut snapshot = read_exchange(
             &relay,
             &global_exchange_store(&app)?,
             &exchange_id,
             &owner_pubkey(&app)?,
             now_unix_secs()?,
-        )
+        )?;
+        if let Some(snapshot) = snapshot.as_mut() {
+            snapshot.reply_received = super::managed_dispatch_store::global_dispatch_store(&app)?
+                .lock()
+                .map_err(|_| "inbox task dispatch store is unavailable")?
+                .inbox_reply_received(&snapshot.record);
+        }
+        Ok(snapshot)
     })
     .await
     .map_err(|error| format!("exchange worker failed: {error}"))?

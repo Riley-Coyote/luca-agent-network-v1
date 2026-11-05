@@ -383,6 +383,17 @@ pub(crate) async fn query_for_actor(
     }
     let mut tasks = retained;
     super::agent_inbox_lineage::project_tasks(app, &scope, &mut tasks).await?;
+    {
+        let store = super::managed_dispatch_store::global_dispatch_store(app)?;
+        let store = store
+            .lock()
+            .map_err(|_| "inbox task dispatch store is unavailable")?;
+        for task in &mut tasks {
+            if store.inbox_reply_received(&task.record) {
+                task.outcome = "reply_received";
+            }
+        }
+    }
     // One bounded query for the visible owner page, not one transcript fetch per
     // row. Resident reads still use their existing task-only history authority.
     if actor == scope.owner_pubkey {

@@ -222,6 +222,36 @@ test("embedded task chat omits a duplicate transport anchor, not its brief", asy
 });
 
 for (const theme of ["dark", "light"]) {
+  test(`accepted task replies stay distinct from transport status: ${theme}`, async ({
+    page,
+  }, testInfo) => {
+    await open(page, theme, 0, false, (data) => {
+      enableOwnerWrites(data);
+      (data.reads[TASK].task as { outcome: string }).outcome = "reply_received";
+      data.pages[0].tasks[0] = data.reads[TASK].task;
+    });
+    const chat = page.getByTestId("correspondence-window");
+    await expect(
+      chat
+        .getByRole("navigation", { name: "Tasks" })
+        .getByRole("button")
+        .first(),
+    ).toContainText("Replied");
+    await expect(
+      chat.getByText(/Review the onboarding flow · Replied/),
+    ).toBeVisible();
+    await expect(chat.getByText(/Done|Succeeded/)).toHaveCount(0);
+    await chat
+      .getByRole("button", { name: "Reply to Anima", exact: true })
+      .click();
+    await expect(chat.getByTestId("message-input")).toBeEditable();
+    const { waitForAnimations } = await import("../../helpers/animations");
+    await waitForAnimations(page);
+    await chat.screenshot({
+      path: testInfo.outputPath(`reply-status-${theme}.png`),
+    });
+  });
+
   test(`live delegation stays quiet until the task card is clicked: ${theme}`, async ({
     page,
   }, testInfo) => {

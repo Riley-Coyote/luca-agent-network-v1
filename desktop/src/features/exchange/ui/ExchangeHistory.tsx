@@ -106,7 +106,8 @@ export function ExchangeHistory({
     >
       {entries.map((entry) => {
         const { record, phase } = entry;
-        const live = phase === "open" || phase === "paused";
+        const live =
+          !entry.replyReceived && (phase === "open" || phase === "paused");
         const turns = turnsByExchange.get(record.exchangeId) ?? [];
         const expanded = toggled[record.exchangeId] ?? live;
         const names = record.members.map((member) =>
@@ -124,9 +125,9 @@ export function ExchangeHistory({
           record.members.find((member) => member !== record.openedBy) ??
           record.members[0];
         const meta = [
-          whenLabel(first, phase === "open"),
+          whenLabel(first, live && phase === "open"),
           names.join(" & "),
-          exchangeStatusLabel(phase),
+          exchangeStatusLabel(phase, entry.replyReceived),
         ]
           .filter(Boolean)
           .join(" · ");

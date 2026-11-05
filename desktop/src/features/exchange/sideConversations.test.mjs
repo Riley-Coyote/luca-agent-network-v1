@@ -33,6 +33,23 @@ const ROOMS = new Map([
 ]);
 const roomOf = (id) => ROOMS.get(id) ?? "";
 
+test("a verified reply is not shown as ongoing work or a claim of success", () => {
+  assert.equal(exchangeStatusLabel("open", true), "Replied");
+  assert.equal(exchangeStatusLabel("closed", true), "Replied");
+  assert.equal(exchangeStatusLabel("closed"), "Closed");
+  assert.equal(exchangeStatusLabel("expired"), "Expired");
+  for (const phase of ["open", "paused", "closed", "expired"]) {
+    const entry = {
+      ...exchange("answered", {}, 2, phase),
+      replyReceived: true,
+    };
+    const [item] = buildSideConversations({ exchanges: [entry], tasks: [] });
+    assert.equal(item.word, "replied");
+    assert.equal(item.live, false);
+    assert.equal(sideLiveWord(item), null);
+  }
+});
+
 const at = (iso) => Math.floor(Date.parse(iso) / 1000);
 
 function exchange(id, overrides = {}, spent = 0, phase = "open") {

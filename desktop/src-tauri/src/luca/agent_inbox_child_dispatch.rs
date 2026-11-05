@@ -4,6 +4,78 @@ use crate::luca::agent_inbox_binding::{InboxChildActionBinding, InboxChildAction
 use std::collections::BTreeSet;
 
 impl ManagedDispatchStore {
+    /// A relay-accepted recipient final is a reply, not proof the task succeeded.
+    /// Missing/evicted receipts stay unknown; an active continuation wins over an
+    /// older reply. This read-only hint never grants execution or history access.
+    pub(crate) fn inbox_reply_received(&self, record: &luca_protocol::ExchangeRecordV1) -> bool {
+        if record.members.len() != 2 || !record.members.contains(&record.opened_by) {
+            return false;
+        }
+        let requests: BTreeSet<_> = self
+            .dispatches
+            .values()
+            .filter_map(|request| {
+                let action = request.inbox_action.as_ref()?;
+                (action.phase == InboxChildActionPhase::Request
+                    && action.exchange_id.as_ref() == Some(&record.exchange_id)
+                    && action.scope.owner_pubkey == record.owner
+                    && request.owner_pubkey == record.owner.as_str()
+                    && request.conversation_id == record.conversation_id.as_str()
+                    && request.resident_pubkey == record.opened_by.as_str()
+                    && request.state == ManagedDispatchState::Published
+                    && request.submitted_event_id == request.published_event_id)
+                    .then(|| {
+                        request
+                            .published_event_id
+                            .as_deref()
+                            .map(|id| (id, action.recipient_pubkey.as_str()))
+                    })
+                    .flatten()
+            })
+            .collect();
+        let mut replied = false;
+        for row in self.dispatches.values().filter(|row| {
+            row.owner_pubkey == record.owner.as_str()
+                && row.conversation_id == record.conversation_id.as_str()
+                && record
+                    .members
+                    .iter()
+                    .any(|key| key.as_str() == row.resident_pubkey)
+        }) {
+            let direct = row.inbox_task.as_ref().is_some_and(|binding| {
+                binding.attempt_exchange_id == record.exchange_id
+                    && binding.scope.owner_pubkey == record.owner
+                    && binding.origin_conversation_id == record.conversation_id
+                    && binding.recipient_pubkey.as_str() == row.resident_pubkey
+                    && binding.recipient_pubkey != record.opened_by
+            });
+            let child =
+                requests.contains(&(row.trigger_event_id.as_str(), row.resident_pubkey.as_str()));
+            let explicit_reply = row.inbox_action.as_ref().is_some_and(|action| {
+                action.phase == InboxChildActionPhase::Request
+                    && action.anchor_event_id.is_none()
+                    && action.exchange_id.as_ref() == Some(&record.exchange_id)
+                    && action.scope.owner_pubkey == record.owner
+                    && action.recipient_pubkey == record.opened_by
+                    && row.resident_pubkey != record.opened_by.as_str()
+            });
+            if !direct && !child && !explicit_reply {
+                continue;
+            }
+            if matches!(
+                row.state,
+                ManagedDispatchState::Pending | ManagedDispatchState::Active
+            ) {
+                return false;
+            }
+            replied |= row.state == ManagedDispatchState::Published
+                && row.published_event_id.is_some()
+                && row.submitted_event_id == row.published_event_id
+                && row.inbox_owner_status.is_none();
+        }
+        replied
+    }
+
     /// Source audiences already granted by accepted tool requests from this
     /// exact live invocation. Receipts from other turns/sessions never count.
     pub(crate) fn inbox_awareness_task_proofs(

@@ -14,7 +14,12 @@ import type {
  * node; `useSideConversations` feeds it the app's live data.
  */
 
-export type ExchangeWord = "talking" | "paused" | "closed" | "expired";
+export type ExchangeWord =
+  | "talking"
+  | "paused"
+  | "closed"
+  | "expired"
+  | "replied";
 export type TaskWord =
   | "working"
   | "in the app"
@@ -41,6 +46,7 @@ export type ExchangeSide = Common & {
   others: string[];
   members: string[];
   phase: ExchangePhase;
+  replyReceived?: boolean;
   word: ExchangeWord;
   /** Turns spoken, as the relay counts them; null before the first. */
   turns: number | null;
@@ -65,6 +71,7 @@ export type ExchangeInput = {
   record: ExchangeRecord;
   spent: number;
   phase: ExchangePhase;
+  replyReceived?: boolean;
 };
 
 /** What the loaded messages say about an exchange: its latest turn and its
@@ -81,8 +88,12 @@ export function exchangeWord(phase: ExchangePhase): ExchangeWord {
   return phase;
 }
 
-/** Transport lifecycle, not an inferred execution outcome. */
-export function exchangeStatusLabel(phase: ExchangePhase | undefined): string {
+/** Proven reply first, otherwise transport lifecycle; never inferred success. */
+export function exchangeStatusLabel(
+  phase: ExchangePhase | undefined,
+  replyReceived = false,
+): string {
+  if (replyReceived) return "Replied";
   switch (phase) {
     case "open":
       return "Open";
@@ -163,12 +174,13 @@ export function exchangeSide(
     conversationId: record.conversationId,
     at: seconds * 1000,
     atFrom,
-    live: entry.phase === "open",
+    live: entry.phase === "open" && !entry.replyReceived,
     openedBy: opener,
     others: members.filter((member) => member !== opener),
     members,
     phase: entry.phase,
-    word: exchangeWord(entry.phase),
+    word: entry.replyReceived ? "replied" : exchangeWord(entry.phase),
+    replyReceived: entry.replyReceived,
     turns: entry.spent > 0 ? entry.spent : null,
     rootEventId: record.rootEventId,
   };
@@ -207,7 +219,7 @@ export function sideLiveWord(
 ): "talking" | "working" | "paused" | null {
   if (item.kind === "task") return item.live ? "working" : null;
   if (item.live) return "talking";
-  return item.phase === "paused" ? "paused" : null;
+  return item.phase === "paused" && !item.replyReceived ? "paused" : null;
 }
 
 /** Every exchange and every runtime task, newest first. */
