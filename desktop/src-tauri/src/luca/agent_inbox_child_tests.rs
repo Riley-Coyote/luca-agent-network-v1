@@ -329,6 +329,7 @@ fn agent_inbox_reply_status_uses_exact_durable_receipts_not_transport_state() {
     let source = "11111111-1111-4111-8111-111111111111";
     let child = Hex64::parse("e".repeat(64)).unwrap();
     let mut binding = action(&owner, &event, InboxChildActionPhase::Request);
+    let scope = binding.scope.clone();
     let recipient = binding.recipient_pubkey.clone();
     let mut record = luca_protocol::ExchangeRecordV1::open(
         owner.clone(),
@@ -354,7 +355,7 @@ fn agent_inbox_reply_status_uses_exact_durable_receipts_not_transport_state() {
         )
         .unwrap();
     assert!(
-        !store.inbox_reply_received(&record),
+        !store.inbox_reply_received(&record, &scope),
         "a staged request is not a reply"
     );
     let request_id = "7".repeat(64);
@@ -365,7 +366,7 @@ fn agent_inbox_reply_status_uses_exact_durable_receipts_not_transport_state() {
         .mark_published(child.as_str(), actor.as_str(), &request_id)
         .unwrap();
     assert!(
-        !store.inbox_reply_received(&record),
+        !store.inbox_reply_received(&record, &scope),
         "relay acceptance is not execution"
     );
     let mut reply =
@@ -379,44 +380,50 @@ fn agent_inbox_reply_status_uses_exact_durable_receipts_not_transport_state() {
     let key = (request_id, recipient.as_str().to_owned());
     store.activate_session(recipient.as_str(), 1).unwrap();
     store.dispatches.insert(key.clone(), reply);
-    assert!(!store.inbox_reply_received(&record));
+    assert!(!store.inbox_reply_received(&record, &scope));
     let reply_id = "8".repeat(64);
     store
         .begin_submission(&key.0, &key.1, 1, &reply_id)
         .unwrap();
     store.mark_published(&key.0, &key.1, &reply_id).unwrap();
-    assert!(store.inbox_reply_received(&record));
+    assert!(store.inbox_reply_received(&record, &scope));
+    let mut other_scope = scope.clone();
+    other_scope.community_id = "33333333-3333-4333-8333-333333333333".into();
+    assert!(
+        !store.inbox_reply_received(&record, &other_scope),
+        "identical events in another workspace do not inherit local receipts"
+    );
     store.persist().unwrap();
     let restored = ManagedDispatchStore::load(directory.path().join("dispatches.json")).unwrap();
     assert!(
-        restored.inbox_reply_received(&record),
+        restored.inbox_reply_received(&record, &scope),
         "restart retains receipt"
     );
     store.dispatches.get_mut(&key).unwrap().state = ManagedDispatchState::Active;
     assert!(
-        !store.inbox_reply_received(&record),
+        !store.inbox_reply_received(&record, &scope),
         "active work takes precedence"
     );
     store.dispatches.get_mut(&key).unwrap().state = ManagedDispatchState::Failed;
     assert!(
-        !store.inbox_reply_received(&record),
+        !store.inbox_reply_received(&record, &scope),
         "failure is not a reply"
     );
     store.dispatches.get_mut(&key).unwrap().state = ManagedDispatchState::Published;
     record.state = luca_protocol::ExchangeStateV1::Closed;
     assert!(
-        store.inbox_reply_received(&record),
+        store.inbox_reply_received(&record, &scope),
         "closure does not erase a reply"
     );
     record.owner = Hex64::parse("9".repeat(64)).unwrap();
     assert!(
-        !store.inbox_reply_received(&record),
+        !store.inbox_reply_received(&record, &scope),
         "foreign owner never inherits it"
     );
     record.owner = owner;
     record.conversation_id = OpaqueId::parse("other-source").unwrap();
-    assert!(!store.inbox_reply_received(&record));
+    assert!(!store.inbox_reply_received(&record, &scope));
     record.conversation_id = OpaqueId::parse(source).unwrap();
     record.exchange_id = Hex64::parse("9".repeat(64)).unwrap();
-    assert!(!store.inbox_reply_received(&record));
+    assert!(!store.inbox_reply_received(&record, &scope));
 }

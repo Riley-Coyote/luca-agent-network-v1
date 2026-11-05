@@ -53,6 +53,12 @@ test("a durable reply clears work/attention without changing the transport or hi
   assert.equal(getRoomExchangeHistory(ROOM)[0].replyReceived, true);
   upsertExchangeRecord(head);
   assert.equal(getRoomExchangeHistory(ROOM)[0].replyReceived, true);
+  applyExchangeSnapshot({ record: head, spent: 3, phase: "paused" });
+  assert.equal(
+    getRoomExchangeHistory(ROOM)[0].replyReceived,
+    true,
+    "an older host or a Stop receipt without an execution hint does not erase proof",
+  );
   applyExchangeSnapshot({
     record: head,
     spent: 3,

@@ -7,8 +7,15 @@ impl ManagedDispatchStore {
     /// A relay-accepted recipient final is a reply, not proof the task succeeded.
     /// Missing/evicted receipts stay unknown; an active continuation wins over an
     /// older reply. This read-only hint never grants execution or history access.
-    pub(crate) fn inbox_reply_received(&self, record: &luca_protocol::ExchangeRecordV1) -> bool {
-        if record.members.len() != 2 || !record.members.contains(&record.opened_by) {
+    pub(crate) fn inbox_reply_received(
+        &self,
+        record: &luca_protocol::ExchangeRecordV1,
+        scope: &crate::luca::agent_inbox::InboxScope,
+    ) -> bool {
+        if scope.owner_pubkey != record.owner
+            || record.members.len() != 2
+            || !record.members.contains(&record.opened_by)
+        {
             return false;
         }
         let requests: BTreeSet<_> = self
@@ -18,7 +25,7 @@ impl ManagedDispatchStore {
                 let action = request.inbox_action.as_ref()?;
                 (action.phase == InboxChildActionPhase::Request
                     && action.exchange_id.as_ref() == Some(&record.exchange_id)
-                    && action.scope.owner_pubkey == record.owner
+                    && &action.scope == scope
                     && request.owner_pubkey == record.owner.as_str()
                     && request.conversation_id == record.conversation_id.as_str()
                     && request.resident_pubkey == record.opened_by.as_str()
@@ -44,7 +51,7 @@ impl ManagedDispatchStore {
         }) {
             let direct = row.inbox_task.as_ref().is_some_and(|binding| {
                 binding.attempt_exchange_id == record.exchange_id
-                    && binding.scope.owner_pubkey == record.owner
+                    && &binding.scope == scope
                     && binding.origin_conversation_id == record.conversation_id
                     && binding.recipient_pubkey.as_str() == row.resident_pubkey
                     && binding.recipient_pubkey != record.opened_by
@@ -55,7 +62,7 @@ impl ManagedDispatchStore {
                 action.phase == InboxChildActionPhase::Request
                     && action.anchor_event_id.is_none()
                     && action.exchange_id.as_ref() == Some(&record.exchange_id)
-                    && action.scope.owner_pubkey == record.owner
+                    && &action.scope == scope
                     && action.recipient_pubkey == record.opened_by
                     && row.resident_pubkey != record.opened_by.as_str()
             });

@@ -389,7 +389,7 @@ pub(crate) async fn query_for_actor(
             .lock()
             .map_err(|_| "inbox task dispatch store is unavailable")?;
         for task in &mut tasks {
-            if store.inbox_reply_received(&task.record) {
+            if store.inbox_reply_received(&task.record, &scope) {
                 task.outcome = "reply_received";
             }
         }

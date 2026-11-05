@@ -125,7 +125,12 @@ export function upsertExchangeRecord(
 
 /** Record the authoritative `{record, spent, phase}` from the backend. */
 export function applyExchangeSnapshot(snapshot: ExchangeSnapshot) {
-  put(snapshot);
+  put({
+    ...snapshot,
+    replyReceived:
+      snapshot.replyReceived ??
+      entries.get(snapshot.record.exchangeId)?.replyReceived,
+  });
 }
 
 /** Forget an exchange the backend no longer recognises as ours. */

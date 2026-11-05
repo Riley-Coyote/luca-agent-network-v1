@@ -201,7 +201,8 @@ pub(crate) struct ExchangeSnapshot {
     /// The lived phase this renders as.
     pub phase: ExchangePhase,
     /// A local durable recipient publication receipt, never an inferred success.
-    pub reply_received: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_received: Option<bool>,
 }
 
 fn now_unix_secs() -> Result<u64, String> {
@@ -366,7 +367,7 @@ fn snapshot_for(
         phase: record.phase(spent, now),
         spent,
         record,
-        reply_received: false,
+        reply_received: None,
     })
 }
 
@@ -438,7 +439,7 @@ pub(crate) async fn resolve_exchange(
         let relay = AppExchangeRelay::new(app.clone());
         let store = global_exchange_store(&app)?;
         let now_unix_secs = now_unix_secs()?;
-        let mut snapshot = apply_owner_decision(
+        let snapshot = apply_owner_decision(
             &relay,
             &store,
             &exchange_id,
@@ -474,10 +475,6 @@ pub(crate) async fn resolve_exchange(
             )
             .map_err(|error| error.to_string())?;
         }
-        snapshot.reply_received = super::managed_dispatch_store::global_dispatch_store(&app)?
-            .lock()
-            .map_err(|_| "inbox task dispatch store is unavailable")?
-            .inbox_reply_received(&snapshot.record);
         let _ = app.emit(
             EXCHANGE_UPDATED_EVENT,
             serde_json::json!({
@@ -501,6 +498,17 @@ pub(crate) async fn get_exchange(
     app: AppHandle,
     exchange_id: String,
 ) -> Result<Option<ExchangeSnapshot>, String> {
+    // Status is optional metadata. A missing or changed stable workspace must
+    // not borrow another community's receipts or disable the owner's controls.
+    let status_relay =
+        crate::relay::relay_ws_url_with_override(&app.state::<crate::app_state::AppState>());
+    let status_scope = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        super::agent_inbox::active_scope(&app),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok);
     tokio::task::spawn_blocking(move || {
         let exchange_id = Hex64::parse(exchange_id)
             .map_err(|error| format!("exchange id is invalid: {error}"))?;
@@ -512,11 +520,17 @@ pub(crate) async fn get_exchange(
             &owner_pubkey(&app)?,
             now_unix_secs()?,
         )?;
-        if let Some(snapshot) = snapshot.as_mut() {
-            snapshot.reply_received = super::managed_dispatch_store::global_dispatch_store(&app)?
-                .lock()
-                .map_err(|_| "inbox task dispatch store is unavailable")?
-                .inbox_reply_received(&snapshot.record);
+        if let (Some(snapshot), Some(scope)) = (snapshot.as_mut(), status_scope) {
+            if crate::relay::relay_ws_url_with_override(&app.state::<crate::app_state::AppState>())
+                == status_relay
+            {
+                snapshot.reply_received = Some(
+                    super::managed_dispatch_store::global_dispatch_store(&app)?
+                        .lock()
+                        .map_err(|_| "inbox task dispatch store is unavailable")?
+                        .inbox_reply_received(&snapshot.record, &scope),
+                );
+            }
         }
         Ok(snapshot)
     })
