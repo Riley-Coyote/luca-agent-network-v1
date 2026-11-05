@@ -15,11 +15,11 @@ pub(crate) const PRESENTATION_EVENT: &str = "luca://managed-presentation";
 const MAX_TERMINAL_TOMBSTONES: usize = 512;
 
 type FrameKey = (String, String, String);
+type DispatchStore =
+    std::sync::Arc<std::sync::Mutex<super::managed_dispatch_store::ManagedDispatchStore>>;
 
 fn terminalize_failed_dispatch(
-    dispatch_store: &std::sync::Arc<
-        std::sync::Mutex<super::managed_dispatch_store::ManagedDispatchStore>,
-    >,
+    dispatch_store: &DispatchStore,
     frame: &ManagedPresentationFrameV1,
 ) -> bool {
     dispatch_store.lock().is_ok_and(|mut store| {
@@ -108,6 +108,76 @@ impl PresentationFrameGate {
             }
         }
         true
+    }
+}
+
+/// Consume an authenticated continuation even if its activity is no longer
+/// eligible for display. Final publication can make the durable dispatch
+/// terminal before the harness sends its finalizing phase and completion.
+/// Dropping that phase's sequence would also drop completion, leaving a stale
+/// process-local lease that makes the next owner turn ambiguous.
+fn accept_continuation_frame(
+    gate: &mut PresentationFrameGate,
+    frame: &ManagedPresentationFrameV1,
+    dispatch_store: &DispatchStore,
+    now: u64,
+) -> bool {
+    if frame.kind == ManagedPresentationKindV1::TurnStarted {
+        return false;
+    }
+    let mut candidate_gate = gate.clone();
+    if !candidate_gate.accept(frame) {
+        return false;
+    }
+    *gate = candidate_gate;
+    match frame.kind {
+        ManagedPresentationKindV1::Completed
+        | ManagedPresentationKindV1::Cancelled
+        | ManagedPresentationKindV1::Failed => {
+            // Revoke before exposing the terminal frame. Exact coordinates
+            // prevent this cleanup from touching a later turn or session.
+            super::communication_turn_registry::revoke_exact(
+                frame.resident_pubkey.as_str(),
+                frame.session_epoch.get(),
+                frame.conversation_id.as_str(),
+                frame.turn_id.as_str(),
+                frame.dispatch_receipt_id.as_str(),
+            );
+            if frame.kind == ManagedPresentationKindV1::Failed
+                && !terminalize_failed_dispatch(dispatch_store, frame)
+            {
+                luca_log!(warn,
+                    "luca-managed-presentation: failed dispatch terminalization; suppressing retryable frame"
+                );
+                return false;
+            }
+            true
+        }
+        ManagedPresentationKindV1::Liveness
+        | ManagedPresentationKindV1::Phase
+        | ManagedPresentationKindV1::PublicChunk => {
+            let active = super::communication_turn_registry::authorize(
+                frame.resident_pubkey.as_str(),
+                frame.session_epoch.get(),
+                frame.conversation_id.as_str(),
+                frame.turn_id.as_str(),
+                frame.dispatch_receipt_id.as_str(),
+            )
+            .is_ok();
+            let durable = dispatch_store.lock().is_ok_and(|store| {
+                store
+                    .recheck_communication_turn(
+                        frame.dispatch_receipt_id.as_str(),
+                        frame.resident_pubkey.as_str(),
+                        frame.conversation_id.as_str(),
+                        frame.session_epoch.get(),
+                        now,
+                    )
+                    .is_ok()
+            });
+            active && durable
+        }
+        ManagedPresentationKindV1::TurnStarted => false,
     }
 }
 
@@ -220,13 +290,13 @@ fn serve(
         let Ok(frame) = serde_json::from_value::<ManagedPresentationFrameV1>(value) else {
             continue;
         };
-        let mut candidate_gate = gate.clone();
-        if !candidate_gate.accept(&frame) {
-            continue;
-        }
         let now = chrono::Utc::now().timestamp().max(0) as u64;
         match frame.kind {
             ManagedPresentationKindV1::TurnStarted => {
+                let mut candidate_gate = gate.clone();
+                if !candidate_gate.accept(&frame) {
+                    continue;
+                }
                 // A turn woken by another resident (or by an owner message
                 // from another device) has no locally staged dispatch. Stage
                 // one from the trigger event itself so the turn presents and
@@ -307,64 +377,19 @@ fn serve(
                     );
                     continue;
                 }
+                gate = candidate_gate;
             }
-            ManagedPresentationKindV1::Completed | ManagedPresentationKindV1::Cancelled => {
-                // Revoke before the terminal frame is visible. This ordering is
-                // the synchronous cancellation/publication race boundary.
-                super::communication_turn_registry::revoke_exact(
-                    frame.resident_pubkey.as_str(),
-                    frame.session_epoch.get(),
-                    frame.conversation_id.as_str(),
-                    frame.turn_id.as_str(),
-                    frame.dispatch_receipt_id.as_str(),
-                );
-            }
-            ManagedPresentationKindV1::Failed => {
-                // The owner-visible Retry creates a fresh signed dispatch. End
-                // the old turn's process and durable authority before exposing
-                // that action, so a late final can never race the replacement.
-                super::communication_turn_registry::revoke_exact(
-                    frame.resident_pubkey.as_str(),
-                    frame.session_epoch.get(),
-                    frame.conversation_id.as_str(),
-                    frame.turn_id.as_str(),
-                    frame.dispatch_receipt_id.as_str(),
-                );
-                if !terminalize_failed_dispatch(&dispatch_store, &frame) {
-                    luca_log!(warn,
-                        "luca-managed-presentation: failed dispatch terminalization; suppressing retryable frame"
-                    );
-                    continue;
-                }
-            }
-            ManagedPresentationKindV1::Liveness
+            ManagedPresentationKindV1::Completed
+            | ManagedPresentationKindV1::Cancelled
+            | ManagedPresentationKindV1::Failed
+            | ManagedPresentationKindV1::Liveness
             | ManagedPresentationKindV1::Phase
             | ManagedPresentationKindV1::PublicChunk => {
-                let active = super::communication_turn_registry::authorize(
-                    frame.resident_pubkey.as_str(),
-                    frame.session_epoch.get(),
-                    frame.conversation_id.as_str(),
-                    frame.turn_id.as_str(),
-                    frame.dispatch_receipt_id.as_str(),
-                )
-                .is_ok();
-                let durable = dispatch_store.lock().is_ok_and(|store| {
-                    store
-                        .recheck_communication_turn(
-                            frame.dispatch_receipt_id.as_str(),
-                            frame.resident_pubkey.as_str(),
-                            frame.conversation_id.as_str(),
-                            frame.session_epoch.get(),
-                            now,
-                        )
-                        .is_ok()
-                });
-                if !active || !durable {
+                if !accept_continuation_frame(&mut gate, &frame, &dispatch_store, now) {
                     continue;
                 }
             }
         }
-        gate = candidate_gate;
         if matches!(
             frame.kind,
             ManagedPresentationKindV1::Completed
@@ -515,6 +540,118 @@ mod tests {
             OpaqueId::parse(trigger.id.to_hex()).expect("dispatch receipt");
         failed.failure = Some(ManagedPresentationFailureV1::Runtime);
         (std::sync::Arc::new(std::sync::Mutex::new(store)), failed)
+    }
+
+    #[test]
+    fn publication_before_finalizing_does_not_leak_authority_into_the_next_owner_turn() {
+        use super::super::communication_turn_registry as authority;
+
+        let _exclusive = authority::exclusive_registry_for_test();
+        let temp = tempfile::tempdir().expect("temp");
+        let (store, mut next) = active_failed_frame(temp.path().join("dispatches.json"));
+        next.kind = ManagedPresentationKindV1::TurnStarted;
+        next.sequence = SafeU53::new(1).expect("sequence");
+        next.failure = None;
+        let mut gate = PresentationFrameGate::new(next.resident_pubkey.clone(), next.session_epoch);
+        assert!(gate.accept(&next));
+        authority::observe_accepted_frame(&next).expect("register first turn");
+
+        // The final publisher commits before the presentation pump processes
+        // the finalizing phase and its following completion frame.
+        let published_id = "ab".repeat(32);
+        {
+            let mut dispatches = store.lock().expect("store");
+            dispatches
+                .begin_submission(
+                    next.dispatch_receipt_id.as_str(),
+                    next.resident_pubkey.as_str(),
+                    next.session_epoch.get(),
+                    &published_id,
+                )
+                .expect("begin publication");
+            dispatches
+                .mark_published(
+                    next.dispatch_receipt_id.as_str(),
+                    next.resident_pubkey.as_str(),
+                    &published_id,
+                )
+                .expect("publish");
+        }
+        for (sequence, kind) in [
+            (2, ManagedPresentationKindV1::Liveness),
+            (3, ManagedPresentationKindV1::PublicChunk),
+            (4, ManagedPresentationKindV1::Phase),
+        ] {
+            next.sequence = SafeU53::new(sequence).expect("sequence");
+            next.kind = kind;
+            next.phase = (kind == ManagedPresentationKindV1::Phase)
+                .then_some(luca_protocol::ManagedPresentationPhaseV1::Finalizing);
+            next.public_chunk =
+                (kind == ManagedPresentationKindV1::PublicChunk).then(|| "late text".into());
+            assert!(!accept_continuation_frame(&mut gate, &next, &store, 102));
+        }
+        next.sequence = SafeU53::new(5).expect("sequence");
+        next.kind = ManagedPresentationKindV1::Completed;
+        next.phase = None;
+        next.public_chunk = None;
+        assert!(accept_continuation_frame(&mut gate, &next, &store, 102));
+        assert!(authority::authorize_unique(
+            next.resident_pubkey.as_str(),
+            next.session_epoch.get(),
+            next.conversation_id.as_str(),
+        )
+        .is_err());
+
+        next.sequence = SafeU53::new(1).expect("sequence");
+        next.kind = ManagedPresentationKindV1::TurnStarted;
+        next.turn_id = OpaqueId::parse("next-owner-turn").expect("turn");
+        next.dispatch_receipt_id = OpaqueId::parse("next-owner-dispatch").expect("dispatch");
+        assert!(gate.accept(&next));
+        authority::observe_accepted_frame(&next).expect("register next turn");
+        assert_eq!(
+            authority::authorize_unique(
+                next.resident_pubkey.as_str(),
+                next.session_epoch.get(),
+                next.conversation_id.as_str(),
+            )
+            .expect("only the fresh turn remains")
+            .turn_id,
+            next.turn_id
+        );
+    }
+
+    #[test]
+    fn invalid_continuations_cannot_advance_or_revoke_another_turn() {
+        use super::super::communication_turn_registry as authority;
+
+        let _exclusive = authority::exclusive_registry_for_test();
+        let temp = tempfile::tempdir().expect("temp");
+        let (store, mut next) = active_failed_frame(temp.path().join("dispatches.json"));
+        next.kind = ManagedPresentationKindV1::TurnStarted;
+        next.sequence = SafeU53::new(1).expect("sequence");
+        next.failure = None;
+        let mut gate = PresentationFrameGate::new(next.resident_pubkey.clone(), next.session_epoch);
+        assert!(gate.accept(&next));
+        authority::observe_accepted_frame(&next).expect("register turn");
+        next.kind = ManagedPresentationKindV1::Completed;
+        next.sequence = SafeU53::new(2).expect("sequence");
+        let mut wrong = next.clone();
+        wrong.resident_pubkey = Hex64::parse("44".repeat(32)).expect("resident");
+        assert!(!accept_continuation_frame(&mut gate, &wrong, &store, 102));
+        wrong = next.clone();
+        wrong.session_epoch = SafeU53::new(8).expect("epoch");
+        assert!(!accept_continuation_frame(&mut gate, &wrong, &store, 102));
+        wrong = next.clone();
+        wrong.sequence = SafeU53::new(3).expect("sequence gap");
+        assert!(!accept_continuation_frame(&mut gate, &wrong, &store, 102));
+        assert!(authority::authorize_unique(
+            next.resident_pubkey.as_str(),
+            next.session_epoch.get(),
+            next.conversation_id.as_str(),
+        )
+        .is_ok());
+        assert!(accept_continuation_frame(&mut gate, &next, &store, 102));
+        assert!(!accept_continuation_frame(&mut gate, &next, &store, 102));
     }
 
     #[test]

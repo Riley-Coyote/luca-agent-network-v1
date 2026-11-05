@@ -1427,3 +1427,21 @@ main chat and new chat keep that correction's 46 px capsule.
   on the built-in display; native visual approval is not claimed yet. Evidence:
   `~/Documents/Polyphonic-Candidates/2026-11-01-original-72/NATIVE-PROOF.md`.
   No release, signing, publication, tag or push is authorized.
+
+### Starter delegation blockers (2026-11-05)
+
+- Consume authenticated, in-sequence activity frames even when final publication
+  has already ended their durable dispatch. Such activity remains hidden and
+  unauthorized, but its following completion can now revoke the exact turn lease;
+  a later owner request no longer collides with completed turns.
+- Permission snapshots are latest-request-wins. Overlapping initial/event reads
+  cannot hide a newly pending approval or resurrect one already answered.
+- No contributor rules changed: resident/epoch/conversation/turn binding,
+  fail-closed ambiguity, advertised approval options, and the owner-bounded
+  sibling-delegation restriction remain intact. No automatic grant or wider
+  source access was added. Existing approval cards and chat layout are unchanged.
+- Checks: seven presentation lifecycle, three turn-authority, 28 native
+  permission, 20 inbox, and 13 frontend permission tests passed; the browser's
+  in-place approval/answer flow, typecheck, scoped Biome, frontend build, and
+  diff checks passed. Native walkthrough evidence is recorded separately in
+  the isolated instance's `STARTER_SPECIALISTS_CHECK.md` after rebuilding.
