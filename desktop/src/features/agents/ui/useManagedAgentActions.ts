@@ -13,6 +13,7 @@ import {
   useDeleteManagedAgentMutation,
 } from "@/features/agents/hooks";
 import { useGlobalAgentConfig } from "@/features/agents/useGlobalAgentConfig";
+import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import { createLucaResident } from "@/features/luca/residents/api";
 import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
 import { useChannelsQuery } from "@/features/channels/hooks";
@@ -32,10 +33,12 @@ import {
   buildInstanceInputForDefinition,
   resolveStartRuntimeForDefinition,
 } from "../lib/instanceInputForDefinition";
+import { starterSpecialist } from "../lib/starterSpecialists";
 
 export function useManagedAgentActions() {
   const queryClient = useQueryClient();
-  const { globalConfig } = useGlobalAgentConfig();
+  const { globalConfig, isLoading: isDefaultsLoading } = useGlobalAgentConfig();
+  const companionPubkey = useCanonicalLucaPubkey();
   const relayAgentsQuery = useRelayAgentsQuery();
   const managedAgentsQuery = useManagedAgentsQuery();
   const [shouldLoadChannels, setShouldLoadChannels] = React.useState(false);
@@ -197,11 +200,24 @@ export function useManagedAgentActions() {
     setPersonaStartPending(persona.id, true);
     clearFeedback();
     try {
+      if (isDefaultsLoading) {
+        throw new Error(
+          "Agent defaults are still loading. Try adding the agent again in a moment.",
+        );
+      }
       const runtimes = await availableRuntimesForStart(availableRuntimesQuery);
+      const companion = managedAgents.find(
+        (agent) =>
+          normalizePubkey(agent.pubkey) === companionPubkey &&
+          agent.backend.type === "local",
+      );
       const { runtime, warnings } = resolveStartRuntimeForDefinition(
         persona,
         runtimes,
         globalConfig.preferred_runtime,
+        starterSpecialist(persona) && !persona.model && !persona.provider
+          ? companion?.agentCommand
+          : null,
       );
       const input = await buildInstanceInputForDefinition(persona, runtime);
       const created = await createLucaResident(input);

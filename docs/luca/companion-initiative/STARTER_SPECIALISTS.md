@@ -22,6 +22,8 @@ Mira/Coda's complete document packs are in `desktop/src-tauri/resident-packs/`. 
 
 Native prompt assembly includes the concrete working method only while the saved portrait and Instructions both exactly match stock. Edits, missing instructions, custom definitions and imported native residents are excluded. The supplement stays within the existing total prompt cap and does not write documents. It describes possible collaborators, never claims catalog entries are online, and retains actual tool/consent/Stop authority.
 
+An unpinned starter uses an explicit global runtime first; when that is unset in an older profile, it inherits the canonical companion's exact local harness. If that harness is unavailable, addition stops with an actionable error rather than switching to another provider or the legacy unconfigured runtime. Explicit agent harness choices remain authoritative.
+
 ## Acceptance
 
 1. Fresh and existing definition stores gain Mira/Coda inactive; current active choices and custom fields survive. Repeat load adds no duplicates.

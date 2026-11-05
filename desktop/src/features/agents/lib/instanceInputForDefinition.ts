@@ -46,7 +46,22 @@ export function resolveStartRuntimeForDefinition(
   persona: AgentPersona,
   runtimes: readonly AcpRuntime[],
   preferredRuntimeId?: string | null,
+  companionRuntimeCommand?: string | null,
 ): { runtime: AcpRuntime; warnings: string[] } {
+  // Onboarding binds Luca directly. Older profiles can therefore have a
+  // connected subscription but no global default. Reuse that exact local
+  // harness for an unpinned starter, not the legacy buzz-agent fallback.
+  if (!persona.runtime && !preferredRuntimeId && companionRuntimeCommand) {
+    const connected = runtimes.find(
+      (runtime) => runtime.command === companionRuntimeCommand,
+    );
+    if (!connected) {
+      throw new Error(
+        "Your companion's harness is unavailable. Reconnect it or choose an agent harness before adding this resident.",
+      );
+    }
+    return { runtime: connected, warnings: [] };
+  }
   // Use the buzz-agent-first preference (buzz-agent → goose → first available)
   // so a freshly installed goose never beats the bundled buzz-agent sidecar
   // for runtime-less personas (item 13 regression guard).

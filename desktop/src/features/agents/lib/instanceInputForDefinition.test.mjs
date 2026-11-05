@@ -63,6 +63,48 @@ function persona(overrides = {}) {
   };
 }
 
+test("an unpinned starter inherits the connected companion harness before legacy defaults", () => {
+  const runtimes = [buzzAgentRuntime, gooseRuntime, claudeRuntime];
+  const starter = persona({ runtime: null });
+  assert.equal(
+    resolveStartRuntimeForDefinition(
+      starter,
+      runtimes,
+      null,
+      claudeRuntime.command,
+    ).runtime.id,
+    "claude",
+  );
+  assert.equal(
+    resolveStartRuntimeForDefinition(
+      starter,
+      runtimes,
+      "goose",
+      claudeRuntime.command,
+    ).runtime.id,
+    "goose",
+  );
+  assert.equal(
+    resolveStartRuntimeForDefinition(
+      persona({ runtime: "goose" }),
+      runtimes,
+      null,
+      claudeRuntime.command,
+    ).runtime.id,
+    "goose",
+  );
+  assert.throws(
+    () =>
+      resolveStartRuntimeForDefinition(
+        starter,
+        [buzzAgentRuntime],
+        null,
+        claudeRuntime.command,
+      ),
+    /companion's harness is unavailable/,
+  );
+});
+
 test("row 4: create input never contains definition env vars", async () => {
   const input = await buildInstanceInputForDefinition(persona(), gooseRuntime);
   assert.equal(
