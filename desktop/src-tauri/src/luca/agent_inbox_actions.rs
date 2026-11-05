@@ -153,7 +153,7 @@ pub(crate) fn send(
             return Err("inbox action receipt workspace changed".into());
         }
         return Ok(
-            serde_json::json!({"state":"delivered","eventId":event,"taskId":exchange,
+            serde_json::json!({"state":"relay_accepted","recipientExecution":"not_confirmed","eventId":event,"taskId":exchange,
             "correspondenceId":super::agent_inbox::correspondence_id(&expected_scope,&[resident.clone(),input.recipient_pubkey.clone()]),
             "anchorEventId":anchor,"originRequestEventId":origin,"replayed":true,"agentFinalSlotConsumed":false}),
         );
@@ -174,7 +174,7 @@ pub(crate) fn send(
             return Err("inbox action receipt workspace changed".into());
         }
         return Ok(
-            serde_json::json!({"state":"delivered","eventId":row.anchor_event_id,"taskId":row.exchange_id,
+            serde_json::json!({"state":"relay_accepted","recipientExecution":"not_confirmed","eventId":row.anchor_event_id,"taskId":row.exchange_id,
             "correspondenceId":super::agent_inbox::correspondence_id(&expected_scope,&[resident.clone(),row.recipient.clone()]),
             "originRequestEventId":row.owner_trigger_event_id,"replayed":true,"agentFinalSlotConsumed":false}),
         );

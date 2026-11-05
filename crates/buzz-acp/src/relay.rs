@@ -56,7 +56,7 @@ const WS_SEND_TIMEOUT_SECS: u64 = 10;
 /// drop after a long healthy run retries at the short end of the ladder again.
 const STABLE_CONNECTION_SECS: u64 = 60;
 /// Seconds subtracted from `since` on resubscribe to tolerate clock skew.
-const SINCE_SKEW_SECS: u64 = 5;
+pub(crate) const SINCE_SKEW_SECS: u64 = 5;
 /// Timeout for the NIP-42 auth handshake steps.
 ///
 /// Raised from 5s to 20s (≈2 RTTs at the observed 10s max round-trip on degraded
@@ -1223,6 +1223,8 @@ struct BgState {
     active_subscriptions: HashMap<Uuid, String>,
     /// Most recent `created_at` timestamp seen per channel (for `since` filter).
     last_seen: HashMap<Uuid, u64>,
+    /// Explicit catch-up floors survive disconnects until stored events finish.
+    catchup_since: HashMap<Uuid, u64>,
     /// Two-generation dedup set of event IDs seen.
     seen_ids: TwoGenDedup,
     /// Per-channel filter used on subscribe (for resubscribe after reconnect).
@@ -1323,6 +1325,7 @@ impl BgState {
         Self {
             active_subscriptions: HashMap::new(),
             last_seen: HashMap::new(),
+            catchup_since: HashMap::new(),
             seen_ids: TwoGenDedup::new(SEEN_ID_LIMIT),
             active_filters: HashMap::new(),
             membership_dropped_since: None,
@@ -1378,7 +1381,7 @@ impl BgState {
     fn channel_since(&self, channel_id: &Uuid) -> Option<u64> {
         let last_seen = self.last_seen.get(channel_id).copied();
         let dropped = self.channel_dropped_since.get(channel_id).copied();
-        match (last_seen, dropped) {
+        let ordinary = match (last_seen, dropped) {
             (Some(l), Some(d)) => Some(l.min(d)),
             (Some(l), None) => Some(l),
             (None, Some(d)) => Some(d),
@@ -1387,6 +1390,10 @@ impl BgState {
                 .get(channel_id)
                 .copied()
                 .or(self.startup_watermark),
+        };
+        match (ordinary, self.catchup_since.get(channel_id).copied()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
         }
     }
 
@@ -1396,6 +1403,7 @@ impl BgState {
     fn clear_channel_state(&mut self, channel_id: &Uuid) {
         self.last_seen.remove(channel_id);
         self.subscribe_since.remove(channel_id);
+        self.catchup_since.remove(channel_id);
         self.channel_dropped_since.remove(channel_id);
         self.active_filters.remove(channel_id);
         self.rate_limited_pending.remove(channel_id);
@@ -1523,6 +1531,17 @@ fn apply_command_to_state(state: &mut BgState, cmd: RelayCommand) {
                     .or(state.startup_watermark)
                     .unwrap_or_else(unix_now_secs)
             });
+            if let Some(floor) = replay_since {
+                state
+                    .subscribe_since
+                    .entry(channel_id)
+                    .and_modify(|since| *since = (*since).min(floor));
+                state
+                    .catchup_since
+                    .entry(channel_id)
+                    .and_modify(|since| *since = (*since).min(floor))
+                    .or_insert(floor);
+            }
         }
         RelayCommand::Unsubscribe { channel_id } => {
             state.active_subscriptions.remove(&channel_id);
@@ -1649,11 +1668,22 @@ async fn execute_connected_command(
                     .or(state.startup_watermark)
                     .unwrap_or_else(unix_now_secs)
             });
+            if let Some(floor) = replay_since {
+                state
+                    .catchup_since
+                    .entry(channel_id)
+                    .and_modify(|since| *since = (*since).min(floor))
+                    .or_insert(floor);
+            }
             let since = state
                 .last_seen
                 .get(&channel_id)
                 .copied()
                 .or_else(|| state.subscribe_since.get(&channel_id).copied());
+            let since = match (since, replay_since) {
+                (Some(existing), Some(replay)) => Some(existing.min(replay)),
+                (existing, replay) => existing.or(replay),
+            };
             let sent =
                 send_subscribe(ws, state, channel_id, agent_pubkey_hex, since, &filter).await;
             if sent {
@@ -2499,6 +2529,9 @@ async fn handle_ws_message(
                     }
                 }
                 RelayMessage::Eose { subscription_id } => {
+                    if let Some(channel) = channel_id_from_sub_id(&subscription_id) {
+                        state.catchup_since.remove(&channel);
+                    }
                     debug!("EOSE for subscription {subscription_id}");
                 }
                 RelayMessage::Notice { message } => {
@@ -5300,6 +5333,67 @@ mod tests {
             state.channel_since(&channel_id),
             Some(membership_ts),
             "channel_since should use the dynamic replay floor until an event is seen"
+        );
+    }
+
+    #[tokio::test]
+    async fn task_rewind_overrides_a_later_membership_and_last_seen_floor() {
+        let (mut client, mut server) = test_ws_pair().await;
+        let mut state = BgState::new();
+        let channel = Uuid::new_v4();
+        let filter = ChannelFilter {
+            kinds: Some(vec![9]),
+            require_mention: true,
+        };
+        apply_command_to_state(
+            &mut state,
+            RelayCommand::Subscribe {
+                channel_id: channel,
+                filter: filter.clone(),
+                replay_since: Some(1011),
+            },
+        );
+        state.last_seen.insert(channel, 1013);
+        assert!(
+            execute_connected_command(
+                &mut client,
+                &mut state,
+                "agent",
+                RelayCommand::Subscribe {
+                    channel_id: channel,
+                    filter: filter.clone(),
+                    replay_since: Some(1000)
+                }
+            )
+            .await
+        );
+        let frame = next_test_frame(&mut server).await;
+        assert_eq!(frame[2]["since"], 995);
+        assert_eq!(frame[2]["#h"], json!([channel.to_string()]));
+        assert_eq!(frame[2]["#p"], json!(["agent"]));
+        assert_eq!(
+            state.channel_since(&channel),
+            Some(1000),
+            "disconnect before stored events finish retains the rewind"
+        );
+        apply_command_to_state(
+            &mut state,
+            RelayCommand::Subscribe {
+                channel_id: channel,
+                filter,
+                replay_since: Some(1000),
+            },
+        );
+        assert_eq!(
+            state.channel_since(&channel),
+            Some(1000),
+            "a disconnected rewind survives until reconnect"
+        );
+        let task = make_test_event(&Keys::generate(), 1000);
+        assert!(state.record_event(channel, &task));
+        assert!(
+            !state.record_event(channel, &task),
+            "replay and live delivery deduplicate by canonical event ID"
         );
     }
 

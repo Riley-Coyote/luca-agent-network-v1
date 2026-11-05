@@ -26,6 +26,7 @@ mod runtime_session_map;
 mod runtime_session_purpose;
 mod runtime_task_runner;
 mod setup_mode;
+mod task_replay;
 mod usage;
 
 pub use usage::TurnUsage;
@@ -2081,6 +2082,10 @@ async fn tokio_main() -> Result<()> {
     // second are both processed. The seen_membership_ids set handles exact
     // replays that share the same timestamp.
     let mut membership_newest_ts: HashMap<Uuid, u64> = HashMap::new();
+    let mut task_replay = task_replay::TaskReplay::new(
+        subscribed_channel_ids.iter().copied(),
+        startup_watermark,
+    );
     // Two-generation dedup for membership event replays (bounded, no amnesia).
     // Rotates at 1000 entries instead of clearing the entire set at 2000.
     let mut seen_membership_current: HashSet<String> = HashSet::new();
@@ -2224,7 +2229,20 @@ async fn tokio_main() -> Result<()> {
                         // last-write-wins, so a Stop or a Go is in force before
                         // the next turn is judged.
                         Some(event) => {
-                            exchange_cache.ingest_head(&event);
+                            if exchange_cache.ingest_head(&event) && config.identity.is_managed() {
+                                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                                if let Some((channel, since)) = task_replay.observe_verified_head(&event, now) {
+                                    if !removed_channels.contains(&channel) {
+                                        if let Some(filter) = config::resolve_dynamic_channel_filter(&config, channel, &rules) {
+                                            if let Err(error) = relay.subscribe_channel_from(channel, filter, Some(since)).await {
+                                                tracing::warn!("task catch-up subscription failed: {error}");
+                                            } else {
+                                                subscribed_channel_ids.insert(channel);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         None => {
                             relay_exchange_rx = None;
@@ -2268,10 +2286,16 @@ async fn tokio_main() -> Result<()> {
                     match buzz_event {
                         Some(buzz_event) => {
                             let kind_u32 = buzz_event.event.kind.as_u16() as u32;
+                            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                            if kind_u32 == KIND_STREAM_MESSAGE && config.identity.is_managed()
+                                && (removed_channels.contains(&buzz_event.channel_id)
+                                    || !task_replay.admits(&buzz_event.event, buzz_event.channel_id, now)) {
+                                continue;
+                            }
 
                             if kind_u32 == KIND_STREAM_MESSAGE && exchange_wake.as_ref().is_some_and(|wake| {
                                 !wake.admits(&buzz_event.event.id.to_hex(), buzz_event.event.created_at.as_secs())
-                            }) {
+                            }) && !task_replay.is_task(&buzz_event.event, buzz_event.channel_id, now) {
                                 continue;
                             }
 
@@ -2335,12 +2359,13 @@ async fn tokio_main() -> Result<()> {
                                     // Clear removal tracking so sessions are not
                                     // stripped for a legitimately re-added channel.
                                     removed_channels.remove(&ch);
+                                    let task_since = task_replay.joined(ch, ts);
 
                                     if subscribed_channel_ids.contains(&ch) {
                                         tracing::debug!(channel_id = %ch, "membership notification: channel already subscribed");
                                     } else if let Some(filter) = config::resolve_dynamic_channel_filter(&config, ch, &rules) {
                                         tracing::info!(channel_id = %ch, "membership notification: subscribing to new channel");
-                                        if let Err(e) = relay.subscribe_channel_from(ch, filter, Some(ts)).await {
+                                        if let Err(e) = relay.subscribe_channel_from(ch, filter, Some(task_since)).await {
                                             tracing::warn!("failed to subscribe to new channel {ch}: {e}");
                                         } else {
                                             subscribed_channel_ids.insert(ch);
@@ -2354,6 +2379,7 @@ async fn tokio_main() -> Result<()> {
                                         tracing::debug!(channel_id = %ch, "membership notification: no matching rules — skipping");
                                     }
                                 } else {
+                                    task_replay.left(ch);
                                     subscribed_channel_ids.remove(&ch);
                                     tracing::info!(channel_id = %ch, "membership notification: unsubscribing from channel");
                                     if let Err(e) = relay.unsubscribe_channel(ch).await {

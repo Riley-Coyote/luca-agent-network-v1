@@ -1256,7 +1256,10 @@ fn append_reply_instruction(s: &mut String, event_id: &str, managed_publication:
              For a separate task for another Polyphonic resident, use the available \
              send_agent_inbox_message tool. A configured sleeping resident is woken \
              automatically; stopped presence alone is not a delivery failure. For a \
-             brief in-room visit, @Name in your response remains supported. Never use \
+             brief in-room visit, @Name in your response remains supported. A relay_accepted \
+             receipt confirms sending, not that the recipient has started; do not claim \
+             execution until a reply or verified execution status confirms it. Task replies \
+             return here automatically; do not ask the owner to poll for them. Never use \
              the Buzz CLI or shell to bypass these host-owned routes. Keep successful \
              delegation quiet: a short acknowledgment, then the useful result when ready. \
              Do not open panels or narrate wake, membership, receipts or routing unless \
@@ -1287,7 +1290,10 @@ fn append_new_thread_reply_instruction(s: &mut String, event_id: &str, managed_p
              invoke a publication tool for this ordinary final or target an older thread. For a separate task \
              for another Polyphonic resident, use the available send_agent_inbox_message \
              tool; the host wakes configured sleeping residents automatically. For a brief \
-             in-room visit, @Name remains supported. Never use the Buzz CLI or shell to \
+             in-room visit, @Name remains supported. A relay_accepted receipt confirms sending, \
+             not execution; only an actual reply or verified execution status confirms the recipient started. \
+             Task replies return here automatically; do not ask the owner to poll for them. \
+             Never use the Buzz CLI or shell to \
              bypass these host-owned routes. Keep successful delegation quiet: a short \
              acknowledgment, then the useful result. Do not open panels or narrate wake, \
              membership, receipts or routing unless asked or an actual failure needs attention."

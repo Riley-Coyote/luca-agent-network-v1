@@ -181,7 +181,7 @@ impl ResidentSigningBroker {
             )?
         {
             return Ok(
-                serde_json::json!({"state":"delivered","eventId":event,"taskId":exchange,
+                serde_json::json!({"state":"relay_accepted","recipientExecution":"not_confirmed","eventId":event,"taskId":exchange,
                 "correspondenceId":crate::luca::agent_inbox::correspondence_id(&scope,&[action.resident.clone(),action.input.recipient_pubkey.clone()]),
                 "anchorEventId":anchor,"originRequestEventId":origin,"replayed":true,"agentFinalSlotConsumed":false}),
             );
@@ -373,7 +373,7 @@ impl ResidentSigningBroker {
             .map_err(|_| "accepted inbox message has invalid task identity")?
             .ok_or("accepted inbox message has no bounded exchange")?;
         Ok(
-            serde_json::json!({"state":"delivered","eventId":event_id,"taskId":exchange.exchange_id,
+            serde_json::json!({"state":"relay_accepted","recipientExecution":"not_confirmed","eventId":event_id,"taskId":exchange.exchange_id,
             "correspondenceId":crate::luca::agent_inbox::correspondence_id(&scope,&[action.resident.clone(),action.input.recipient_pubkey.clone()]),
             "originRequestEventId":parent,"anchorEventId":anchor,"agentFinalSlotConsumed":false}),
         )

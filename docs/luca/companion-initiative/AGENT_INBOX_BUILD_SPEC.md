@@ -577,6 +577,25 @@ paths actually exercised, unresolved limitations, profile/build identity and
 proof locations. Do not call the inbox complete from grouped rail screenshots
 alone: agent-side reads, delivery, replies and restart recovery must be proved.
 
+### Late membership and task catch-up
+
+A task's signed timestamp can precede membership even when relay acceptance is
+later. Do not rely on the membership notification's five-second replay window.
+The managed harness uses verified open owner exchange heads as bounded delivery
+hints, rewinding only the configured source/recipient subscription. Older events
+must match one of those signed task identities; unrelated owner chat is not
+replayed into the model. Normal author, consent, exchange-budget, cancellation
+and native dispatch-claim checks still run. Removed memberships cannot be
+re-established by a delivery hint. Live/replayed copies share canonical-ID
+deduplication; explicit catch-up floors survive reconnect until stored events
+finish. A new process can recover unexpired tasks from the signed heads.
+
+Agent send-tool receipts say `relay_accepted`, with recipient execution explicitly
+unconfirmed. This is transport acceptance, not evidence that a model turn has
+started. Replies return automatically; the owner must not be asked to poll.
+Regression checks cover an eleven-second late join, either head/membership order,
+restart, Stop/expiry, foreign sources/authors, and duplicate live/replay delivery.
+
 ### Riley's short walkthrough
 
 1. Ask Luca to have Anima review something, then ask a second unrelated question
