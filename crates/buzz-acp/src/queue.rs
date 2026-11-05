@@ -1247,13 +1247,13 @@ fn append_reply_instruction(s: &mut String, event_id: &str, managed_publication:
         s.push_str(&format!(
             "\nIMPORTANT: Return your ordinary response normally. The Luca host will \
              preserve reply anchor {event_id} and publish exactly one final signed \
-             message. Do not invoke a publication tool. If the human explicitly \
-             requests a channel-root, top-level, or broadcast post, describe that \
-             intent in the response; the host remains responsible for publication. \
-             To speak to another resident who is in this room, address them as @Name \
-             inside your response — the host opens a bounded exchange and they \
-             answer here; never use the Buzz CLI, a shell, or any tool to reach a \
-             resident — the relay refuses it."
+             message. Do not invoke a publication tool or claim to have posted in \
+             another conversation. To consult another resident, use the verified \
+             directory's exact supported @Name inside your response with a bounded \
+             request. The host can open an exchange or a visit; a mention is not \
+             proof of delivery or a reply. Use a plain name without @ when merely \
+             discussing a resident or finishing synthesis; never use the Buzz CLI, \
+             a shell, or any tool to reach a resident."
         ));
     } else {
         s.push_str(&format!(
@@ -1277,10 +1277,12 @@ fn append_new_thread_reply_instruction(s: &mut String, event_id: &str, managed_p
             "\nIMPORTANT: This is a new top-level message. Return your ordinary \
              response normally. The Luca host will preserve reply anchor {event_id} \
              as the thread root and publish exactly one final signed message. Do not \
-             invoke a publication tool or target an older thread. To speak to another \
-             resident who is in this room, address them as @Name inside your response \
-             — the host opens a bounded exchange and they answer here; never use the \
-             Buzz CLI, a shell, or any tool to reach a resident — the relay refuses it."
+             invoke a publication tool or target an older thread. To consult another \
+             resident, use the verified directory's exact supported @Name inside \
+             your response with a bounded request. The host can open an exchange \
+             or a visit; a mention is not proof of delivery or a reply. Use a plain \
+             name without @ when merely discussing a resident or finishing synthesis; \
+             never use the Buzz CLI, a shell, or any tool to reach a resident."
         ));
     } else {
         s.push_str(&format!(
@@ -1345,6 +1347,11 @@ fn resolve_reply_anchor(
     )
 }
 
+// Managed descendants have no relay credentials. Their per-turn context must
+// not send them back to the legacy CLI to recover history, even when a bounded
+// replay is missing or truncated.
+const MANAGED_HISTORY_HINT: &str = "Use the host-supplied conversation context when present; history is bounded and may be incomplete. Do not fetch relay history with the Buzz CLI, raw relay calls, credentials, or private app files. Use relevant authorized context tools only when actually advertised; if a missing detail matters, state the gap and ask for that detail rather than inventing history.";
+
 /// Format a `[Context]` hints section based on event scope.
 ///
 /// `reply_anchor` is the pre-resolved `--reply-to` target for this turn (see
@@ -1372,7 +1379,9 @@ fn format_context_hints(
         let is_reply = thread_tags.root_event_id.is_some();
         // DM replies use thread command because /messages excludes thread replies.
         // DM non-replies use get for recent conversation.
-        let ctx_hint = if has_conversation_context && is_reply {
+        let ctx_hint = if managed_publication {
+            MANAGED_HISTORY_HINT
+        } else if has_conversation_context && is_reply {
             "Thread context included below. Use `buzz messages thread --channel <UUID> --event <ID>` for full history if truncated."
         } else if has_conversation_context {
             "Conversation context included below. Use `buzz messages get --channel <UUID>` for full history if truncated."
@@ -1401,7 +1410,9 @@ fn format_context_hints(
         }
         s
     } else if let Some(ref root) = thread_tags.root_event_id {
-        let ctx_hint = if has_conversation_context {
+        let ctx_hint = if managed_publication {
+            MANAGED_HISTORY_HINT
+        } else if has_conversation_context {
             "Thread context included below. Use `buzz messages thread --channel <UUID> --event <ID>` for full history if truncated."
         } else {
             "Use `buzz messages thread --channel <UUID> --event <ID>` to fetch thread context."
@@ -1423,11 +1434,16 @@ fn format_context_hints(
         }
         s
     } else {
+        let ctx_hint = if managed_publication {
+            MANAGED_HISTORY_HINT
+        } else {
+            "Hint: Use `buzz messages get --channel <UUID>` for recent messages if needed."
+        };
         let mut s = format!(
             "[Context]\n\
              Scope: channel\n\
              Channel: {channel_display}\n\
-             Hint: Use `buzz messages get --channel <UUID>` for recent messages if needed."
+             {ctx_hint}"
         );
         if let Some(event_id) = reply_anchor {
             append_new_thread_reply_instruction(&mut s, event_id, managed_publication);
@@ -4018,6 +4034,52 @@ mod tests {
     }
 
     #[test]
+    fn managed_context_never_recommends_credentialed_cli_history_in_any_scope() {
+        let channel = Uuid::new_v4();
+        for is_dm in [false, true] {
+            for root in [None, Some(ROOT_ID)] {
+                for has_context in [false, true] {
+                    for anchor in [None, Some(TRIGGER_ID)] {
+                        let tags = thread_tags(root, &[]);
+                        let managed = format_context_hints(
+                            channel,
+                            None,
+                            &tags,
+                            is_dm,
+                            has_context,
+                            anchor,
+                            true,
+                        );
+                        assert!(managed.contains("host-supplied conversation context"));
+                        assert!(!managed.contains("buzz messages get"), "{managed}");
+                        assert!(!managed.contains("buzz messages thread"), "{managed}");
+                        assert!(!managed.contains("they answer here"), "{managed}");
+
+                        // The corresponding legacy path still has its own
+                        // working history command; this is not a blanket ban.
+                        let legacy = format_context_hints(
+                            channel,
+                            None,
+                            &tags,
+                            is_dm,
+                            has_context,
+                            anchor,
+                            false,
+                        );
+                        let command = if root.is_some() {
+                            "buzz messages thread"
+                        } else {
+                            "buzz messages get"
+                        };
+                        assert!(legacy.contains(command), "{legacy}");
+                        assert!(!legacy.contains("host-supplied conversation context"));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_format_event_block_includes_event_id() {
         let ch = Uuid::new_v4();
         let event = make_event("test");
@@ -4506,7 +4568,9 @@ mod tests {
         assert!(prompt.contains("Do not invoke a publication tool"));
         assert!(!prompt.contains("`buzz messages send`"));
         // The house rule for reaching a sibling: speech, never a tool.
-        assert!(prompt.contains("address them as @Name"));
+        assert!(prompt.contains("directory's exact supported @Name"));
+        assert!(prompt.contains("a mention is not proof of delivery or a reply"));
+        assert!(!prompt.contains("they answer here"));
         assert!(prompt.contains("never use the Buzz CLI, a shell, or any tool"));
     }
 

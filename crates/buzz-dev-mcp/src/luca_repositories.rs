@@ -228,10 +228,7 @@ impl ProposeResidentParams {
                 .purpose
                 .as_deref()
                 .is_none_or(|purpose| is_bounded_line(purpose, 200))
-            || !self
-                .consent_event_id
-                .as_deref()
-                .is_none_or(is_event_id)
+            || !self.consent_event_id.as_deref().is_none_or(is_event_id)
         {
             return Err(ErrorData::invalid_params(
                 "Supply the exact model id from list_resident_runtimes, one short purpose, and the owner's agreeing message ID",
@@ -446,7 +443,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "polyphonic_status",
-        description = "Read body-free local setup, runtime, Brain, access, capability status, and a bounded directory of cryptographically verified current-owner residents. Use only each directory entry's supplied exact mention in an ordinary final reply to request a bounded same-conversation exchange; never guess aliases or treat a public key as a supported mention. Unavailable or truncated directory results are explicit. Process status and legacy runtime.ready are not verified authentication or proof of a reply. This tool does not start residents, observe task progress, or stop work. Returns no paths, credentials, source bodies, or machine topology."
+        description = "Read body-free local setup, runtime, Brain, access and capability status, plus a bounded directory of cryptographically verified current-owner residents. Use each directory entry's supplied exact mention in an ordinary final reply to request the host's bounded exchange or supported visit; never guess aliases or treat a public key as a mention. This requests routing, not guaranteed delivery or a reply. Unavailable and truncated results are explicit. Capability manifests describe adapter contracts, not verified session tools; process status and legacy runtime.ready are not verified authentication or proof of a reply. This tool does not start residents, observe task progress or stop work. Returns no paths, credentials, source bodies or machine topology."
     )]
     async fn polyphonic_status(
         &self,
@@ -475,7 +472,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "list_resident_runtimes",
-        description = "Read the runtimes this desktop can actually start a new specialist on, each with its real model IDs. Read-only: it creates nothing and changes nothing. Call it before proposing a specialist, offer the owner only runtimes marked available and only the exact model IDs listed here, and pass the chosen ID back verbatim as propose_resident's model. Never invent, abbreviate, or substitute a model ID; a runtime whose models could not be read reports that instead of a list."
+        description = "Read available runtime families before proposing a persistent specialist. Managed Codex and Claude Code entries report real model IDs: carry forward the owner's supplied choices, ask only for a missing runtime or model, and pass the chosen listed ID verbatim as propose_resident's model. Never invent, abbreviate or substitute an ID; failed model discovery reports a reason. Native Hermes and OpenClaw entries intentionally have empty model lists and an owner-review note; use that review without consent_event_id or a fabricated model. An empty native model list does not itself mean unavailable. This read-only catalogue creates nothing and is not proof of authenticated readiness."
     )]
     async fn list_resident_runtimes(
         &self,
@@ -486,7 +483,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "propose_resident",
-        description = "Create a persistent specialist or import an existing Hermes profile after the user asks. Ask in the conversation which runtime and which model, offering only what list_resident_runtimes reports as available; say plainly what you are about to create (name, runtime, exact model, purpose) and ask the owner to agree. When the owner agrees in their own message, pass that message's event ID as consent_event_id with the exact model: the specialist is created straight away, with no window, and this returns created_waking as soon as the record exists while startup finishes in the background - report it as created and waking, never as ready, and check polyphonic_status before claiming it can reply. Without consent_event_id this opens the owner review and waits. For an existing Hermes profile use runtime_family=hermes, provisioning_intent=import and native_profile_name; omit display_name and system_prompt so native configuration remains intact. The owner selects the exact discovered profile and approves startup and Luca handoff effects. For creation supply a name, instructions and optional runtime family. The host fixes your identity and originating conversation and returns the verified actual outcome here. Import preserves the current conversation and may reuse an existing resident identity. Imported, started and authenticated reply are distinct; do not claim readiness before a real reply. If review expires or closes, inspect existing residents before proposing again. Use existing specialists or propose_runtime_task for a temporary worker when appropriate."
+        description = "Create a persistent specialist or import an existing Hermes profile for the owner's request. Inspect list_resident_runtimes, preserve choices already supplied and ask only for missing runtime/model choices or agreement to the exact creation. For managed codex or claude_code only, supply name, instructions, chosen runtime, exact listed model and purpose; when a real owner message agrees to that creation, its event ID can be consent_event_id. Never invent an event ID or use another resident's message as consent. This direct path returns created_waking once the record exists while startup continues: report created and waking, then check polyphonic_status rather than claiming readiness. Without consent_event_id this opens owner review and waits. Native Hermes/OpenClaw setup must use review without consent_event_id; their catalogue model lists are empty. For existing Hermes import use runtime_family=hermes, provisioning_intent=import and exact native_profile_name; omit display_name, system_prompt, model and consent_event_id to preserve native configuration. The owner reviews the discovered profile, startup and handoff effects. The host fixes your identity and originating conversation. Import may reuse an existing identity. Saved, imported, attached, started and authenticated reply are distinct; report only the actual receipt. If review expires or closes, inspect existing residents before proposing again. Prefer an existing suitable specialist or propose_runtime_task for temporary work."
     )]
     async fn propose_resident(
         &self,
@@ -511,7 +508,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "propose_runtime_task",
-        description = "Ask the owner to confirm one new Codex or Claude Code task. This only opens Polyphonic's confirmation card; nothing runs until the owner chooses a working folder, permission mode, and Run. Use after a natural request such as 'send this to Codex'."
+        description = "Propose one new bounded Codex or Claude Code worker task using target_runtime, a concise summary and complete task instructions. The owner chooses a working folder, permission mode and Run in Polyphonic's confirmation card. This call waits for that decision and, if approved, for execution to a terminal result; a pending call is not a missing capability and must not trigger a duplicate worker. Use the actual outcome and result to answer in this conversation; opening review or confirming Run is not proof of success. Use after a natural request such as 'send this to Codex'. For host-requested synthesis recovery, read_runtime_task_result retrieves the completed result without rerunning work."
     )]
     async fn propose_runtime_task(
         &self,
