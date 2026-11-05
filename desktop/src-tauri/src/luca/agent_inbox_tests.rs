@@ -40,6 +40,30 @@ fn record() -> ExchangeRecordV1 {
 }
 
 #[test]
+fn agent_inbox_work_window_keeps_identity_budget_stop_and_expiry() {
+    let ordinary = record();
+    let mut task = ordinary.clone();
+    crate::luca::agent_inbox_binding::prepare_new_task_window(&mut task, 100).unwrap();
+    assert_eq!(task.exchange_id, ordinary.exchange_id);
+    assert_eq!(task.members, ordinary.members);
+    assert_eq!(task.bucket, ordinary.bucket);
+    assert_eq!(ordinary.deadline.get(), 100 + 30 * 60);
+    assert_eq!(task.deadline.get(), 100 + 2 * 60 * 60 + 5 * 60);
+    assert!(task.admits_turn(2, 100 + 45 * 60));
+    assert!(!task.admits_turn(2, task.deadline.get() + 1));
+    assert!(!task.stopped().admits_turn(2, 100 + 45 * 60));
+    let restored = ExchangeRecordV1::from_content(&serde_json::to_string(&task).unwrap()).unwrap();
+    assert_eq!(
+        restored, task,
+        "the signed window survives restart unchanged"
+    );
+    assert!(crate::luca::agent_inbox_binding::prepare_new_task_window(&mut task, 100).is_err());
+    let mut stopped = ordinary.stopped();
+    assert!(crate::luca::agent_inbox_binding::prepare_new_task_window(&mut stopped, 100).is_err());
+    assert_eq!(stopped, ordinary.stopped(), "Stop cannot be renewed");
+}
+
+#[test]
 fn symmetric_identity_excludes_runtime_names_and_source_rooms() {
     let scope = scope();
     let id = correspondence_id(&scope, &[key('b'), key('c')]).unwrap();

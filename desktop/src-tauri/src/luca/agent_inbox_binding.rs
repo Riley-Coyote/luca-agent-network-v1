@@ -6,6 +6,31 @@ use serde::{Deserialize, Serialize};
 
 use super::agent_inbox::InboxScope;
 
+/// Only a newly minted, owner-authorized task gets the work window. Never
+/// extend an existing attempt, restore Stop, or change its message budget.
+pub(crate) fn prepare_new_task_window(
+    record: &mut luca_protocol::ExchangeRecordV1,
+    now: u64,
+) -> Result<(), String> {
+    use luca_protocol::{
+        ExchangeStateV1, SafeU53, EXCHANGE_DEFAULT_TTL_SECS, EXCHANGE_TASK_RETURN_GRACE_SECS,
+        EXCHANGE_TASK_WORK_TTL_SECS,
+    };
+    record.validate().map_err(|error| error.to_string())?;
+    if record.state != ExchangeStateV1::Open
+        || record.depth != 1
+        || record.deadline.get() != now.saturating_add(EXCHANGE_DEFAULT_TTL_SECS)
+    {
+        return Err("only a fresh task attempt may receive its work window".into());
+    }
+    record.deadline = SafeU53::new(
+        now.saturating_add(EXCHANGE_TASK_WORK_TTL_SECS)
+            .saturating_add(EXCHANGE_TASK_RETURN_GRACE_SECS),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 /// Native-validated task/attempt and immutable return destination.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

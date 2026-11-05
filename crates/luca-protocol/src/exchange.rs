@@ -42,6 +42,10 @@ pub const EXCHANGE_MIN_MEMBERS: usize = 2;
 pub const EXCHANGE_MAX_MEMBERS: usize = 16;
 /// Default lifetime of an exchange from mint (seconds). Go extends it by the same.
 pub const EXCHANGE_DEFAULT_TTL_SECS: u64 = 30 * 60;
+/// Default managed work turn. Inbox tasks need the same bounded work window.
+pub const EXCHANGE_TASK_WORK_TTL_SECS: u64 = 2 * 60 * 60;
+/// Time to publish and return the result after a full managed work turn.
+pub const EXCHANGE_TASK_RETURN_GRACE_SECS: u64 = 5 * 60;
 
 /// Validation failure for an exchange record or turn tag.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -317,7 +321,13 @@ impl ExchangeRecordV1 {
             .bucket
             .saturating_add(EXCHANGE_GO_INCREMENT)
             .min(EXCHANGE_BUCKET_CEILING);
-        let deadline = SafeU53::new(now_unix.saturating_add(EXCHANGE_DEFAULT_TTL_SECS))?;
+        // Adding message turns must not shorten a longer, already granted task
+        // window. Expired ordinary exchanges still get the usual fresh TTL.
+        let deadline = SafeU53::new(
+            now_unix
+                .saturating_add(EXCHANGE_DEFAULT_TTL_SECS)
+                .max(self.deadline.get()),
+        )?;
         Ok(Some(Self {
             bucket,
             deadline,
@@ -574,6 +584,21 @@ mod tests {
         let reopened = record.stopped().continued(2_000_000).unwrap().unwrap();
         assert_eq!(reopened.state, ExchangeStateV1::Open);
         assert!(reopened.validate().is_ok());
+    }
+
+    #[test]
+    fn continued_never_shortens_an_existing_task_window() {
+        let mut record = opened(None);
+        record.deadline =
+            SafeU53::new(1_000_000 + EXCHANGE_TASK_WORK_TTL_SECS + EXCHANGE_TASK_RETURN_GRACE_SECS)
+                .unwrap();
+        let go = record.continued(1_000_060).unwrap().unwrap();
+        assert_eq!(go.deadline, record.deadline);
+        assert_eq!(go.bucket, 6);
+        assert_eq!(record.stopped().phase(0, 1_000_060), ExchangePhase::Closed);
+        let later = record.deadline.get() + 1;
+        let resumed = record.stopped().continued(later).unwrap().unwrap();
+        assert_eq!(resumed.deadline.get(), later + EXCHANGE_DEFAULT_TTL_SECS);
     }
 
     #[test]

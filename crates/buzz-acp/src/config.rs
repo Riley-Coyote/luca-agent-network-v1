@@ -31,7 +31,7 @@ pub(crate) const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 900;
 
 /// Default absolute wall-clock cap per agent turn (2 hours).
 /// Override via `--max-turn-duration` / `BUZZ_ACP_MAX_TURN_DURATION`.
-pub(crate) const DEFAULT_MAX_TURN_DURATION_SECS: u64 = 7200;
+pub(crate) const DEFAULT_MAX_TURN_DURATION_SECS: u64 = luca_protocol::EXCHANGE_TASK_WORK_TTL_SECS;
 
 /// Upper bound for `max_turn_duration` (7 days). Any higher is operationally
 /// meaningless and risks arithmetic overflow when deriving the in-flight

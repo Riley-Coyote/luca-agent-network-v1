@@ -46,6 +46,10 @@ No project is created and no drawer opens on its own. Click the task card to
 open its chat beside yours, reply there, and return to Luca without losing your
 place. Closing the chat does not stop the work.
 
+A delegated agent can work through a task's steps with the tools its runtime
+provides; it is not limited to one action per message. Runtime approvals and
+bounded work limits still apply.
+
 ## One familiar message box
 
 The same solid, uncluttered composer now appears in the main conversation and

@@ -4101,13 +4101,24 @@ mod agent_draft_prompt_tests {
         assert!(normalized.contains("message, ask, consult, reach out to, or bring in"));
         assert!(normalized.contains("prefer `send_agent_inbox_message` when advertised"));
         assert!(normalized.contains("Only when the send tool is not advertised"));
-        assert!(normalized.contains("A delivered receipt proves publication, not a completed answer"));
-        assert!(normalized.contains("never submit the same request again through an action mention"));
+        assert!(
+            normalized.contains("A delivered receipt proves publication, not a completed answer")
+        );
+        assert!(
+            normalized.contains("never submit the same request again through an action mention")
+        );
         assert!(normalized.contains("An `@Name` requests action in this turn"));
         assert!(normalized.contains("use its plain name without the `@`"));
-        assert!(normalized.contains("the host starts its existing runtime for this bounded exchange"));
+        assert!(
+            normalized.contains("the host starts its existing runtime for this bounded exchange")
+        );
         assert!(normalized.contains("never claim delivery or a response before it arrives"));
         assert!(normalized.contains("Use only capabilities advertised in this session"));
+        assert!(normalized.contains(
+            "Exchange turns count messages between residents, not tool calls or work steps"
+        ));
+        assert!(normalized
+            .contains("Do not stop after an acknowledgement or claim unavailable capabilities"));
         assert!(normalized.contains(
             "solely responsible for publishing one final signed message after a successful turn"
         ));

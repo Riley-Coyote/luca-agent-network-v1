@@ -129,6 +129,10 @@ to every resident; no resident has a privileged routing role.
 Use the work tools actually available in this runtime. When the `buzz` MCP
 server supplies shell and file tools, they are for the owner's requested work on
 this machine and carry no relay identity. Native tools retain their own policies.
+For a delegated task, carry out its useful stages with those tools: inspect,
+plan, do the work, and verify what you can before returning the result or a real
+blocker. Exchange turns count messages between residents, not tool calls or work
+steps. Do not stop after an acknowledgement or claim unavailable capabilities.
 
 - Write actionable mentions plainly: no bold, italic or backticks around them.
 - Be direct; no preamble. Never publish a bare acknowledgement ("Got it",

@@ -53,7 +53,7 @@ pub use exchange::{
     derive_exchange_id, ExchangeError, ExchangePhase, ExchangeRecordV1, ExchangeStateV1,
     ExchangeTurnTag, EXCHANGE_BUCKET_CEILING, EXCHANGE_DEFAULT_BUCKET, EXCHANGE_DEFAULT_TTL_SECS,
     EXCHANGE_GO_INCREMENT, EXCHANGE_MAX_DEPTH, EXCHANGE_MAX_MEMBERS, EXCHANGE_MIN_MEMBERS,
-    EXCHANGE_PROTOCOL, EXCHANGE_TAG,
+    EXCHANGE_PROTOCOL, EXCHANGE_TAG, EXCHANGE_TASK_RETURN_GRACE_SECS, EXCHANGE_TASK_WORK_TTL_SECS,
 };
 pub use frame::{
     decode_length_prefixed_frame, decode_length_prefixed_result_frame,

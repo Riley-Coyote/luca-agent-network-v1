@@ -359,6 +359,31 @@ fn admitted_reply_survives_capture_expiry_supersession_and_bounded_book_eviction
     );
 }
 #[test]
+fn reply_lease_supports_one_long_work_turn_without_renewing_raw_access() {
+    let (mut book, _, reference, _first) = leased_profile();
+    let receipt = reply_receipt(&reference);
+    let binding = SourceMaterialBindingV1 {
+        reference: reference.clone(),
+        scope: SourceMaterialScopeV1::ProfileChild(id("opaque-child")),
+    };
+    let admitted = CanonicalTimestamp::parse("2026-10-08T10:00:31Z").unwrap();
+    let expiry = seconds(admitted.as_str())
+        + luca_protocol::EXCHANGE_TASK_WORK_TTL_SECS
+        + luca_protocol::EXCHANGE_TASK_RETURN_GRACE_SECS;
+    let lease = book
+        .reserve_reply_lease(&receipt, &[binding.clone()], expiry, &admitted)
+        .unwrap();
+    assert!(lease.current(&CanonicalTimestamp::parse("2026-10-08T10:45:31Z").unwrap()));
+    assert!(!lease.current_unix_secs(expiry));
+    assert_eq!(reference.expires_at.as_str(), "2026-10-08T10:00:32Z");
+    assert!(book
+        .reserve_reply_lease(&receipt, &[binding], expiry + 1, &admitted)
+        .is_err());
+    book.invalidate_all_reply_leases();
+    assert!(!lease.current(&CanonicalTimestamp::parse("2026-10-08T10:45:31Z").unwrap()));
+}
+
+#[test]
 fn reply_lease_preserves_full_reference_scope_model_and_clock_binding() {
     let (_, facts, reference, lease) = leased_profile();
     let receipt = reply_receipt(&reference);

@@ -14,7 +14,10 @@ use std::sync::{
 
 const MAX_REPLY_LEASES: usize = 64;
 const MAX_REPLY_REFERENCES: usize = 4;
-const MAX_REPLY_SECONDS: u64 = 30 * 60;
+// Only the exact already-admitted reply survives for this work window. This
+// grants no new prompt/source access and remains immediately revocable.
+const MAX_REPLY_SECONDS: u64 =
+    luca_protocol::EXCHANGE_TASK_WORK_TTL_SECS + luca_protocol::EXCHANGE_TASK_RETURN_GRACE_SECS;
 
 pub(crate) struct ReplyLeaseInner {
     scope: AwarenessTurnScopeV1,

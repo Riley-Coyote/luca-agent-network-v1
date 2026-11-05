@@ -746,6 +746,10 @@ impl<'a> ExchangeResolver<'a> {
                 request.dispatch_receipt_id.as_str(),
                 request.resident_pubkey.as_str(),
             );
+        let inbox_task = action.as_ref().is_some_and(|action| {
+            action.phase == super::agent_inbox_binding::InboxChildActionPhase::Request
+                && action.exchange_id.is_none()
+        });
         let root = if let Some(action) = action {
             action.anchor_event_id.ok_or(ExchangeDenial::MintRefused)?
         } else {
@@ -754,7 +758,7 @@ impl<'a> ExchangeResolver<'a> {
         };
         let mut members = addressed.to_vec();
         members.push(request.resident_pubkey.clone());
-        let record = if let Some(parent) = parent {
+        let mut record = if let Some(parent) = parent {
             ExchangeRecordV1::open_child(
                 parent,
                 members,
@@ -779,6 +783,10 @@ impl<'a> ExchangeResolver<'a> {
             luca_log!(warn, "luca-exchange: mint refused — {error}");
             ExchangeDenial::MintRefused
         })?;
+        if inbox_task {
+            super::agent_inbox_binding::prepare_new_task_window(&mut record, now_unix_secs)
+                .map_err(|_| ExchangeDenial::MintRefused)?;
+        }
         let prior = self
             .store
             .lock()

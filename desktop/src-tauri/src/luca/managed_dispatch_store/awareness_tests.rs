@@ -461,7 +461,11 @@ fn lease_for(
             reference: observation.clone(),
             scope: SourceMaterialScopeV1::ProfileChild(id("native-child")),
         }],
-        1900,
+        fixture.store.dispatches[&(
+            fixture.trigger.id.to_hex(),
+            fixture.resident.public_key().to_hex(),
+        )]
+            .expires_at,
         &observation.captured_at,
     );
     (receipt, lease)
@@ -484,7 +488,11 @@ fn admitted_reply_lease_is_dispatch_scoped_finite_and_not_restored() {
         .clone()
         .unwrap();
     assert!(fixture.store.awareness_reply_lease(&receipt, 500).is_ok()); // original capture expired at400
-    assert!(fixture.store.awareness_reply_lease(&receipt, 1900).is_err());
+    let expiry = fixture.store.dispatches[&key].expires_at;
+    assert!(fixture
+        .store
+        .awareness_reply_lease(&receipt, expiry)
+        .is_err());
     for field in 0..7 {
         let mut wrong = receipt.clone();
         match field {

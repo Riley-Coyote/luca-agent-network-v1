@@ -123,7 +123,7 @@ pub(super) async fn prepare(
         .sign_with_keys(&app.state::<crate::app_state::AppState>().signing_keys()?)
         .map_err(|_| "inbox_reply_signing_unavailable")?;
     let root = Hex64::parse(event.id.to_hex()).map_err(|e| e.to_string())?;
-    let record = ExchangeRecordV1::open(
+    let mut record = ExchangeRecordV1::open(
         scope.owner_pubkey.clone(),
         head.record.members.clone(),
         head.record.conversation_id.clone(),
@@ -133,6 +133,7 @@ pub(super) async fn prepare(
         event.created_at.as_secs(),
     )
     .map_err(|e| e.to_string())?;
+    super::agent_inbox_binding::prepare_new_task_window(&mut record, event.created_at.as_secs())?;
     let binding = InboxTaskBinding {
         scope: scope.clone(),
         logical_task_id: if new_topic {

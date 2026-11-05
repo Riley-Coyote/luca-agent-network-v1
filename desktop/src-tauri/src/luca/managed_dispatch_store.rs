@@ -41,7 +41,11 @@ const STORE_SCHEMA_V4: &str = "luca.managed-dispatch-store.v4";
 const STORE_SCHEMA_V5: &str = "luca.managed-dispatch-store.v5";
 const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v6";
 const MAX_DISPATCHES: usize = 512;
-const DISPATCH_TTL_SECONDS: u64 = 30 * 60;
+// Match the harness's default work turn, with bounded time for publication.
+// Persisted legacy receipts retain their original shorter expiry on load.
+const LEGACY_DISPATCH_TTL_SECONDS: u64 = 30 * 60;
+const DISPATCH_TTL_SECONDS: u64 =
+    luca_protocol::EXCHANGE_TASK_WORK_TTL_SECS + luca_protocol::EXCHANGE_TASK_RETURN_GRACE_SECS;
 const CONTINUITY_DISPATCH_DOMAIN: &str = "luca.continuity.dispatch-set.v1";
 
 static GLOBAL_STORE: OnceLock<Arc<Mutex<ManagedDispatchStore>>> = OnceLock::new();
@@ -2757,7 +2761,8 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
     if dispatch.owner_pubkey == dispatch.resident_pubkey
         || uuid::Uuid::parse_str(&dispatch.conversation_id).is_err()
         || dispatch.created_at > dispatch.expires_at
-        || dispatch.expires_at.saturating_sub(dispatch.created_at) != DISPATCH_TTL_SECONDS
+        || ![LEGACY_DISPATCH_TTL_SECONDS, DISPATCH_TTL_SECONDS]
+            .contains(&dispatch.expires_at.saturating_sub(dispatch.created_at))
         || !causal_coordinates_are_valid
     {
         return Err("managed dispatch identity, timestamp, or recipient tuple is invalid".into());
@@ -3523,6 +3528,60 @@ mod tests {
         assert!(store
             .authorize_publication(&request(&owner, &resident, &top, CHANNEL_ONE, 7), 101)
             .is_ok());
+    }
+
+    #[test]
+    fn agent_inbox_work_receipts_preserve_legacy_expiry_and_stop_after_restart() {
+        let owner = Keys::parse(&"41".repeat(32)).unwrap();
+        let resident = Keys::parse(&"42".repeat(32)).unwrap();
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "bounded long work");
+        for ttl in [LEGACY_DISPATCH_TTL_SECONDS, DISPATCH_TTL_SECONDS, 9999] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("dispatches.json");
+            let mut store = ManagedDispatchStore::load(path.clone()).unwrap();
+            store
+                .stage_owner_event(&trigger, &[resident.public_key().to_hex()], 100)
+                .unwrap();
+            let key = (trigger.id.to_hex(), resident.public_key().to_hex());
+            store.dispatches.get_mut(&key).unwrap().expires_at = 100 + ttl;
+            store.persist().unwrap();
+            let restored = ManagedDispatchStore::load(path);
+            if ttl == 9999 {
+                assert!(
+                    restored.is_err(),
+                    "arbitrary authority lifetimes remain invalid"
+                );
+                continue;
+            }
+            let mut restored = restored.unwrap();
+            assert_eq!(restored.dispatches[&key].expires_at, 100 + ttl);
+            restored
+                .activate_session(&resident.public_key().to_hex(), 7)
+                .unwrap();
+            let request = request(&owner, &resident, &trigger, CHANNEL_ONE, 7);
+            let late = 100 + 45 * 60;
+            if ttl == LEGACY_DISPATCH_TTL_SECONDS {
+                assert_eq!(
+                    restored.authorize_publication(&request, late),
+                    Err(DispatchAuthorizationError::Expired)
+                );
+            } else {
+                assert!(restored.authorize_publication(&request, late).is_ok());
+                restored
+                    .cancel_exact(
+                        &owner.public_key().to_hex(),
+                        CHANNEL_ONE,
+                        &resident.public_key().to_hex(),
+                        &trigger.id.to_hex(),
+                        7,
+                    )
+                    .unwrap();
+                assert_eq!(
+                    restored.authorize_publication(&request, late),
+                    Err(DispatchAuthorizationError::Cancelled)
+                );
+            }
+        }
     }
 
     #[test]

@@ -22,19 +22,37 @@ idea is deferred. Mnemos, Ghost and new harness integrations remain out of scope
   Replied tasks no longer appear as active conversation/attention solely because
   their transport is open or turn-limited. Active continuation overrides an old
   reply; absent/evicted receipts remain unknown. No signed exchange is rewritten.
-- **Current checks:** all 4,514 frontend units pass; focused native inbox (30),
-  initiative (47), delivery (40), dispatch (58), source-note (5) and first-meeting
-  (26) checks pass (filters overlap). All 44 existing inbox browser cases passed;
+- **Current checks:** all 4,514 frontend units pass; focused native inbox (34),
+  dispatch (59), exchange (95), reply (25) and protocol exchange (12) checks pass.
+  Both managed harness-instruction checks pass as well.
+  Earlier initiative (47), delivery (40), source-note (5) and first-meeting (26)
+  checks also passed (filters overlap). All 44 existing inbox browser cases passed;
   both new status cases passed after correcting their test-only recipient/input
   selectors. Typecheck/build, scoped Biome, text-size/file-size and diff checks
   pass. The first-meeting prompt exceeded its existing 10 KiB test budget;
   repeated wording was shortened without raising the limit or dropping consent.
   Browser screenshots were inspected in both themes. Final native rebuild and
   same-profile inspection are the next gate, not claimed by these unit checks.
-- **Separate decision:** new delegation during a sibling-triggered return turn
+- **Scope boundary:** new delegation during a sibling-triggered return turn
   is still refused. Removing that guard alone is not a safe workflow feature;
   shared budgets, cancellation and origin authority must be specified together.
-  Independent owner-requested specialist tasks are verified, not unattended chains.
+  Riley clarified that long-form work should happen inside the chosen harness;
+  unattended cross-agent workflow chains are not added in this pass.
+- **Long-form work clarification (November 5):** Riley means a specialist doing
+  its requested stages through its existing harness, not an unbounded chain of
+  new agents. Work-tool calls are not exchange turns. New inbox tasks and fresh
+  owner-requested attempts now receive the default managed work window (two
+  hours) plus five minutes for return delivery, instead of the ordinary chat's
+  30-minute expiry. Both lanes share the work-duration constant. Existing signed
+  attempts, Stop, tool permissions, message budgets and ordinary chat TTL remain
+  unchanged. New dispatch receipts and exact admitted-reply leases use that same
+  bounded window; legacy receipts keep their original 30-minute expiry. Reply
+  leases still authorize no new read/prompt, preserve raw capture expiry, remain
+  revocable, and are never restored after restart. Adding message turns cannot
+  shorten an already granted work window. Non-default longer harness caps do not
+  extend this inbox window.
+  Focused deadline/Stop/restart tests and a native multi-step task are the proof
+  gates for this adjustment, not an assertion of unlimited work or tool parity.
 - **Native proactive-return gate remains open:** the existing profile has two
   real background `no_change` outcomes, not a successful unsolicited return.
   Quiet hours and rolling stage budgets must not be reset or bypassed to force

@@ -2,6 +2,83 @@ use super::*;
 use crate::luca::agent_inbox_binding::{InboxChildActionBinding, InboxChildActionPhase};
 
 #[test]
+fn agent_inbox_tool_task_gets_the_managed_work_window() {
+    let f = fixture();
+    let child = Hex64::parse("9".repeat(64)).unwrap();
+    {
+        let mut dispatch = f.dispatch.lock().unwrap();
+        dispatch
+            .bind_communication_turn_start(&f.trigger_id, f.luca.as_str(), CHANNEL, 7, NOW)
+            .unwrap();
+        dispatch
+            .stage_inbox_child_action(
+                &f.trigger_id,
+                &child,
+                f.luca.as_str(),
+                CHANNEL,
+                7,
+                InboxChildActionBinding {
+                    scope: crate::luca::agent_inbox::InboxScope {
+                        community_id: "22222222-2222-4222-8222-222222222222".into(),
+                        owner_pubkey: f.owner.clone(),
+                    },
+                    parent_dispatch_id: Hex64::parse(&f.trigger_id).unwrap(),
+                    action_key: child.clone(),
+                    input_fingerprint: child.clone(),
+                    recipient_pubkey: f.vektor.clone(),
+                    phase: InboxChildActionPhase::Request,
+                    anchor_event_id: Some(Hex64::parse("c".repeat(64)).unwrap()),
+                    exchange_id: None,
+                    root_event_id: None,
+                    reply_event_id: None,
+                    response_surface: None,
+                },
+                vec![f.owner.as_str().to_owned()],
+                NOW,
+            )
+            .unwrap();
+    }
+    let mut request = f.request("Inspect, implement, test and report the result.");
+    request.dispatch_receipt_id = OpaqueId::parse(child.as_str()).unwrap();
+    let plan = f.resolver().resolve(&request, NOW).unwrap();
+    let record = f
+        .relay
+        .fetch_head(&plan.exchange.unwrap().exchange_id, &f.owner)
+        .unwrap()
+        .unwrap()
+        .record;
+    assert_eq!(record.deadline.get(), NOW + 2 * 60 * 60 + 5 * 60);
+    assert!(record.admits_turn(2, NOW + 45 * 60));
+    assert_eq!(record.bucket, luca_protocol::EXCHANGE_DEFAULT_BUCKET);
+}
+
+#[test]
+fn agent_inbox_long_work_return_still_honors_stop_and_deadline() {
+    for case in ["open", "stop", "expired"] {
+        let (f, request, mut record) = owner_return_fixture(true);
+        crate::luca::agent_inbox_binding::prepare_new_task_window(&mut record, NOW).unwrap();
+        let late = if case == "expired" {
+            record.deadline.get() + 1
+        } else {
+            NOW + 45 * 60
+        };
+        if case == "stop" {
+            record = record.stopped();
+        }
+        f.relay.seed_head(&record, NOW + 1);
+        let result = f.resolver().resolve(&request, late);
+        match case {
+            "stop" => assert_eq!(result, Err(ExchangeDenial::Closed)),
+            "expired" => assert_eq!(result, Err(ExchangeDenial::Expired)),
+            _ => assert_eq!(
+                result.unwrap().apply(&request).unwrap().resolved_p_tags,
+                vec![f.owner.clone()]
+            ),
+        }
+    }
+}
+
+#[test]
 fn agent_inbox_two_child_tasks_keep_exact_parent_awareness_audience() {
     let f = fixture();
     f.dispatch
