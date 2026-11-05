@@ -648,8 +648,8 @@ export function useSendMessageMutation(
         quickChatEffort,
         activatedEfforts,
       );
-      // Only this successful owner send reveals agents. Relay traffic and
-      // Luca's delegated tasks never pass through this display preference.
+      // Successful direct owner contact reveals agents too; the sidebar's
+      // engagement listener separately handles delegation and background work.
       setAgentsVisibleInRail(
         railKey,
         directlyAddressedRailAgents(

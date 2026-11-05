@@ -5,6 +5,7 @@ import {
   directlyAddressedRailAgents,
   isAgentVisibleInRail,
   parseAgentRailVisibility,
+  railEngagements,
 } from "./agentRailVisibility.ts";
 
 const OWNER = "f".repeat(64);
@@ -116,5 +117,75 @@ test("group membership and guest visits do not repopulate the rail", () => {
       residents,
     ),
     [],
+  );
+});
+
+const head = (extra = {}) => ({
+  record: {
+    exchangeId: "1".repeat(64),
+    owner: OWNER,
+    members: [LUCA, MIRA],
+    conversationId: "home",
+  },
+  liveObservedAt: 1,
+  phase: "open",
+  observedAt: 1,
+  spent: 0,
+  ...extra,
+});
+
+test("new delegation reveals both residents, even if it finishes before the next render", () => {
+  const signals = railEngagements(
+    OWNER,
+    residents,
+    [{ id: "home" }],
+    [head({ phase: "closed" })],
+    [],
+  );
+  assert.deepEqual(signals[0].pubkeys, [LUCA, MIRA]);
+});
+
+test("old Open heads, other owners and other workspaces do not populate the rail", () => {
+  assert.deepEqual(
+    railEngagements(
+      OWNER,
+      residents,
+      [{ id: "home" }],
+      [
+        head({ liveObservedAt: null }),
+        head({ record: { ...head().record, owner: MIRA } }),
+        head({ record: { ...head().record, conversationId: "other" } }),
+      ],
+      [],
+    ),
+    [],
+  );
+});
+
+test("real agent work reveals known residents; a new work anchor is a new engagement", () => {
+  const working = {
+    channelId: "home",
+    anchorAt: 100,
+    agentCount: 2,
+    agentPubkeys: [MIRA, "9".repeat(64)],
+    source: "observer",
+  };
+  const signals = railEngagements(
+    OWNER,
+    residents,
+    [{ id: "home" }],
+    [],
+    [working],
+  );
+  assert.deepEqual(signals[0].pubkeys, [MIRA]);
+  assert.notEqual(
+    signals[0].token,
+    railEngagements(
+      OWNER,
+      residents,
+      [{ id: "home" }],
+      [],
+      [{ ...working, anchorAt: 200 }],
+    )[0].token,
   );
 });

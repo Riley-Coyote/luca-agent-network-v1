@@ -1,4 +1,6 @@
 import type { Channel } from "@/shared/api/types";
+import type { ExchangeEntry } from "@/features/exchange/exchangeStore";
+import type { WorkingChannelSummary } from "@/features/agents/agentWorkingSignal";
 
 const PUBKEY = /^[a-f0-9]{64}$/;
 const DEFAULT_PERSONAS = new Set([
@@ -50,8 +52,7 @@ export function isAgentVisibleInRail(
   return choices[key] ?? DEFAULT_PERSONAS.has(agent.personaId ?? "");
 }
 
-/** Only the owner's direct conversation or explicit tags reveal specialists.
- * Incoming replies, group membership and delegated work do not populate the rail. */
+/** A successful owner conversation or explicit tag also reveals specialists. */
 export function directlyAddressedRailAgents(
   channel: Channel,
   owner: string,
@@ -73,4 +74,47 @@ export function directlyAddressedRailAgents(
       ...explicitMentions.map((key) => key.toLowerCase()),
     ]),
   ].filter((key) => known.has(key));
+}
+
+/** Current work and newly delivered exchanges reveal their actual participants.
+ * An old Open label is not evidence of work: backfilled exchange heads have no
+ * liveObservedAt, and only real working signals restore active work on restart. */
+export function railEngagements(
+  owner: string,
+  residents: readonly RailResident[],
+  channels: readonly Pick<Channel, "id">[],
+  exchanges: readonly ExchangeEntry[],
+  working: readonly WorkingChannelSummary[],
+): Array<{ token: string; pubkeys: string[] }> {
+  const known = new Set(residents.map((agent) => agent.pubkey.toLowerCase()));
+  const currentChannels = new Set(channels.map((channel) => channel.id));
+  const engagements: Array<{ token: string; pubkeys: string[] }> = [];
+  for (const { record, liveObservedAt } of exchanges) {
+    if (
+      liveObservedAt === null ||
+      record.owner.toLowerCase() !== owner.toLowerCase() ||
+      !currentChannels.has(record.conversationId)
+    )
+      continue;
+    const pubkeys = record.members
+      .map((pubkey) => pubkey.toLowerCase())
+      .filter((pubkey) => known.has(pubkey));
+    if (pubkeys.length)
+      engagements.push({
+        token: `exchange:${record.exchangeId}:${liveObservedAt}:${pubkeys.join(",")}`,
+        pubkeys,
+      });
+  }
+  for (const channel of working) {
+    if (!currentChannels.has(channel.channelId)) continue;
+    for (const value of channel.agentPubkeys) {
+      const pubkey = value.toLowerCase();
+      if (known.has(pubkey))
+        engagements.push({
+          token: `work:${channel.channelId}:${channel.anchorAt}:${pubkey}`,
+          pubkeys: [pubkey],
+        });
+    }
+  }
+  return engagements;
 }

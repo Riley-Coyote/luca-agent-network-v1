@@ -8,6 +8,7 @@ const VEKTOR = "b".repeat(64);
 const ANIMA = "c".repeat(64);
 const MIRA = "d".repeat(64);
 const CODA = "e".repeat(64);
+const OWNER = "deadbeef".repeat(8);
 const agents = [
   { name: "Luca", pubkey: LUCA, personaId: "builtin:fizz" },
   { name: "Vektor", pubkey: VEKTOR, personaId: "builtin:honey" },
@@ -123,3 +124,65 @@ for (const light of [false, true]) {
     }
   });
 }
+
+test("Luca's delegation reveals the specialist from any page and keeps them after completion", async ({
+  page,
+}) => {
+  await boot(page);
+  await expect(page.getByTestId(home(MIRA))).toHaveCount(0);
+  await page.getByTestId("rail-browse-agents").click();
+  await expect(page.getByTestId(`place-row-mind:${MIRA}`)).toBeVisible();
+  await page.evaluate(
+    ({ owner, luca, mira }) => {
+      window.__BUZZ_E2E_EMIT_MOCK_EXCHANGE__?.({
+        exchangeId: "23".repeat(32),
+        owner,
+        members: [luca, mira],
+        channelName: "general",
+        openedBy: luca,
+        rootEventId: "45".repeat(32),
+        bucket: 3,
+        spent: 0,
+      });
+    },
+    { owner: OWNER, luca: LUCA, mira: MIRA },
+  );
+  // Wait for the application-wide listener, without navigating into Chats.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.entries(localStorage).some(
+          ([key, value]) =>
+            key.startsWith("polyphonic.agent-rail-visibility.v1:") &&
+            JSON.parse(value)["d".repeat(64)] === true,
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.goto("/#/");
+  await expect(page.getByTestId(home(MIRA))).toBeVisible();
+  await page.evaluate(
+    ({ owner, luca, mira }) => {
+      window.__BUZZ_E2E_EMIT_MOCK_EXCHANGE__?.({
+        exchangeId: "23".repeat(32),
+        owner,
+        members: [luca, mira],
+        channelName: "general",
+        openedBy: luca,
+        rootEventId: "45".repeat(32),
+        bucket: 3,
+        spent: 1,
+        state: "closed",
+      });
+    },
+    { owner: OWNER, luca: LUCA, mira: MIRA },
+  );
+  await page.reload();
+  await expect(page.getByTestId(home(MIRA))).toBeVisible();
+  await page.getByTestId(home(MIRA)).click({ button: "right" });
+  await page
+    .getByRole("menuitem", { name: "Remove from Chats", exact: true })
+    .click();
+  await page.reload();
+  await expect(page.getByTestId(home(MIRA))).toHaveCount(0);
+});

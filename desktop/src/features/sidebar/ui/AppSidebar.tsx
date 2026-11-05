@@ -2,6 +2,7 @@
 import * as React from "react";
 import { AgentSessionDialog } from "@/features/sidebar/ui/AgentSessionDialog";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
+import { useRevealEngagedRailAgents } from "@/features/sidebar/lib/useRevealEngagedRailAgents";
 import {
   agentRailStorageKey,
   railHomesStorageKey,
@@ -332,6 +333,7 @@ export function AppSidebar({
       a.name.localeCompare(b.name),
     );
   }, [managedAgentsQuery.data, pendingImports]);
+  useRevealEngagedRailAgents(railAgents, channels);
   useResidentMoteWarmup(railAgents.length > 0);
   const projectResidentOptions = React.useMemo(
     () =>
