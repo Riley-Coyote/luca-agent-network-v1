@@ -15,6 +15,28 @@ const reopen = (page: Page) =>
     );
   }, MOTION_TASK);
 
+test("current rail switches conversations without losing drafts or focus", async ({
+  page,
+}) => {
+  await openMotionShell(page);
+  const input = page.getByTestId("message-input");
+  await input.fill("Unsent general draft");
+  for (let index = 0; index < 3; index++) {
+    await page
+      .getByRole("button", { name: "engineering", exact: true })
+      .click();
+    await expect(input).toBeEditable();
+    await expect(input).toHaveText("");
+    await page.getByRole("button", { name: "general", exact: true }).click();
+    await expect(input).toHaveText("Unsent general draft");
+  }
+  await input.focus();
+  await input.press("End");
+  await input.pressSequentially(" while switching", { delay: 15 });
+  await expect(input).toBeFocused();
+  await expect(input).toHaveText("Unsent general draft while switching");
+});
+
 for (const theme of ["dark", "light"]) {
   test(`task reversals preserve the transcript, draft and execution: ${theme}`, async ({
     page,
