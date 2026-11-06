@@ -398,6 +398,20 @@ test("production video glow rests paused and hidden, and follows real seek/play/
   expect(
     await video.evaluate((element) => (element as HTMLVideoElement).paused),
   ).toBe(true);
+  // The review can paint its first non-CORS frame before this fixture sets
+  // crossorigin. That legitimately taints the canvas permanently. Reset only
+  // the test's backing store, then seek the real CORS-loaded video to obtain a
+  // fresh decoded still; never replace media state or the production draw path.
+  const beforeCleanStill = (await readProbe(page)).glowDraws;
+  await glow.evaluate((element) => {
+    (element as HTMLCanvasElement).width = 256;
+  });
+  await video.evaluate((element) => {
+    (element as HTMLVideoElement).currentTime = 0.05;
+  });
+  await expect
+    .poll(async () => (await readProbe(page)).glowDraws)
+    .toBeGreaterThan(beforeCleanStill);
   expect(
     await glow.evaluate(
       (element) =>
