@@ -1,4 +1,5 @@
 mod agent_env;
+pub(crate) mod anthropic_auth;
 pub(crate) mod agent_events;
 pub(crate) mod agent_snapshot;
 pub(crate) mod team_snapshot;

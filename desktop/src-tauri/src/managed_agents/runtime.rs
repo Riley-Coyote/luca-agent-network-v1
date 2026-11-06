@@ -2882,13 +2882,21 @@ fn spawn_agent_child_unix(
     // `spawned_setup_mode` is captured outside the block so it can be stamped
     // on `ManagedAgentProcess` — used by `install_acp_runtime` to target only
     // stuck agents for auto-restart.
+    let claude_api_key = if super::anthropic_auth::uses_claude(&effective_command, native_runtime.is_some()) {
+        super::anthropic_auth::key(app, owner_pubkey.as_str())?
+    } else {
+        None
+    };
     let spawned_setup_mode;
     {
         use crate::managed_agents::{
             agent_readiness, resolve_effective_agent_env, AgentReadiness, Requirement,
         };
 
-        let effective = resolve_effective_agent_env(record, &personas, runtime_meta, &global);
+        let mut effective = resolve_effective_agent_env(record, &personas, runtime_meta, &global);
+        if claude_api_key.is_some() {
+            effective.env.insert(super::anthropic_auth::API_MODE_ENV.into(), "1".into());
+        }
         // Compute the optional payload before touching the command.
         let setup_payload_json =
             if let AgentReadiness::NotReady { requirements } = agent_readiness(&effective) {
@@ -3165,6 +3173,10 @@ fn spawn_agent_child_unix(
         native_session_identity,
     );
     configure_runtime_cli(&mut command, runtime_meta)?;
+    command.env_remove(super::anthropic_auth::API_MODE_ENV);
+    if let Some(key) = claude_api_key.as_deref() {
+        super::anthropic_auth::apply(&mut command, key);
+    }
     super::claude_model_bridge::configure_claude_model_bridge(
         &mut command,
         &resolved_agent_command,

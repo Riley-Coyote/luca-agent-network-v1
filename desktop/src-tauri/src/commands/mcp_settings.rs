@@ -378,8 +378,11 @@ pub async fn test_luca_mcp_connection(
 }
 
 #[tauri::command]
-pub async fn list_runtime_connection_status() -> Result<Vec<RuntimeConnectionStatusV1>, String> {
-    tokio::task::spawn_blocking(|| {
+pub async fn list_runtime_connection_status(app: AppHandle) -> Result<Vec<RuntimeConnectionStatusV1>, String> {
+    tokio::task::spawn_blocking(move || {
+        let api_connected = crate::managed_agents::anthropic_auth::owner(&app)
+            .and_then(|owner| crate::managed_agents::anthropic_auth::connection(&app, &owner))?
+            .is_some();
         crate::managed_agents::clear_resolve_cache();
         crate::managed_agents::refresh_login_shell_path();
         let verified_at = Utc::now().to_rfc3339();
@@ -392,14 +395,16 @@ pub async fn list_runtime_connection_status() -> Result<Vec<RuntimeConnectionSta
                     AcpAvailabilityStatus::AdapterOutdated => RuntimeReadinessV1::Degraded,
                     _ => RuntimeReadinessV1::Unavailable,
                 };
-                let authentication = match runtime.auth_status {
+                let authentication = if runtime.id == "claude" && api_connected {
+                    RuntimeAuthenticationV1::Ready
+                } else { match runtime.auth_status {
                     AuthStatus::LoggedIn => RuntimeAuthenticationV1::Ready,
                     AuthStatus::LoggedOut | AuthStatus::ConfigInvalid { .. } => {
                         RuntimeAuthenticationV1::Required
                     }
                     AuthStatus::NotApplicable => RuntimeAuthenticationV1::NotApplicable,
                     AuthStatus::Unknown => RuntimeAuthenticationV1::Unknown,
-                };
+                }};
                 let ready = matches!(readiness, RuntimeReadinessV1::Ready);
                 RuntimeConnectionStatusV1 {
                     status_id: runtime.id.clone(),

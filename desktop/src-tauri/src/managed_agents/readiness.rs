@@ -283,6 +283,7 @@ fn collect_missing_requirements(
             let file_cfg = read_goose_file_config();
             goose_requirements(effective, file_cfg.as_ref())
         }
+        "claude" if effective.env.get(super::anthropic_auth::API_MODE_ENV).is_some_and(|v| v == "1") => cli_login::api_key_requirements(rt),
         "claude" => cli_login::requirements(
             &["claude", "auth", "status"],
             "complete Claude Code authentication by running the Claude CLI",

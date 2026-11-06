@@ -133,6 +133,15 @@ catalogs remain authoritative. The bridge never edits upstream packages or
 native settings. Keep the native CLI floor aligned with its newest model and
 verify exact ACP selection; pinned models must never silently fall back.
 
+The Settings Claude API connection is owner-and-instance scoped. Its key lives
+only in the Claude runtime's dedicated system credential item; on-disk routing
+contains an opaque generation, never the key. Only app-managed local Claude
+children receive it, after editable environment layers. Imported/native profiles
+and other harnesses retain their own auth. A selected but unavailable API key
+fails closed instead of using subscription billing. Connection changes reconnect
+idle residents through the existing dispatch-aware stop authority; busy work is
+not interrupted, and a manual stop must cancel its pending reconnect.
+
 **If you change how agent configuration is modeled, rendered, persisted,
 applied, or cleared — update this file in the same PR.** A rule that no longer
 matches the code is worse than no rule; a new pattern that isn't written down

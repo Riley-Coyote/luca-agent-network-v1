@@ -12816,6 +12816,12 @@ export function maybeInstallE2eTauriMocks() {
         return getRelayHttpUrl(activeConfig);
       case "relay_requires_membership":
         return activeConfig?.mock?.relayRequiresMembership ?? false;
+      case "get_claude_api_connection":
+        return { connected: false };
+      case "connect_claude_api_key":
+        return { connected: true };
+      case "disconnect_claude_api_key":
+        return { connected: false };
       case "list_runtime_connection_status":
         return [
           {

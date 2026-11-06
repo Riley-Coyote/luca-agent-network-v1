@@ -1137,6 +1137,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_claude_api_connection,
+            connect_claude_api_key,
+            disconnect_claude_api_key,
             luca::quickchat::quickchat_capture_window,
             luca::activity_trace::luca_list_activity_traces,
             luca::quickchat::quickchat_get_effort,

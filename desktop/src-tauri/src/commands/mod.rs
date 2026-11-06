@@ -1,4 +1,5 @@
 mod agent_auth;
+mod runtime_api_key;
 mod agent_auth_backfill;
 mod agent_config;
 mod agent_discovery;
@@ -88,6 +89,7 @@ mod workflows;
 mod workspace;
 
 pub use agent_auth::*;
+pub use runtime_api_key::*;
 pub use agent_config::*;
 pub use agent_discovery::*;
 pub use agent_logs::*;

@@ -43,6 +43,7 @@ import {
   runtimeMcpServerStatusLabel,
 } from "../lib/runtimeMcpPresentation";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
+import { ClaudeApiConnectionSettings } from "./ClaudeApiConnectionSettings";
 import {
   SettingsSectionHeader,
   useSettingsAppName,
@@ -304,6 +305,7 @@ export function ConnectionsMcpSettings() {
       ) : null}
 
       <div className="space-y-10">
+        <ClaudeApiConnectionSettings />
         <div>
           <SubsectionHeader
             action={

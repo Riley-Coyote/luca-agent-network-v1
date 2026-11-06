@@ -1519,3 +1519,24 @@ main chat and new chat keep that correction's 46 px capsule.
 - All 37 exchange-cache checks pass, including a cached-negative ownership
   lookup, closed/expired/stale/wrong-owner heads, wrong sender/audience/channel,
   invalid signatures, exact turn limits, Nobody, and legacy isolation.
+
+### Claude API connection (local candidate, 2026-11-05)
+
+- Settings → Connections & MCP has one masked Anthropic key field and Connect.
+  Verification lists models without generating a reply. API usage is charged to
+  that key's Console account, including already-enabled background work; the app
+  cannot determine promotional-credit eligibility or the account's remaining
+  balance. No additional observation, notes or background-work grants are enabled.
+- The Claude runtime owns a dedicated OS credential item, scoped to the owner
+  and app-data instance. Disk stores only an opaque generation. IPC status never
+  returns the key, a suffix or a native credential. Native Claude settings/login
+  files, imported profiles, other harnesses and external Claude sessions stay
+  untouched. Builds without a secure credential backend reject the connection.
+- Managed local Claude residents pick up changes through dispatch-aware idle
+  reconnects. Active work finishes first; a changed PID, owner or connection
+  cancels the queued reconnect. App restart uses the saved choice naturally.
+- API sessions require the SDK's direct first-party API-key confirmation before
+  accepting a prompt. Conflicting native provider/auth settings fail closed;
+  no automatic subscription fallback. Use Claude login explicitly disconnects
+  this app's API route and reconnects through the existing native login.
+- No publication, release tag, signing, push or daily-app replacement authorized.

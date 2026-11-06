@@ -59,14 +59,23 @@ pub(crate) fn plan_adapter_install<'c>(
 }
 
 #[tauri::command]
-pub async fn discover_acp_providers() -> Result<Vec<AcpRuntimeCatalogEntry>, String> {
-    tokio::task::spawn_blocking(|| {
+pub async fn discover_acp_providers(app: tauri::AppHandle) -> Result<Vec<AcpRuntimeCatalogEntry>, String> {
+    tokio::task::spawn_blocking(move || {
         crate::managed_agents::clear_resolve_cache();
         crate::managed_agents::refresh_login_shell_path();
-        crate::managed_agents::discover_acp_runtimes()
+        let api_connected = crate::managed_agents::anthropic_auth::owner(&app)
+            .and_then(|owner| crate::managed_agents::anthropic_auth::connection(&app, &owner))?
+            .is_some();
+        let mut runtimes = crate::managed_agents::discover_acp_runtimes();
+        for runtime in &mut runtimes {
+            if runtime.id == "claude" && api_connected {
+                runtime.auth_status = crate::managed_agents::AuthStatus::LoggedIn;
+            }
+        }
+        Ok(runtimes)
     })
     .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
 
 /// Enumerate exact Hermes profiles and OpenClaw agents without changing either

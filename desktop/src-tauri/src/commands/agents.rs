@@ -1290,6 +1290,14 @@ pub async fn try_stop_managed_agent_for_auto_restart(
     pubkey: String,
     app: AppHandle,
 ) -> Result<Option<ManagedAgentSummary>, String> {
+    try_stop_managed_agent_for_connection(pubkey, app, None).await
+}
+
+pub(super) async fn try_stop_managed_agent_for_connection(
+    pubkey: String,
+    app: AppHandle,
+    expected_pid: Option<u32>,
+) -> Result<Option<ManagedAgentSummary>, String> {
     use tauri::Manager;
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
@@ -1316,6 +1324,9 @@ pub async fn try_stop_managed_agent_for_auto_restart(
             .iter()
             .find(|record| record.pubkey == pubkey)
             .ok_or_else(|| format!("agent {pubkey} not found"))?;
+        if expected_pid.is_some_and(|pid| record.runtime_pid != Some(pid)) {
+            return Err("Agent was stopped or restarted; pending reconnect cancelled".into());
+        }
         if record.backend != BackendKind::Local {
             return Err(
                 "remote agents are stopped via !shutdown message, not this command".to_string(),

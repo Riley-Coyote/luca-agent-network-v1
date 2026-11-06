@@ -67,6 +67,28 @@ pub(super) fn requirements(
     }
 }
 
+/// An app-scoped, verified API key replaces CLI login, not the adapter/CLI
+/// installation requirement. No secret is inserted into readiness payloads.
+pub(super) fn api_key_requirements(runtime: &KnownAcpRuntime) -> Vec<Requirement> {
+    let adapter = runtime
+        .commands
+        .iter()
+        .find_map(|cmd| find_command(cmd).map(|p| (*cmd, p)));
+    let cli = runtime
+        .underlying_cli
+        .is_some_and(|cmd| find_command(cmd).is_some());
+    let (availability, _, _) = classify_runtime(adapter, runtime.underlying_cli, cli);
+    if availability == AcpAvailabilityStatus::Available {
+        vec![]
+    } else {
+        vec![missing_requirement(
+            &["claude", "auth", "status"],
+            "install the Claude Code connection",
+            availability,
+        )]
+    }
+}
+
 fn missing_requirement(
     probe_args: &[&str],
     setup_copy: &str,

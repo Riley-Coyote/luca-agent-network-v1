@@ -56,6 +56,7 @@ pub(crate) fn is_derived_provider_model_key(key: &str) -> bool {
 /// overridable; those have dedicated UI fields but power users may want
 /// to bypass them.
 pub(crate) const RESERVED_ENV_KEYS: &[&str] = &[
+    "LUCA_CLAUDE_API_AUTH",
     // Identity / secrets.
     "BUZZ_PRIVATE_KEY",
     "NOSTR_PRIVATE_KEY",

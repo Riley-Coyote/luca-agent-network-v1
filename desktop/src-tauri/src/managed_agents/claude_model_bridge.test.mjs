@@ -4,7 +4,76 @@ import {
   extendModelCatalog,
   installModelBridge,
   VERSION_MODELS,
+  apiKeySessionParams,
+  verifyApiKeySession,
 } from "./claude_model_bridge.mjs";
+
+test("API execution requires native confirmation and rejects conflicting native auth", async () => {
+  const env = { ANTHROPIC_API_KEY: "test-only-key" };
+  const fixture = (account, configured = {}) => ({
+    settingsManager: { getSettings: () => ({ env: configured }) },
+    query: { initializationResult: async () => ({ account }) },
+  });
+  await verifyApiKeySession(
+    fixture({ apiProvider: "firstParty", apiKeySource: "ANTHROPIC_API_KEY" }),
+    env,
+  );
+  for (const account of [
+    undefined,
+    { apiProvider: "gateway", apiKeySource: "ANTHROPIC_API_KEY" },
+    { apiProvider: "firstParty", apiKeySource: "oauth" },
+  ]) {
+    await assert.rejects(
+      () => verifyApiKeySession(fixture(account), env),
+      /did not confirm direct API-key billing/,
+    );
+  }
+  for (const configured of [
+    { ANTHROPIC_API_KEY: "different" },
+    { ANTHROPIC_AUTH_TOKEN: "native-token" },
+    { CLAUDE_CODE_USE_VERTEX: "1" },
+  ]) {
+    await assert.rejects(
+      () => verifyApiKeySession(fixture({}, configured), env),
+      /another API credential or provider/,
+    );
+  }
+});
+
+test("API credentials stay in SDK env, not settings argv; unrelated options survive", () => {
+  const original = {
+    cwd: "/project",
+    _meta: {
+      claudeCode: {
+        options: {
+          tools: ["Read"],
+          settings: { availableModels: ["sonnet"] },
+          env: {
+            ANTHROPIC_API_KEY: "wrong",
+            ANTHROPIC_AUTH_TOKEN: "other",
+            KEEP: "yes",
+          },
+        },
+      },
+    },
+  };
+  const params = apiKeySessionParams(original, {
+    ANTHROPIC_API_KEY: "test-only-key",
+  });
+  const options = params._meta.claudeCode.options;
+  assert.equal(options.env.ANTHROPIC_API_KEY, "test-only-key");
+  assert.equal(options.env.ANTHROPIC_AUTH_TOKEN, "");
+  assert.equal(options.env.CLAUDE_CODE_OAUTH_TOKEN, "");
+  assert.equal(options.env.CLAUDE_CODE_USE_BEDROCK, "0");
+  assert.equal(options.env.KEEP, "yes");
+  assert.deepEqual(options.tools, ["Read"]);
+  assert.deepEqual(options.settings.availableModels, ["sonnet"]);
+  assert(!JSON.stringify(options.settings).includes("test-only-key"));
+  assert.equal(
+    original._meta.claudeCode.options.env.ANTHROPIC_API_KEY,
+    "wrong",
+  );
+});
 
 function session(settings = {}) {
   return {

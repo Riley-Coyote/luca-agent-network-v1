@@ -72,10 +72,83 @@ export function installModelBridge(ClaudeAcpAgent) {
       "Unsupported Claude model adapter. Reinstall the Claude Code connection in Polyphonic.",
     );
   ClaudeAcpAgent.prototype.createSession = async function (...args) {
+    if (process.env.LUCA_CLAUDE_API_AUTH === "1") {
+      if (!process.env.ANTHROPIC_API_KEY)
+        throw new Error(
+          "Claude API key is unavailable. Reconnect in Settings.",
+        );
+      if (this.resolveProviderConfig?.())
+        throw new Error(
+          "Claude API billing cannot be combined with another provider route.",
+        );
+      args[0] = apiKeySessionParams(args[0], process.env);
+    }
     const result = await original.apply(this, args);
     const session = this.sessions[result.sessionId];
+    if (process.env.LUCA_CLAUDE_API_AUTH === "1") {
+      try {
+        await verifyApiKeySession(session, process.env);
+      } catch (error) {
+        session.query.close();
+        delete this.sessions[result.sessionId];
+        throw error;
+      }
+    }
     extendModelCatalog(session);
     result.configOptions = session.configOptions;
     return result;
+  };
+}
+
+export async function verifyApiKeySession(session, env) {
+  // Native/project env can outrank SDK options.env in some CLI versions.
+  // Respect those files, but refuse to execute on a different billing route.
+  const configured = session.settingsManager.getSettings().env ?? {};
+  const required = apiKeySessionParams({}, env)._meta.claudeCode.options.env;
+  for (const name of Object.keys(required)) {
+    const value = configured[name];
+    if (value && value !== required[name])
+      throw new Error(
+        "Claude settings select another API credential or provider. Resolve that conflict before using this Polyphonic API connection.",
+      );
+  }
+  const { account } = await session.query.initializationResult();
+  if (
+    account?.apiProvider !== "firstParty" ||
+    account?.apiKeySource !== "ANTHROPIC_API_KEY"
+  )
+    throw new Error(
+      "Claude did not confirm direct API-key billing. Polyphonic stopped before sending your message; no subscription fallback was used.",
+    );
+}
+
+// Credentials stay in the SDK child environment, never --settings argv, model
+// catalogs, transcript bodies or ACP replies. Per-session env cannot redirect
+// a selected direct Anthropic connection back to OAuth/a cloud provider.
+export function apiKeySessionParams(params = {}, env) {
+  const claude = params._meta?.claudeCode ?? {};
+  const options = claude.options ?? {};
+  return {
+    ...params,
+    _meta: {
+      ...params._meta,
+      claudeCode: {
+        ...claude,
+        options: {
+          ...options,
+          settings: { ...options.settings, apiKeyHelper: "" },
+          env: {
+            ...options.env,
+            ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
+            ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+            ANTHROPIC_AUTH_TOKEN: "",
+            CLAUDE_CODE_OAUTH_TOKEN: "",
+            CLAUDE_CODE_USE_BEDROCK: "0",
+            CLAUDE_CODE_USE_VERTEX: "0",
+            CLAUDE_CODE_USE_FOUNDRY: "0",
+          },
+        },
+      },
+    },
   };
 }
