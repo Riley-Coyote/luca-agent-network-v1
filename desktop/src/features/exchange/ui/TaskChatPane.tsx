@@ -12,7 +12,9 @@ import { useTaskChatWindowSpace } from "@/features/exchange/useTaskChatWindowSpa
 import { readAgentInboxTask } from "@/shared/api/agentInbox";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { useRightCardsSlot } from "@/shared/layout/RightCardsSlot";
+import { PanelPresence, usePanelPresence } from "@/shared/layout/PanelPresence";
 import { CorrespondenceWindow } from "./CorrespondenceWindow";
+import { obscureTaskChatInspectors } from "./taskChatInspector";
 import "./task-chat.css";
 
 /** A second conversation in the same shell, using the existing task transcript and send path. */
@@ -25,25 +27,41 @@ export function TaskChatPane() {
     scope: string;
     id: string;
   } | null>(null);
-  const [overlay, setOverlay] = React.useState(false);
   const trigger = React.useRef<HTMLElement | null>(null);
-  const pane = React.useRef<HTMLElement | null>(null);
+  const returnFocus = React.useRef(false);
+  const currentScope = React.useRef(scope);
+  currentScope.current = scope;
   const taskId = request?.scope === scope ? request.id : null;
   React.useEffect(() => {
     setRequest((current) => (current?.scope === scope ? current : null));
   }, [scope]);
   const close = React.useCallback(() => {
     setRequest(null);
-    if (trigger.current?.isConnected) trigger.current.focus();
+    returnFocus.current = true;
+    if (trigger.current?.isConnected && !trigger.current.closest("[inert]")) {
+      trigger.current.focus({ preventScroll: true });
+      returnFocus.current = false;
+    }
   }, []);
+  const releaseInspector = React.useCallback(() => {
+    if (currentScope.current !== scope || !returnFocus.current) return;
+    returnFocus.current = false;
+    if (
+      trigger.current?.isConnected &&
+      document.activeElement === document.body
+    )
+      trigger.current.focus({ preventScroll: true });
+  }, [scope]);
   React.useEffect(() => {
     const open = (event: Event) => {
       const id: unknown = (event as CustomEvent).detail;
       if (typeof id !== "string" || !/^[a-f0-9]{64}$/i.test(id)) return;
-      trigger.current =
-        document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null;
+      returnFocus.current = false;
+      if (!document.activeElement?.closest(".luca-task-chat"))
+        trigger.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
       setRequest({ scope, id });
     };
     window.addEventListener(OPEN_TASK_CHAT, open);
@@ -77,8 +95,48 @@ export function TaskChatPane() {
       window.removeEventListener(OPEN_TASK_CHAT, open);
     };
   }, [scope]);
-  React.useEffect(() => {
-    const host = slot?.parentElement;
+  useTaskChatWindowSpace(Boolean(taskId));
+  return (
+    <PanelPresence key={scope}>
+      {slot && taskId
+        ? createPortal(
+            <TaskChatCard
+              scope={scope}
+              owner={owner}
+              taskId={taskId}
+              slot={slot}
+              onClose={close}
+              onRelease={releaseInspector}
+            />,
+            slot,
+          )
+        : null}
+    </PanelPresence>
+  );
+}
+
+function TaskChatCard({
+  scope,
+  owner,
+  taskId,
+  slot,
+  onClose,
+  onRelease,
+}: {
+  scope: string;
+  owner: string;
+  taskId: string;
+  slot: HTMLElement;
+  onClose: () => void;
+  onRelease: () => void;
+}) {
+  const active = usePanelPresence() === true;
+  const pane = React.useRef<HTMLElement | null>(null);
+  const [overlay, setOverlay] = React.useState(
+    () => (slot.parentElement?.clientWidth ?? 900) < 900,
+  );
+  React.useLayoutEffect(() => {
+    const host = slot.parentElement;
     if (!host) return;
     const observer = new ResizeObserver(() =>
       setOverlay(host.clientWidth < 900),
@@ -87,13 +145,20 @@ export function TaskChatPane() {
     observer.observe(host);
     return () => observer.disconnect();
   }, [slot]);
-  React.useEffect(() => {
-    if (taskId) pane.current?.focus();
-  }, [taskId]);
-  useTaskChatWindowSpace(Boolean(taskId));
+  React.useLayoutEffect(() => {
+    if (active) pane.current?.focus({ preventScroll: true });
+  }, [active]);
+  React.useLayoutEffect(() => {
+    if (!pane.current) return;
+    const restore = obscureTaskChatInspectors(slot, pane.current);
+    return () => {
+      restore();
+      onRelease();
+    };
+  }, [slot, onRelease]);
   const read = useQuery({
     queryKey: ["task-chat-target", scope, taskId],
-    enabled: Boolean(owner && taskId),
+    enabled: Boolean(active && owner && taskId),
     retry: false,
     queryFn: async () => {
       const result = await readAgentInboxTask(taskId ?? "");
@@ -107,42 +172,49 @@ export function TaskChatPane() {
       );
     },
   });
-  if (!slot || !taskId) return null;
-  return createPortal(
+  // An in-flight initial read may finish during exit. Never mount a new live
+  // transcript just to animate it away; retain only what was already visible.
+  const visibleRead = React.useRef(read);
+  if (active) visibleRead.current = read;
+  const displayed = active ? read : visibleRead.current;
+  return (
     <aside
       aria-label="Task conversation"
-      className="luca-task-chat"
+      aria-hidden={!active || undefined}
+      className="luca-task-chat luca-panel-overlay"
       data-luca-card
+      data-panel-open={active}
       data-overlay={overlay || undefined}
       data-testid="task-chat-pane"
       tabIndex={-1}
+      inert={!active}
       ref={pane}
     >
-      {read.data ? (
+      {displayed.data ? (
         <CorrespondenceWindow
-          key={`${scope}:${read.data.task.correspondenceId}`}
-          correspondenceId={read.data.task.correspondenceId ?? ""}
+          key={`${scope}:${displayed.data.task.correspondenceId}`}
+          correspondenceId={displayed.data.task.correspondenceId ?? ""}
           initialTaskId={taskId}
           embedded
-          onClose={close}
+          active={active}
+          onClose={onClose}
         />
       ) : (
         <div className="flex items-center justify-between gap-3 p-4 text-sm">
-          <p role={read.error ? "alert" : "status"}>
-            {read.error
-              ? `Couldn’t open this task: ${read.error.message}`
+          <p role={displayed.error ? "alert" : "status"}>
+            {displayed.error
+              ? `Couldn’t open this task: ${displayed.error.message}`
               : "Opening conversation…"}
           </p>
           <button
             type="button"
             aria-label="Close task conversation"
-            onClick={close}
+            onClick={onClose}
           >
             <X className="size-4" />
           </button>
         </div>
       )}
-    </aside>,
-    slot,
+    </aside>
   );
 }

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createFrameLayoutWatcher } from "./frameLayout";
 
 import "./shell-glass.css";
 
@@ -346,17 +347,30 @@ export const CARD_SELECTOR = [
 /** The cards that rest on the frame: every card not inside another one,
  *  and not lying on the one card, on screen and shown. */
 export function frameCards(doc: Document = document) {
+  return measuredFrameCards(doc).map(({ card }) => card);
+}
+
+type MeasuredCard = {
+  card: HTMLElement;
+  rect: DOMRect;
+  style: CSSStyleDeclaration;
+};
+
+function measuredFrameCards(doc: Document = document): MeasuredCard[] {
   const all = [...doc.querySelectorAll<HTMLElement>(CARD_SELECTOR)];
   const oneCard = all.some((card) => card.matches(ONE_CARD_SELECTOR));
-  return all.filter((card) => {
+  const measured: MeasuredCard[] = [];
+  for (const card of all) {
     if (all.some((other) => other !== card && other.contains(card))) {
-      return false;
+      continue;
     }
-    if (oneCard && card.matches(ON_ONE_CARD_SELECTOR)) return false;
+    if (oneCard && card.matches(ON_ONE_CARD_SELECTOR)) continue;
     const rect = card.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return false;
-    return getComputedStyle(card).visibility === "visible";
-  });
+    if (rect.width < 1 || rect.height < 1) continue;
+    const style = getComputedStyle(card);
+    if (style.visibility === "visible") measured.push({ card, rect, style });
+  }
+  return measured;
 }
 
 /**
@@ -365,31 +379,33 @@ export function frameCards(doc: Document = document) {
  * leftmost card on the frame outside the rail and the runtime sessions card.
  */
 export function conversationCard(doc: Document = document) {
-  const one = frameCards(doc).find((card) => card.matches(ONE_CARD_SELECTOR));
-  if (one) return one;
-  let best: HTMLElement | null = null;
-  let bestX = Number.POSITIVE_INFINITY;
-  for (const card of frameCards(doc)) {
-    if (card.closest('[data-testid="app-sidebar"]')) continue;
-    if (card.matches(RUNTIME_CARD_SELECTOR)) continue;
-    const { x } = card.getBoundingClientRect();
-    if (x < bestX) {
-      best = card;
-      bestX = x;
-    }
-  }
-  return best;
+  return measuredConversationCard(measuredFrameCards(doc))?.card ?? null;
 }
 
-const measureCard = (card: HTMLElement | null): GlassFrame["card"] => {
-  if (!card) return null;
-  const rect = card.getBoundingClientRect();
+function measuredConversationCard(cards: readonly MeasuredCard[]) {
+  const one = cards.find(({ card }) => card.matches(ONE_CARD_SELECTOR));
+  if (one) return one;
+  return cards
+    .filter(
+      ({ card }) =>
+        !card.closest('[data-testid="app-sidebar"]') &&
+        !card.matches(RUNTIME_CARD_SELECTOR),
+    )
+    .reduce<MeasuredCard | null>(
+      (best, entry) => (!best || entry.rect.x < best.rect.x ? entry : best),
+      null,
+    );
+}
+
+const measureCard = (entry: MeasuredCard | null): GlassFrame["card"] => {
+  if (!entry) return null;
+  const { rect, style } = entry;
   return {
     x: rect.x,
     y: rect.y,
     w: rect.width,
     h: rect.height,
-    r: Number.parseFloat(getComputedStyle(card).borderTopLeftRadius) || 0,
+    r: Number.parseFloat(style.borderTopLeftRadius) || 0,
   };
 };
 
@@ -398,92 +414,58 @@ const measureCard = (card: HTMLElement | null): GlassFrame["card"] => {
 const ONE_CARD_FOLLOWS_SELECTOR =
   "[data-buzz-content-surface], [data-buzz-content-plane]";
 
-/** The rail slides over 460 ms (SHELL_SPEC.md, "Motion"); a little longer, so
- *  the last frame of any transition is reported. */
-const FOLLOW_MS = 520;
+const FRAME_MOTION_SELECTOR = [
+  CARD_SELECTOR,
+  "[data-frame]",
+  "[data-sidebar-gap]",
+  "[data-luca-right-cards]",
+  ".luca-panel-frame",
+  ".luca-panel-overlay",
+  ".buzz-huddle-shell",
+].join(", ");
+const shadowNode = (node: Node) =>
+  (node instanceof Element ? node : node.parentElement)?.closest(
+    "[data-luca-frame-shadows]",
+  ) != null;
 
-/**
- * Calls `onLayout` whenever the frame's layout may have changed: a resize of
- * the window or of a card, a route or a pane coming and going, and every
- * frame while something slides. Returns the way to stop.
- */
-function watchLayout(
-  onLayout: () => void,
-  watched: () => readonly Element[],
-  ignore?: Node,
-) {
-  const root = document.documentElement;
-  let pending = 0;
-  const later = () => {
-    if (pending) return;
-    pending = requestAnimationFrame(() => {
-      pending = 0;
-      onLayout();
-    });
-  };
-  let following = 0;
-  let until = 0;
-  const follow = () => {
-    until = performance.now() + FOLLOW_MS;
-    if (following) return;
-    const step = () => {
-      onLayout();
-      following = performance.now() < until ? requestAnimationFrame(step) : 0;
+type FrameLayout = {
+  width: number;
+  height: number;
+  cards: readonly MeasuredCard[];
+  conversation: GlassFrame["card"];
+  shadows: readonly CardShadow[];
+};
+let lastCards: readonly MeasuredCard[] = [];
+
+/** Both consumers use this one measured snapshot and one follow loop. */
+const frameLayout = createFrameLayoutWatcher<FrameLayout>({
+  read: () => {
+    const cards = measuredFrameCards();
+    lastCards = cards;
+    return {
+      width: document.documentElement.clientWidth || window.innerWidth,
+      height: document.documentElement.clientHeight || window.innerHeight,
+      cards,
+      conversation: measureCard(measuredConversationCard(cards)),
+      shadows: cards.map(measureShadow),
     };
-    following = requestAnimationFrame(step);
-  };
-
-  const resizes = new ResizeObserver(later);
-  resizes.observe(root);
-  let observed = new Set<Element>();
-  const watch = () => {
-    const next = new Set<Element>();
-    for (const element of watched()) {
-      if (!element.matches(ONE_CARD_SELECTOR)) {
-        next.add(element);
-        continue;
-      }
-      // Never the one card itself (WP-26): the lip moves its right edge
-      // from inside its own observer (ShellLip.tsx), so a watch on the card
-      // is a resize made during delivery, shallower than the one delivered,
-      // and WebKit reports a ResizeObserver loop. Watch what it follows
-      // instead: the content plane the lip measures (the window is `root`).
+  },
+  watched: ({ cards }) =>
+    cards.flatMap(({ card }) => {
+      if (!card.matches(ONE_CARD_SELECTOR)) return [card];
+      // Never RO-observe the lip-managed one card itself (WP-26). Watch the
+      // content plane it follows, avoiding WebKit's shallow-delivery feedback.
       const follows = document.querySelector(ONE_CARD_FOLLOWS_SELECTOR);
-      if (follows) next.add(follows);
-    }
-    for (const element of observed) {
-      if (!next.has(element)) resizes.unobserve(element);
-    }
-    for (const element of next) {
-      if (!observed.has(element)) resizes.observe(element);
-    }
-    observed = next;
-  };
-  watch();
-  // A route swaps the card; a drawer or a second pane comes and goes.
-  const mutations = new MutationObserver((records) => {
-    if (ignore && records.every((record) => ignore.contains(record.target))) {
-      return;
-    }
-    watch();
-    later();
-  });
-  mutations.observe(document.body, { childList: true, subtree: true });
-  window.addEventListener("resize", later);
-  document.addEventListener("transitionrun", follow, true);
-  document.addEventListener("animationstart", follow, true);
-  void document.fonts?.ready.then(later);
-
-  return () => {
-    mutations.disconnect();
-    resizes.disconnect();
-    window.removeEventListener("resize", later);
-    document.removeEventListener("transitionrun", follow, true);
-    document.removeEventListener("animationstart", follow, true);
-    if (pending) cancelAnimationFrame(pending);
-    if (following) cancelAnimationFrame(following);
-  };
-}
+      return follows ? [follows] : [];
+    }),
+  motionTarget: (target) =>
+    target.matches(FRAME_MOTION_SELECTOR) ||
+    lastCards.some(({ card }) => target.contains(card)),
+  ignoreMutation: (record) =>
+    shadowNode(record.target) ||
+    ([...record.addedNodes, ...record.removedNodes].length > 0 &&
+      [...record.addedNodes, ...record.removedNodes].every(shadowNode)),
+});
 
 /**
  * Tells the native glass where the frame is while `active`: the settings
@@ -503,26 +485,21 @@ export function useShellGlassReporter(
   React.useEffect(() => {
     if (!active) return;
     const reporter = createGlassReporter(postToGlass);
-    const root = document.documentElement;
-    const report = () => {
+    const report = (layout: FrameLayout) => {
       const { isDark: dark, fullscreen: full } = state.current;
       reporter.report(
         frameMessage({
-          width: root.clientWidth || window.innerWidth,
-          height: root.clientHeight || window.innerHeight,
+          width: layout.width,
+          height: layout.height,
           fullscreen: full,
           isDark: dark,
-          card: measureCard(conversationCard()),
+          card: layout.conversation,
         }),
       );
     };
-    reportRef.current = report;
+    reportRef.current = frameLayout.invalidate;
     reporter.start();
-    report();
-    const stop = watchLayout(report, () => {
-      const card = conversationCard();
-      return card ? [card] : [];
-    });
+    const stop = frameLayout.subscribe(report);
 
     return () => {
       reportRef.current = null;
@@ -559,9 +536,7 @@ export function cardShadow(
   return { ...rect, r: radius, opacity };
 }
 
-const measureShadow = (card: HTMLElement): CardShadow => {
-  const rect = card.getBoundingClientRect();
-  const style = getComputedStyle(card);
+function measureShadow({ card, rect, style }: MeasuredCard): CardShadow {
   const body = card.matches(RUNTIME_CARD_SELECTOR)
     ? card.querySelector<HTMLElement>(RUNTIME_CARD_BODY_SELECTOR)
     : null;
@@ -575,7 +550,7 @@ const measureShadow = (card: HTMLElement): CardShadow => {
     Number.parseFloat(style.borderTopLeftRadius) || 0,
     rail,
   );
-};
+}
 
 /**
  * The cards' shadows by day (SHELL_SPEC.md, "Black (Paper in light)" and
@@ -594,8 +569,7 @@ export function useShellGlassShadows(active: boolean) {
     layer.setAttribute("data-testid", "shell-glass-shadows");
     document.body.append(layer);
     const shadows: HTMLElement[] = [];
-    const draw = () => {
-      const cards = frameCards().map(measureShadow);
+    const draw = ({ shadows: cards }: FrameLayout) => {
       while (shadows.length < cards.length) {
         const shadow = document.createElement("span");
         shadow.setAttribute("data-luca-frame-shadow", "");
@@ -613,8 +587,7 @@ export function useShellGlassShadows(active: boolean) {
         style.opacity = String(card.opacity);
       });
     };
-    draw();
-    const stop = watchLayout(draw, frameCards, layer);
+    const stop = frameLayout.subscribe(draw);
     return () => {
       stop();
       layer.remove();

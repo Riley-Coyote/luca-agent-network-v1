@@ -6,10 +6,12 @@ import {
   CARD_SELECTOR,
   ONE_CARD_SELECTOR,
   cardShadow,
+  conversationCard,
   createGlassReporter,
   drawnFrame,
   FRAME_STORAGE_KEY,
   frameMessage,
+  frameCards,
   frameSentence,
   frostedVibrancyArgs,
   glassFrameName,
@@ -408,4 +410,56 @@ test("the rail's shadow fades as its card narrows, gone when shut", () => {
       .opacity,
     1,
   );
+});
+
+test("conversation measurement reads each eligible card once and preserves leftmost/non-runtime selection", () => {
+  const original = globalThis.getComputedStyle;
+  const counts = new Map();
+  const makeCard = (
+    name,
+    x,
+    { rail = false, runtime = false, width = 100, hidden = false } = {},
+  ) => {
+    const card = {
+      matches: (selector) =>
+        selector.includes("data-luca-runtime-card") && runtime,
+      contains: () => false,
+      closest: () => (rail ? {} : null),
+      getBoundingClientRect: () => {
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+        return { x, y: 20, width, height: 200 };
+      },
+      hidden,
+    };
+    return card;
+  };
+  const rail = makeCard("rail", 0, { rail: true });
+  const runtime = makeCard("runtime", 100, { runtime: true });
+  const right = makeCard("right", 600);
+  const conversation = makeCard("conversation", 300);
+  const hidden = makeCard("hidden", -10, { hidden: true });
+  const collapsed = makeCard("collapsed", -20, { width: 0 });
+  const doc = {
+    querySelectorAll: () => [
+      rail,
+      runtime,
+      right,
+      conversation,
+      hidden,
+      collapsed,
+    ],
+  };
+  globalThis.getComputedStyle = (element) => ({
+    visibility: element.hidden ? "hidden" : "visible",
+  });
+  try {
+    assert.equal(conversationCard(doc), conversation);
+    assert.deepEqual([...counts.values()], [1, 1, 1, 1, 1, 1]);
+    counts.clear();
+    assert.deepEqual(frameCards(doc), [rail, runtime, right, conversation]);
+    assert.deepEqual([...counts.values()], [1, 1, 1, 1, 1, 1]);
+  } finally {
+    if (original) globalThis.getComputedStyle = original;
+    else delete globalThis.getComputedStyle;
+  }
 });

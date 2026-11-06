@@ -63,6 +63,8 @@ export type CorrespondenceWindowProps = {
   residentPubkeys?: readonly string[];
   onTitleChange?: (title: string) => void;
   embedded?: boolean;
+  /** A retained closing view is passive; task execution is independent. */
+  active?: boolean;
   onClose?: () => void;
 };
 
@@ -83,13 +85,14 @@ export function CorrespondenceWindow({
   residentPubkeys,
   onTitleChange,
   embedded = false,
+  active = true,
   onClose,
 }: CorrespondenceWindowProps) {
   const queryClient = useQueryClient();
   const identity = useIdentityQuery().data;
   const { activeCommunity, reinitKey } = useCommunities();
-  const managed = useManagedAgentsQuery().data;
-  const relay = useRelayAgentsQuery().data;
+  const managed = useManagedAgentsQuery({ enabled: active }).data;
+  const relay = useRelayAgentsQuery({ enabled: active }).data;
   const ownerPubkey = identity?.pubkey ? normalizePubkey(identity.pubkey) : "";
   const workspace = `${activeCommunity?.id ?? ""}:${reinitKey}:${ownerPubkey}`;
   const queryPrefix = [
@@ -141,7 +144,7 @@ export function CorrespondenceWindow({
     setStopError(null);
   }, [correspondenceId, initialTaskId, workspace]);
   React.useEffect(() => {
-    if (!isTauri()) return;
+    if (!active || !isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen<{ taskId?: string } | string>(
@@ -165,9 +168,9 @@ export function CorrespondenceWindow({
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [active]);
   React.useEffect(() => {
-    if (!isTauri()) return;
+    if (!active || !isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen("exchange-updated", () => {
@@ -182,7 +185,7 @@ export function CorrespondenceWindow({
       disposed = true;
       unlisten?.();
     };
-  }, [correspondenceId, queryClient, workspace]);
+  }, [active, correspondenceId, queryClient, workspace]);
 
   const taskReads = useInfiniteQuery({
     queryKey: [...queryPrefix, "task", selectedTaskId],
@@ -197,7 +200,7 @@ export function CorrespondenceWindow({
       );
     },
     getNextPageParam: (page) => page.nextOwnerReplyCursor ?? undefined,
-    enabled: Boolean(ownerPubkey && selectedTaskId),
+    enabled: Boolean(active && ownerPubkey && selectedTaskId),
     retry: false,
   });
   const mergedRead = React.useMemo(
@@ -212,7 +215,7 @@ export function CorrespondenceWindow({
   const exchangeState = useQuery({
     queryKey: [...queryPrefix, "exchange", attemptId],
     queryFn: () => getExchange(attemptId ?? ""),
-    enabled: Boolean(attemptId),
+    enabled: Boolean(active && attemptId),
     retry: false,
   });
   const pairFilter = correspondencePairFilter(
@@ -233,7 +236,7 @@ export function CorrespondenceWindow({
       return queryAgentInbox({ ...pairFilter, cursor: pageParam, limit: 50 });
     },
     getNextPageParam: (page) => page.nextCursor ?? undefined,
-    enabled: Boolean(ownerPubkey && pairFilter),
+    enabled: Boolean(active && ownerPubkey && pairFilter),
     retry: false,
   });
   const tasks = React.useMemo(
@@ -253,7 +256,7 @@ export function CorrespondenceWindow({
     .join(":");
   const liveMembers = pair.join(":");
   React.useEffect(() => {
-    if (!ownerPubkey || !liveMembers) return;
+    if (!active || !ownerPubkey || !liveMembers) return;
     let disposed = false;
     let dispose: (() => Promise<void>) | undefined;
     void subscribeCorrespondenceUpdates(
@@ -283,6 +286,7 @@ export function CorrespondenceWindow({
       void dispose?.();
     };
   }, [
+    active,
     ownerPubkey,
     liveMembers,
     liveSources,
@@ -298,7 +302,7 @@ export function CorrespondenceWindow({
       taskId,
     ],
     queryFn: () => getAgentInboxReadPositions(taskId ? [taskId] : []),
-    enabled: Boolean(taskId),
+    enabled: Boolean(active && taskId),
     retry: false,
   });
   const participantKeys = [
@@ -308,7 +312,7 @@ export function CorrespondenceWindow({
     ]),
   ];
   const profiles = useUsersBatchQuery(participantKeys, {
-    enabled: participantKeys.length > 0,
+    enabled: active && participantKeys.length > 0,
   }).data?.profiles;
   const nameOf = React.useCallback(
     (pubkey: string) => {
@@ -344,14 +348,14 @@ export function CorrespondenceWindow({
     undefined,
   );
   const latestReadEventId = latestReadEvent?.id;
-  useTaskChatScroll(embedded, scrollRef, taskId, latestReadEventId);
+  useTaskChatScroll(active && embedded, scrollRef, taskId, latestReadEventId);
   const unreadCount = taskId
     ? taskUnreadCount(events, ownerPubkey, readPosition.data?.[taskId])
     : null;
   React.useEffect(() => {
     const end = readEndRef.current;
     const root = scrollRef.current;
-    if (!end || !root || !taskId || !latestReadEventId) return;
+    if (!active || !end || !root || !taskId || !latestReadEventId) return;
     let visible = false;
     let pending = false;
     let disposed = false;
@@ -402,7 +406,14 @@ export function CorrespondenceWindow({
       observer.disconnect();
       document.removeEventListener("visibilitychange", mark);
     };
-  }, [latestReadEventId, taskId, workspace, correspondenceId, queryClient]);
+  }, [
+    active,
+    latestReadEventId,
+    taskId,
+    workspace,
+    correspondenceId,
+    queryClient,
+  ]);
   const root = task
     ? events.find(
         (event) =>
@@ -566,6 +577,7 @@ export function CorrespondenceWindow({
     <section
       className="flex h-full min-h-0 flex-col bg-background text-foreground"
       data-testid="correspondence-window"
+      inert={!active}
     >
       {embedded ? (
         <TaskChatHeader

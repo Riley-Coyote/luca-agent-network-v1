@@ -47,21 +47,18 @@ export function ForumComposerMediaStatus({
         </div>
       ) : null}
 
-      {(media.pendingImeta.length > 0 || media.isUploading) && (
-        <div className="mb-2 flex items-center gap-2">
-          <ComposerAttachments
-            attachments={media.pendingImeta}
-            isUploading={media.isUploading}
-            onCancelUpload={media.cancelUpload}
-            onEditSave={handleEditSave}
-            onRemove={media.removeAttachment}
-            onRevert={media.revertAttachment}
-            originalUrlByUrl={media.originalUrlByUrl}
-            uploadingCount={media.uploadingCount}
-            uploadingPreviews={media.uploadingPreviews}
-          />
-        </div>
-      )}
+      <ComposerAttachments
+        className="mb-2"
+        attachments={media.pendingImeta}
+        isUploading={media.isUploading}
+        onCancelUpload={media.cancelUpload}
+        onEditSave={handleEditSave}
+        onRemove={media.removeAttachment}
+        onRevert={media.revertAttachment}
+        originalUrlByUrl={media.originalUrlByUrl}
+        uploadingCount={media.uploadingCount}
+        uploadingPreviews={media.uploadingPreviews}
+      />
     </>
   );
 }

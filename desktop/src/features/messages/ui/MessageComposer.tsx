@@ -1654,23 +1654,20 @@ function MessageComposerImpl({
               </div>
             ) : null}
 
-            {(media.pendingImeta.length > 0 || media.isUploading) && (
-              <div className="mb-2 flex items-center gap-2">
-                <ComposerAttachments
-                  attachments={media.pendingImeta}
-                  isUploading={media.isUploading}
-                  onCancelUpload={media.cancelUpload}
-                  uploadingCount={media.uploadingCount}
-                  uploadingPreviews={media.uploadingPreviews}
-                  onEditSave={handleAttachmentEditSave}
-                  onRemove={handleRemoveAttachment}
-                  onRevert={handleAttachmentRevert}
-                  originalUrlByUrl={media.originalUrlByUrl}
-                  onToggleSpoiler={handleToggleAttachmentSpoiler}
-                  spoileredUrls={spoileredAttachmentUrls}
-                />
-              </div>
-            )}
+            <ComposerAttachments
+              className="mb-2"
+              attachments={media.pendingImeta}
+              isUploading={media.isUploading}
+              onCancelUpload={media.cancelUpload}
+              uploadingCount={media.uploadingCount}
+              uploadingPreviews={media.uploadingPreviews}
+              onEditSave={handleAttachmentEditSave}
+              onRemove={handleRemoveAttachment}
+              onRevert={handleAttachmentRevert}
+              originalUrlByUrl={media.originalUrlByUrl}
+              onToggleSpoiler={handleToggleAttachmentSpoiler}
+              spoileredUrls={spoileredAttachmentUrls}
+            />
 
             <div className="luca-composer-controls">
               <ComposerAddMenu

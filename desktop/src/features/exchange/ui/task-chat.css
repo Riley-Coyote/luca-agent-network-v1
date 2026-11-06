@@ -8,9 +8,34 @@
   overflow: hidden;
   background: hsl(var(--mn-surface));
 }
-/* One right-hand conversation at a time. The inspector keeps its state. */
+/* One layout allocation, with the inspector retained underneath. Only the
+   local cards crossfade; the reading column never reflows frame by frame. */
+[data-luca-right-cards]:has(> .luca-task-chat) {
+  position: relative;
+}
 [data-luca-right-cards]:has(> .luca-task-chat) > :not(.luca-task-chat) {
-  display: none;
+  position: absolute;
+  top: var(--mn-card-lip, 0px);
+  bottom: var(--mn-card-lip, 0px);
+  right: var(--mn-card-lip, 0px);
+  pointer-events: none;
+  transition:
+    opacity var(--motion-duration-standard) var(--motion-ease-standard),
+    visibility 0s;
+}
+[data-luca-right-cards]:has(> .luca-task-chat[data-panel-open="true"])
+  > :not(.luca-task-chat) {
+  opacity: 0;
+  /* Leave the fade intact, then remove the covered card from frameCards'
+     visible-card measurements so it casts no phantom day shadow. Closing
+     reverses opacity from its current value and restores visibility at once. */
+  visibility: hidden;
+  transition:
+    opacity var(--motion-duration-standard) var(--motion-ease-standard),
+    visibility 0s linear var(--motion-duration-standard);
+}
+.luca-task-chat {
+  z-index: 1;
 }
 [data-luca-right-cards]:has(> .luca-task-chat[data-overlay]) {
   position: absolute;
@@ -20,6 +45,17 @@
 }
 .luca-task-chat[data-overlay] {
   width: min(480px, calc(100vw - 72px));
+}
+@media (prefers-reduced-motion: reduce) {
+  .luca-task-chat,
+  [data-luca-right-cards]:has(> .luca-task-chat) > :not(.luca-task-chat),
+  [data-luca-right-cards]:has(> .luca-task-chat[data-panel-open="true"])
+    > :not(.luca-task-chat) {
+    transition: none;
+  }
+  .luca-task-chat[data-panel-open="false"] {
+    transform: none;
+  }
 }
 .luca-task-chat .luca-measure {
   width: 100%;

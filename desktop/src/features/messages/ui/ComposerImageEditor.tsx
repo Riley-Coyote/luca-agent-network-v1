@@ -376,7 +376,7 @@ export function ComposerImageEditor({
 
       <div className="fixed right-4 top-4 z-20 flex items-center gap-3">
         <div
-          className="flex items-center gap-3 animate-in fade-in slide-in-from-right-12 duration-300"
+          className="flex items-center gap-3 animate-in fade-in motion-safe:slide-in-from-right-12 duration-300"
           data-testid="composer-image-editor-toolbar"
         >
           <input
@@ -396,7 +396,7 @@ export function ComposerImageEditor({
                 aria-label={`${color.label} pen`}
                 aria-pressed={activeColor === color.value}
                 className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded-full transition-transform",
+                  "flex h-5 w-5 items-center justify-center rounded-full transition-transform motion-reduce:transition-none",
                   activeColor === color.value && "scale-110 ring-2 ring-white",
                 )}
                 key={color.value}
@@ -405,7 +405,7 @@ export function ComposerImageEditor({
               >
                 <span
                   className={cn(
-                    "rounded-full transition-[height,width]",
+                    "rounded-full transition-[height,width] motion-reduce:transition-none",
                     color.label === "Black" && "ring-1 ring-white/30",
                   )}
                   style={{

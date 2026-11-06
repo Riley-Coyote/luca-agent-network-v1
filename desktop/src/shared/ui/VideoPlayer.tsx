@@ -27,6 +27,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { Spinner } from "./spinner";
 import { useNaturalVideoAspectRatio } from "./videoAspectRatio";
+import { attachVideoGlow } from "./videoGlowScheduler";
 import { useVideoContextMenu } from "./useVideoContextMenu";
 import {
   getInlinePlaybackPosition,
@@ -320,8 +321,8 @@ function useThrottledVideoSeek(
 }
 
 /**
- * Ambient-light glow behind the review video: a small canvas continuously
- * redraws downscaled video frames at ~15fps, then a heavy blur + saturation
+ * Ambient-light glow behind the review video: a small canvas samples decoded
+ * video frames at up to ~15fps, then a heavy blur + saturation
  * smears them into a soft colour wash (the same technique as
  * blog.maximeheckel.com's media player glow).
  */
@@ -335,31 +336,11 @@ function VideoGlow({
   React.useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
-
-    const frameInterval = 1000 / 15;
-    let frameId = 0;
-    let lastDrawTime = 0;
-
-    const draw = (timestamp: number) => {
-      const video = videoRef.current;
-      if (
-        video &&
-        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-        timestamp - lastDrawTime >= frameInterval
-      ) {
-        try {
-          context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        } catch {
-          // Frame not decodable yet — skip and retry on a later frame.
-        }
-        lastDrawTime = timestamp;
-      }
-      frameId = window.requestAnimationFrame(draw);
-    };
-
-    frameId = window.requestAnimationFrame(draw);
-    return () => window.cancelAnimationFrame(frameId);
+    const video = videoRef.current;
+    if (!canvas || !context || !video) return;
+    return attachVideoGlow(video, () => {
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    });
   }, [videoRef]);
 
   return (

@@ -1,5 +1,11 @@
 import * as React from "react";
-import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import {
+  AnimatePresence,
+  LayoutGroup,
+  motion,
+  useIsPresent,
+  useReducedMotion,
+} from "motion/react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Bot,
@@ -52,6 +58,7 @@ export function DropZoneOverlay({ className }: { className?: string }) {
 }
 
 type ComposerAttachmentsProps = {
+  className?: string;
   attachments: ImetaMedia[];
   isUploading?: boolean;
   onCancelUpload?: (previewId: number) => void;
@@ -67,6 +74,43 @@ type ComposerAttachmentsProps = {
   onToggleSpoiler?: (url: string) => void;
   spoileredUrls?: ReadonlySet<string>;
 };
+
+// Cosmetic exits must not strand keyboard focus on a control being removed.
+// Do not steal focus when an upload finishes or Send clears the attachment list.
+function focusEditorBeforeRemoval(event: React.MouseEvent<HTMLButtonElement>) {
+  const button = event.currentTarget;
+  if (button.ownerDocument.activeElement !== button) return;
+  button
+    .closest("form")
+    ?.querySelector<HTMLElement>('[contenteditable="true"], textarea')
+    ?.focus({ preventScroll: true });
+}
+
+function AttachmentTray({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      aria-hidden={!isPresent || undefined}
+      inert={!isPresent}
+      layout={!reduceMotion}
+      className={cn("flex items-center gap-2", className)}
+      transition={
+        reduceMotion
+          ? { duration: 0.15 }
+          : { type: "spring", stiffness: 500, damping: 30 }
+      }
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 function formatAttachmentSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -97,6 +141,7 @@ function ComposerSnapshotCard({
   onRemove: (url: string) => void;
   snapshotKind: SnapshotKind;
 }) {
+  const reduceMotion = useReducedMotion();
   const [thumbError, setThumbError] = React.useState(false);
   const isAgentPng =
     snapshotKind === "agent" &&
@@ -111,12 +156,16 @@ function ComposerSnapshotCard({
 
   return (
     <motion.div
-      animate={{ opacity: 1, scale: 1 }}
+      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }}
       className="min-w-0 max-w-full"
-      exit={{ opacity: 0, scale: 0.8 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
       initial={false}
-      layout
-      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+      layout={!reduceMotion}
+      transition={
+        reduceMotion
+          ? { duration: 0.15 }
+          : { type: "spring", stiffness: 500, damping: 30 }
+      }
     >
       <Attachment
         className="w-fit max-w-full shadow-none"
@@ -163,7 +212,10 @@ function ComposerSnapshotCard({
             aria-label={`Remove ${displayName}`}
             className="border-0 bg-transparent text-ink-faint shadow-none hover:text-foreground hover:shadow-none focus-visible:bg-muted focus-visible:ring-0"
             data-testid={`composer-${snapshotKind}-snapshot-remove`}
-            onClick={() => onRemove(attachment.url)}
+            onClick={(event) => {
+              focusEditorBeforeRemoval(event);
+              onRemove(attachment.url);
+            }}
             title="Remove"
             type="button"
           >
@@ -224,6 +276,7 @@ const MediaAttachmentItem = React.forwardRef<
   },
   ref,
 ) {
+  const reduceMotion = useReducedMotion();
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<"view" | "edit">("view");
 
@@ -285,11 +338,15 @@ const MediaAttachmentItem = React.forwardRef<
   return (
     <motion.div
       ref={ref}
-      layout
+      layout={!reduceMotion}
       initial={false}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.8 }}
-      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+      transition={
+        reduceMotion
+          ? { duration: 0.15 }
+          : { type: "spring", stiffness: 500, damping: 30 }
+      }
       className="group relative"
     >
       <div
@@ -481,7 +538,10 @@ const MediaAttachmentItem = React.forwardRef<
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={() => onRemove(attachment.url)}
+              onClick={(event) => {
+                focusEditorBeforeRemoval(event);
+                onRemove(attachment.url);
+              }}
               className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-foreground text-background group-hover:flex"
             >
               <X className="h-2.5 w-2.5" />
@@ -500,6 +560,7 @@ const MediaAttachmentItem = React.forwardRef<
  * a short hash label (e.g. "a3f2").
  */
 export const ComposerAttachments = React.memo(function ComposerAttachments({
+  className,
   attachments,
   isUploading = false,
   uploadingCount = 0,
@@ -512,7 +573,8 @@ export const ComposerAttachments = React.memo(function ComposerAttachments({
   onToggleSpoiler,
   spoileredUrls,
 }: ComposerAttachmentsProps) {
-  if (attachments.length === 0 && !isUploading) return null;
+  const reduceMotion = useReducedMotion();
+  const hasAttachments = attachments.length > 0 || isUploading;
 
   const uploadPlaceholders: UploadingAttachmentPreview[] =
     uploadingPreviews.length > 0
@@ -523,145 +585,172 @@ export const ComposerAttachments = React.memo(function ComposerAttachments({
 
   return (
     <LayoutGroup>
-      <motion.div
-        layout
-        className="flex items-center gap-2"
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-      >
-        <AnimatePresence mode="popLayout">
-          {attachments.map((attachment) => {
-            const hash = shortHash(attachment.sha256);
-            const isVideo = attachment.type.startsWith("video/");
-            const isImage = attachment.type.startsWith("image/");
-            const isFile = !isVideo && !isImage;
+      <AnimatePresence initial={false}>
+        {hasAttachments && (
+          <AttachmentTray key="attachment-tray" className={className}>
+            {/* Propagate removal so the final item's exit keeps its tray alive. */}
+            <AnimatePresence mode="popLayout" propagate>
+              {attachments.map((attachment) => {
+                const hash = shortHash(attachment.sha256);
+                const isVideo = attachment.type.startsWith("video/");
+                const isImage = attachment.type.startsWith("image/");
+                const isFile = !isVideo && !isImage;
 
-            const snapshotKind = getSnapshotKind(attachment);
-            if (snapshotKind) {
-              return (
-                <ComposerSnapshotCard
-                  attachment={attachment}
-                  key={attachment.url}
-                  onRemove={onRemove}
-                  snapshotKind={snapshotKind}
-                />
-              );
-            }
+                const snapshotKind = getSnapshotKind(attachment);
+                if (snapshotKind) {
+                  return (
+                    <ComposerSnapshotCard
+                      attachment={attachment}
+                      key={attachment.url}
+                      onRemove={onRemove}
+                      snapshotKind={snapshotKind}
+                    />
+                  );
+                }
 
-            // Generic file: compact chip with a file icon + filename, plus the
-            // same remove button. No lightbox (nothing to preview).
-            if (isFile) {
-              const label =
-                attachment.filename ||
-                attachment.url.split("/").pop() ||
-                `file ${hash}`;
-              return (
-                <motion.div
-                  key={attachment.url}
-                  layout
-                  initial={false}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                  className="group relative"
-                >
-                  <div className="flex h-5 max-w-40 items-center gap-1 rounded border border-border/70 bg-muted px-1.5">
-                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate text-2xs text-muted-foreground">
-                      {label}
-                    </span>
-                  </div>
-                  <Tooltip disableHoverableContent>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => onRemove(attachment.url)}
-                        className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-foreground text-background group-hover:flex"
-                      >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Remove attachment</TooltipContent>
-                  </Tooltip>
-                </motion.div>
-              );
-            }
+                // Generic file: compact chip with a file icon + filename, plus the
+                // same remove button. No lightbox (nothing to preview).
+                if (isFile) {
+                  const label =
+                    attachment.filename ||
+                    attachment.url.split("/").pop() ||
+                    `file ${hash}`;
+                  return (
+                    <motion.div
+                      key={attachment.url}
+                      layout={!reduceMotion}
+                      initial={false}
+                      animate={
+                        reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }
+                      }
+                      exit={
+                        reduceMotion
+                          ? { opacity: 0 }
+                          : { opacity: 0, scale: 0.8 }
+                      }
+                      transition={
+                        reduceMotion
+                          ? { duration: 0.15 }
+                          : { type: "spring", stiffness: 500, damping: 30 }
+                      }
+                      className="group relative"
+                    >
+                      <div className="flex h-5 max-w-40 items-center gap-1 rounded border border-border/70 bg-muted px-1.5">
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate text-2xs text-muted-foreground">
+                          {label}
+                        </span>
+                      </div>
+                      <Tooltip disableHoverableContent>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              focusEditorBeforeRemoval(event);
+                              onRemove(attachment.url);
+                            }}
+                            className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-foreground text-background group-hover:flex"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Remove attachment</TooltipContent>
+                      </Tooltip>
+                    </motion.div>
+                  );
+                }
 
-            const originalUrl = originalUrlByUrl?.get(attachment.url);
-            return (
-              <MediaAttachmentItem
-                attachment={attachment}
-                isSpoilered={spoileredUrls?.has(attachment.url) ?? false}
-                // Annotated attachments keep their original URL as the key so
-                // the in-place edit/revert URL swap doesn't remount the item
-                // (which would close its open lightbox dialog).
-                key={originalUrl ?? attachment.url}
-                onEditSave={onEditSave}
-                onRemove={onRemove}
-                onRevert={onRevert}
-                onToggleSpoiler={onToggleSpoiler}
-                originalUrl={originalUrl}
-              />
-            );
-          })}
-          {isUploading &&
-            uploadPlaceholders.map((preview) => (
-              <motion.div
-                key={`upload-placeholder-${preview.id}`}
-                layout
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                className="group relative"
-              >
-                <div
-                  className="relative h-[55px] max-w-[55px]"
-                  style={composerMediaStyle()}
-                >
-                  <div className="h-full w-full overflow-hidden rounded-2xl border border-border/70 bg-muted">
-                    {preview.posterUrl ? (
-                      <img
-                        src={preview.posterUrl}
-                        alt={`Uploading ${preview.filename ?? "video"}`}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="h-full w-full animate-pulse bg-muted" />
-                    )}
-                    <div className="absolute inset-0 flex items-end rounded-2xl bg-background/25 px-2 pb-1.5">
-                      <Progress
-                        aria-label={`Uploading ${preview.filename ?? "attachment"}`}
-                        className={cn(
-                          "h-1",
-                          preview.posterUrl
-                            ? "bg-white/30 [&>div]:bg-white"
-                            : "bg-foreground/15 [&>div]:bg-foreground/80",
+                const originalUrl = originalUrlByUrl?.get(attachment.url);
+                return (
+                  <MediaAttachmentItem
+                    attachment={attachment}
+                    isSpoilered={spoileredUrls?.has(attachment.url) ?? false}
+                    // Annotated attachments keep their original URL as the key so
+                    // the in-place edit/revert URL swap doesn't remount the item
+                    // (which would close its open lightbox dialog).
+                    key={originalUrl ?? attachment.url}
+                    onEditSave={onEditSave}
+                    onRemove={onRemove}
+                    onRevert={onRevert}
+                    onToggleSpoiler={onToggleSpoiler}
+                    originalUrl={originalUrl}
+                  />
+                );
+              })}
+              {isUploading &&
+                uploadPlaceholders.map((preview) => (
+                  <motion.div
+                    key={`upload-placeholder-${preview.id}`}
+                    layout={!reduceMotion}
+                    initial={
+                      reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }
+                    }
+                    animate={
+                      reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }
+                    }
+                    exit={
+                      reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }
+                    }
+                    transition={
+                      reduceMotion
+                        ? { duration: 0.15 }
+                        : { type: "spring", stiffness: 500, damping: 30 }
+                    }
+                    className="group relative"
+                  >
+                    <div
+                      className="relative h-[55px] max-w-[55px]"
+                      style={composerMediaStyle()}
+                    >
+                      <div className="h-full w-full overflow-hidden rounded-2xl border border-border/70 bg-muted">
+                        {preview.posterUrl ? (
+                          <img
+                            src={preview.posterUrl}
+                            alt={`Uploading ${preview.filename ?? "video"}`}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="h-full w-full animate-pulse bg-muted" />
                         )}
-                        data-testid="upload-progress"
-                        value={preview.progress ?? null}
-                      />
+                        <div className="absolute inset-0 flex items-end rounded-2xl bg-background/25 px-2 pb-1.5">
+                          <Progress
+                            aria-label={`Uploading ${preview.filename ?? "attachment"}`}
+                            className={cn(
+                              "h-1",
+                              preview.posterUrl
+                                ? "bg-white/30 [&>div]:bg-white"
+                                : "bg-foreground/15 [&>div]:bg-foreground/80",
+                            )}
+                            data-testid="upload-progress"
+                            value={preview.progress ?? null}
+                          />
+                        </div>
+                      </div>
+                      {onCancelUpload && preview.id >= 0 ? (
+                        <Tooltip disableHoverableContent>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label="Cancel upload"
+                              onClick={(event) => {
+                                focusEditorBeforeRemoval(event);
+                                onCancelUpload(preview.id);
+                              }}
+                              className="absolute -right-1 -top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Cancel upload</TooltipContent>
+                        </Tooltip>
+                      ) : null}
                     </div>
-                  </div>
-                  {onCancelUpload && preview.id >= 0 ? (
-                    <Tooltip disableHoverableContent>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label="Cancel upload"
-                          onClick={() => onCancelUpload(preview.id)}
-                          className="absolute -right-1 -top-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background"
-                        >
-                          <X className="h-2.5 w-2.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Cancel upload</TooltipContent>
-                    </Tooltip>
-                  ) : null}
-                </div>
-              </motion.div>
-            ))}
-        </AnimatePresence>
-      </motion.div>
+                  </motion.div>
+                ))}
+            </AnimatePresence>
+          </AttachmentTray>
+        )}
+      </AnimatePresence>
     </LayoutGroup>
   );
 });
