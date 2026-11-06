@@ -1,6 +1,85 @@
 import { expect, test } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { waitForAnimations } from "../helpers/animations";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
+
+test.describe("wet gloss accessibility", () => {
+  for (const theme of ["dark", "light"]) {
+    test(`decorative words are not repeated and pixels are unchanged in ${theme}`, async ({
+      page,
+    }, testInfo) => {
+      await page.addInitScript(
+        ({ theme, key }) => {
+          localStorage.setItem(
+            "buzz-theme",
+            theme === "light" ? "paper" : "buzz-dark",
+          );
+          localStorage.setItem(key, JSON.stringify({ "shell-frame": false }));
+        },
+        { theme, key: FEATURE_OVERRIDES_STORAGE_KEY },
+      );
+      await installMockBridge(page);
+      await page.goto("/");
+      await page.getByTestId("channel-engineering").click();
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName: "engineering",
+            }),
+          ),
+        )
+        .toBe(true);
+      await page.evaluate((pubkey) => {
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelName: "engineering",
+          pubkey,
+          content:
+            "[actually makes it back this time](ink:curiosity?wet)\n\nvery very useful",
+        });
+      }, TEST_IDENTITIES.alice.pubkey);
+      const phrase = page.locator("[data-expression-wet]");
+      await expect(phrase).toHaveText("actually makes it back this time");
+      const word = phrase.locator("[data-expression-wet-word]").first();
+      expect((await word.ariaSnapshot()).match(/\bactually\b/g)).toHaveLength(
+        1,
+      );
+      await expect(
+        page.getByText("very very useful", { exact: true }),
+      ).toBeVisible();
+
+      // Hold the approved gloss still so only its accessibility alternative differs.
+      await page.addStyleTag({
+        content:
+          "[data-expression-wet-word] { --ink-light: 10px !important; } [data-expression-wet-word]::after { opacity: 1 !important; transition: none !important; }",
+      });
+      await waitForAnimations(page);
+      const candidate = await phrase.screenshot({
+        path: testInfo.outputPath("wet-gloss.png"),
+      });
+      const original = await page.addStyleTag({
+        content:
+          "[data-expression-wet-word]::after { content: attr(data-ink-text); }",
+      });
+      // This is the actual pre-fix failure, not merely a computed CSS assertion.
+      expect((await word.ariaSnapshot()).match(/\bactually\b/g)).toHaveLength(
+        2,
+      );
+      await waitForAnimations(page);
+      expect(await phrase.screenshot()).toEqual(candidate);
+      await original.evaluate((element) => element.remove());
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      expect((await word.ariaSnapshot()).match(/\bactually\b/g)).toHaveLength(
+        1,
+      );
+      expect(
+        await word.evaluate(
+          (element) => getComputedStyle(element, "::after").display,
+        ),
+      ).toBe("none");
+    });
+  }
+});
 
 for (const theme of ["dark", "light"]) {
   test(`incoming expression fills in ${theme} and narrow layouts`, async ({

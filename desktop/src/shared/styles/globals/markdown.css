@@ -360,7 +360,8 @@
 }
 @supports (background-clip: text) or (-webkit-background-clip: text) {
   [data-expression-wet-word]::after {
-    content: attr(data-ink-text);
+    /* The gloss repeats the ink visually, never in the accessible text. */
+    content: attr(data-ink-text) / "";
     position: absolute;
     top: 0;
     left: 0;

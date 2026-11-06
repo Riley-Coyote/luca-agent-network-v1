@@ -113,6 +113,25 @@ test("named palette matches shipped CSS without theme remapping", () => {
   assert.doesNotMatch(css, /\.dark \[data-expression-/);
 });
 
+test("wet ink's decorative gloss has an empty accessible alternative", () => {
+  const css = readFileSync(
+    new URL("../../styles/globals/markdown.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    css,
+    /\[data-expression-wet-word\]::after\s*\{[^}]*content:\s*attr\(data-ink-text\)\s*\/\s*"";/,
+  );
+  for (const streaming of [false, true]) {
+    const html = render(
+      "[actually makes it back](ink:curiosity?wet)",
+      streaming,
+    );
+    assert.equal((html.match(/>actually</g) ?? []).length, 1);
+    assert.match(render("very very useful", streaming), /very very useful/);
+  }
+});
+
 test("precise hex and HSL fills preserve authored color in finalized and streaming text", () => {
   for (const streaming of [false, true]) {
     for (const [color, expected] of [
