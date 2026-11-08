@@ -148,6 +148,53 @@ test("native work remains unavailable without an authorized companion source", a
   expect(await commandCount(page, "open_dm")).toBe(0);
 });
 
+test("temporary visitors do not block Luca's existing home or native workspaces", async ({
+  page,
+}) => {
+  const conversationId = await boot(page);
+  const dmCalls = await commandCount(page, "open_dm");
+  await page.evaluate((id) => {
+    type HomeChannel = {
+      id: string;
+      participantPubkeys: string[];
+      guestPubkeys?: string[];
+    };
+    const runtime = window as unknown as {
+      __BUZZ_E2E_QUERY_CLIENT__: {
+        setQueryData: (
+          key: string[],
+          update: (channels: HomeChannel[]) => HomeChannel[],
+        ) => void;
+      };
+    };
+    const visitor = "b".repeat(64);
+    runtime.__BUZZ_E2E_QUERY_CLIENT__.setQueryData(["channels"], (channels) =>
+      channels.map((channel) =>
+        channel.id === id
+          ? {
+              ...channel,
+              participantPubkeys: [...channel.participantPubkeys, visitor],
+              guestPubkeys: [visitor],
+            }
+          : channel,
+      ),
+    );
+  }, conversationId);
+  await openWorkspace(page, "claude");
+  await expect(
+    sessionRow(page, "Review native workspace layout"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Open conversation", exact: true })
+    .click();
+  await expect(
+    page.getByRole("complementary", { name: "Luca conversation" }),
+  ).toBeVisible();
+  expect(await commandCount(page, "open_dm")).toBe(dmCalls);
+  expect(await startCalls(page)).toHaveLength(0);
+});
+
 test("closing and reopening Luca keeps the canonical conversation and draft without stopping work", async ({
   page,
 }) => {

@@ -71,3 +71,38 @@ test("the primary identity is registry-backed, never inferred from Luca casing",
     null,
   );
 });
+
+test("Luca's home keeps its identity while a temporary guest is visiting", async () => {
+  const { isCanonicalLucaDm } = await import(
+    "../../luca/canonicalLucaResident.ts"
+  );
+  const owner = "c".repeat(64);
+  const channel = {
+    id: "existing-home",
+    channelType: "dm",
+    participantPubkeys: [owner, primary, other.toUpperCase()],
+    guestPubkeys: [other],
+  };
+  assert.equal(isCanonicalLucaDm(channel, owner, primary), true);
+  assert.equal(
+    isCanonicalLucaDm({ ...channel, guestPubkeys: [] }, owner, primary),
+    false,
+    "a permanent third participant must not become Luca's home",
+  );
+  assert.equal(
+    isCanonicalLucaDm({ ...channel, guestPubkeys: undefined }, owner, primary),
+    false,
+    "missing guest evidence must not relax the participant check",
+  );
+  for (const required of [owner, primary]) {
+    assert.equal(
+      isCanonicalLucaDm(
+        { ...channel, guestPubkeys: [other, required] },
+        owner,
+        primary,
+      ),
+      false,
+      "owner and Luca must both remain permanent participants",
+    );
+  }
+});

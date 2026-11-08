@@ -812,15 +812,32 @@ test("All activity's task rows open the task's page", async ({ page }) => {
   await shot(page, "task-from-all-activity-night");
 });
 
-test("the app page's What Luca did with it rows open the task's page", async ({
+test("the harness workspace opens a recorded task inline without starting work", async ({
   page,
 }) => {
   await boot(page, { hash: "/apps/claude" });
-  const row = page.getByTestId("connected-task-task-build");
+  const row = page
+    .getByRole("complementary", { name: "Session catalogue" })
+    .getByRole("button", { name: /^Fix the failing build/ });
   await expect(row).toBeVisible({ timeout: 20_000 });
-  await row.getByRole("button").click();
-  await landedOnTask(page, "task-build", "Fix the failing build");
-  measure("from_app_page", { page: await readPage(page) });
+  await row.click();
+  const selected = page.getByRole("region", { name: "Selected session" });
+  await expect(
+    selected.getByRole("heading", {
+      name: "Fix the failing build",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(selected.getByText(RESULTS["task-build"])).toBeVisible();
+  expect(
+    (await calls(page)).filter((call) =>
+      ["start_runtime_task", "cancel_runtime_task"].includes(call.command),
+    ),
+  ).toHaveLength(0);
+  await expect.poll(() => page.url()).toContain("#/apps/claude");
+  measure("from_app_page", {
+    selectedTitle: await selected.locator("h2").textContent(),
+  });
   await shot(page, "task-from-app-page-night");
 });
 

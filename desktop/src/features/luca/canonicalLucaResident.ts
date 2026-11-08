@@ -113,8 +113,13 @@ export function isCanonicalLucaDm(
 ) {
   if (channel?.channelType !== "dm" || !ownerPubkey || !lucaPubkey)
     return false;
+  // A visiting resident has temporary transport access, not a permanent seat
+  // in the DM. Keep the same participant rule as its title and identity marks.
+  const guests = new Set((channel.guestPubkeys ?? []).map(normalizePubkey));
   const participants = new Set(
-    channel.participantPubkeys.map((pubkey) => normalizePubkey(pubkey)),
+    channel.participantPubkeys
+      .map(normalizePubkey)
+      .filter((pubkey) => !guests.has(pubkey)),
   );
   return (
     participants.size === 2 &&

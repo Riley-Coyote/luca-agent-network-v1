@@ -12,6 +12,8 @@ It does not replace the last-conversation startup route or Luca’s canonical ho
 - Claude Code and Codex sidebar entries open their workspaces directly. Other
   harnesses and the classic, shell-off page keep their existing behavior.
 - Home’s Luca composer and side conversation send to the existing canonical DM.
+  Temporary visitors do not change its permanent owner/Luca identity; an actual
+  third permanent participant is still rejected as a different conversation.
   Selected work is an explicitly visible reference, not a tool instruction or grant.
   Closing a view never stops work; Stop remains a separate action.
   Work references are bound to their original owner/relay scope, including browser
