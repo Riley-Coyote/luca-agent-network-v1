@@ -93,6 +93,7 @@ function HarnessAppPage({
           void navigate({
             to: "/dashboard",
             search: {
+              scope: companion.contextScope,
               task: context.taskId,
               session: context.sessionId,
               title: context.title,

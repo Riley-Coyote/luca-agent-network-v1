@@ -14,6 +14,8 @@ It does not replace the last-conversation startup route or Luca’s canonical ho
 - Home’s Luca composer and side conversation send to the existing canonical DM.
   Selected work is an explicitly visible reference, not a tool instruction or grant.
   Closing a view never stops work; Stop remains a separate action.
+  Work references are bound to their original owner/relay scope, including browser
+  Back/Forward. Restoring a link from another scope cannot attach its metadata.
 
 ## Native session boundaries
 
@@ -26,6 +28,10 @@ Read/action references expire after five minutes and on process restart. They bi
 owner, relay, app profile, native profile, resident, conversation and runtime binding.
 Refresh obtains new references without changing the stable UI selection or draft.
 Resident tools cannot use owner-dashboard references as lookup/read authority.
+Only a selected send-capable session refreshes its transcript every four seconds
+while visible. Hidden views and other tabs stop those reads. Catalogue refreshes
+are infrequent; errors can request bounded, exact-scope lease recovery. Refreshes
+coalesce with in-flight reads and never replace one session with another’s text.
 
 Starting, continuing and messaging are distinct existing runtime-task operations:
 

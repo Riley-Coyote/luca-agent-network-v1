@@ -16,6 +16,7 @@ export const Route = createFileRoute("/dashboard")({
     session?: string;
     title?: string;
     runtime?: "claude_code" | "codex";
+    scope?: string;
   } => ({
     task:
       typeof search.task === "string" ? search.task.slice(0, 128) : undefined,
@@ -29,11 +30,15 @@ export const Route = createFileRoute("/dashboard")({
       search.runtime === "claude_code" || search.runtime === "codex"
         ? search.runtime
         : undefined,
+    scope:
+      typeof search.scope === "string" && /^[a-f0-9]{64}$/.test(search.scope)
+        ? search.scope
+        : undefined,
   }),
   component: DashboardRoute,
 });
 function DashboardRoute() {
-  const { task, session, title, runtime } = Route.useSearch();
+  const { task, session, title, runtime, scope } = Route.useSearch();
   return (
     <React.Suspense
       fallback={<ViewLoadingFallback includeHeader kind="pulse" />}
@@ -41,8 +46,9 @@ function DashboardRoute() {
       <HomeDashboard
         aboutTaskId={task}
         initialContext={
-          runtime && title
+          runtime && title && scope
             ? {
+                origin: scope,
                 title,
                 runtimeFamily: runtime,
                 taskId: task,

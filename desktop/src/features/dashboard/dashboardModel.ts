@@ -1,4 +1,18 @@
 import type { RuntimeTaskProjection } from "@/shared/api/tauriRuntimeTasks";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+
+/** Opaque origin marker: never put a relay URL or its credentials in a handoff URL. */
+export function dashboardScopeRef(scope: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(scope)));
+}
+
+export function dashboardContextForScope<T extends { origin?: string }>(
+  context: T | null | undefined,
+  origin: string,
+): T | null {
+  return context?.origin === origin ? context : null;
+}
 
 export type DashboardTab = "overview" | "work" | "usage";
 export const HARNESS_NAMES = {

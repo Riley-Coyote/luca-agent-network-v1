@@ -8,6 +8,7 @@ import {
 import { useLucaResidentsQuery } from "@/features/luca/residents/hooks";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import type { Channel } from "@/shared/api/types";
+import { dashboardScopeRef } from "./dashboardModel";
 
 /** Home and harness tasks use the same canonical companion DM, never a new transcript. */
 export function useCompanionHome() {
@@ -22,6 +23,7 @@ export function useCompanionHome() {
     ) ?? null;
   const openDm = useOpenDmMutation().mutateAsync;
   const scope = `${identity.data?.pubkey}:${activeCommunity?.id}:${activeCommunity?.relayUrl}:${residentPubkey}`;
+  const contextScope = dashboardScopeRef(scope);
   const latest = React.useRef(scope);
   latest.current = scope;
   React.useEffect(() => {
@@ -61,5 +63,6 @@ export function useCompanionHome() {
     ready: Boolean(residentPubkey && identity.data && activeCommunity),
     isLoading: identity.isLoading || registry.isLoading || channels.isLoading,
     scope,
+    contextScope,
   };
 }

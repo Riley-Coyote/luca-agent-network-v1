@@ -19,6 +19,7 @@ import { dashboardContextText } from "./dashboardModel";
 import type { useCompanionHome } from "./useCompanionHome";
 
 export type HomeContext = {
+  origin?: string;
   title: string;
   runtimeFamily: "claude_code" | "codex";
   taskId?: string;
@@ -45,6 +46,14 @@ export function useHomeConversation(
   );
   const [error, setError] = React.useState("");
   const lock = React.useRef(false);
+  const currentScope = React.useRef(companion.contextScope);
+  currentScope.current = companion.contextScope;
+  React.useEffect(() => {
+    currentScope.current = companion.contextScope;
+    return () => {
+      currentScope.current = "disposed";
+    };
+  }, [companion.contextScope]);
   const presentation = useConversationPresentation(channel?.id ?? null);
   const control = useResidentStopControl({
     channelId: channel?.id ?? null,
@@ -87,8 +96,16 @@ export function useHomeConversation(
     if (lock.current) throw new Error("Your message is already being sent.");
     lock.current = true;
     setError("");
+    const expectedScope = companion.contextScope;
     try {
       const targetChannel = await companion.ensureChannel();
+      if (
+        currentScope.current !== expectedScope ||
+        (context && context.origin !== expectedScope)
+      )
+        throw new Error(
+          "Your conversation scope changed. Nothing was sent; select the work again.",
+        );
       await send.mutateAsync({
         targetChannel,
         channelId: targetChannel.id,

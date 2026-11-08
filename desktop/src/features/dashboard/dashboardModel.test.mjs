@@ -6,9 +6,30 @@ import {
   dashboardTaskActive,
   dashboardTaskTime,
   dashboardTaskWord,
+  dashboardContextForScope,
+  dashboardScopeRef,
 } from "./dashboardModel.ts";
 
 describe("Home evidence and context", () => {
+  it("rejects history-restored work context from another owner or relay", () => {
+    const origin = dashboardScopeRef("owner-a:relay-a:resident-a");
+    const other = dashboardScopeRef("owner-a:relay-b:resident-a");
+    const context = { title: "Private work in A", origin };
+    assert.match(origin, /^[a-f0-9]{64}$/);
+    assert.equal(dashboardContextForScope(context, origin), context);
+    assert.equal(dashboardContextForScope(context, other), null);
+    assert.equal(
+      dashboardContextForScope({ title: "Unscoped old link" }, origin),
+      null,
+    );
+    assert.equal(
+      dashboardContextForScope(
+        context,
+        dashboardScopeRef("owner-b:relay-a:resident-a"),
+      ),
+      null,
+    );
+  });
   it("never reports external delivery as working or complete", () => {
     assert.equal(dashboardTaskActive({ state: "awaiting_native" }), false);
     assert.equal(

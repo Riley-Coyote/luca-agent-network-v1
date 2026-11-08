@@ -46,6 +46,7 @@ import {
   HARNESS_NAMES,
   dashboardSummary,
   dashboardTaskActive,
+  dashboardContextForScope,
   type DashboardTab,
 } from "./dashboardModel";
 import "./dashboard.css";
@@ -100,9 +101,19 @@ export function HomeDashboard({
     setChat(next);
   }, []);
   const [context, setContext] = React.useState<HomeContext | null>(
-    initialContext ?? null,
+    dashboardContextForScope(initialContext, companion.contextScope),
   );
-  const contextKey = JSON.stringify(initialContext ?? null);
+  const contextKey = JSON.stringify(
+    dashboardContextForScope(initialContext, companion.contextScope),
+  );
+  const previousScope = React.useRef(companion.contextScope);
+  React.useEffect(() => {
+    if (previousScope.current === companion.contextScope) return;
+    previousScope.current = companion.contextScope;
+    setContext(null);
+    setChat(false);
+    setPaneLeaving(false);
+  }, [companion.contextScope]);
   React.useEffect(() => {
     const next = JSON.parse(contextKey) as HomeContext | null;
     if (next) {
@@ -140,16 +151,24 @@ export function HomeDashboard({
       }
   };
   const selectedTask = tasks.find((task) => task.taskId === aboutTaskId);
+  const appliedTask = React.useRef("");
   React.useEffect(() => {
-    if (selectedTask) {
+    const selection = `${companion.contextScope}:${aboutTaskId ?? ""}`;
+    if (!aboutTaskId) {
+      appliedTask.current = "";
+      return;
+    }
+    if (selectedTask && appliedTask.current !== selection) {
+      appliedTask.current = selection;
       setContext({
         title: selectedTask.summary,
+        origin: companion.contextScope,
         runtimeFamily: selectedTask.runtimeFamily,
         taskId: selectedTask.taskId,
       });
       setChat(true);
     }
-  }, [selectedTask]);
+  }, [selectedTask, companion.contextScope, aboutTaskId]);
   const conversation = useHomeConversation(companion, chat);
   const { goChannel, goNeedsYou, goAgents } = useAppNavigation();
   const navigate = useNavigate();
@@ -167,7 +186,7 @@ export function HomeDashboard({
   const openTask = (task: RuntimeTaskProjection) =>
     openRuntime(task.runtimeFamily, task);
   const ask = (next: HomeContext) => {
-    setContext(next);
+    setContext({ ...next, origin: companion.contextScope });
     setChat(true);
   };
   const attention = [
@@ -186,7 +205,7 @@ export function HomeDashboard({
       conversation={conversation}
       open={chat}
       setOpen={setChatOpen}
-      context={context}
+      context={dashboardContextForScope(context, companion.contextScope)}
       clearContext={() => setContext(null)}
     />
   );

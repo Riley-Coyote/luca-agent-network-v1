@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   getHarnessSession,
@@ -24,6 +24,41 @@ function errorMessage(error: unknown): string {
     : typeof error === "string"
       ? error
       : "This local information could not be read. Refresh to try again.";
+}
+
+/** Only the selected send-capable native transcript receives a short refresh. */
+export function harnessTranscriptRefreshInterval(
+  enabled: boolean,
+  canSend: boolean,
+): number | false {
+  return enabled && canSend ? 4_000 : false;
+}
+
+/** Catalogue handles are checked slowly, and only for a visible authorized scope. */
+export function harnessCatalogueRefreshInterval(
+  visible: boolean,
+  hasScope: boolean,
+): number | false {
+  return visible && hasScope ? 240_000 : false;
+}
+
+/** A renewed handle may retain text only for the same exact scoped native identity. */
+export function harnessTranscriptPlaceholder<T>(
+  previous: T | undefined,
+  previousIdentity: unknown,
+  identity: string,
+): T | undefined {
+  return previousIdentity === identity ? previous : undefined;
+}
+
+/** Repeated transcript failures may reacquire metadata no more than once a minute. */
+export function createHarnessCatalogueRenewalGate() {
+  let nextAllowed = Number.NEGATIVE_INFINITY;
+  return (now = Date.now()) => {
+    if (now < nextAllowed) return false;
+    nextAllowed = now + 60_000;
+    return true;
+  };
 }
 
 /** Bounded reads only: effects, native events, explicit refresh and window focus. */
@@ -154,6 +189,11 @@ export function useHarnessWorkspaceData({
     retry: false,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    refetchInterval: harnessCatalogueRefreshInterval(
+      refreshState.visible,
+      Boolean(conversationId && residentPubkey),
+    ),
+    refetchIntervalInBackground: false,
   });
   const refetchCatalogue = catalogueQuery.refetch;
   React.useEffect(() => {
@@ -217,7 +257,15 @@ export function useHarnessTranscript({
   revision: number;
   ownerScope?: string;
 }) {
+  const queryClient = useQueryClient();
   const sessionId = session?.sessionId ?? null;
+  const identity = JSON.stringify([
+    ownerScope,
+    runtimeFamily,
+    conversationId,
+    residentPubkey,
+    session?.selectionKey ?? null,
+  ]);
   const key = JSON.stringify([
     ownerScope,
     runtimeFamily,
@@ -240,12 +288,74 @@ export function useHarnessTranscript({
       residentPubkey,
     });
   }, [runtimeFamily, conversationId, residentPubkey, sourceId, sessionId]);
-  return useHarnessSnapshot<HarnessSessionDetail>({
-    enabled:
-      visible &&
-      Boolean(sourceId && sessionId && conversationId && residentPubkey),
-    load,
-    key,
-    revision,
+  const enabled =
+    visible &&
+    Boolean(
+      sourceId &&
+        sessionId &&
+        session?.selectionKey &&
+        conversationId &&
+        residentPubkey,
+    );
+  const query = useQuery<HarnessSessionDetail>({
+    queryKey: ["harness-transcript", identity, sourceId, sessionId],
+    queryFn: load,
+    enabled,
+    retry: false,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchInterval: harnessTranscriptRefreshInterval(
+      enabled,
+      session?.canSend === true,
+    ),
+    refetchIntervalInBackground: false,
+    placeholderData: (previous, previousQuery) =>
+      harnessTranscriptPlaceholder(
+        previous,
+        previousQuery?.queryKey[1],
+        identity,
+      ),
   });
+  const refetch = query.refetch;
+  React.useEffect(() => {
+    if (enabled && revision) void refetch({ cancelRefetch: false });
+  }, [enabled, revision, refetch]);
+  const allowRenewal = React.useRef(createHarnessCatalogueRenewalGate());
+  const errorUpdatedAt = query.errorUpdatedAt;
+  const hasReadError = query.isError;
+  React.useEffect(() => {
+    if (!enabled || !hasReadError || !errorUpdatedAt || !allowRenewal.current())
+      return;
+    // Reacquire this exact owner's catalogue after expiry or a native routing
+    // change. This does not fan out into connections, billing or other sessions.
+    void queryClient.invalidateQueries(
+      {
+        queryKey: [
+          "harness-sessions",
+          runtimeFamily,
+          conversationId,
+          residentPubkey,
+          ownerScope,
+        ],
+        exact: true,
+        refetchType: "active",
+      },
+      { cancelRefetch: false },
+    );
+  }, [
+    enabled,
+    hasReadError,
+    errorUpdatedAt,
+    queryClient,
+    runtimeFamily,
+    conversationId,
+    residentPubkey,
+    ownerScope,
+  ]);
+  return {
+    key,
+    value: query.data ?? null,
+    loading: query.isFetching,
+    error: query.error ? errorMessage(query.error) : null,
+  } satisfies HarnessSnapshot<HarnessSessionDetail>;
 }

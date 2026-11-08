@@ -351,3 +351,105 @@ test("new tasks use the actual chosen folder and normal permissions", async ({
   ).toBeVisible();
   await expect(workspace.locator('input[type="password"]')).toHaveCount(0);
 });
+
+test("a selected native reply refreshes automatically while hidden and inactive views stay quiet", async ({
+  page,
+}) => {
+  await boot(page);
+  await openWorkspace(page, "codex");
+  await sessionRow(page, "Codex native follow-up").click();
+  await expect(page.locator(".hws-transcript")).toContainText(
+    "native Codex transcript",
+  );
+  const workspace = page.getByTestId("harness-workspace");
+  const editor = workspace.locator('[contenteditable="true"]').first();
+  await editor.fill("Preserve this draft during native transcript refresh.");
+  const initialReads = await commandCount(page, "get_harness_session");
+  const initialCatalogueReads = await commandCount(
+    page,
+    "list_harness_sessions",
+  );
+  const initialConnectionReads = await commandCount(
+    page,
+    "list_runtime_connection_status",
+  );
+  const reply =
+    "The native assistant appended this reply without a task event.";
+  await page.evaluate(
+    ({ sessionId, text }) => {
+      const fixture = window.__BUZZ_E2E_HARNESS_DASHBOARD__;
+      if (!fixture?.transcripts[sessionId])
+        throw new Error("Selected native fixture is missing.");
+      fixture.transcripts[sessionId].messages.push({ role: "assistant", text });
+    },
+    { sessionId: HARNESS_FIXTURE_SESSION.liveCodex, text: reply },
+  );
+  await expect(page.locator(".hws-transcript")).toContainText(reply, {
+    timeout: 10_000,
+  });
+  expect(await commandCount(page, "get_harness_session")).toBeGreaterThan(
+    initialReads,
+  );
+  expect(await commandCount(page, "list_harness_sessions")).toBe(
+    initialCatalogueReads,
+  );
+  expect(await commandCount(page, "list_runtime_connection_status")).toBe(
+    initialConnectionReads,
+  );
+  await expect(editor).toContainText("Preserve this draft");
+
+  await workspace.getByRole("button", { name: "Usage", exact: true }).click();
+  const inactiveReads = await commandCount(page, "get_harness_session");
+  // A negative assertion must cover a whole native refresh period.
+  await page.waitForTimeout(4_300);
+  expect(await commandCount(page, "get_harness_session")).toBe(inactiveReads);
+  await workspace
+    .getByRole("button", { name: "Sessions", exact: true })
+    .click();
+  await expect
+    .poll(() => commandCount(page, "get_harness_session"))
+    .toBeGreaterThan(inactiveReads);
+  await expect(editor).toContainText("Preserve this draft");
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => true,
+    });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const hiddenReads = await commandCount(page, "get_harness_session");
+  await page.waitForTimeout(4_300);
+  expect(await commandCount(page, "get_harness_session")).toBe(hiddenReads);
+  await page.evaluate(() => {
+    Reflect.deleteProperty(document, "hidden");
+    Reflect.deleteProperty(document, "visibilityState");
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect
+    .poll(() => commandCount(page, "get_harness_session"))
+    .toBeGreaterThan(hiddenReads);
+  await expect(editor).toContainText("Preserve this draft");
+});
+
+test("Home ignores restored work context from another owner or relay scope", async ({
+  page,
+}) => {
+  await boot(page);
+  await page.evaluate(() => {
+    window.location.hash = `/dashboard?title=Wrong-scope-work&runtime=claude_code&scope=${"0".repeat(64)}`;
+  });
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await expect(page.getByTestId("home-dashboard")).toBeVisible();
+  await expect(page.locator(".pf-home-context-chip")).toHaveCount(0);
+  expect(await startCalls(page)).toHaveLength(0);
+});
