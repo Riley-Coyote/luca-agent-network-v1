@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
+import { waitForAnimations } from "../helpers/animations";
 import {
   createHarnessDashboardFixture,
   HARNESS_FIXTURE_FOLDER,
@@ -29,7 +30,24 @@ test.use({
   video: "off",
 });
 
-async function boot(page: Page, withSource = true) {
+async function boot(page: Page, withSource = true, withFailures = false) {
+  const fixture = createHarnessDashboardFixture();
+  if (withFailures) {
+    fixture.tasks[0] = {
+      ...fixture.tasks[0],
+      state: "failed",
+      currentStep: null,
+      error:
+        "Native continuation failed. Review this exact session before trying again.",
+    };
+    fixture.tasks[1] = {
+      ...fixture.tasks[1],
+      state: "interrupted",
+      currentStep: null,
+      error:
+        "Delivery could not be confirmed. Polyphonic will not resend automatically.",
+    };
+  }
   await page.addInitScript(
     ({ fixture, key }) => {
       window.__BUZZ_E2E_HARNESS_DASHBOARD__ = fixture;
@@ -40,7 +58,7 @@ async function boot(page: Page, withSource = true) {
       );
     },
     {
-      fixture: createHarnessDashboardFixture(),
+      fixture,
       key: FEATURE_OVERRIDES_STORAGE_KEY,
     },
   );
@@ -81,6 +99,96 @@ async function boot(page: Page, withSource = true) {
   }, HARNESS_FIXTURE_LUCA);
   return conversationId;
 }
+
+test("Home exposes failed and interrupted receipts without retrying or claiming an all-clear", async ({
+  page,
+}) => {
+  await boot(page, false, true);
+  await expect(
+    page.getByRole("heading", { name: "2 tasks need a look.", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("You’re caught up.", { exact: true }),
+  ).toHaveCount(0);
+  const attention = page.getByRole("region", {
+    name: "Needs you",
+    exact: true,
+  });
+  await expect(
+    attention.getByRole("button", { name: "Review task", exact: true }),
+  ).toHaveCount(2);
+  const review = attention
+    .getByRole("button", { name: "Review task", exact: true })
+    .first();
+  await review.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("harness-workspace")).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Check workspace keyboard access",
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(await startCalls(page)).toHaveLength(0);
+  expect(await commandCount(page, "cancel_runtime_task")).toBe(0);
+});
+
+test("Home failure attention retains the approved layout across themes and widths", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  for (const width of [1440, 1280, 1024, 390]) {
+    for (const deviceScaleFactor of [1, 2]) {
+      for (const theme of ["dark", "light"] as const) {
+        const context = await browser.newContext({
+          viewport: { width, height: width === 390 ? 844 : 900 },
+          deviceScaleFactor,
+          colorScheme: theme,
+          reducedMotion: "reduce",
+        });
+        try {
+          const page = await context.newPage();
+          const errors: string[] = [];
+          page.on("pageerror", (error) => errors.push(error.message));
+          await boot(page, false, true);
+          const toggle = page.getByRole("button", {
+            name: `Switch to ${theme} appearance`,
+            exact: true,
+          });
+          if (await toggle.count()) await toggle.click();
+          await expect(
+            page.getByRole("heading", {
+              name: "2 tasks need a look.",
+              exact: true,
+            }),
+          ).toBeVisible();
+          await expect(
+            page
+              .getByRole("region", { name: "Needs you" })
+              .getByRole("button", { name: "Review task", exact: true }),
+          ).toHaveCount(2);
+          expect(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+          ).toBeTruthy();
+          await waitForAnimations(page);
+          await page.screenshot({
+            path: test
+              .info()
+              .outputPath(
+                `home-attention-${theme}-${width}-${deviceScaleFactor}x.png`,
+              ),
+          });
+          expect(errors).toEqual([]);
+          expect(await startCalls(page)).toHaveLength(0);
+        } finally {
+          await context.close();
+        }
+      }
+    }
+  }
+});
 
 async function openWorkspace(page: Page, family: "claude" | "codex") {
   const row = page.getByTestId(`rail-home-app:${family}`);

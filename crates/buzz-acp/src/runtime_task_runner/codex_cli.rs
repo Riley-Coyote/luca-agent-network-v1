@@ -70,7 +70,10 @@ impl<'a> Continuation<'a> {
     fn command(&self) -> Command {
         let mut command = Command::new(self.executable);
         command
-            .args(["exec", "--json", "--cd"])
+            // The owner explicitly reviewed this exact saved session/folder.
+            // Non-repository work is valid too; this skips only the Git-root
+            // prerequisite, never the native sandbox or approval policy.
+            .args(["exec", "--json", "--skip-git-repo-check", "--cd"])
             .arg(&self.folder)
             .args(["resume", self.session_id, "-"])
             .current_dir(&self.folder)

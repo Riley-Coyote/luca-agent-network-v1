@@ -47,10 +47,28 @@ Starting, continuing and messaging are distinct existing runtime-task operations
 The live Claude probe uses an explicit CLI pin, or the fixed shim published by
 existing discovery. It never performs full CLI discovery from a catalogue read.
 Unsupported controllers, expired references and uncertain delivery fail closed.
+The courier uses that same verified native CLI, not ACP's potentially older
+bundled copy. Native ListAgents display metadata (`sections`/`notes`) is ignored;
+only its bounded listing and the independent exact UUID/PID/name check establish
+the recipient. Message bytes, one-send correlation and native acknowledgement
+remain mandatory. Failed sends emit only body-free diagnostic stages.
+
+Claude continuation reads backward in bounded chunks when native attachments
+have displaced the latest explicit permission record. It retains at least the
+usual 256 KiB of tail identity checks, with a 256 KiB row bound, 8 MiB total scan
+bound and deadline. Unknown policy, missing evidence, oversized rows, changes
+during reading or changed identity/folder still disable continuation. No policy
+is inferred from a UI mode or replaced with a more permissive default.
+Codex continuation accepts an explicitly reviewed non-Git working folder without
+changing sandbox, approvals, model, native home or session identity.
 
 ## Honest data
 
 Local task counts, lifecycle, steps and durations come from actual retained receipts.
+Failed or interrupted tasks and blocked result delivery appear in Home's review
+area rather than an all-clear. An explicit retry supersedes its older attempt in
+that area; opening a review never retries, cancels or changes execution. A native
+handoff without completion is labelled as waiting, not caught up.
 Recently modified files are not treated as active tasks. Transcript metadata is not
 treated as current controller availability. Native queue acknowledgement is labeled
 as a handoff, not a finished task.

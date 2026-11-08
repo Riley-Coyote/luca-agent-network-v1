@@ -24,6 +24,23 @@ export function dashboardTaskActive(
 ) {
   return ["queued", "active", "stopping"].includes(task.state);
 }
+/** Failed attempts stay visible until a later, explicitly requested retry replaces them. */
+export function dashboardTasksNeedingReview(
+  tasks: readonly RuntimeTaskProjection[],
+) {
+  const retried = new Set(
+    tasks.flatMap((task) => (task.retryOfTaskId ? [task.retryOfTaskId] : [])),
+  );
+  return tasks.filter(
+    (task) =>
+      !retried.has(task.taskId) &&
+      (task.state === "failed" ||
+        task.state === "interrupted" ||
+        ["blocked", "rejected", "retryable"].includes(
+          task.deliveryState ?? "",
+        )),
+  );
+}
 /** External delivery is not completion. Only a native success receipt says Done. */
 export function dashboardTaskWord(task: Pick<RuntimeTaskProjection, "state">) {
   return (
@@ -56,13 +73,18 @@ export function dashboardSummary(
   needs: number,
 ) {
   const active = tasks.filter(dashboardTaskActive);
+  const review = dashboardTasksNeedingReview(tasks).length;
   return needs
     ? `${needs === 1 ? "One thing needs" : `${needs} things need`} you.`
-    : active.length
-      ? "Your work is moving."
-      : tasks.length
-        ? "You’re caught up."
-        : "Start with Luca.";
+    : review
+      ? `${review === 1 ? "One task needs" : `${review} tasks need`} a look.`
+      : active.length
+        ? "Your work is moving."
+        : tasks.some((task) => task.state === "awaiting_native")
+          ? "Waiting on your tools."
+          : tasks.length
+            ? "You’re caught up."
+            : "Start with Luca.";
 }
 /** Summaries are a bounded reference, not an instruction or a read grant. */
 export function dashboardContextText(context: {

@@ -50,6 +50,7 @@ impl Fixture {
             send_call_id: None,
             acknowledgement_id: None,
             acknowledgement_ambiguous: false,
+            guard_failure: None,
         }
     }
 }
@@ -66,6 +67,36 @@ impl Drop for Fixture {
 fn native_snapshot(metadata: &Metadata) -> Value {
     json!([{"sessionId":TARGET,"pid":12345,"name":"fixture-receiver","cwd":metadata.canonical_cwd,
         "kind":"interactive","status":"idle"}])
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn courier_pins_verified_native_cli_instead_of_adapters_bundled_version() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    let adapter = fixture.0.join("native-cli");
+    fs::write(
+        &adapter,
+        r#"#!/bin/sh
+[ "$CLAUDE_CODE_EXECUTABLE" = '/verified/native/claude' ] || exit 2
+[ "$#" -eq 0 ] || exit 3
+IFS= read -r INIT || exit 4
+printf '%s\n' '{"jsonrpc":"2.0","id":0,"result":{}}'
+while IFS= read -r LINE; do :; done
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&adapter, fs::Permissions::from_mode(0o700)).unwrap();
+    let mut client = spawn_courier(adapter.to_str().unwrap(), "/verified/native/claude".into())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), client.initialize())
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), client.shutdown())
+        .await
+        .unwrap();
 }
 
 fn event(metadata: &Metadata, hook: &str, tool: &str, id: &str) -> Value {
@@ -223,9 +254,24 @@ fn native_listing_requires_one_full_exact_provider_qualified_live_address() {
     }
     let duplicate = format!("{ADDRESS} · interactive · idle\n{ADDRESS} · interactive · idle");
     assert!(qualified_address(&json!({"listing":duplicate}), "fixture-receiver").is_err());
-    assert!(
-        qualified_address(&json!({"listing":text,"unknown":true}), "fixture-receiver").is_err()
+    assert_eq!(
+        qualified_address(
+            &json!({"listing":text,"sections":[],"notes":["native display metadata"]}),
+            "fixture-receiver"
+        )
+        .unwrap(),
+        ADDRESS
     );
+    assert!(qualified_address(
+        &json!({"listing":null,"sections":[ADDRESS]}),
+        "fixture-receiver"
+    )
+    .is_err());
+    assert!(qualified_address(
+        &json!({"listing":"not the receiver","notes":[text]}),
+        "fixture-receiver"
+    )
+    .is_err());
 }
 
 #[test]
@@ -485,6 +531,7 @@ async fn fake_native_hook_rechecks_original_receiver_and_closes_replaced_target(
     assert!(hook_operation(&args, &pre_send).await.is_err());
     let (_guard, _file, metadata) = acquire(&state.path, &state.generation, state.uid).unwrap();
     assert!(metadata.send_call_id.is_none());
+    assert!(matches!(metadata.guard_failure, Some(GuardFailure::Target)));
 }
 
 #[cfg(unix)]

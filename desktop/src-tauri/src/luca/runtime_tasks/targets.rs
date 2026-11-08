@@ -23,6 +23,8 @@ const MAX_LOOKUP_ENTRIES: usize = 40_000;
 const MAX_LOOKUP_DEPTH: usize = 8;
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_METADATA_BYTES: usize = 256 * 1024;
+const MAX_CLAUDE_POLICY_SCAN_BYTES: usize = 8 * 1024 * 1024;
+const CLAUDE_POLICY_CHUNK_BYTES: usize = 64 * 1024;
 const MAX_METADATA_LINES: usize = 64;
 const MAX_LOCATOR_BYTES: usize = 4096;
 const MAX_LISTED_TARGETS: usize = 50;
@@ -728,63 +730,94 @@ fn read_claude_policy_tail(
         .metadata()
         .map_err(|_| "Claude metadata unavailable")?
         .len();
-    let start = len.saturating_sub(MAX_METADATA_BYTES as u64);
-    reader
-        .seek(SeekFrom::Start(start.saturating_sub(1)))
-        .map_err(|_| "Claude metadata unavailable")?;
-    let mut bytes = Vec::new();
-    reader
-        .take(MAX_METADATA_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| "Claude metadata unavailable")?;
-    let tail = if start == 0 {
-        bytes.as_slice()
-    } else if bytes.first() == Some(&b'\n') {
-        &bytes[1..]
-    } else if let Some(end) = bytes.iter().position(|byte| *byte == b'\n') {
-        &bytes[end + 1..]
-    } else {
-        // One giant final row must not hide an otherwise valid catalogue
-        // target. Policy is unverified, so continuation remains unavailable.
-        return Ok(None);
-    };
-    let mut mode = None;
-    for line in tail
-        .split(|byte| *byte == b'\n')
-        .filter(|line| !line.is_empty())
-    {
-        let Ok(row) = serde_json::from_slice::<ClaudeMetadataRow>(line) else {
-            // Tail bodies are not catalogue authority. If their metadata
-            // cannot be bounded/decoded, retain listing but forbid restore.
+    let mut position = len;
+    let mut scanned = 0;
+    let mut partial = Vec::new();
+    // Outer Some means the newest explicit policy was found. Inner None is
+    // an unknown native mode, which must never fall back to an older grant.
+    let mut newest: Option<Option<String>> = None;
+    let started = Instant::now();
+    while position > 0 && scanned < MAX_CLAUDE_POLICY_SCAN_BYTES {
+        if started.elapsed() > LOOKUP_TIMEOUT {
             return Ok(None);
+        }
+        let count = position
+            .min(CLAUDE_POLICY_CHUNK_BYTES as u64)
+            .min((MAX_CLAUDE_POLICY_SCAN_BYTES - scanned) as u64) as usize;
+        position -= count as u64;
+        reader
+            .seek(SeekFrom::Start(position))
+            .map_err(|_| "Claude metadata unavailable")?;
+        let mut bytes = vec![0; count];
+        reader
+            .read_exact(&mut bytes)
+            .map_err(|_| "Claude metadata unavailable")?;
+        scanned += count;
+        bytes.append(&mut partial);
+        let start = if position == 0 {
+            0
+        } else if let Some(end) = bytes.iter().position(|byte| *byte == b'\n') {
+            end + 1
+        } else {
+            if bytes.len() > MAX_METADATA_BYTES {
+                return Ok(None);
+            }
+            partial = bytes;
+            continue;
         };
-        if row.is_sidechain == Some(true) {
-            return Err("The selected Claude file contains sidechain metadata.".into());
-        }
-        if let Some(id) = row.session_id.as_deref() {
-            if exact_uuid(id)? != native_id {
-                return Err(
-                    "Claude tail identity differs from the selected native session.".into(),
-                );
+        for line in bytes[start..]
+            .split(|byte| *byte == b'\n')
+            .rev()
+            .filter(|line| !line.is_empty())
+        {
+            if line.len() > MAX_METADATA_BYTES {
+                return Ok(None);
             }
-        }
-        if let Some(folder) = row.cwd.as_deref() {
-            if row.session_id.is_none() || canonical_folder(folder)? != original_cwd {
-                return Err("The selected Claude session working folder changed.".into());
-            }
-        }
-        if let Some(policy) = row.permission_mode {
-            if row.session_id.is_none() {
-                return Err("Claude permission metadata has no native identity.".into());
-            }
-            mode = match policy.as_str() {
-                "manual" | "default" => Some("default".into()),
-                "auto" | "acceptEdits" | "plan" | "dontAsk" | "bypassPermissions" => Some(policy),
-                _ => None,
+            let Ok(row) = serde_json::from_slice::<ClaudeMetadataRow>(line) else {
+                return Ok(None);
             };
+            if row.is_sidechain == Some(true) {
+                return Err("The selected Claude file contains sidechain metadata.".into());
+            }
+            if let Some(id) = row.session_id.as_deref() {
+                if exact_uuid(id)? != native_id {
+                    return Err(
+                        "Claude tail identity differs from the selected native session.".into(),
+                    );
+                }
+            }
+            if let Some(folder) = row.cwd.as_deref() {
+                if row.session_id.is_none() || canonical_folder(folder)? != original_cwd {
+                    return Err("The selected Claude session working folder changed.".into());
+                }
+            }
+            if let Some(policy) = row.permission_mode {
+                if row.session_id.is_none() {
+                    return Err("Claude permission metadata has no native identity.".into());
+                }
+                if newest.is_none() {
+                    newest = Some(match policy.as_str() {
+                        "manual" | "default" => Some("default".into()),
+                        "auto" | "acceptEdits" | "plan" | "dontAsk" | "bypassPermissions" => {
+                            Some(policy)
+                        }
+                        _ => None,
+                    });
+                }
+            }
+        }
+        // Preserve the old tail's identity/folder checks even when a policy
+        // occurs right at EOF. Read further only when native attachments have
+        // pushed that policy outside the usual 256 KiB window.
+        if newest.is_some() && (scanned >= MAX_METADATA_BYTES || position == 0) {
+            return Ok(newest.flatten());
+        }
+        partial = bytes[..start.saturating_sub(1)].to_vec();
+        if partial.len() > MAX_METADATA_BYTES {
+            return Ok(None);
         }
     }
-    Ok(mode)
+    Ok(None)
 }
 
 fn read_claude_metadata(

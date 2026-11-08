@@ -46,6 +46,8 @@ import {
   HARNESS_NAMES,
   dashboardSummary,
   dashboardTaskActive,
+  dashboardTasksNeedingReview,
+  dashboardTaskWord,
   dashboardContextForScope,
   type DashboardTab,
 } from "./dashboardModel";
@@ -199,6 +201,11 @@ export function HomeDashboard({
       pending,
     })),
   ].slice(0, 6);
+  const taskAttention = dashboardTasksNeedingReview(tasks);
+  const shownTaskAttention = taskAttention.slice(
+    0,
+    Math.max(1, 6 - attention.length),
+  );
   const dock = (
     <HomeCompanion
       companion={companion}
@@ -296,7 +303,7 @@ export function HomeDashboard({
                   <p>
                     {tab === "work"
                       ? "Recorded tasks and sessions in your current native profiles."
-                      : needs.count
+                      : needs.count || taskAttention.length
                         ? "Review what’s waiting, or ask Luca to help with the next step."
                         : tasks.length
                           ? "Follow the work across your tools, or pick up a result with Luca."
@@ -337,7 +344,8 @@ export function HomeDashboard({
                   receipts are shown below; this does not mean the work stopped.
                 </p>
               ) : null}
-              {tab === "overview" && needs.count > 0 ? (
+              {tab === "overview" &&
+              (needs.count > 0 || taskAttention.length > 0) ? (
                 <section className="pf-home-attention" aria-label="Needs you">
                   {attention.map(({ kind, pending }) => {
                     const common = {
@@ -368,6 +376,40 @@ export function HomeDashboard({
                       </article>
                     );
                   })}
+                  {shownTaskAttention.map((task) => (
+                    <article className="pf-home-ask-card" key={task.taskId}>
+                      <div className="pf-home-card-kicker">
+                        <HarnessFace runtimeId={task.runtimeFamily} size={15} />
+                        <span>
+                          {HARNESS_NAMES[task.runtimeFamily]} ·{" "}
+                          {dashboardTaskWord(task)}
+                        </span>
+                      </div>
+                      <h2>{task.summary}</h2>
+                      <p>
+                        {task.error ??
+                          "The result could not be returned. Review the task before trying again."}
+                      </p>
+                      <div className="pf-home-card-actions">
+                        <button
+                          type="button"
+                          className="pf-home-action-button"
+                          onClick={() => openTask(task)}
+                        >
+                          Review task <ArrowUpRight size={13} />
+                        </button>
+                        {taskAttention.length > shownTaskAttention.length ? (
+                          <button
+                            type="button"
+                            className="pf-home-text-button"
+                            onClick={() => setTab("work")}
+                          >
+                            View all work
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
                   {needs.count > attention.length ? (
                     <article className="pf-home-ask-card">
                       <h2>{needs.count - attention.length} more waiting</h2>

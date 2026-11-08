@@ -8,6 +8,7 @@ import {
   dashboardTaskWord,
   dashboardContextForScope,
   dashboardScopeRef,
+  dashboardTasksNeedingReview,
 } from "./dashboardModel.ts";
 
 describe("Home evidence and context", () => {
@@ -45,6 +46,49 @@ describe("Home evidence and context", () => {
       "Your work is moving.",
     );
     assert.equal(dashboardSummary([], 0), "Start with Luca.");
+  });
+  it("surfaces failed/interrupted work and result-delivery failures, not a false all-clear", () => {
+    const failed = { taskId: "failed", state: "failed" };
+    const interrupted = { taskId: "interrupted", state: "interrupted" };
+    assert.equal(dashboardSummary([failed], 0), "One task needs a look.");
+    assert.equal(
+      dashboardSummary([failed, interrupted], 0),
+      "2 tasks need a look.",
+    );
+    assert.equal(dashboardSummary([failed], 1), "One thing needs you.");
+    assert.equal(
+      dashboardTasksNeedingReview([
+        { state: "stopped" },
+        { state: "awaiting_native" },
+      ]).length,
+      0,
+    );
+    assert.equal(
+      dashboardSummary([{ state: "awaiting_native" }], 0),
+      "Waiting on your tools.",
+    );
+    assert.equal(
+      dashboardTasksNeedingReview([
+        { state: "succeeded", deliveryState: "blocked" },
+      ]).length,
+      1,
+    );
+    const retry = { taskId: "retry", retryOfTaskId: "failed", state: "active" };
+    assert.deepEqual(dashboardTasksNeedingReview([failed, retry]), []);
+    const final = {
+      taskId: "final",
+      retryOfTaskId: "retry",
+      state: "succeeded",
+      deliveryState: "published",
+    };
+    assert.deepEqual(
+      dashboardTasksNeedingReview([
+        failed,
+        { ...retry, state: "failed" },
+        final,
+      ]),
+      [],
+    );
   });
   it("bounds untrusted titles and identifiers as reference data", () => {
     const text = dashboardContextText({

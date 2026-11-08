@@ -136,9 +136,9 @@ mod transport {
     #[tokio::test]
     async fn argv_stdin_native_config_and_id_are_preserved_exactly() {
         let script = format!(
-            "[ \"$#\" -eq 7 ] || exit 2\n\
-             [ \"$1\" = exec ] && [ \"$2\" = --json ] && [ \"$3\" = --cd ] || exit 3\n\
-             [ \"$4\" = \"$PWD\" ] && [ \"$5\" = resume ] && [ \"$6\" = '{SESSION}' ] && [ \"$7\" = - ] || exit 4\n\
+            "[ \"$#\" -eq 8 ] || exit 2\n\
+             [ \"$1\" = exec ] && [ \"$2\" = --json ] && [ \"$3\" = --skip-git-repo-check ] && [ \"$4\" = --cd ] || exit 3\n\
+             [ \"$5\" = \"$PWD\" ] && [ \"$6\" = resume ] && [ \"$7\" = '{SESSION}' ] && [ \"$8\" = - ] || exit 4\n\
              [ -z \"${{LUCA_MANAGED_RESIDENT_PUBKEY+x}}\" ] && [ -z \"${{LUCA_MANAGED_PERMISSION_FD+x}}\" ] || exit 5\n\
              [ -z \"${{BUZZ_ACP_SYSTEM_PROMPT+x}}\" ] && [ -z \"${{CODEX_CONFIG+x}}\" ] && [ -z \"${{INITIAL_AGENT_MODE+x}}\" ] || exit 6\n\
              [ \"$CODEX_HOME\" = 'SYNTHETIC_NATIVE_HOME_UNCHANGED' ] || exit 7\n\
@@ -192,6 +192,7 @@ mod transport {
             [
                 std::ffi::OsStr::new("exec"),
                 std::ffi::OsStr::new("--json"),
+                std::ffi::OsStr::new("--skip-git-repo-check"),
                 std::ffi::OsStr::new("--cd"),
                 fixture.folder.as_os_str(),
                 std::ffi::OsStr::new("resume"),

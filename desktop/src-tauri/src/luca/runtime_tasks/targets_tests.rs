@@ -162,6 +162,60 @@ fn oversized_claude_tail_preserves_listing_without_guessing_permission_policy() 
 }
 
 #[test]
+fn claude_policy_survives_native_attachments_past_the_usual_tail() {
+    let fixture = Fixture::new(ConnectedBrainSourceKindV1::ClaudeHistory);
+    let original = fixture.claude_row("user", SESSION_ID, Some(&fixture.working_folder));
+    let policy = format!(
+        "{}\n",
+        serde_json::json!({"type":"user","sessionId":SESSION_ID,"cwd":fixture.working_folder,"permissionMode":"default"})
+    );
+    let attachment = format!(
+        "{}\n",
+        serde_json::json!({"type":"attachment","sessionId":SESSION_ID,"content":"X".repeat(60 * 1024)})
+    );
+    fixture.write(&format!("{original}{policy}{}", attachment.repeat(6)));
+    let target = fixture.resolve().unwrap();
+    assert_eq!(target.claude_permission_mode.as_deref(), Some("default"));
+    target.require_saved_claude().unwrap();
+
+    // A later unknown mode must never fall back to the earlier valid grant.
+    let unknown = format!(
+        "{}\n",
+        serde_json::json!({"type":"permission-mode","sessionId":SESSION_ID,"permissionMode":"new-unknown-mode"})
+    );
+    fixture.write(&format!(
+        "{original}{policy}{unknown}{}",
+        attachment.repeat(6)
+    ));
+    assert!(fixture.resolve().unwrap().require_saved_claude().is_err());
+}
+
+#[test]
+fn extended_claude_policy_scan_stays_bounded_and_rejects_newer_identity_changes() {
+    let fixture = Fixture::new(ConnectedBrainSourceKindV1::ClaudeHistory);
+    let original = fixture.claude_row("user", SESSION_ID, Some(&fixture.working_folder));
+    let policy = format!(
+        "{}\n",
+        serde_json::json!({"type":"permission-mode","sessionId":SESSION_ID,"permissionMode":"plan"})
+    );
+    let attachment = format!(
+        "{}\n",
+        serde_json::json!({"type":"attachment","sessionId":SESSION_ID,"content":"X".repeat(60 * 1024)})
+    );
+    let changed = fixture.claude_row("assistant", OTHER_ID, Some(&fixture.working_folder));
+    fixture.write(&format!(
+        "{original}{policy}{changed}{}",
+        attachment.repeat(6)
+    ));
+    fails(fixture.resolve(), "identity differs");
+    fixture.write(&format!(
+        "{original}{policy}{}",
+        attachment.repeat(MAX_CLAUDE_POLICY_SCAN_BYTES / attachment.len() + 2)
+    ));
+    assert!(fixture.resolve().unwrap().require_saved_claude().is_err());
+}
+
+#[test]
 fn aligned_claude_tail_boundary_keeps_first_complete_policy_row() {
     let fixture = Fixture::new(ConnectedBrainSourceKindV1::ClaudeHistory);
     let policy = format!(

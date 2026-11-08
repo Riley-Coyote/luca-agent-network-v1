@@ -28,6 +28,18 @@ const FAILURE: &str =
     "Native Claude delivery was not confirmed. Review the exact target before resending.";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum GuardFailure {
+    Scope,
+    Sender,
+    Folder,
+    Policy,
+    Target,
+    ToolInput,
+    ToolResult,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Metadata {
     version: u8,
@@ -47,6 +59,8 @@ struct Metadata {
     send_call_id: Option<String>,
     acknowledgement_id: Option<String>,
     acknowledgement_ambiguous: bool,
+    #[serde(default)]
+    guard_failure: Option<GuardFailure>,
 }
 
 fn now_ms() -> Result<u64> {
@@ -445,10 +459,12 @@ fn deny() -> Value {
 fn response_text(response: &Value) -> Result<String> {
     if let Some(listing) = response
         .as_object()
-        .filter(|object| object.len() == 1)
         .and_then(|object| object.get("listing"))
         .and_then(Value::as_str)
     {
+        // Native ListAgents also returns sections/notes. Only its textual
+        // listing participates in address resolution; additive display data
+        // cannot replace the separately rechecked UUID/PID/name binding.
         if listing.len() <= MAX_HOOK_BYTES {
             return Ok(listing.to_owned());
         }
@@ -673,13 +689,50 @@ fn apply_hook(metadata: &mut Metadata, input: &Value) -> Result<Value> {
 async fn hook_operation(args: &RuntimeMessageHookArgs, input: &Value) -> Result<Value> {
     let uid = current_uid().await?;
     let (_guard, mut file, mut metadata) = acquire(&args.metadata, &args.generation, uid)?;
-    let (event, tool, _) = validate_hook_scope(&metadata, input)?;
+    let (event, tool, _) = match validate_hook_scope(&metadata, input) {
+        Ok(scope) => scope,
+        Err(error) => {
+            metadata.guard_failure = Some(
+                if input.get("session_id").and_then(Value::as_str)
+                    != metadata.sender_session_id.as_deref()
+                {
+                    GuardFailure::Sender
+                } else if input.get("cwd").and_then(Value::as_str)
+                    != Some(metadata.canonical_cwd.as_str())
+                {
+                    GuardFailure::Folder
+                } else if input
+                    .get("permission_mode")
+                    .and_then(Value::as_str)
+                    .and_then(canonical_mode)
+                    != Some(metadata.native_permission_mode.as_str())
+                {
+                    GuardFailure::Policy
+                } else {
+                    GuardFailure::Scope
+                },
+            );
+            save(&mut file, &metadata)?;
+            return Err(error);
+        }
+    };
     // Only native public discovery may authorize the name-to-UUID mapping;
     // model prose and an old filesystem transcript are never live authority.
     if event == "PreToolUse" || tool == "ListAgents" {
-        recheck_target(&metadata).await?;
+        if let Err(error) = recheck_target(&metadata).await {
+            metadata.guard_failure = Some(GuardFailure::Target);
+            save(&mut file, &metadata)?;
+            return Err(error);
+        }
     }
     let output = apply_hook(&mut metadata, input);
+    if output.is_err() {
+        metadata.guard_failure = Some(if event == "PreToolUse" {
+            GuardFailure::ToolInput
+        } else {
+            GuardFailure::ToolResult
+        });
+    }
     // Persist an ambiguous native acknowledgement as a failure, not a prior pass.
     save(&mut file, &metadata)?;
     output
@@ -777,6 +830,7 @@ fn prepare_metadata(input: &RuntimeTaskInputV1, uid: u32) -> Result<Metadata> {
         send_call_id: None,
         acknowledgement_id: None,
         acknowledgement_ambiguous: false,
+        guard_failure: None,
     };
     if input.operation != super::RuntimeTaskOperation::SendMessage
         || input.permission_mode != "normal"
@@ -824,6 +878,13 @@ async fn set_sender_mode(client: &mut AcpClient, session: &str, requested: &str)
     Ok(())
 }
 
+async fn spawn_courier(adapter: &str, native_cli: String) -> Result<AcpClient> {
+    // Discovery and the invocation-local hooks verify this exact native CLI.
+    // ACP's bundled CLI may be older and lack native cross-session tools.
+    let environment = [("CLAUDE_CODE_EXECUTABLE".into(), native_cli)];
+    Ok(AcpClient::spawn_managed(adapter, &[], &environment, false).await?)
+}
+
 async fn courier(args: RuntimeTaskArgs, input: &RuntimeTaskInputV1) -> Result<String> {
     if args.agent.agent_args.iter().any(|arg| !arg.is_empty())
         || !Path::new(&args.agent.agent_command).is_absolute()
@@ -836,11 +897,12 @@ async fn courier(args: RuntimeTaskArgs, input: &RuntimeTaskInputV1) -> Result<St
     let metadata = prepare_metadata(input, current_uid().await?)?;
     recheck_target(&metadata).await?;
     let mode = metadata.native_permission_mode.clone();
+    let native_cli = metadata.native_cli.clone();
     let state = PrivateState::create(metadata)?;
     let meta = session_metadata(&state, &std::env::current_exe()?, &mode)?;
     native_isolation::discard_inherited_descriptors()
         .map_err(|_| anyhow!("Native courier isolation is unverified"))?;
-    let mut client = AcpClient::spawn_managed(&args.agent.agent_command, &[], &[], false).await?;
+    let mut client = spawn_courier(&args.agent.agent_command, native_cli).await?;
     client.deny_unmanaged_permissions();
     // No observer, resident prompt, managed MCP projection or final capture is installed.
     let operation = async {
@@ -862,7 +924,7 @@ async fn courier(args: RuntimeTaskArgs, input: &RuntimeTaskInputV1) -> Result<St
             .await?;
         Ok::<(), anyhow::Error>(())
     };
-    let _provider_outcome = tokio::select! {
+    let provider_outcome = tokio::select! {
         result = tokio::time::timeout(COURIER_BOUND, operation) => result.map_err(|_| anyhow!("Native courier timed out")).and_then(|r|r),
         () = signals.wait() => Err(anyhow!("Native courier was stopped")),
     };
@@ -871,7 +933,22 @@ async fn courier(args: RuntimeTaskArgs, input: &RuntimeTaskInputV1) -> Result<St
         bail!("Native courier shutdown was not verified");
     }
     // Native PostToolUse evidence, not assistant prose or end_turn, is the only ack.
-    state.acknowledgement()
+    let acknowledgement = state.acknowledgement();
+    if acknowledgement.is_err() {
+        // Typed stages only: never log native outputs, prompts, hook bodies,
+        // target names, paths or a provider's possibly sensitive error text.
+        if let Ok((_guard, _file, metadata)) = acquire(&state.path, &state.generation, state.uid) {
+            eprintln!(
+                "Native Claude courier acknowledgement missing: provider_failed={} listed={} addressed={} sent={} guard={:?}",
+                provider_outcome.is_err(),
+                metadata.list_call_id.is_some(),
+                metadata.qualified_address.is_some(),
+                metadata.send_call_id.is_some(),
+                metadata.guard_failure,
+            );
+        }
+    }
+    acknowledgement
 }
 
 /// Send through the user's native cross-session tools; never emit task completion.
