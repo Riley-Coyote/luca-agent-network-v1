@@ -8,7 +8,7 @@
 use std::{
     collections::{HashSet, VecDeque},
     fs::{self, File, Metadata},
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Read},
     path::{Component, Path, PathBuf},
     time::{Duration, Instant, SystemTime},
 };
@@ -18,6 +18,8 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use super::super::connected_brain::{native_session_opaque_id, native_session_reference};
+#[path = "native_policy.rs"]
+mod native_policy;
 
 const MAX_LOOKUP_ENTRIES: usize = 40_000;
 const MAX_LOOKUP_DEPTH: usize = 8;
@@ -62,6 +64,7 @@ pub(super) struct RuntimeTaskExistingTargetV1 {
     pub codex_origin: Option<CodexSessionOriginV1>,
     /// Saved native policy, read only from metadata in this exact root file.
     pub claude_permission_mode: Option<String>,
+    pub codex_policy: Option<luca_protocol::NativeCodexPolicyV1>,
     relative_locator: String,
     canonical_source_root: PathBuf,
 }
@@ -122,6 +125,9 @@ impl RuntimeTaskExistingTargetV1 {
             || self.codex_origin != Some(CodexSessionOriginV1::SavedCli)
         {
             return Err("Continuation requires the explicitly selected saved Codex CLI session; app or unknown sessions cannot be substituted.".into());
+        }
+        if self.codex_policy.is_none() {
+            return Err("The selected Codex session's native permissions cannot be safely reproduced here; review it in Codex instead of guessing a policy.".into());
         }
         Ok(())
     }
@@ -284,6 +290,7 @@ pub(super) fn revalidate_connected_session_target(
         || current.canonical_working_folder != target.canonical_working_folder
         || current.codex_origin != target.codex_origin
         || current.claude_permission_mode != target.claude_permission_mode
+        || current.codex_policy != target.codex_policy
     {
         return Err("The selected native session identity or working folder changed; confirmation is no longer valid.".into());
     }
@@ -588,7 +595,12 @@ fn resolve_locator(
     };
     let claude_permission_mode = if source.source_kind == ConnectedBrainSourceKindV1::ClaudeHistory
     {
-        read_claude_policy_tail(&mut reader, native_id, &metadata.cwd)?
+        native_policy::claude(&mut reader, native_id, &metadata.cwd)?
+    } else {
+        None
+    };
+    let codex_policy = if metadata.codex_origin == Some(CodexSessionOriginV1::SavedCli) {
+        native_policy::codex(&mut reader, native_id, &metadata.cwd)?
     } else {
         None
     };
@@ -638,6 +650,7 @@ fn resolve_locator(
             .map(|value| chrono::DateTime::<chrono::Utc>::from(value).to_rfc3339()),
         codex_origin: metadata.codex_origin,
         claude_permission_mode,
+        codex_policy,
         relative_locator: relative_locator.to_owned(),
         canonical_source_root: source.canonical_root.clone(),
     })
@@ -718,106 +731,6 @@ struct ClaudeMetadataRow {
     is_sidechain: Option<bool>,
     #[serde(rename = "permissionMode")]
     permission_mode: Option<String>,
-}
-
-fn read_claude_policy_tail(
-    reader: &mut BufReader<File>,
-    native_id: Uuid,
-    original_cwd: &Path,
-) -> Result<Option<String>, String> {
-    let len = reader
-        .get_ref()
-        .metadata()
-        .map_err(|_| "Claude metadata unavailable")?
-        .len();
-    let mut position = len;
-    let mut scanned = 0;
-    let mut partial = Vec::new();
-    // Outer Some means the newest explicit policy was found. Inner None is
-    // an unknown native mode, which must never fall back to an older grant.
-    let mut newest: Option<Option<String>> = None;
-    let started = Instant::now();
-    while position > 0 && scanned < MAX_CLAUDE_POLICY_SCAN_BYTES {
-        if started.elapsed() > LOOKUP_TIMEOUT {
-            return Ok(None);
-        }
-        let count = position
-            .min(CLAUDE_POLICY_CHUNK_BYTES as u64)
-            .min((MAX_CLAUDE_POLICY_SCAN_BYTES - scanned) as u64) as usize;
-        position -= count as u64;
-        reader
-            .seek(SeekFrom::Start(position))
-            .map_err(|_| "Claude metadata unavailable")?;
-        let mut bytes = vec![0; count];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|_| "Claude metadata unavailable")?;
-        scanned += count;
-        bytes.append(&mut partial);
-        let start = if position == 0 {
-            0
-        } else if let Some(end) = bytes.iter().position(|byte| *byte == b'\n') {
-            end + 1
-        } else {
-            if bytes.len() > MAX_METADATA_BYTES {
-                return Ok(None);
-            }
-            partial = bytes;
-            continue;
-        };
-        for line in bytes[start..]
-            .split(|byte| *byte == b'\n')
-            .rev()
-            .filter(|line| !line.is_empty())
-        {
-            if line.len() > MAX_METADATA_BYTES {
-                return Ok(None);
-            }
-            let Ok(row) = serde_json::from_slice::<ClaudeMetadataRow>(line) else {
-                return Ok(None);
-            };
-            if row.is_sidechain == Some(true) {
-                return Err("The selected Claude file contains sidechain metadata.".into());
-            }
-            if let Some(id) = row.session_id.as_deref() {
-                if exact_uuid(id)? != native_id {
-                    return Err(
-                        "Claude tail identity differs from the selected native session.".into(),
-                    );
-                }
-            }
-            if let Some(folder) = row.cwd.as_deref() {
-                if row.session_id.is_none() || canonical_folder(folder)? != original_cwd {
-                    return Err("The selected Claude session working folder changed.".into());
-                }
-            }
-            if let Some(policy) = row.permission_mode {
-                if row.session_id.is_none() {
-                    return Err("Claude permission metadata has no native identity.".into());
-                }
-                if newest.is_none() {
-                    newest = Some(match policy.as_str() {
-                        "manual" | "default" => Some("default".into()),
-                        "auto" | "acceptEdits" | "plan" | "dontAsk" | "bypassPermissions" => {
-                            Some(policy)
-                        }
-                        _ => None,
-                    });
-                }
-            }
-        }
-        // Preserve the old tail's identity/folder checks even when a policy
-        // occurs right at EOF. Read further only when native attachments have
-        // pushed that policy outside the usual 256 KiB window.
-        if newest.is_some() && (scanned >= MAX_METADATA_BYTES || position == 0) {
-            return Ok(newest.flatten());
-        }
-        partial = bytes[..start.saturating_sub(1)].to_vec();
-        if partial.len() > MAX_METADATA_BYTES {
-            return Ok(None);
-        }
-    }
-    Ok(None)
 }
 
 fn read_claude_metadata(

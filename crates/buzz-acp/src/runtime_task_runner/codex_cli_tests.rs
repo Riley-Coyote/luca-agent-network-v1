@@ -10,6 +10,7 @@ fn input(folder: &str) -> RuntimeTaskInputV1 {
         native_permission_mode: None,
         native_target_pid: None,
         native_target_name: None,
+        native_codex_policy: Some(serde_json::from_value(serde_json::json!({"approval_policy":"never","sandbox_policy":{"type":"read-only"}})).unwrap()),
         task_id: "task:fixture".into(),
         conversation_id: "conversation:fixture".into(),
         prompt: "SYNTHETIC_PROMPT_ONLY\nUnicode: \u{2605}\n".into(),
@@ -70,6 +71,45 @@ fn adapter_permission_and_model_overrides_never_fall_back() {
         Continuation::prepare(&args, &elevated),
         Err(NativeFailure::UnsupportedArguments)
     ));
+}
+
+#[test]
+fn continuation_requires_verified_native_permissions_not_current_global_defaults() {
+    let folder = std::env::temp_dir().canonicalize().unwrap();
+    let mut input = input(folder.to_str().unwrap());
+    input.native_codex_policy = None;
+    assert!(matches!(
+        Continuation::prepare(&args("/bin/sh"), &input),
+        Err(NativeFailure::InvalidTarget)
+    ));
+    input.native_codex_policy = Some(serde_json::from_value(serde_json::json!({"approval_policy":"on-request","sandbox_policy":{"type":"read-only"}})).unwrap());
+    assert!(matches!(
+        Continuation::prepare(&args("/bin/sh"), &input),
+        Err(NativeFailure::InvalidTarget)
+    ));
+    input.native_codex_policy = Some(serde_json::from_value(serde_json::json!({"approval_policy":"never","sandbox_policy":{"type":"workspace-write","writable_roots":["/synthetic/allowed"],"network_access":false,"exclude_tmpdir_env_var":true,"exclude_slash_tmp":true}})).unwrap());
+    let args = args("/bin/sh");
+    let continuation = Continuation::prepare(&args, &input).unwrap();
+    let command = continuation.command();
+    let arguments: Vec<_> = command
+        .as_std()
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    for expected in [
+        "workspace-write",
+        "approval_policy=\"never\"",
+        "approvals_reviewer=\"user\"",
+        "sandbox_workspace_write.writable_roots=[\"/synthetic/allowed\"]",
+        "sandbox_workspace_write.network_access=false",
+        "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+        "sandbox_workspace_write.exclude_slash_tmp=true",
+    ] {
+        assert!(
+            arguments.iter().any(|arg| arg == expected),
+            "missing frozen native setting {expected}"
+        );
+    }
 }
 
 #[cfg(unix)]
@@ -136,9 +176,14 @@ mod transport {
     #[tokio::test]
     async fn argv_stdin_native_config_and_id_are_preserved_exactly() {
         let script = format!(
-            "[ \"$#\" -eq 8 ] || exit 2\n\
-             [ \"$1\" = exec ] && [ \"$2\" = --json ] && [ \"$3\" = --skip-git-repo-check ] && [ \"$4\" = --cd ] || exit 3\n\
-             [ \"$5\" = \"$PWD\" ] && [ \"$6\" = resume ] && [ \"$7\" = '{SESSION}' ] && [ \"$8\" = - ] || exit 4\n\
+            "[ \"$1\" = exec ] && [ \"$2\" = --json ] && [ \"$3\" = --skip-git-repo-check ] || exit 3\n\
+             shift 3\n\
+             [ \"$1\" = --sandbox ] && [ \"$2\" = read-only ] && [ \"$3\" = -c ] && [ \"$4\" = 'approval_policy=\"never\"' ] || exit 8\n\
+             shift 4\n\
+             [ \"$1\" = -c ] && [ \"$2\" = 'approvals_reviewer=\"user\"' ] || exit 9\n\
+             shift 2\n\
+             [ \"$#\" -eq 5 ] && [ \"$1\" = --cd ] || exit 2\n\
+             [ \"$2\" = \"$PWD\" ] && [ \"$3\" = resume ] && [ \"$4\" = '{SESSION}' ] && [ \"$5\" = - ] || exit 4\n\
              [ -z \"${{LUCA_MANAGED_RESIDENT_PUBKEY+x}}\" ] && [ -z \"${{LUCA_MANAGED_PERMISSION_FD+x}}\" ] || exit 5\n\
              [ -z \"${{BUZZ_ACP_SYSTEM_PROMPT+x}}\" ] && [ -z \"${{CODEX_CONFIG+x}}\" ] && [ -z \"${{INITIAL_AGENT_MODE+x}}\" ] || exit 6\n\
              [ \"$CODEX_HOME\" = 'SYNTHETIC_NATIVE_HOME_UNCHANGED' ] || exit 7\n\
@@ -180,7 +225,7 @@ mod transport {
     }
 
     #[test]
-    fn command_shape_has_no_new_fork_last_profile_model_or_policy_override() {
+    fn command_shape_restores_verified_policy_without_fork_profile_or_model_override() {
         let fixture = Fixture::new("exit 0");
         let input = fixture.input();
         let args = fixture.args();
@@ -193,6 +238,12 @@ mod transport {
                 std::ffi::OsStr::new("exec"),
                 std::ffi::OsStr::new("--json"),
                 std::ffi::OsStr::new("--skip-git-repo-check"),
+                std::ffi::OsStr::new("--sandbox"),
+                std::ffi::OsStr::new("read-only"),
+                std::ffi::OsStr::new("-c"),
+                std::ffi::OsStr::new("approval_policy=\"never\""),
+                std::ffi::OsStr::new("-c"),
+                std::ffi::OsStr::new("approvals_reviewer=\"user\""),
                 std::ffi::OsStr::new("--cd"),
                 fixture.folder.as_os_str(),
                 std::ffi::OsStr::new("resume"),

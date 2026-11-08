@@ -30,6 +30,7 @@ mod managed_input;
 mod managed_permission;
 mod managed_presentation;
 mod message_publish;
+mod native_codex_policy;
 mod notebook;
 mod owner_identity;
 mod permission_rule;
@@ -100,6 +101,7 @@ pub use message_publish::{
     MAX_ATTACHMENT_URL_BYTES, MAX_FINAL_ATTACHMENTS, MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS,
     MESSAGE_PUBLISH_PROTOCOL,
 };
+pub use native_codex_policy::*;
 pub use notebook::*;
 pub use owner_identity::{
     OwnerIdentityBundleV1, OwnerIdentityError, SecretNsec, OWNER_IDENTITY_CANONICALIZATION,

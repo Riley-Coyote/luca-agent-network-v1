@@ -691,6 +691,8 @@ pub(super) async fn start_existing(
             wire_input["runtimeFamily"] = serde_json::json!("claude_code");
             wire_input["nativeCli"] = serde_json::json!(executable);
             wire_input["nativePermissionMode"] = serde_json::json!(target.claude_permission_mode);
+        } else {
+            wire_input["nativeCodexPolicy"] = serde_json::json!(target.codex_policy);
         }
         let encoded = serde_json::to_vec(&wire_input)
             .map_err(|_| "Native task input could not be encoded.".to_owned())?;

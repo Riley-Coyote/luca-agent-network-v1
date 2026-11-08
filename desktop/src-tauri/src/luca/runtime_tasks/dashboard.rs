@@ -351,9 +351,15 @@ fn session_view(
         }
         Some(targets::CodexSessionOriginV1::SavedCli) => {
             view.routing = "saved_codex_cli";
-            view.can_continue = true;
-            view.reason =
-                Some("Saved CLI work; live availability is not established by this file.".into());
+            view.can_continue = target.require_saved_codex_cli().is_ok();
+            view.reason = Some(
+                if view.can_continue {
+                    "Saved CLI work; live availability is not established by this file."
+                } else {
+                "The saved native permissions cannot be safely reproduced here. Review this session in Codex."
+                }
+                .into(),
+            );
         }
         _ if target.runtime_family == "claude_code" => {
             let live = live_snapshot

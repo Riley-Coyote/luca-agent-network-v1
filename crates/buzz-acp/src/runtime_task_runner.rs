@@ -58,6 +58,8 @@ struct RuntimeTaskInputV1 {
     native_permission_mode: Option<String>,
     native_target_pid: Option<u32>,
     native_target_name: Option<String>,
+    #[serde(default)]
+    native_codex_policy: Option<luca_protocol::NativeCodexPolicyV1>,
 }
 
 #[derive(Serialize)]
@@ -331,7 +333,8 @@ fn validate_input(input: &RuntimeTaskInputV1) -> Result<()> {
                 && input.native_cli.is_none()
                 && input.native_permission_mode.is_none()
                 && input.native_target_pid.is_none()
-                && input.native_target_name.is_none() => {}
+                && input.native_target_name.is_none()
+                && input.native_codex_policy.is_none() => {}
         RuntimeTaskOperation::ContinueSession
             if input.permission_mode == "normal"
                 && input
@@ -340,17 +343,24 @@ fn validate_input(input: &RuntimeTaskInputV1) -> Result<()> {
                     .is_some_and(codex_cli::valid_session_id)
                 && match input.runtime_family.as_deref() {
                     None | Some("codex") => {
-                        input.native_cli.is_none() && input.native_permission_mode.is_none()
+                        input.native_cli.is_none()
+                            && input.native_permission_mode.is_none()
+                            && input
+                                .native_codex_policy
+                                .as_ref()
+                                .is_some_and(|policy| policy.is_bounded())
                     }
                     Some("claude_code") => {
-                        input.native_cli.as_deref().is_some_and(|cli| {
-                            cli.len() <= 4096
-                                && !cli.chars().any(char::is_control)
-                                && std::path::Path::new(cli).is_absolute()
-                        }) && input
-                            .native_permission_mode
-                            .as_deref()
-                            .is_some_and(claude_saved::known_mode)
+                        input.native_codex_policy.is_none()
+                            && input.native_cli.as_deref().is_some_and(|cli| {
+                                cli.len() <= 4096
+                                    && !cli.chars().any(char::is_control)
+                                    && std::path::Path::new(cli).is_absolute()
+                            })
+                            && input
+                                .native_permission_mode
+                                .as_deref()
+                                .is_some_and(claude_saved::known_mode)
                     }
                     _ => false,
                 }
@@ -358,6 +368,7 @@ fn validate_input(input: &RuntimeTaskInputV1) -> Result<()> {
                 && input.native_target_name.is_none() => {}
         RuntimeTaskOperation::SendMessage
             if input.permission_mode == "normal"
+                && input.native_codex_policy.is_none()
                 && input.runtime_family.as_deref() == Some("claude_code")
                 && input
                     .provider_session_id
@@ -661,6 +672,7 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"sessionId":"{acknowledged}"}
             "permissionMode": "normal",
             "operation": "continue_session",
             "providerSessionId": "01a1083a-f0f0-76a3-b1d9-c0268a062636",
+            "nativeCodexPolicy": {"approval_policy":"never","sandbox_policy":{"type":"read-only"}},
         });
         let input: RuntimeTaskInputV1 = serde_json::from_value(value.clone()).expect("valid input");
         assert!(validate_input(&input).is_ok());

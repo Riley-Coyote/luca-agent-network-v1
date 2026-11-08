@@ -7,6 +7,7 @@ use std::{path::PathBuf, process::Stdio, time::Duration};
 
 use anyhow::Result;
 use futures_util::StreamExt as _;
+use luca_protocol::{NativeCodexPolicyV1, NativeCodexSandboxV1};
 use tokio::{io::AsyncWriteExt as _, process::Command};
 use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 
@@ -25,6 +26,7 @@ struct Continuation<'a> {
     folder: PathBuf,
     session_id: &'a str,
     prompt: &'a str,
+    policy: &'a NativeCodexPolicyV1,
 }
 
 impl<'a> Continuation<'a> {
@@ -41,6 +43,11 @@ impl<'a> Continuation<'a> {
             .provider_session_id
             .as_deref()
             .filter(|id| valid_session_id(id))
+            .ok_or(NativeFailure::InvalidTarget)?;
+        let policy = input
+            .native_codex_policy
+            .as_ref()
+            .filter(|policy| policy.is_bounded())
             .ok_or(NativeFailure::InvalidTarget)?;
         let folder = PathBuf::from(&input.working_folder);
         let canonical = folder
@@ -64,6 +71,7 @@ impl<'a> Continuation<'a> {
             folder,
             session_id,
             prompt: &input.prompt,
+            policy,
         })
     }
 
@@ -73,7 +81,48 @@ impl<'a> Continuation<'a> {
             // The owner explicitly reviewed this exact saved session/folder.
             // Non-repository work is valid too; this skips only the Git-root
             // prerequisite, never the native sandbox or approval policy.
-            .args(["exec", "--json", "--skip-git-repo-check", "--cd"])
+            .args(["exec", "--json", "--skip-git-repo-check"]);
+        // Native resume otherwise reapplies today's global permissions, which
+        // may be broader than this session. Replay only host-verified policy.
+        let mode = match &self.policy.sandbox_policy {
+            NativeCodexSandboxV1::ReadOnly {} => "read-only",
+            NativeCodexSandboxV1::WorkspaceWrite {
+                writable_roots,
+                network_access,
+                exclude_tmpdir_env_var,
+                exclude_slash_tmp,
+            } => {
+                command.args([
+                    "-c",
+                    &format!(
+                        "sandbox_workspace_write.writable_roots={}",
+                        serde_json::json!(writable_roots)
+                    ),
+                ]);
+                for (key, value) in [
+                    ("network_access", network_access),
+                    ("exclude_tmpdir_env_var", exclude_tmpdir_env_var),
+                    ("exclude_slash_tmp", exclude_slash_tmp),
+                ] {
+                    command.args(["-c", &format!("sandbox_workspace_write.{key}={value}")]);
+                }
+                "workspace-write"
+            }
+            NativeCodexSandboxV1::DangerFullAccess {} => "danger-full-access",
+        };
+        command
+            .args([
+                "--sandbox",
+                mode,
+                "-c",
+                &format!(
+                    "approval_policy={}",
+                    serde_json::json!(self.policy.approval_policy)
+                ),
+                "-c",
+                "approvals_reviewer=\"user\"",
+                "--cd",
+            ])
             .arg(&self.folder)
             .args(["resume", self.session_id, "-"])
             .current_dir(&self.folder)

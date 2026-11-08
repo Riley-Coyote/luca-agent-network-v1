@@ -60,7 +60,14 @@ bound and deadline. Unknown policy, missing evidence, oversized rows, changes
 during reading or changed identity/folder still disable continuation. No policy
 is inferred from a UI mode or replaced with a more permissive default.
 Codex continuation accepts an explicitly reviewed non-Git working folder without
-changing sandbox, approvals, model, native home or session identity.
+changing sandbox, approvals, model, native home or session identity. It recovers
+and explicitly replays the latest saved CLI sandbox, network and writable-root
+settings, rather than inheriting today's global policy. A richer native profile
+must exactly match that standard sandbox; unknown/custom restrictions are not
+discarded. Noninteractive `exec` forces approval policy `never`, so saved CLI
+records with interactive/granular approval or automatic-review policies remain
+readable but cannot be continued here. Native app-owned sessions keep their
+existing native queue and approval path. No native settings file is modified.
 
 ## Honest data
 

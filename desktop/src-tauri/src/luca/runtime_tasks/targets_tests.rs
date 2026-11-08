@@ -4,6 +4,9 @@ use tempfile::{tempdir, TempDir};
 
 use super::*;
 
+#[path = "native_policy_tests.rs"]
+mod native_policy_tests;
+
 const SESSION_ID: &str = "9ab62e3b-f826-4f2f-8e04-b06975506abc";
 const OTHER_ID: &str = "8ed9b580-60ea-40d7-b1f0-67c2730bdff3";
 
@@ -65,12 +68,13 @@ impl Fixture {
 
     fn codex_header(&self, id: &str, cwd: &Path, source: &str, originator: &str) -> String {
         format!(
-            "{}\n",
+            "{}\n{}\n",
             serde_json::json!({
                 "type": "session_meta",
                 "payload": {"id": id, "cwd": cwd, "source": source, "originator": originator,
                             "base_instructions": {"text": "SYNTHETIC_NOT_A_TARGET_LABEL"}}
-            })
+            }),
+            serde_json::json!({"type":"turn_context","payload":{"cwd":cwd,"approval_policy":"never","sandbox_policy":{"type":"read-only"}}})
         )
     }
 
@@ -421,7 +425,9 @@ fn truncated_duplicate_and_oversized_identity_metadata_fail_closed() {
     fixture.write(
         fixture
             .codex_header(SESSION_ID, &fixture.working_folder, "exec", "codex_exec")
-            .trim_end(),
+            .lines()
+            .next()
+            .unwrap(), // Truncate the identity header, not the later policy row.
     );
     fails(fixture.resolve(), "truncated");
     fixture.write("{broken-json}\n");
