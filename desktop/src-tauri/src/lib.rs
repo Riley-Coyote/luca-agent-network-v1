@@ -1235,6 +1235,8 @@ pub fn run() {
             read_capability_skill,
             resolve_capability_skill_activation,
             get_resident_session_capabilities,
+            list_harness_sessions,
+            get_harness_session,
             pick_runtime_task_folder,
             resolve_runtime_task_project_folder,
             start_runtime_task,

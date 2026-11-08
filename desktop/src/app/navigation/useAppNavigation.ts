@@ -69,6 +69,13 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  /** The cross-harness Home, separate from the last-conversation landing. */
+  const goDashboard = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation({ to: "/dashboard" }, behavior),
+    [commitNavigation],
+  );
+
   const goAgents = React.useCallback(
     (behavior?: NavigationBehavior & { reviewNative?: boolean }) =>
       commitNavigation(
@@ -451,6 +458,7 @@ export function useAppNavigation() {
     goChannel,
     goForumPost,
     goHome,
+    goDashboard,
     goInbox,
     goNeedsYou,
     goNewMessage,

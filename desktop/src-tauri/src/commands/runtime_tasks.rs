@@ -1,5 +1,31 @@
 use tauri::AppHandle;
 
+/// Owner-only metadata catalogue; never grants a resident access or starts work.
+#[tauri::command]
+pub async fn list_harness_sessions(
+    app: AppHandle,
+    runtime_family: String,
+    conversation_id: String,
+    resident_pubkey: String,
+) -> Result<crate::luca::runtime_tasks::HarnessSessionListV1, String> {
+    crate::luca::runtime_tasks::list_harness_sessions(
+        app,
+        runtime_family,
+        conversation_id,
+        resident_pubkey,
+    )
+    .await
+}
+
+/// A selected, bounded transcript read in the owner's local dashboard only.
+#[tauri::command]
+pub async fn get_harness_session(
+    app: AppHandle,
+    input: crate::luca::runtime_tasks::GetHarnessSessionInputV1,
+) -> Result<crate::luca::runtime_tasks::HarnessSessionDetailV1, String> {
+    crate::luca::runtime_tasks::get_harness_session(app, input).await
+}
+
 #[tauri::command]
 pub fn retry_runtime_task_delivery(
     app: AppHandle,

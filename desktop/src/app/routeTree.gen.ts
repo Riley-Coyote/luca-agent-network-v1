@@ -12,6 +12,7 @@ import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
 import { Route as needsYouRouteImport } from "./routes/needs-you";
 import { Route as inboxRouteImport } from "./routes/inbox";
+import { Route as dashboardRouteImport } from "./routes/dashboard";
 import { Route as brainRouteImport } from "./routes/brain";
 import { Route as artifactsRouteImport } from "./routes/artifacts";
 import { Route as agentsRouteImport } from "./routes/agents";
@@ -57,6 +58,11 @@ const needsYouRoute = needsYouRouteImport.update({
 const inboxRoute = inboxRouteImport.update({
   id: "/inbox",
   path: "/inbox",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const dashboardRoute = dashboardRouteImport.update({
+  id: "/dashboard",
+  path: "/dashboard",
   getParentRoute: () => rootRouteImport,
 } as any);
 const brainRoute = brainRouteImport.update({
@@ -122,6 +128,7 @@ export interface FileRoutesByFullPath {
   "/agents": typeof agentsRoute;
   "/artifacts": typeof artifactsRoute;
   "/brain": typeof brainRoute;
+  "/dashboard": typeof dashboardRoute;
   "/inbox": typeof inboxRoute;
   "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
@@ -142,6 +149,7 @@ export interface FileRoutesByTo {
   "/agents": typeof agentsRoute;
   "/artifacts": typeof artifactsRoute;
   "/brain": typeof brainRoute;
+  "/dashboard": typeof dashboardRoute;
   "/inbox": typeof inboxRoute;
   "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   "/agents": typeof agentsRoute;
   "/artifacts": typeof artifactsRoute;
   "/brain": typeof brainRoute;
+  "/dashboard": typeof dashboardRoute;
   "/inbox": typeof inboxRoute;
   "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
@@ -185,6 +194,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/artifacts"
     | "/brain"
+    | "/dashboard"
     | "/inbox"
     | "/needs-you"
     | "/projects"
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/artifacts"
     | "/brain"
+    | "/dashboard"
     | "/inbox"
     | "/needs-you"
     | "/projects"
@@ -225,6 +236,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/artifacts"
     | "/brain"
+    | "/dashboard"
     | "/inbox"
     | "/needs-you"
     | "/projects"
@@ -246,6 +258,7 @@ export interface RootRouteChildren {
   agentsRoute: typeof agentsRoute;
   artifactsRoute: typeof artifactsRoute;
   brainRoute: typeof brainRoute;
+  dashboardRoute: typeof dashboardRoute;
   inboxRoute: typeof inboxRoute;
   needsYouRoute: typeof needsYouRoute;
   projectsRoute: typeof projectsRoute;
@@ -311,6 +324,13 @@ declare module "@tanstack/react-router" {
       path: "/inbox";
       fullPath: "/inbox";
       preLoaderRoute: typeof inboxRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/dashboard": {
+      id: "/dashboard";
+      path: "/dashboard";
+      fullPath: "/dashboard";
+      preLoaderRoute: typeof dashboardRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/brain": {
@@ -398,6 +418,7 @@ const rootRouteChildren: RootRouteChildren = {
   agentsRoute: agentsRoute,
   artifactsRoute: artifactsRoute,
   brainRoute: brainRoute,
+  dashboardRoute: dashboardRoute,
   inboxRoute: inboxRoute,
   needsYouRoute: needsYouRoute,
   projectsRoute: projectsRoute,

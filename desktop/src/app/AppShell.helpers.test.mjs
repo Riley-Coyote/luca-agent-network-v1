@@ -44,6 +44,21 @@ test("deriveShellRoute_selectsInboxWithoutAConversation", () => {
   });
 });
 
+test("deriveShellRoute_keepsDashboardSeparateFromConversationStartup", () => {
+  assert.deepEqual(deriveShellRoute("/dashboard"), {
+    selectedChannelId: null,
+    selectedView: "dashboard",
+  });
+  assert.deepEqual(deriveShellRoute("/"), {
+    selectedChannelId: null,
+    selectedView: "home",
+  });
+  assert.deepEqual(deriveShellRoute("/apps/claude"), {
+    selectedChannelId: null,
+    selectedView: "app",
+  });
+});
+
 // The Inbox surface is gated off by default (shared/features/inboxSurface.ts).
 // `/inbox` then redirects to the normal landing, so the shell must report the
 // home view rather than highlighting a nav item that is not rendered.

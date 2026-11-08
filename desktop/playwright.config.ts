@@ -73,6 +73,7 @@ export default defineConfig({
         "**/shell-rail-wp34.spec.ts",
         "**/shell-project-rooms.spec.ts",
         "**/shell-app-task.spec.ts",
+        "**/shell-harness-dashboard.spec.ts",
         "**/shell-walkthrough.spec.ts",
         "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",

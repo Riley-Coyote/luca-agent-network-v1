@@ -3,6 +3,7 @@ import {
   Activity,
   Bot,
   Brain,
+  House,
   Library,
   MessagesSquare,
   Settings,
@@ -44,6 +45,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 type PlacesView =
   | "home"
+  | "dashboard"
   | "inbox"
   | "channel"
   | "messages"
@@ -58,6 +60,7 @@ type PlacesView =
   | "settings";
 
 type PlaceId =
+  | "home"
   | "conversations"
   | "agents"
   | "activity"
@@ -71,6 +74,8 @@ type PlaceId =
  *  no place. */
 export function placeOfView(view: PlacesView): PlaceId | null {
   switch (view) {
+    case "dashboard":
+      return "home";
     case "home":
     case "channel":
     case "messages":
@@ -258,6 +263,7 @@ export type ShellPlacesProps = {
   onSelectArtifacts: () => void;
   onSelectBrain: () => void;
   onSelectConversations: () => void;
+  onSelectDashboard?: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
   search: {
@@ -283,6 +289,7 @@ export function ShellPlaces({
   onSelectArtifacts,
   onSelectBrain,
   onSelectConversations,
+  onSelectDashboard,
   onSelectPulse,
   onSelectSettings,
   search,
@@ -333,6 +340,16 @@ export function ShellPlaces({
         <SearchPlace search={search} shortcut={`${key}K`} />
       </div>
       <div className="luca-places-group">
+        {onSelectDashboard ? (
+          <PlaceTile
+            current={here === "home"}
+            label="Home"
+            onClick={onSelectDashboard}
+            testId="open-home-dashboard"
+          >
+            <House />
+          </PlaceTile>
+        ) : null}
         <PlaceTile
           badge={needsYou.count}
           badgeLabel={needsYouNote(needsYou.count)}

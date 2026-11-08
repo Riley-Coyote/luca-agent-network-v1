@@ -26,6 +26,8 @@ import {
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { TemporarySurfacesStudy } from "@/testing/temporarySurfacesStudy/TemporarySurfacesStudy";
+import { HarnessDashboardStudy } from "@/testing/harnessDashboardStudy/HarnessDashboardStudy";
+import { HARNESS_STUDY_KEY } from "@/testing/harnessDashboardStudy/fixtures";
 import { TEMPORARY_SURFACES_KEY } from "@/testing/temporarySurfacesStudy/design";
 
 import { App } from "@/app/App";
@@ -96,6 +98,9 @@ const AGENT_SPACE_STUDY =
 const TEMPORARY_SURFACES_STUDY =
   new URLSearchParams(window.location.search).get("experience") ===
   "temporary-surfaces";
+const HARNESS_DASHBOARD_STUDY =
+  new URLSearchParams(window.location.search).get("experience") ===
+  "harness-dashboard";
 const SHELL_STUDY =
   TEMPORARY_SURFACES_STUDY ||
   AGENT_SPACE_STUDY ||
@@ -137,10 +142,15 @@ function seedStorage() {
   const shellStudy = store.getItem(SHELL_STUDY_KEY);
   const agentStudy = store.getItem(AGENT_SPACE_KEY);
   const temporaryStudy = store.getItem(TEMPORARY_SURFACES_KEY);
+  const harnessStudy = store.getItem(HARNESS_STUDY_KEY);
+  const homeStudy = store.getItem("ui-design-lab.polyphonic.home.v1");
   const oldTemporaryStudy = store.getItem(
     "ui-design-lab.polyphonic.temporary-surfaces.v1",
   );
   store.clear();
+  if (harnessStudy !== null) store.setItem(HARNESS_STUDY_KEY, harnessStudy);
+  if (homeStudy !== null)
+    store.setItem("ui-design-lab.polyphonic.home.v1", homeStudy);
   if (oldTemporaryStudy !== null)
     store.setItem(
       "ui-design-lab.polyphonic.temporary-surfaces.v1",
@@ -436,7 +446,9 @@ async function buildScene() {
   const openRoomId = DM_SCENE ? LAB_DM_ID : LAB_ROOMS[LAB_OPEN_ROOM].id;
   window.localStorage.setItem("luca:last-conversation.v1", openRoomId);
   // Hash routing, so this works unchanged from a file:// URL.
-  window.location.hash = `#/channels/${openRoomId}`;
+  window.location.hash = HARNESS_DASHBOARD_STUDY
+    ? "#/apps/claude"
+    : `#/channels/${openRoomId}`;
 }
 
 /**
@@ -497,6 +509,7 @@ function renderApp() {
                     {COMPANION_STUDY ? <CompanionExperienceLab /> : null}
                     {COMPANION_SETUP_STUDY ? <CompanionSetupLab /> : null}
                     {COMPANION_CONTROL_STUDY ? <CompanionControlLab /> : null}
+                    {HARNESS_DASHBOARD_STUDY ? <HarnessDashboardStudy /> : null}
                     <NostrBindConsentDialog />
                   </UpdaterProvider>
                   <Toaster />

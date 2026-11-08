@@ -231,6 +231,7 @@ export function AppShell() {
     goArtifacts,
     goBrain,
     goChannel,
+    goDashboard,
     goHome,
     goInbox,
     goNewMessage,
@@ -1025,6 +1026,7 @@ export function AppShell() {
       }}
       places={{
         hasUnread: unreadChannelIds.size > 0,
+        onSelectDashboard: () => void goDashboard(),
         onSelectAgents: () => void goAgents(),
         onSelectArtifacts: () => void goArtifacts(),
         onSelectBrain: () => void goBrain(),

@@ -15,17 +15,32 @@ const AppPage = React.lazy(async () => {
  * family ("claude", "codex"), so it outlives a reconnect.
  */
 export const Route = createFileRoute("/apps/$appId")({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { task?: string; session?: string } => ({
+    task:
+      typeof search.task === "string" ? search.task.slice(0, 128) : undefined,
+    session:
+      typeof search.session === "string"
+        ? search.session.slice(0, 128)
+        : undefined,
+  }),
   component: AppRouteComponent,
 });
 
 function AppRouteComponent() {
   const { appId } = Route.useParams();
+  const { task, session } = Route.useSearch();
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <React.Suspense
         fallback={<ViewLoadingFallback includeHeader kind="pulse" />}
       >
-        <AppPage family={appId} />
+        <AppPage
+          family={appId}
+          initialTaskId={task}
+          initialSessionId={session}
+        />
       </React.Suspense>
     </div>
   );

@@ -328,6 +328,27 @@ pub(crate) fn visible_native_session_excerpts(
     sessions::read_visible_tail(root, kind, relative_locator, 8)
 }
 
+/// Role-preserving owner-selected transcript tail with the same visibility,
+/// redaction and source confinement as existing native excerpts. No scan or grant.
+pub(crate) fn visible_native_session_messages(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    source_id: &OpaqueId,
+    selected_id: &OpaqueId,
+    relative_locator: &str,
+    excluded: &HashSet<String>,
+) -> Result<sessions::VisibleNativeSessionTailV1, String> {
+    native_session_reference(
+        root,
+        kind,
+        source_id,
+        selected_id,
+        relative_locator,
+        excluded,
+    )?;
+    sessions::read_visible_message_tail_bounded(root, kind, relative_locator, 32, 256 * 1024)
+}
+
 pub(crate) fn session_id(source_id: &OpaqueId, relative_locator: &str) -> Result<OpaqueId, String> {
     let mut digest = Sha256::new();
     digest.update(b"polyphonic-indexed-session-context-v1\0");

@@ -32,6 +32,8 @@ export function useShellFrameRootAttribute(enabled: boolean) {
 /** A page's own name, said in the lip when no conversation is open. */
 export function shellFramePageName(view: AppView): string {
   switch (view) {
+    case "dashboard":
+      return "Home";
     case "artifacts":
       return "Library";
     case "agents":

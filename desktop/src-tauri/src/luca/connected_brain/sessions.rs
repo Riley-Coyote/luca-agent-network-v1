@@ -303,6 +303,36 @@ pub(super) fn read_visible_tail_bounded(
     limit: usize,
     max_tail_bytes: u64,
 ) -> Result<Vec<String>, String> {
+    read_visible_message_tail_bounded(root, kind, relative_path, limit, max_tail_bytes).map(
+        |tail| {
+            tail.messages
+                .into_iter()
+                .map(|message| message.text)
+                .collect()
+        },
+    )
+}
+
+/// A filtered native message, with its role preserved from the native record.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct VisibleNativeSessionMessageV1 {
+    pub role: &'static str,
+    pub text: String,
+}
+
+/// A bounded, selected-file tail; truncation is never represented as completeness.
+pub(crate) struct VisibleNativeSessionTailV1 {
+    pub messages: Vec<VisibleNativeSessionMessageV1>,
+    pub truncated: bool,
+}
+
+pub(super) fn read_visible_message_tail_bounded(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    relative_path: &str,
+    limit: usize,
+    max_tail_bytes: u64,
+) -> Result<VisibleNativeSessionTailV1, String> {
     if limit == 0
         || limit > MAX_SESSION_SELECTIONS
         || max_tail_bytes == 0
@@ -319,6 +349,7 @@ pub(super) fn read_visible_tail_bounded(
         .map_err(|_| "native observation is unavailable".to_owned())?
         .len();
     let start = length.saturating_sub(max_tail_bytes);
+    let mut truncated = start > 0;
     file.seek(SeekFrom::Start(start))
         .map_err(|_| "native observation is unavailable".to_owned())?;
     let mut bytes = Vec::new();
@@ -355,9 +386,12 @@ pub(super) fn read_visible_tail_bounded(
         });
         if let Some(message) = message {
             if response_user || event_user {
-                if previous_codex_user.as_ref().is_some_and(|(text, was_response)| {
-                    text == &message && *was_response != response_user
-                }) {
+                if previous_codex_user
+                    .as_ref()
+                    .is_some_and(|(text, was_response)| {
+                        text == &message && *was_response != response_user
+                    })
+                {
                     previous_codex_user = None;
                     continue;
                 }
@@ -367,11 +401,26 @@ pub(super) fn read_visible_tail_bounded(
             }
             if selected.len() == limit {
                 selected.pop_front();
+                truncated = true;
             }
-            selected.push_back(message);
+            let role = if response_user
+                || event_user
+                || (kind == ConnectedBrainSourceKindV1::ClaudeHistory && value["type"] == "user")
+            {
+                "user"
+            } else {
+                "assistant"
+            };
+            selected.push_back(VisibleNativeSessionMessageV1 {
+                role,
+                text: message,
+            });
         }
     }
-    Ok(selected.into_iter().collect())
+    Ok(VisibleNativeSessionTailV1 {
+        messages: selected.into_iter().collect(),
+        truncated,
+    })
 }
 
 pub(super) fn resolved_session_path(

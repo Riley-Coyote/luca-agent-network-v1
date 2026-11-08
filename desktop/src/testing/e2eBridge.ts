@@ -1,6 +1,7 @@
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { agentInboxFixtureCommand } from "./agentInboxFixture";
+import { createHarnessDashboardFixture, harnessDashboardFixtureCommand } from "./harnessDashboardFixture";
 import { decode } from "nostr-tools/nip19";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { parse as yamlParse } from "yaml";
@@ -11424,6 +11425,9 @@ export function maybeInstallE2eTauriMocks() {
     ];
     return { grant, replayed: current?.state === nextState };
   };
+  if (new URLSearchParams(window.location.search).get("harness-fixture") === "1") {
+    window.__BUZZ_E2E_HARNESS_DASHBOARD__ ??= createHarnessDashboardFixture();
+  }
   const handleMockCommand = async (command: string, payload: unknown) => {
     const activeConfig = getConfig();
     const identity = getActiveIdentity(activeConfig);
@@ -11441,7 +11445,12 @@ export function maybeInstallE2eTauriMocks() {
     });
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
+    const harness = harnessDashboardFixtureCommand(command, payload);
+    if (harness.handled) return harness.value;
+
     switch (command) {
+      case "list_harness_sessions":
+        return { sourceId: null, runtimeFamily: (payload as { runtimeFamily: string }).runtimeFamily, sessions: [], truncated: false, notice: "Browser preview has no access to native sessions." };
       case "query_agent_inbox":
       case "read_agent_inbox_task":
       case "mark_agent_inbox_task_read":

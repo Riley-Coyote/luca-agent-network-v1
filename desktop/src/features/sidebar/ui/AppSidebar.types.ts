@@ -29,6 +29,7 @@ export type AppSidebarProps = {
   selectedProjectId?: string | null;
   selectedView:
     | "home"
+    | "dashboard"
     | "inbox"
     | "channel"
     | "messages"

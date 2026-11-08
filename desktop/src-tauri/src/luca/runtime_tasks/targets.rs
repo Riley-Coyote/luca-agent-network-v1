@@ -67,6 +67,8 @@ pub(super) struct RuntimeTaskExistingTargetV1 {
 /// Body-free selection candidate. The host may project these fields after its
 /// grant checks, but catalogue access alone never authorizes an action.
 pub(super) struct RuntimeTaskTargetCandidateV1 {
+    /// Sensitive resolved metadata, retained only by the native owner UI lease.
+    pub target: RuntimeTaskExistingTargetV1,
     pub session_ref: OpaqueId,
     pub label: String,
     pub workspace_basename: String,
@@ -82,6 +84,23 @@ pub(super) struct RuntimeTaskTargetListV1 {
 }
 
 impl RuntimeTaskExistingTargetV1 {
+    /// Read only this exact selected transcript through the shared bounded parser.
+    pub(super) fn visible_messages(
+        &self,
+        source: &RuntimeTaskTargetSourceV1,
+        excluded: &HashSet<String>,
+    ) -> Result<super::super::connected_brain::VisibleNativeSessionTailV1, String> {
+        revalidate_connected_session_target(source, self, None, excluded)?;
+        super::super::connected_brain::visible_native_session_messages(
+            &source.canonical_root,
+            source.source_kind,
+            &source.source_id,
+            &self.session_ref,
+            &self.relative_locator,
+            excluded,
+        )
+    }
+
     /// Require the native-app origin proved for the public queue. The caller
     /// must separately probe the exact executable's version and queue help.
     pub(super) fn require_codex_app_queue(&self) -> Result<(), String> {
@@ -221,6 +240,7 @@ pub(super) fn list_connected_session_targets(
             workspace_basename.push('…');
         }
         candidates.push(RuntimeTaskTargetCandidateV1 {
+            target: target.clone(),
             session_ref: target.session_ref,
             label: target.label,
             workspace_basename,

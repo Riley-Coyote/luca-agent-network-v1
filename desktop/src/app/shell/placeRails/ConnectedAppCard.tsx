@@ -1,4 +1,13 @@
 import * as React from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import { useCompanionHome } from "@/features/dashboard/useCompanionHome";
+
+const HarnessWorkspace = React.lazy(() =>
+  import("@/features/harness-dashboard/HarnessWorkspace").then((module) => ({
+    default: module.HarnessWorkspace,
+  })),
+);
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import "@/app/shell/shell-activity.css";
@@ -32,7 +41,71 @@ import { useIdentityQuery } from "@/shared/api/hooks";
  * (BETA14_RELEASE.md WP-34, Decided 1 and 9; it was Connected's card in
  * Agents).
  */
-export function AppPage({ family }: { family: string }) {
+export function AppPage({
+  family,
+  initialTaskId,
+  initialSessionId,
+}: {
+  family: string;
+  initialTaskId?: string;
+  initialSessionId?: string;
+}) {
+  const frame = useShellFrameEnabled();
+  if (frame && (family === "claude" || family === "codex")) {
+    return (
+      <HarnessAppPage
+        runtimeFamily={family === "claude" ? "claude_code" : "codex"}
+        initialTaskId={initialTaskId}
+        initialSessionId={initialSessionId}
+      />
+    );
+  }
+  return <LegacyAppPage family={family} />;
+}
+
+function HarnessAppPage({
+  runtimeFamily,
+  initialTaskId,
+  initialSessionId,
+}: {
+  runtimeFamily: "claude_code" | "codex";
+  initialTaskId?: string;
+  initialSessionId?: string;
+}) {
+  const companion = useCompanionHome();
+  const navigate = useNavigate();
+  return (
+    <React.Suspense
+      fallback={
+        <p className="p-6 text-sm text-muted-foreground" role="status">
+          Loading workspace…
+        </p>
+      }
+    >
+      <HarnessWorkspace
+        runtimeFamily={runtimeFamily}
+        conversationId={companion.channel?.id ?? null}
+        residentPubkey={companion.residentPubkey}
+        ownerScope={companion.scope}
+        initialTaskId={initialTaskId}
+        initialSessionId={initialSessionId}
+        onAskLuca={(context) =>
+          void navigate({
+            to: "/dashboard",
+            search: {
+              task: context.taskId,
+              session: context.sessionId,
+              title: context.title,
+              runtime: context.runtimeFamily,
+            },
+          })
+        }
+      />
+    </React.Suspense>
+  );
+}
+
+function LegacyAppPage({ family }: { family: string }) {
   const { runtimes } = useRuntimeRailConnections();
   const runtime = runtimes.find(
     (each) => runtimeRailFamilyFromRuntimeId(each.runtimeId) === family,

@@ -24,6 +24,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
+mod dashboard;
 mod delegation;
 mod delivery;
 mod execution;
@@ -33,6 +34,11 @@ mod lifecycle;
 mod native_sources;
 mod storage;
 mod targets;
+
+pub use dashboard::{
+    get_harness_session, list_harness_sessions, GetHarnessSessionInputV1, HarnessSessionDetailV1,
+    HarnessSessionListV1,
+};
 
 const EVENT_NAME: &str = "luca://runtime-task";
 const PROPOSAL_EVENT_NAME: &str = "luca://runtime-task-proposal";
@@ -1001,6 +1007,9 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
     validate_opaque(conversation_id, 128, "conversation")?;
     let arguments: RuntimeTaskProposalArgumentsV1 = serde_json::from_value(arguments)
         .map_err(|_| "runtime task proposal is invalid".to_owned())?;
+    if let Some(source) = arguments.source_id.as_deref() {
+        dashboard::reject_resident_source(source)?;
+    }
     let runtime_family = match arguments.target_runtime.as_str() {
         "codex" => "codex".to_owned(),
         "claude" | "claude_code" => "claude_code".to_owned(),
@@ -1221,6 +1230,9 @@ pub(crate) fn list_runtime_task_sessions_for_resident<C: FnMut() -> bool>(
         .map(luca_protocol::OpaqueId::parse)
         .transpose()
         .map_err(|_| "Native session source is invalid.".to_owned())?;
+    if let Some(source) = selected.as_ref() {
+        dashboard::reject_resident_source(source.as_str())?;
+    }
     if cancelled() {
         return Err("Native session lookup was cancelled. Nothing was read or dispatched.".into());
     }

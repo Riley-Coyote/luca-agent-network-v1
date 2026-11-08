@@ -26,6 +26,7 @@ pub(super) fn authorized_source(
     resident: &str,
     source_id: &OpaqueId,
 ) -> Result<RuntimeTaskTargetSourceV1, String> {
+    dashboard::reject_resident_source(source_id.as_str())?;
     let owner = owner(app)?;
     let resident = Hex64::parse(resident.to_ascii_lowercase())
         .map_err(|_| "task resident identity is invalid".to_owned())?;
@@ -62,7 +63,7 @@ pub(super) fn authorized_source(
     })
 }
 
-fn exclusions(app: &AppHandle, runtime: &str) -> Result<HashSet<String>, String> {
+pub(super) fn exclusions(app: &AppHandle, runtime: &str) -> Result<HashSet<String>, String> {
     let root = app
         .buzz_path()
         .app_data_dir()
@@ -91,7 +92,16 @@ pub(super) fn resolve_target(
     let session_id = OpaqueId::parse(session_id.unwrap_or_default().to_owned()).map_err(|_| {
         "Choose an exact session; titles or latest-session guesses cannot dispatch.".to_owned()
     })?;
-    let source = if native_sources::is_native_source(&source_id) {
+    let source = if dashboard::is_dashboard_source(&source_id) {
+        dashboard::resolve_source(
+            app,
+            resident,
+            conversation,
+            runtime,
+            &source_id,
+            &session_id,
+        )?
+    } else if native_sources::is_native_source(&source_id) {
         native_sources::resolve_source(app, resident, conversation, &source_id, &session_id)?
     } else {
         authorized_source(app, resident, &source_id)?
@@ -116,7 +126,16 @@ pub(super) fn revalidate_target(
     target: &RuntimeTaskExistingTargetV1,
     operation: RuntimeTaskOperationV1,
 ) -> Result<(), String> {
-    let source = if native_sources::is_native_source(&target.source_id) {
+    let source = if dashboard::is_dashboard_source(&target.source_id) {
+        dashboard::resolve_source(
+            app,
+            resident,
+            conversation,
+            &target.runtime_family,
+            &target.source_id,
+            &target.session_ref,
+        )?
+    } else if native_sources::is_native_source(&target.source_id) {
         native_sources::resolve_source(
             app,
             resident,
@@ -363,21 +382,10 @@ fn claude_live_target(
     output: &str,
     target: &RuntimeTaskExistingTargetV1,
 ) -> Result<(u32, String), String> {
-    let snapshot: serde_json::Value =
-        serde_json::from_str(output).map_err(|_| "Native Claude availability is invalid.")?;
+    let snapshot = claude_agents_snapshot(output)?;
     let rows = snapshot
         .as_array()
-        .filter(|rows| rows.len() <= 4096)
         .ok_or("Native Claude availability is unsupported.")?;
-    if rows.iter().any(|row| {
-        !row.is_object()
-            || !matches!(
-                row.get("kind").and_then(|v| v.as_str()),
-                Some("interactive" | "background")
-            )
-    }) {
-        return Err("Native Claude availability contains unsupported identities.".into());
-    }
     let id = target.provider_session_id.to_string();
     let matched = rows
         .iter()
@@ -423,6 +431,101 @@ fn claude_live_target(
         return Err("This Claude receiver is unavailable, renamed, ambiguous or in another working folder. Nothing was sent.".into());
     }
     Ok((pid, name.into()))
+}
+
+fn claude_agents_snapshot(output: &str) -> Result<serde_json::Value, String> {
+    let snapshot: serde_json::Value =
+        serde_json::from_str(output).map_err(|_| "Native Claude availability is invalid.")?;
+    let rows = snapshot
+        .as_array()
+        .filter(|rows| rows.len() <= 4096)
+        .ok_or("Native Claude availability is unsupported.")?;
+    if rows.iter().any(|row| {
+        !row.is_object()
+            || !matches!(
+                row.get("kind").and_then(|v| v.as_str()),
+                Some("interactive" | "background")
+            )
+    }) {
+        return Err("Native Claude availability contains unsupported identities.".into());
+    }
+    Ok(snapshot)
+}
+
+fn dashboard_claude_executable(
+    explicit_override: Option<&Path>,
+    trusted_shim: Option<&Path>,
+) -> Option<PathBuf> {
+    // An explicit nonempty override never falls through to another executable,
+    // even if it is invalid, relative, missing, or no longer executable.
+    let selected = explicit_override
+        .filter(|path| !path.as_os_str().is_empty())
+        .or(trusted_shim)?;
+    if !selected.is_absolute() {
+        return None;
+    }
+    let canonical = selected.canonicalize().ok()?;
+    let metadata = canonical.metadata().ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return None;
+        }
+    }
+    Some(canonical)
+}
+
+/// A read-only, bounded local availability probe. No session is started or sent to.
+pub(super) async fn dashboard_claude_snapshot(profile_root: PathBuf) -> Option<String> {
+    // Full discovery may probe every CLI and spawn a login shell. Use the
+    // explicit pin, or only the fixed shim published by trusted discovery.
+    let explicit = std::env::var_os("CLAUDE_CODE_EXECUTABLE")
+        .filter(|path| !path.is_empty())
+        .or_else(|| std::env::var_os("BUZZ_CLAUDE_PATH").filter(|path| !path.is_empty()))
+        .map(PathBuf::from);
+    let shim = crate::managed_agents::runtime_shim_dir().map(|root| root.join("claude"));
+    let executable = dashboard_claude_executable(explicit.as_deref(), shim.as_deref())?;
+    let mut probe = Command::new(executable);
+    probe.current_dir(profile_root).args(["agents", "--json"]);
+    let (success, output) = bounded_control_input(probe, None, Duration::from_secs(2), None)
+        .await
+        .ok()?;
+    (success && claude_agents_snapshot(&output).is_ok()).then_some(output)
+}
+
+/// Only the same exact-controller validator as dispatch may establish live state.
+pub(super) fn dashboard_claude_is_live(
+    output: &str,
+    target: &RuntimeTaskExistingTargetV1,
+) -> Result<bool, String> {
+    let snapshot = claude_agents_snapshot(output)?;
+    if snapshot
+        .as_array()
+        .ok_or("Native Claude availability is unsupported.")?
+        .iter()
+        .any(|row| {
+            row.get("sessionId")
+                .and_then(|v| v.as_str())
+                .and_then(|id| Uuid::parse_str(id).ok())
+                .is_none()
+        })
+    {
+        return Err("Native Claude availability contains unknown sessions.".into());
+    }
+    let id = target.provider_session_id.to_string();
+    let present = snapshot
+        .as_array()
+        .ok_or("Native Claude availability is unsupported.")?
+        .iter()
+        .any(|row| row.get("sessionId").and_then(|v| v.as_str()) == Some(id.as_str()));
+    if !present {
+        return Ok(false);
+    }
+    claude_live_target(output, target).map(|_| true)
 }
 
 fn claude_acknowledgement(output: &str, target: Uuid) -> Result<String, String> {
@@ -717,6 +820,64 @@ pub(super) async fn start_existing(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    fn synthetic_dashboard_cli(root: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let executable = root.join("synthetic-claude");
+        std::fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        executable
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dashboard_claude_explicit_invalid_override_never_uses_valid_shim() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = synthetic_dashboard_cli(root.path());
+        let missing = root.path().join("missing-explicit-cli");
+        for invalid in [Path::new("relative-claude"), missing.as_path(), root.path()] {
+            assert!(dashboard_claude_executable(Some(invalid), Some(&executable)).is_none());
+        }
+        std::fs::set_permissions(&executable, {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::Permissions::from_mode(0o600)
+        })
+        .unwrap();
+        assert!(
+            dashboard_claude_executable(Some(&executable), Some(Path::new("/bin/sh"))).is_none()
+        );
+    }
+
+    #[test]
+    fn dashboard_claude_missing_discovery_shim_remains_unknown() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(dashboard_claude_executable(None, None).is_none());
+        assert!(dashboard_claude_executable(None, Some(&root.path().join("claude"))).is_none());
+        assert!(dashboard_claude_executable(None, Some(root.path())).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dashboard_claude_trusted_shim_is_canonicalized_without_discovery() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = synthetic_dashboard_cli(root.path());
+        let shim = root.path().join("claude");
+        std::os::unix::fs::symlink(&executable, &shim).unwrap();
+        let canonical = executable.canonicalize().unwrap();
+        assert_eq!(
+            dashboard_claude_executable(None, Some(&shim)),
+            Some(canonical.clone())
+        );
+        assert_eq!(
+            dashboard_claude_executable(Some(Path::new("")), Some(&shim)),
+            Some(canonical.clone())
+        );
+        assert_eq!(
+            dashboard_claude_executable(Some(&shim), None),
+            Some(canonical)
+        );
+    }
 
     #[test]
     fn claude_ack_binds_exact_receiver_and_one_native_frame_not_prose() {

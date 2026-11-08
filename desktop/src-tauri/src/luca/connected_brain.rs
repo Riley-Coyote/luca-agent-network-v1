@@ -25,13 +25,14 @@ pub(crate) use index::{
 };
 pub(crate) use session_context::session_id as native_session_opaque_id;
 pub(crate) use session_context::{
-    initial_session_excerpts, initial_session_locators,
-    context_for_native_session, list_native_sessions, native_session_reference,
-    recent_native_session_references, visible_native_session_excerpts, IndexedSessionContextV1,
+    context_for_native_session, initial_session_excerpts, initial_session_locators,
+    list_native_sessions, native_session_reference, recent_native_session_references,
+    visible_native_session_excerpts, visible_native_session_messages, IndexedSessionContextV1,
     IndexedSessionListV1,
 };
 pub(crate) use sessions::redact_reference_local_paths;
 pub(crate) use sessions::SessionReadBudget;
+pub(crate) use sessions::{VisibleNativeSessionMessageV1, VisibleNativeSessionTailV1};
 pub(crate) use watcher::{
     begin_connected_source_owner_refresh, capacity_blocked_source_ids, register_connected_source,
     start_connected_source_watcher, unregister_connected_source, ConnectedBrainWatcherState,
