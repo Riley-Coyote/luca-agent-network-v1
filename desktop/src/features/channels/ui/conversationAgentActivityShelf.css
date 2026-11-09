@@ -579,8 +579,8 @@
 /* ── a room's stack, in the page (SHELL_BUILD.md WP-23) ───────────────────
  * Under the frame, a room's asks and its current work are one stack between
  * the timeline and the message box (ConversationRoomStack.tsx). It sits in
- * the composer's overlay, on the card's own veil, so nothing of the
- * conversation lies under it; every item is a flat row, as Needs you draws
+ * the composer's overlay, on the shared temporary sheet, so nothing of the
+ * conversation shows through it; every item is a flat row, as Needs you draws
  * it (shell-activity.css): no border, plate or shadow, rows apart by the
  * place page's rhythm (11 above and below a row's words). Every row's words
  * sit on one axis, 44 in from the column: the message box's and the
@@ -700,8 +700,41 @@
 }
 
 :root[data-luca-frame] .luca-room-stack .luca-activity-shelf__inner {
-  height: 60px;
+  min-height: 60px;
   padding-inline: 36px 8px;
+}
+
+/* Errors carry their task's name as well as the provider's diagnostic.
+ * Let long labels and larger text grow the row instead of escaping its
+ * measured footprint into the receipt below. */
+:root[data-luca-frame]
+  .luca-room-stack
+  .luca-activity-shelf[data-state="active"] {
+  flex-basis: auto;
+  height: auto;
+}
+
+:root[data-luca-frame] .luca-room-stack .luca-runtime-task-item {
+  height: auto;
+  max-width: none;
+  min-height: 54px;
+  padding-block: 6px;
+}
+
+:root[data-luca-frame] .luca-runtime-task-item__summary {
+  color: hsl(var(--mn-ink));
+  font-size: var(--type-label-size);
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+:root[data-luca-frame]
+  .luca-room-stack
+  .luca-runtime-task-item
+  .luca-activity-item__state {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 :root[data-luca-frame] .luca-room-stack .luca-work-tray__expanded {

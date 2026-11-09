@@ -207,6 +207,8 @@ function RuntimeTaskCompactItem({
   task: RuntimeTaskProjection;
 }) {
   const action = runtimeTaskAction(task);
+  const needsAttention =
+    task.state === "failed" || task.state === "interrupted";
   return (
     <div
       className="luca-activity-item luca-runtime-task-item"
@@ -224,6 +226,11 @@ function RuntimeTaskCompactItem({
           <span className="luca-runtime-task-item__badge">Task</span>
           <RuntimeTaskElapsed task={task} />
         </span>
+        {needsAttention ? (
+          <span className="luca-runtime-task-item__summary">
+            {task.summary}
+          </span>
+        ) : null}
         <span className="luca-activity-item__state">
           {runtimeTaskLabel(task)}
         </span>

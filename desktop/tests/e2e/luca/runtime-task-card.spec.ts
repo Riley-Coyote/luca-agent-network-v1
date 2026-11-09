@@ -6,12 +6,14 @@ import type {
 } from "../../../src/shared/api/tauriRuntimeTasks";
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 
 // A resident DM: no project, so nothing resolves a working folder for it.
 // That is the surface where the raised card lives, and where it was inert.
 const DM = "alice-tyler";
 const DM_ID = "f48efb06-0c93-5025-aac9-2e646bb6bfa8";
 const ROOM = "general";
+const ROOM_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const LUCA = TEST_IDENTITIES.alice.pubkey;
 const PICKED_FOLDER = "/synthetic/projects/picked";
 const PRIOR_FOLDER = "/synthetic/projects/last-used";
@@ -317,9 +319,9 @@ async function installHost(page: Page, options: HostOptions) {
   });
 }
 
-async function open(page: Page, options: HostOptions = {}) {
+async function open(page: Page, options: HostOptions = {}, channelId = DM_ID) {
   await installHost(page, options);
-  await page.goto(`/?e2e=mock#/channels/${DM_ID}`);
+  await page.goto(`/?e2e=mock#/channels/${channelId}`);
   await expect(page.getByTestId("message-input")).toBeVisible({
     timeout: 30_000,
   });
@@ -329,6 +331,170 @@ async function open(page: Page, options: HostOptions = {}) {
       calls.some((call) => call.command === "list_runtime_task_proposals") &&
       calls.some((call) => call.command === "list_runtime_tasks")
     );
+  });
+}
+
+for (const light of [false, true]) {
+  test(`work-only notices keep their backing over scrolling messages (${light ? "light" : "dark"})`, async ({
+    page,
+  }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(
+      ({ key, light }) => {
+        localStorage.setItem(key, JSON.stringify({ "shell-frame": true }));
+        localStorage.setItem("buzz-theme", light ? "paper" : "obsidian");
+        localStorage.setItem("buzz-follow-system", "false");
+      },
+      { key: FEATURE_OVERRIDES_STORAGE_KEY, light },
+    );
+    const failed = priorTask({
+      taskId: "failed-codex-task",
+      conversationId: ROOM_ID,
+      runtimeFamily: "codex",
+      summary: "Continue Codex session 01a1bb31",
+      state: "failed",
+      error: "The runtime host reported a failed task.",
+    });
+    await open(
+      page,
+      {
+        tasks: [
+          failed,
+          priorTask({ conversationId: ROOM_ID, deliveryState: "published" }),
+        ],
+      },
+      ROOM_ID,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+            channelName: "general",
+          }),
+        ),
+      )
+      .toBe(true);
+    await page.evaluate(() => {
+      for (let i = 0; i < 20; i++) {
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelName: "general",
+          content: `Report ${i + 1}: The Claude Code continuation completed and its result is in this conversation. This is transcript text, not a runtime notice.\n\nThe Codex failure belongs to a different task. Its notice should stay readable while this long message scrolls behind it.`,
+        });
+      }
+    });
+    const stack = page.getByTestId("room-stack");
+    const receipt = page.getByTestId("runtime-task-result-receipt");
+    const item = stack.locator(".luca-runtime-task-item");
+    await expect(item).toContainText(failed.summary);
+    await expect(item).toContainText(failed.error ?? "");
+    await expect(stack).not.toHaveAttribute("data-has-asks");
+    await expect(receipt).toContainText("Completed with Claude Code");
+
+    for (const width of [1440, 1280, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(stack).toBeVisible();
+      const paint = await stack.evaluate((element) => {
+        const style = getComputedStyle(element, "::before");
+        const rect = element.getBoundingClientRect();
+        return {
+          fill: style.backgroundColor,
+          content: style.content,
+          animation: style.animationName,
+          isolation: getComputedStyle(element).isolation,
+          left: parseFloat(style.left),
+          right: parseFloat(style.right),
+          width: rect.width,
+        };
+      });
+      expect(paint.fill).toMatch(/^rgb\(/);
+      expect(paint.content).toBe('""');
+      expect(paint.animation).toBe("none");
+      expect(paint.isolation).toBe("isolate");
+      expect(paint.left).toBe(8);
+      expect(paint.right).toBe(8);
+      for (const control of [
+        item.getByRole("button", { name: "Dismiss", exact: true }),
+        receipt.getByRole("button", {
+          name: "Review task result",
+          exact: true,
+        }),
+        receipt.getByRole("button", {
+          name: "Dismiss task receipt",
+          exact: true,
+        }),
+      ]) {
+        await control.click({ trial: true });
+      }
+      // A wheel through the history must not remove the backing or cover its
+      // controls; the approved composer keeps its own geometry and material.
+      const timeline = page.getByTestId("message-timeline");
+      const viewport = await timeline.boundingBox();
+      if (!viewport) throw new Error("Missing transcript viewport");
+      await page.mouse.move(
+        viewport.x + viewport.width / 2,
+        viewport.y + viewport.height / 3,
+      );
+      await page.mouse.wheel(0, -180);
+      await page.mouse.move(2, 2);
+      await expect(stack).toBeVisible();
+      expect(
+        await stack.evaluate(
+          (element) => getComputedStyle(element, "::before").backgroundColor,
+        ),
+      ).toBe(paint.fill);
+      const itemBox = await item.boundingBox();
+      const receiptBox = await receipt.boundingBox();
+      if (!itemBox || !receiptBox) throw new Error("Missing work rows");
+      expect(itemBox.y + itemBox.height).toBeLessThanOrEqual(receiptBox.y + 1);
+      await page.screenshot({
+        path: testInfo.outputPath(
+          `work-notices-${light ? "light" : "dark"}-${width}.png`,
+        ),
+        animations: "disabled",
+      });
+    }
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "20px";
+    });
+    await item
+      .getByRole("button", { name: "Dismiss", exact: true })
+      .click({ trial: true });
+    const enlargedItem = await item.boundingBox();
+    const enlargedReceipt = await receipt.boundingBox();
+    if (!enlargedItem || !enlargedReceipt)
+      throw new Error("Missing enlarged work rows");
+    expect(enlargedItem.y + enlargedItem.height).toBeLessThanOrEqual(
+      enlargedReceipt.y + 1,
+    );
+    await page.evaluate(() =>
+      document.documentElement.style.removeProperty("font-size"),
+    );
+    await item.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await expect(item).toBeHidden();
+    await expect(receipt).toBeVisible();
+    expect(
+      await stack.evaluate(
+        (element) => getComputedStyle(element, "::before").backgroundColor,
+      ),
+    ).toMatch(/^rgb\(/);
+    await receipt
+      .getByRole("button", { name: "Dismiss task receipt", exact: true })
+      .click();
+    await expect(receipt).toBeHidden();
+    expect(
+      await stack.evaluate(
+        (element) => getComputedStyle(element, "::before").content,
+      ),
+    ).toBe("none");
+    expect(
+      await page.evaluate(() =>
+        window.__RUNTIME_TASK_CARD_TEST__?.calls.filter((call) =>
+          /^(cancel|retry)_runtime_task$/.test(call.command),
+        ),
+      ),
+    ).toEqual([]);
   });
 }
 

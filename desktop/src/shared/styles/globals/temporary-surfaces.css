@@ -12,11 +12,7 @@
  * Both materials are drawn from the palette, so they hold by day too. Scoped
  * to the new shell; classic UI and page-level ask rows stay unchanged. */
 :root[data-luca-frame]
-  :is(
-    .luca-room-stack[data-has-asks],
-    .luca-temporary-notice,
-    .luca-temporary-confirmation
-  ) {
+  :is(.luca-room-stack, .luca-temporary-notice, .luca-temporary-confirmation) {
   color: hsl(var(--mn-ink));
 }
 
@@ -24,20 +20,50 @@
  * paint overlaps: no text or controls are hidden by the composer's edge.
  * The composer's glass is the sheet's own tone, so the foot never shows
  * through it as an edge. */
-:root[data-luca-frame] .luca-room-stack[data-has-asks] {
+:root[data-luca-frame] .luca-room-stack {
   position: relative;
   isolation: isolate;
+}
+:root[data-luca-frame]
+  .luca-room-stack:is(
+    [data-has-asks],
+    :has(
+      .luca-activity-shelf[data-state="active"],
+      [data-testid="runtime-task-result-receipt"]
+    )
+  ) {
   padding-top: 10px;
 }
-:root[data-luca-frame] .luca-room-stack[data-has-asks]::before {
+/* Work-only errors and receipts need the same backing as asks. The soft
+ * scroll edge intentionally begins at the composer, not at this stack, so
+ * transparent work rows otherwise interleave with the moving transcript. */
+:root[data-luca-frame]
+  .luca-room-stack:is(
+    [data-has-asks],
+    :has(
+      .luca-activity-shelf[data-state="active"],
+      [data-testid="runtime-task-result-receipt"]
+    )
+  )::before {
   content: "";
   position: absolute;
-  inset: 0 24px calc(-1 * var(--luca-temporary-tuck, 18px));
+  inset: 0 var(--luca-temporary-inset, 24px)
+    calc(-1 * var(--luca-temporary-tuck, 18px));
   z-index: -1;
   pointer-events: none;
   border-radius: 20px 20px 0 0;
   background: hsl(var(--mn-raised));
-  animation: temporary-sheet-rise 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: var(
+    --luca-temporary-sheet-motion,
+    temporary-sheet-rise 300ms cubic-bezier(0.22, 1, 0.36, 1)
+  );
+}
+/* Work receipts hang their status mark in the column's margin. Keep that
+ * mark and its actions on the backing too, without moving their text axis. */
+:root[data-luca-frame] .luca-room-stack:not([data-has-asks])::before {
+  /* Status text arrives immediately; its backing must arrive with it. */
+  --luca-temporary-sheet-motion: none;
+  --luca-temporary-inset: 8px;
 }
 :root[data-luca-frame] .luca-room-stack[data-has-asks] .luca-room-stack__head {
   padding-inline: 44px;
@@ -255,8 +281,8 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  :root[data-luca-frame] .luca-room-stack[data-has-asks]::before {
-    animation: none;
+  :root[data-luca-frame] {
+    --luca-temporary-sheet-motion: none;
   }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -265,8 +291,8 @@
   }
 }
 @media (max-width: 600px) {
-  :root[data-luca-frame] .luca-room-stack[data-has-asks]::before {
-    inset-inline: 8px;
+  :root[data-luca-frame] .luca-room-stack::before {
+    --luca-temporary-inset: 8px;
   }
   :root[data-luca-frame]
     .luca-room-stack[data-has-asks]
