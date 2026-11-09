@@ -56,21 +56,7 @@ export function RuntimeTaskResultReceipts({
   onRetrySynthesis: (task: RuntimeTaskProjection) => Promise<void>;
   tasks: RuntimeTaskProjection[];
 }) {
-  const queryClient = useQueryClient();
   const [dismissed, setDismissed] = React.useState(readDismissed);
-  const [expandedTaskId, setExpandedTaskId] = React.useState<string | null>(
-    null,
-  );
-  const [result, setResult] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(false);
-  const [retryingSynthesis, setRetryingSynthesis] = React.useState(false);
-  const [openingNative, setOpeningNative] = React.useState(false);
-  const [actionError, setActionError] = React.useState<{
-    taskId: string;
-    message: string;
-  } | null>(null);
-  const resultGeneration = React.useRef(0);
-  const visibleTaskId = React.useRef<string | null>(null);
   const task = tasks.find(
     (candidate) =>
       (runtimeTaskNativeHandoff(candidate) ||
@@ -78,53 +64,132 @@ export function RuntimeTaskResultReceipts({
         candidate.state === "stopped") &&
       !dismissed.has(candidate.taskId),
   );
-  visibleTaskId.current = task?.taskId ?? null;
   if (!task) return null;
+  return (
+    <RuntimeTaskResultReceipt
+      // Action and read state belongs to this exact task, not the next receipt.
+      key={JSON.stringify([task.conversationId, task.taskId])}
+      task={task}
+      onRetrySynthesis={onRetrySynthesis}
+      onDismiss={() =>
+        setDismissed((current) => {
+          const next = new Set(current);
+          next.add(task.taskId);
+          writeDismissed(next);
+          return next;
+        })
+      }
+    />
+  );
+}
+
+type ResultView =
+  | { phase: "collapsed" }
+  | { phase: "loading" }
+  | { phase: "ready"; result: string | null }
+  | { phase: "failed"; message: string };
+
+type ReceiptAction =
+  | { phase: "idle" }
+  | { phase: "pending"; kind: "summary" | "native" }
+  | { phase: "failed"; message: string };
+
+function RuntimeTaskResultReceipt({
+  task,
+  onDismiss,
+  onRetrySynthesis,
+}: {
+  task: RuntimeTaskProjection;
+  onDismiss: () => void;
+  onRetrySynthesis: (task: RuntimeTaskProjection) => Promise<void>;
+}) {
+  const queryClient = useQueryClient();
+  const [resultView, setResultView] = React.useState<ResultView>({
+    phase: "collapsed",
+  });
+  const [action, setAction] = React.useState<ReceiptAction>({ phase: "idle" });
+  const pendingAction = React.useRef(false);
+  const resultGeneration = React.useRef(0);
+  const alive = React.useRef(true);
+  React.useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      resultGeneration.current += 1;
+    };
+  }, []);
   const nativeHandoff = runtimeTaskNativeHandoff(task);
   const canReview = !nativeHandoff && task.state === "succeeded";
   const deliveryLabel = runtimeTaskDeliveryLabel(task);
   const summaryRetry = runtimeTaskSummaryRetry(task);
-  const expanded = canReview && expandedTaskId === task.taskId;
+  const expanded = canReview && resultView.phase !== "collapsed";
+  const openingNative = action.phase === "pending" && action.kind === "native";
+  const retryingSynthesis =
+    action.phase === "pending" && action.kind === "summary";
+  const actionError =
+    action.phase === "failed"
+      ? action.message
+      : resultView.phase === "failed"
+        ? resultView.message
+        : null;
+
+  const runAction = (
+    kind: "summary" | "native",
+    perform: () => Promise<unknown>,
+    fallback: string,
+  ) => {
+    if (pendingAction.current) return;
+    pendingAction.current = true;
+    setAction({ phase: "pending", kind });
+    // Defer invocation as well as settlement so synchronous errors settle too.
+    void Promise.resolve()
+      .then(perform)
+      .then(
+        () => {
+          if (alive.current) setAction({ phase: "idle" });
+        },
+        (cause: unknown) => {
+          if (alive.current)
+            setAction({
+              phase: "failed",
+              message: cause instanceof Error ? cause.message : fallback,
+            });
+        },
+      )
+      .finally(() => {
+        pendingAction.current = false;
+      });
+  };
 
   const toggle = () => {
     if (!canReview) return;
     if (expanded) {
       resultGeneration.current += 1;
-      setExpandedTaskId(null);
-      setResult(null);
-      setLoading(false);
+      setResultView({ phase: "collapsed" });
       return;
     }
     const generation = ++resultGeneration.current;
     const taskId = task.taskId;
     const current = () =>
-      resultGeneration.current === generation &&
-      visibleTaskId.current === taskId;
-    setExpandedTaskId(task.taskId);
-    setResult(null);
-    setActionError(null);
-    setLoading(true);
+      alive.current && resultGeneration.current === generation;
+    setResultView({ phase: "loading" });
     void getRuntimeTaskResult(taskId)
       .then((payload) => {
         if (!current()) return;
         if (payload.taskId !== taskId || payload.state !== "succeeded") {
           throw new Error("The task result could not be verified.");
         }
-        setResult(payload.result);
+        setResultView({ phase: "ready", result: payload.result });
       })
       .catch((cause: unknown) => {
         if (!current()) return;
-        setResult(null);
-        setActionError({
-          taskId,
+        setResultView({
+          phase: "failed",
           message:
             cause instanceof Error
               ? cause.message
               : "The task result could not be read.",
         });
-      })
-      .finally(() => {
-        if (current()) setLoading(false);
       });
   };
 
@@ -158,19 +223,11 @@ export function RuntimeTaskResultReceipts({
             className="flex h-7 items-center gap-1.5 rounded-full px-2 text-xs text-ink-muted hover:bg-foreground/[0.06] hover:text-ink disabled:opacity-45"
             disabled={openingNative}
             onClick={() => {
-              setOpeningNative(true);
-              setActionError(null);
-              void openRuntimeTaskSession(task.taskId)
-                .catch((cause: unknown) => {
-                  setActionError({
-                    taskId: task.taskId,
-                    message:
-                      cause instanceof Error
-                        ? cause.message
-                        : "The native session could not be opened.",
-                  });
-                })
-                .finally(() => setOpeningNative(false));
+              runAction(
+                "native",
+                () => openRuntimeTaskSession(task.taskId),
+                "The native session could not be opened.",
+              );
             }}
             type="button"
           >
@@ -187,38 +244,30 @@ export function RuntimeTaskResultReceipts({
             className="flex h-7 items-center gap-1.5 rounded-full px-2 text-xs text-ink-muted hover:bg-foreground/[0.06] hover:text-ink disabled:opacity-45"
             disabled={retryingSynthesis}
             onClick={() => {
-              setRetryingSynthesis(true);
-              setActionError(null);
-              const retry =
-                summaryRetry === "delivery"
-                  ? retryRuntimeTaskDelivery(task.taskId).then((updated) => {
-                      if (
-                        updated.taskId !== task.taskId ||
-                        updated.conversationId !== task.conversationId
-                      ) {
-                        throw new Error(
-                          "The result summary retry could not be verified.",
+              runAction(
+                "summary",
+                () =>
+                  summaryRetry === "delivery"
+                    ? retryRuntimeTaskDelivery(task.taskId).then((updated) => {
+                        if (
+                          updated.taskId !== task.taskId ||
+                          updated.conversationId !== task.conversationId
+                        ) {
+                          throw new Error(
+                            "The result summary retry could not be verified.",
+                          );
+                        }
+                        // The command reply is authoritative even if the event
+                        // bridge is unavailable. A newer event still wins merge.
+                        queryClient.setQueryData<RuntimeTaskProjection[]>(
+                          runtimeTasksKey(task.conversationId),
+                          (current = []) =>
+                            mergeRuntimeTasks(current, [updated]),
                         );
-                      }
-                      // The command reply is authoritative even if the event
-                      // bridge is unavailable. A newer event still wins merge.
-                      queryClient.setQueryData<RuntimeTaskProjection[]>(
-                        runtimeTasksKey(task.conversationId),
-                        (current = []) => mergeRuntimeTasks(current, [updated]),
-                      );
-                    })
-                  : onRetrySynthesis(task);
-              void retry
-                .catch((cause: unknown) => {
-                  setActionError({
-                    taskId: task.taskId,
-                    message:
-                      cause instanceof Error
-                        ? cause.message
-                        : "The result summary could not be retried.",
-                  });
-                })
-                .finally(() => setRetryingSynthesis(false));
+                      })
+                    : onRetrySynthesis(task),
+                "The result summary could not be retried.",
+              );
             }}
             type="button"
           >
@@ -249,15 +298,7 @@ export function RuntimeTaskResultReceipts({
           className="grid size-7 place-items-center rounded-full text-ink-muted hover:bg-foreground/[0.06] hover:text-ink"
           onClick={() => {
             resultGeneration.current += 1;
-            setExpandedTaskId(null);
-            setResult(null);
-            setLoading(false);
-            setDismissed((current) => {
-              const next = new Set(current);
-              next.add(task.taskId);
-              writeDismissed(next);
-              return next;
-            });
+            onDismiss();
           }}
           type="button"
         >
@@ -282,18 +323,19 @@ export function RuntimeTaskResultReceipts({
       {nativeHandoff && task.error ? (
         <p className="mt-2 text-xs text-ink-muted">{task.error}</p>
       ) : null}
-      {actionError?.taskId === task.taskId ? (
+      {actionError ? (
         <p className="mt-2 text-xs text-destructive" role="alert">
-          {actionError.message}
+          {actionError}
         </p>
       ) : null}
       {expanded ? (
         <div className="mt-2 max-h-72 overflow-y-auto border-t border-border/45 pt-2">
-          {loading ? (
+          {resultView.phase === "loading" ? (
             <p className="text-sm text-ink-muted">Loading result…</p>
           ) : (
             <div className="whitespace-pre-wrap text-sm leading-relaxed text-ink">
-              {result ?? "The result is unavailable."}
+              {(resultView.phase === "ready" ? resultView.result : null) ??
+                "The result is unavailable."}
             </div>
           )}
         </div>

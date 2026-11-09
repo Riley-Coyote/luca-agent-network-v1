@@ -16,8 +16,11 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
   type ConversationActivityState,
   activityStopOutcome,
-  isTerminalConversationActivity,
 } from "./conversationAgentActivityShelf";
+import {
+  ResidentStopState,
+  type ResidentStopRequest,
+} from "./residentStopState";
 
 const TERMINAL_SETTLE_MS = 800;
 
@@ -38,70 +41,121 @@ export function useResidentStopControl({
   /** Keyed by normalized resident pubkey. */
   presentationActivity: ReadonlyMap<string, ManagedResidentActivity>;
 }) {
-  const [localStates, setLocalStates] = React.useState<
-    Map<string, ConversationActivityState>
-  >(() => new Map());
-  const terminalTimers = React.useRef(new Map<string, number>());
+  // The model's identity is the conversation incarnation, not just its ID.
+  // Old commands may finish, but A → B → A must not revive A's old controls.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: channelId deliberately creates a fresh transient lifecycle.
+  const { lifecycle, terminalTimers } = React.useMemo(
+    () => ({
+      lifecycle: new ResidentStopState(),
+      terminalTimers: new Map<string, number>(),
+    }),
+    [channelId],
+  );
+  const currentLifecycle = React.useRef<ResidentStopState | null>(lifecycle);
+  const [view, setView] = React.useState(() => ({
+    lifecycle,
+    states: lifecycle.snapshot,
+  }));
+  const localStates =
+    view.lifecycle === lifecycle ? view.states : lifecycle.snapshot;
 
-  React.useEffect(
-    () => () => {
-      for (const timer of terminalTimers.current.values()) {
-        window.clearTimeout(timer);
-      }
-      terminalTimers.current.clear();
+  React.useLayoutEffect(() => {
+    currentLifecycle.current = lifecycle;
+    return () => {
+      if (currentLifecycle.current === lifecycle)
+        currentLifecycle.current = null;
+      for (const timer of terminalTimers.values()) window.clearTimeout(timer);
+      terminalTimers.clear();
+    };
+  }, [lifecycle, terminalTimers]);
+
+  const publish = React.useCallback(() => {
+    setView({ lifecycle, states: lifecycle.snapshot });
+  }, [lifecycle]);
+
+  const clearTimer = React.useCallback(
+    (key: string) => {
+      const timer = terminalTimers.get(key);
+      if (timer !== undefined) window.clearTimeout(timer);
+      terminalTimers.delete(key);
     },
-    [],
+    [terminalTimers],
   );
 
-  const applyStates = React.useCallback(
-    (updates: ReadonlyMap<string, ConversationActivityState>) => {
-      setLocalStates((current) => {
-        const next = new Map(current);
-        for (const [key, state] of updates) next.set(key, state);
-        return next;
-      });
-      for (const [key, state] of updates) {
-        const priorTimer = terminalTimers.current.get(key);
-        if (priorTimer !== undefined) window.clearTimeout(priorTimer);
-        if (!isTerminalConversationActivity(state)) continue;
-        terminalTimers.current.set(
+  const workKeys = React.useMemo(() => {
+    const keys = new Map<string, string>();
+    for (const [key, activity] of presentationActivity) {
+      const turn = getManagedPresentationTurn(activity.uiKey);
+      if (turn)
+        keys.set(
           key,
-          window.setTimeout(() => {
-            terminalTimers.current.delete(key);
-            setLocalStates((current) => {
-              if (current.get(key) !== state) return current;
-              const next = new Map(current);
-              next.delete(key);
-              return next;
-            });
-          }, TERMINAL_SETTLE_MS),
+          JSON.stringify([
+            turn.dispatchReceiptId,
+            turn.sessionEpoch,
+            turn.turnId,
+          ]),
         );
-      }
-    },
-    [],
-  );
+    }
+    return keys;
+  }, [presentationActivity]);
 
-  const clearLocalState = React.useCallback((pubkey: string) => {
-    const key = normalizePubkey(pubkey);
-    const timer = terminalTimers.current.get(key);
-    if (timer !== undefined) window.clearTimeout(timer);
-    terminalTimers.current.delete(key);
-    setLocalStates((current) => {
-      if (!current.has(key)) return current;
-      const next = new Map(current);
-      next.delete(key);
-      return next;
-    });
-  }, []);
+  React.useLayoutEffect(() => {
+    const retired = lifecycle.retireReplaced(workKeys);
+    if (retired.length === 0) return;
+    for (const key of retired) clearTimer(key);
+    publish();
+  }, [clearTimer, lifecycle, publish, workKeys]);
+
+  const applyOutcomes = React.useCallback(
+    (
+      request: ResidentStopRequest,
+      updates: ReadonlyMap<string, ConversationActivityState>,
+    ) => {
+      if (currentLifecycle.current !== lifecycle)
+        return new Map<string, ConversationActivityState>();
+      const accepted = lifecycle.settle(request, updates);
+      if (accepted.size === 0) return accepted;
+      publish();
+      for (const key of accepted.keys()) {
+        clearTimer(key);
+        const timer = window.setTimeout(() => {
+          if (terminalTimers.get(key) !== timer) return;
+          terminalTimers.delete(key);
+          if (currentLifecycle.current !== lifecycle) return;
+          lifecycle.expire(request, key);
+          publish();
+        }, TERMINAL_SETTLE_MS);
+        terminalTimers.set(key, timer);
+      }
+      return accepted;
+    },
+    [clearTimer, lifecycle, publish, terminalTimers],
+  );
+  const clearLocalState = React.useCallback(
+    (pubkey: string) => {
+      if (currentLifecycle.current !== lifecycle) return;
+      const key = normalizePubkey(pubkey);
+      clearTimer(key);
+      lifecycle.clear(key);
+      publish();
+    },
+    [clearTimer, lifecycle, publish],
+  );
 
   const stopResidents = React.useCallback(
     async (
       residentKeys: readonly string[],
       capturedTurns?: readonly CancellableManagedTurn[],
     ) => {
-      if (!channelId || residentKeys.length === 0) return;
-      const targets = [...new Set(residentKeys.map(normalizePubkey))];
-      applyStates(new Map(targets.map((key) => [key, "stopping"] as const)));
+      if (!channelId || currentLifecycle.current !== lifecycle) return;
+      const request = lifecycle.begin(
+        residentKeys.map(normalizePubkey),
+        workKeys,
+      );
+      if (!request) return;
+      const { targets } = request;
+      for (const key of targets) clearTimer(key);
+      publish();
 
       let cancellable: CancellableManagedTurn[] = [];
       let inspectionFailed = false;
@@ -147,10 +201,12 @@ export function useResidentStopControl({
         });
       }
       if (inspectionFailed && exactTurns.length === 0) {
-        applyStates(
+        const accepted = applyOutcomes(
+          request,
           new Map(targets.map((key) => [key, "needs-attention"] as const)),
         );
-        toast.error("Active resident work could not be inspected.");
+        if (accepted.size > 0)
+          toast.error("Active resident work could not be inspected.");
         return;
       }
       const commands = exactTurns.map((turn) => ({
@@ -162,9 +218,10 @@ export function useResidentStopControl({
         commands.map((command) => command.promise),
       );
       const nextStates = new Map<string, ConversationActivityState>();
-      let stopped = 0;
-      let ambiguous = 0;
-      let failed = 0;
+      const settlements = new Map<
+        string,
+        ReturnType<typeof activityStopOutcome>["result"]
+      >();
 
       for (const key of targets) {
         const indices = commands.flatMap((command, index) =>
@@ -202,11 +259,18 @@ export function useResidentStopControl({
           }),
         );
         nextStates.set(key, outcome.state);
-        if (outcome.result === "ambiguous") ambiguous += 1;
-        else if (outcome.result === "failed") failed += 1;
+        settlements.set(key, outcome.result);
+      }
+      const accepted = applyOutcomes(request, nextStates);
+      let stopped = 0;
+      let ambiguous = 0;
+      let failed = 0;
+      for (const key of accepted.keys()) {
+        const result = settlements.get(key);
+        if (result === "ambiguous") ambiguous += 1;
+        else if (result === "failed") failed += 1;
         else stopped += 1;
       }
-      applyStates(nextStates);
 
       if (stopped > 0) {
         toast.success(
@@ -230,7 +294,15 @@ export function useResidentStopControl({
         );
       }
     },
-    [applyStates, channelId, presentationActivity],
+    [
+      applyOutcomes,
+      channelId,
+      clearTimer,
+      lifecycle,
+      presentationActivity,
+      publish,
+      workKeys,
+    ],
   );
 
   return { localStates, stopResidents, clearLocalState };

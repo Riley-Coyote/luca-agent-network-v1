@@ -69,6 +69,9 @@ type HostState = {
   holdStops: boolean;
   pendingStopResolvers: Array<() => void>;
   completedStopCalls: number;
+  heldReceiptActions: string[];
+  pendingReceiptActions: Record<string, () => void>;
+  completedReceiptActions: number;
 };
 
 type HostOptions = {
@@ -86,6 +89,7 @@ type HostOptions = {
   suppressStopEvents?: boolean;
   stopReplyTaskId?: string;
   holdStops?: boolean;
+  heldReceiptActions?: string[];
 };
 
 declare global {
@@ -163,6 +167,9 @@ async function installHost(page: Page, options: HostOptions) {
       holdStops: options.holdStops ?? false,
       pendingStopResolvers: [],
       completedStopCalls: 0,
+      heldReceiptActions: options.heldReceiptActions ?? [],
+      pendingReceiptActions: {},
+      completedReceiptActions: 0,
     };
     window.__RUNTIME_TASK_CARD_TEST__ = state;
     type Invoke = (
@@ -204,6 +211,18 @@ async function installHost(page: Page, options: HostOptions) {
             }
             state.completedListCalls += 1;
             return snapshot;
+          }
+          if (
+            command === "open_runtime_task_native_session" ||
+            command === "retry_runtime_task_delivery"
+          ) {
+            const taskId = (payload as { taskId: string }).taskId;
+            if (state.heldReceiptActions.includes(taskId)) {
+              await new Promise<void>((resolve) => {
+                state.pendingReceiptActions[taskId] = resolve;
+              });
+            }
+            state.completedReceiptActions += 1;
           }
           if (command === "open_runtime_task_native_session") return null;
           if (command === "retry_runtime_task_delivery") {
@@ -1068,6 +1087,79 @@ test("a legacy receipt retains its explicit manual resident synthesis action", a
   ).toHaveCount(0);
   await expect(receipt.getByRole("status")).toHaveCount(0);
 });
+
+for (const action of ["summary", "native session"] as const) {
+  test(`a pending ${action} action stays with its own task receipt`, async ({
+    page,
+  }) => {
+    const overrides: Partial<RuntimeTaskProjection> =
+      action === "summary"
+        ? { deliveryState: "retryable", deliveryCanRetry: true }
+        : {
+            runtimeFamily: "codex",
+            operation: "send_message",
+            controlOwner: "native_app",
+            state: "awaiting_native",
+          };
+    const first = priorTask({
+      ...overrides,
+      taskId: `pending-${action}-first`,
+      summary: "First action receipt.",
+      startedAt: "2026-09-01T00:00:02Z",
+    });
+    const second = priorTask({
+      ...overrides,
+      taskId: `pending-${action}-second`,
+      summary: "Second action receipt.",
+    });
+    await open(page, {
+      tasks: [first, second],
+      heldReceiptActions: [first.taskId, second.taskId],
+      suppressDeliveryEvents: true,
+    });
+    const receipt = page.getByTestId("runtime-task-result-receipt");
+    const button = receipt.getByRole("button", {
+      name: action === "summary" ? "Retry result summary" : "Open in Codex",
+      exact: true,
+    });
+    await expect(receipt).toContainText(first.summary);
+    await button.click();
+    await page.waitForFunction(
+      (id) =>
+        Boolean(window.__RUNTIME_TASK_CARD_TEST__?.pendingReceiptActions[id]),
+      first.taskId,
+    );
+    await receipt.getByRole("button", { name: "Dismiss task receipt" }).click();
+    await expect(receipt).toContainText(second.summary);
+    await expect(button).toBeEnabled();
+    await button.click();
+    await page.waitForFunction(
+      (id) =>
+        Boolean(window.__RUNTIME_TASK_CARD_TEST__?.pendingReceiptActions[id]),
+      second.taskId,
+    );
+    await page.evaluate((id) => {
+      window.__RUNTIME_TASK_CARD_TEST__?.pendingReceiptActions[id]?.();
+    }, first.taskId);
+    await page.waitForFunction(
+      () => window.__RUNTIME_TASK_CARD_TEST__?.completedReceiptActions === 1,
+    );
+    // The old task's completion must not clear the new task's busy state.
+    const pending = receipt.getByRole("button", {
+      name: action === "summary" ? "Retry result summary" : "Opening…",
+      exact: true,
+    });
+    await expect(pending).toBeDisabled();
+    await page.evaluate((id) => {
+      window.__RUNTIME_TASK_CARD_TEST__?.pendingReceiptActions[id]?.();
+    }, second.taskId);
+    await page.waitForFunction(
+      () => window.__RUNTIME_TASK_CARD_TEST__?.completedReceiptActions === 2,
+    );
+    if (action === "native session") await expect(button).toBeEnabled();
+    else await expect(receipt).toContainText("Resident summary queued");
+  });
+}
 
 test("a late raw result cannot cross from a dismissed receipt into another task", async ({
   page,
