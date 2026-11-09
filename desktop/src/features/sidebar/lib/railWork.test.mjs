@@ -163,6 +163,25 @@ test("no backend mapping means no invented pair identity or cross-owner merge", 
   assert.equal(rows.get(ATLAS)[0].id, "correspondence:house-b-pair");
 });
 
+test("opening a pair seeds its latest real activity regardless of page order", () => {
+  const older = exchange("older", LUCA, [LUCA, ATLAS], { at: 1000 });
+  const newer = exchange("newer", LUCA, [LUCA, ATLAS], { at: 3000 });
+  for (const items of [
+    [older, newer],
+    [newer, older],
+  ]) {
+    const rows = agentWorkRows(
+      items,
+      new Set([ATLAS]),
+      nameOf,
+      roomOf,
+      scope(items.map((item) => [item.id, "pair"])),
+    );
+    assert.equal(rows.get(ATLAS)[0].taskIds[0], "newer");
+    assert.equal(rows.get(ATLAS)[0].messageId, "root-newer");
+  }
+});
+
 test("pair activity uses actual messages, not future deadlines, and rows have stable order", () => {
   const items = [
     exchange("unknown", LUCA, [LUCA, ATLAS], {

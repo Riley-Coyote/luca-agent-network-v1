@@ -31,6 +31,7 @@ export type AppSidebarProps = {
     | "home"
     | "dashboard"
     | "inbox"
+    | "correspondence"
     | "channel"
     | "messages"
     | "agents"

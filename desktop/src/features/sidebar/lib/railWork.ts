@@ -131,6 +131,12 @@ export function agentWorkRows(
             existing.shownAt = row.shownAt;
             existing.conversationId = row.conversationId;
             existing.messageId = row.messageId;
+            // The main view opens the most recently active history, not the
+            // first task encountered while pages were being merged.
+            existing.taskIds = [
+              item.id,
+              ...(existing.taskIds ?? []).filter((id) => id !== item.id),
+            ];
           }
           existing.live ||= row.live;
           if (

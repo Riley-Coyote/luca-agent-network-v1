@@ -8,6 +8,8 @@ import type { RailPlace } from "@/app/shell/placeRails/placePicks";
 import { appPathOf } from "@/app/shell/placeRails/appTask";
 import { shellFramePageName } from "@/app/shell/shellFrame";
 import { useMindPageTitle } from "@/features/agents/space/mindPageTitle";
+import { correspondencePathId } from "@/features/exchange/correspondenceNavigation";
+import { useCorrespondenceTitle } from "@/features/exchange/correspondencePageTitle";
 import { useAllRuntimeTasks } from "@/features/capabilities/useAllRuntimeTasks";
 import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
 import { runtimeRailFamilyFromRuntimeId } from "@/features/runtime-sessions/runtimeRailPreferences";
@@ -96,7 +98,15 @@ export function shellFrameLipName(view: AppView): React.ReactNode {
   const place = RAIL_PLACE_OF_VIEW[view];
   const name = shellFramePageName(view);
   if (view === "app") return <AppLipName fallback={name} />;
+  if (view === "correspondence") return <CorrespondenceLipName />;
   return place ? <PlaceLipName fallback={name} place={place} /> : name;
+}
+
+function CorrespondenceLipName() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  return <>{useCorrespondenceTitle(correspondencePathId(pathname))}</>;
 }
 
 /** A connected app's page (WP-34): the app's own name, as its row in the

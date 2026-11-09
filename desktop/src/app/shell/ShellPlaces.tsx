@@ -48,6 +48,7 @@ type PlacesView =
   | "dashboard"
   | "inbox"
   | "channel"
+  | "correspondence"
   | "messages"
   | "agents"
   | "brain"
@@ -78,6 +79,7 @@ export function placeOfView(view: PlacesView): PlaceId | null {
       return "home";
     case "home":
     case "channel":
+    case "correspondence":
     case "messages":
     case "projects":
     case "workflows":

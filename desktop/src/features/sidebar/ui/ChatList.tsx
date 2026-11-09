@@ -227,6 +227,7 @@ export function ChatRowContextMenu({
   onMarkChannelUnread,
   projectMenuItems,
   agentMenuItems,
+  sideMenuItems,
 }: ChatRowMenuProps & {
   children: React.ReactElement;
   items: readonly ChatListItem[];
@@ -236,9 +237,10 @@ export function ChatRowContextMenu({
   projectMenuItems?: (projectId: string) => React.ReactNode;
   /** A resident's display actions, independent of their conversation menu. */
   agentMenuItems?: (pubkey: string) => React.ReactNode;
+  sideMenuItems?: (sideId: string) => React.ReactNode;
 }) {
   const [row, setRow] = React.useState<{
-    kind: "channel" | "project" | "agent";
+    kind: "channel" | "project" | "agent" | "side";
     id: string;
     channelId?: string;
   } | null>(null);
@@ -255,10 +257,16 @@ export function ChatRowContextMenu({
         "[data-channel-id]",
         projectMenuItems && "[data-project-id]",
         agentMenuItems && "[data-agent-pubkey]",
+        sideMenuItems && "[data-side-id]",
       ]
         .filter(Boolean)
         .join(", "),
     );
+    const sideId = found?.getAttribute("data-side-id");
+    if (sideId && sideMenuItems)
+      return sideMenuItems(sideId)
+        ? { kind: "side" as const, id: sideId }
+        : null;
     const channelId = found?.getAttribute("data-channel-id");
     const agent = found?.getAttribute("data-agent-pubkey");
     if (agent && agentMenuItems)
@@ -300,6 +308,8 @@ export function ChatRowContextMenu({
           />
         ) : row?.kind === "project" && projectMenuItems ? (
           projectMenuItems(row.id)
+        ) : row?.kind === "side" && sideMenuItems ? (
+          sideMenuItems(row.id)
         ) : null}
         {row?.kind === "agent" && agentMenuItems ? (
           <>

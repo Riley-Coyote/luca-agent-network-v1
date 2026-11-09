@@ -20,6 +20,7 @@ const task = {
     exchangeId,
     conversationId: "source",
     owner: "owner",
+    openedBy: resident,
     members: [resident, other],
   },
 };
@@ -30,7 +31,7 @@ const page = {
 
 test("an authorized pair search result opens its exact existing task", async () => {
   let query;
-  assert.equal(
+  assert.deepEqual(
     await resolveInboxSearchTask(
       hit,
       async () => event,
@@ -39,7 +40,7 @@ test("an authorized pair search result opens its exact existing task", async () 
         return page;
       },
     ),
-    exchangeId,
+    { exchangeId, correspondenceId: "pair", recipientPubkey: other },
   );
   assert.deepEqual(query, { exchangeId, limit: 1 });
 });

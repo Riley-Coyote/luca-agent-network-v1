@@ -11,6 +11,37 @@ Recheck the branch, instructions, diff and active jobs before implementation.
 This document supersedes the per-exchange rail-entry behavior described in
 WP-34, only for the changes explicitly scoped here. It does not authorize a release.
 
+## Navigation amendment — 2026-11-08
+
+Riley approved one predictable navigation rule: a rail conversation opens as the
+main chat, including a nested agent-pair correspondence. Agent-page inbox links
+and task search results also use the main chat. A task card or the rail's explicit
+**Open beside** action opens a second conversation inside the existing app.
+The beside view can be promoted with **Open in main chat**. Neither action
+creates a room, starts/stops execution, or changes any source permissions.
+
+Both locations reuse `CorrespondenceWindow`, canonical task reads, existing
+host-advertised write capabilities and the existing message/reply paths. A seed
+reference loads history only: general messages use the new-topic path, while
+explicit task selection/reply retains that task's continuation intent. Recipient,
+focused reply target, separate drafts and bounded reading-position state survive
+presentation changes. Legacy general drafts keep their exact keys and uncertain
+send identities; no profile migration or transcript duplication is introduced.
+
+The shell selects the actual nested conversation and its agent. Back/Forward is
+normal navigation. Navigating away closes an explicit beside view without
+stopping work; requesting the same pair beside itself focuses it in the main
+view instead of mounting a duplicate composer. Existing group-exchange handling
+and legacy detached-window links remain compatible.
+
+Focused checks: 56 browser cases and 46 units passed after the navigation and
+scroll-recovery fixes. Typecheck/E2E build passed. These prove frontend behavior
+and mock payloads, not fresh native transport delivery. Native candidate review
+is a separate remaining gate; no publish, push, signing or daily-app replacement
+is authorized. The stopped isolated profile was backed up to
+`~/Documents/Polyphonic-Candidates/2026-11-03-first-meeting/pre-agent-navigation.EPt7aS`:
+219 regular files and 3 links match, and its relay passes SQLite `quick_check`.
+
 ## Execution record — 2026-11-04
 
 Baseline remains `cb23d847a`; implementation checkpoint `6aee43288` is local only.

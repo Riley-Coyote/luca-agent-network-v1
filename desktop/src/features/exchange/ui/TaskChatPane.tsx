@@ -1,6 +1,9 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useRouterState } from "@tanstack/react-router";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { correspondencePathId } from "../correspondenceNavigation";
 import { X } from "lucide-react";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -23,6 +26,8 @@ export function TaskChatPane() {
   const { activeCommunity, reinitKey } = useCommunities();
   const owner = useIdentityQuery().data?.pubkey?.toLowerCase() ?? "";
   const scope = `${activeCommunity?.id}:${reinitKey}:${owner}`;
+  const location = useRouterState({ select: (state) => state.location.href });
+  const previousLocation = React.useRef(location);
   const [request, setRequest] = React.useState<{
     scope: string;
     id: string;
@@ -32,6 +37,13 @@ export function TaskChatPane() {
   const currentScope = React.useRef(scope);
   currentScope.current = scope;
   const taskId = request?.scope === scope ? request.id : null;
+  React.useLayoutEffect(() => {
+    if (previousLocation.current !== location) {
+      previousLocation.current = location;
+      returnFocus.current = false;
+      setRequest(null);
+    }
+  }, [location]);
   React.useEffect(() => {
     setRequest((current) => (current?.scope === scope ? current : null));
   }, [scope]);
@@ -131,6 +143,10 @@ function TaskChatCard({
   onRelease: () => void;
 }) {
   const active = usePanelPresence() === true;
+  const { goCorrespondence } = useAppNavigation();
+  const mainPair = useRouterState({
+    select: (state) => correspondencePathId(state.location.pathname),
+  });
   const pane = React.useRef<HTMLElement | null>(null);
   const [overlay, setOverlay] = React.useState(
     () => (slot.parentElement?.clientWidth ?? 900) < 900,
@@ -177,6 +193,18 @@ function TaskChatCard({
   const visibleRead = React.useRef(read);
   if (active) visibleRead.current = read;
   const displayed = active ? read : visibleRead.current;
+  const samePair = Boolean(
+    displayed.data && mainPair === displayed.data.task.correspondenceId,
+  );
+  React.useEffect(() => {
+    if (!active || !samePair || !displayed.data) return;
+    // An explicit beside request for the conversation already in front focuses
+    // that task there; never mount a duplicate transcript or composer.
+    void goCorrespondence(displayed.data.task.correspondenceId ?? "", {
+      task: taskId,
+    });
+    onClose();
+  }, [active, samePair, displayed.data, goCorrespondence, onClose, taskId]);
   return (
     <aside
       aria-label="Task conversation"
@@ -190,7 +218,7 @@ function TaskChatCard({
       inert={!active}
       ref={pane}
     >
-      {displayed.data ? (
+      {displayed.data && !samePair ? (
         <CorrespondenceWindow
           key={`${scope}:${displayed.data.task.correspondenceId}`}
           correspondenceId={displayed.data.task.correspondenceId ?? ""}
@@ -198,6 +226,13 @@ function TaskChatCard({
           embedded
           active={active}
           onClose={onClose}
+          onOpenMain={(id, recipient, intent, reply) => {
+            void goCorrespondence(displayed.data?.task.correspondenceId ?? "", {
+              ...(intent === "reply" ? { task: id, reply } : { seed: id }),
+              recipient,
+            });
+            onClose();
+          }}
         />
       ) : (
         <div className="flex items-center justify-between gap-3 p-4 text-sm">

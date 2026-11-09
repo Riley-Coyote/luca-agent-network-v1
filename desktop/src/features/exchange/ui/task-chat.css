@@ -82,3 +82,12 @@
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+
+/* Same conversation chrome, with the existing reading measure in the main
+   card. Beside views retain their compact, fixed-width layout above. */
+[data-presentation="main"] > .luca-task-chat__header {
+  align-self: center;
+  width: calc(100% - 40px);
+  max-width: var(--mn-reading-measure);
+  padding-inline: 0;
+}

@@ -80,6 +80,13 @@ test("deriveShellRoute_preservesChannelSelection", () => {
   });
 });
 
+test("agent correspondence has its own main route, not an underlying DM selection", () => {
+  assert.deepEqual(deriveShellRoute("/correspondence/correspondence-v1-pair"), {
+    selectedChannelId: null,
+    selectedView: "correspondence",
+  });
+});
+
 test("deriveShellRoute_selectsArtifactLibraryWithoutAConversation", () => {
   assert.deepEqual(deriveShellRoute("/artifacts"), {
     selectedChannelId: null,

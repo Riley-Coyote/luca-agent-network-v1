@@ -2,11 +2,18 @@ import * as React from "react";
 import { Inbox } from "lucide-react";
 import { useAgentInbox } from "@/features/exchange/useAgentInbox";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
-import { openTaskWindow } from "@/features/exchange/openTaskWindow";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 
-function InboxContents({ residentPubkey }: { residentPubkey: string }) {
+function InboxContents({
+  residentPubkey,
+  onOpen,
+}: {
+  residentPubkey: string;
+  onOpen: () => void;
+}) {
   const query = useAgentInbox(residentPubkey);
+  const { goCorrespondence } = useAppNavigation();
   const { nameOf } = useSideConversations();
   const pairs = new Map<string, { id: string; label: string }>();
   for (const page of query.data?.pages ?? [])
@@ -47,7 +54,13 @@ function InboxContents({ residentPubkey }: { residentPubkey: string }) {
           key={id}
           type="button"
           className="rounded-md px-3 py-2 text-left text-sm hover:bg-plate focus-visible:outline focus-visible:outline-2"
-          onClick={() => void openTaskWindow(pair.id)}
+          onClick={() => {
+            void goCorrespondence(id, {
+              seed: pair.id,
+              recipient: residentPubkey,
+            });
+            onOpen();
+          }}
         >
           {pair.label}
         </button>
@@ -82,7 +95,12 @@ export function AgentInboxMenu({ residentPubkey }: { residentPubkey: string }) {
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 max-h-80 overflow-y-auto">
-        {open ? <InboxContents residentPubkey={residentPubkey} /> : null}
+        {open ? (
+          <InboxContents
+            residentPubkey={residentPubkey}
+            onOpen={() => setOpen(false)}
+          />
+        ) : null}
       </PopoverContent>
     </Popover>
   );

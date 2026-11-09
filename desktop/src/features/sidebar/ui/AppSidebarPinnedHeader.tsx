@@ -33,6 +33,7 @@ type SidebarSelectedView =
   | "dashboard"
   | "inbox"
   | "channel"
+  | "correspondence"
   | "messages"
   | "agents"
   | "brain"

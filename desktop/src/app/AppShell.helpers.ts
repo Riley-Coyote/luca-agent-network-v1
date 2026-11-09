@@ -7,6 +7,7 @@ export type AppView =
   | "dashboard"
   | "inbox"
   | "channel"
+  | "correspondence"
   | "messages"
   | "agents"
   | "brain"
@@ -172,6 +173,10 @@ export function deriveShellRoute(
       selectedChannelId: null,
       selectedView: "messages",
     };
+  }
+
+  if (pathname.startsWith("/correspondence/")) {
+    return { selectedChannelId: null, selectedView: "correspondence" };
   }
 
   if (pathname === "/agents") {

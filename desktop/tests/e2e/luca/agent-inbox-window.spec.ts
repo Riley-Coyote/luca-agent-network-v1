@@ -139,12 +139,14 @@ async function open(
       {
         pubkey: LUCA,
         name: "Luca",
+        personaId: "builtin:fizz",
         status: "running",
         channelNames: ["general"],
       },
       {
         pubkey: ANIMA,
         name: "Anima",
+        personaId: "builtin:honey",
         status: "running",
         channelNames: ["general"],
       },
@@ -164,7 +166,9 @@ async function open(
         JSON.stringify({ ...flags, "shell-frame": true }),
       );
     }, FEATURE_OVERRIDES_STORAGE_KEY);
-    await page.goto(`/?e2e=mock#/channels/${CHANNEL}`);
+    // The installed fixture enables the bridge; mimic the native app's clean
+    // outer URL so Back/Forward has no unrelated bootstrap search appended.
+    await page.goto(`/#/channels/${CHANNEL}`);
     await expect(page.locator("[data-luca-right-cards]")).toBeAttached();
     if (openTask) {
       await page.evaluate(
@@ -369,7 +373,7 @@ test("embedded task chat keeps the main route and composer, defaults recipient, 
   await expect(pane.getByTestId("message-input")).toBeVisible();
   await expect(
     pane.getByTestId("message-input").locator("[data-placeholder]"),
-  ).toHaveAttribute("data-placeholder", "Message Anima…");
+  ).toHaveAttribute("data-placeholder", "Reply to Anima…");
   await expect(pane.getByLabel("Reply recipient")).toHaveCount(0);
   await expect(pane.getByRole("navigation", { name: "Tasks" })).toBeHidden();
   const route = page.url();
@@ -1135,3 +1139,297 @@ for (const dpr of [1, 2])
         });
       }
   });
+
+async function mainPair(
+  page: Page,
+  options: { seed?: string; task?: string; recipient?: string } = {
+    seed: TASK,
+    recipient: ANIMA,
+  },
+) {
+  // TanStack's search codec quotes numeric-looking public keys so JSON parsing
+  // cannot turn a 64-digit fixture identity into a lossy number.
+  const search = new URLSearchParams(
+    Object.entries(options).map(([key, value]) => [key, JSON.stringify(value)]),
+  ).toString();
+  await page.goto(`/#/correspondence/${PAIR}?${search}`);
+  await expect(
+    page.locator(
+      '[data-testid="correspondence-window"][data-presentation="main"]',
+    ),
+  ).toBeVisible();
+}
+
+test("rail correspondence opens as the main chat with normal Back and Forward", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, "dark", 0, false, enableOwnerWrites, true, false);
+  const original = page.url();
+  const row = page.getByRole("button", { name: /^With Luca/ });
+  await expect(row).toBeVisible();
+  await row.click();
+  await expect(page).toHaveURL(new RegExp(`/correspondence/${PAIR}`));
+  await expect(page.getByTestId("task-chat-pane")).toHaveCount(0);
+  const chat = page.getByTestId("correspondence-window");
+  await expect(chat).toHaveAttribute("data-presentation", "main");
+  await expect(row).toHaveAttribute("aria-current", "page");
+  await expect(chat.getByTestId("message-input")).toBeEditable();
+  await expect(
+    chat.getByRole("button", { name: "Reply to this task", exact: true }),
+  ).toBeVisible();
+  await expect(chat.getByText(/Sending a message resumes/)).toHaveCount(0);
+  await chat.getByTestId("message-input").fill("General conversation draft");
+  await page.goBack();
+  await expect(page).toHaveURL(original);
+  await page.goForward();
+  await expect(chat.getByTestId("message-input")).toHaveText(
+    "General conversation draft",
+  );
+  expect(await sends(page)).toEqual([]);
+  expect(
+    await page.evaluate(() =>
+      (window.__BUZZ_E2E_COMMAND_LOG__ ?? []).filter((entry) =>
+        /^(create_(channel|project|group)|send_agent_|resolve_exchange|start_local_agent)/.test(
+          entry.command,
+        ),
+      ),
+    ),
+  ).toEqual([]);
+});
+
+test("promoting beside to main preserves the exact task, recipient, reply target and draft", async ({
+  page,
+}) => {
+  await open(page, "dark", 0, false, enableOwnerWrites, true);
+  const pane = page.getByTestId("task-chat-pane");
+  await pane
+    .getByRole("button", { name: "Reply to Anima", exact: true })
+    .click();
+  await pane.getByTestId("message-input").fill("A focused reply draft");
+  await pane.getByRole("button", { name: "Conversation options" }).click();
+  await page.getByRole("menuitem", { name: "Open in main chat" }).click();
+  await expect(pane).toHaveCount(0);
+  const chat = page.getByTestId("correspondence-window");
+  await expect(chat).toHaveAttribute("data-presentation", "main");
+  await expect(chat.getByTestId("message-input")).toHaveText(
+    "A focused reply draft",
+  );
+  await expect(
+    chat.getByRole("button", { name: /Cancel reply/ }),
+  ).toBeVisible();
+  await chat.getByTestId("send-message").click();
+  await expect.poll(async () => (await sends(page)).length).toBe(1);
+  expect((await sends(page))[0]).toMatchObject({
+    exchangeId: TASK,
+    recipientPubkey: ANIMA,
+    replyEventId: TURN,
+    continuationIntent: false,
+  });
+});
+
+test("a general pair message never continues the closed task used to load history", async ({
+  page,
+}) => {
+  await open(page, "light", 0, false, enableOwnerWrites, true, false);
+  await mainPair(page, { seed: OTHER_TASK, recipient: ANIMA });
+  const chat = page.getByTestId("correspondence-window");
+  await expect(chat.getByTestId("message-input")).toBeEditable();
+  await expect(chat.getByText(/Sending a message resumes/)).toHaveCount(0);
+  await chat
+    .getByTestId("message-input")
+    .fill("A different question for Anima");
+  await chat.getByTestId("send-message").click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.__BUZZ_E2E_COMMAND_LOG__ ?? []).filter(
+            (entry) => entry.command === "send_agent_inbox_message",
+          ).length,
+      ),
+    )
+    .toBe(1);
+  const message = await page.evaluate(
+    () =>
+      (window.__BUZZ_E2E_COMMAND_LOG__ ?? []).find(
+        (entry) => entry.command === "send_agent_inbox_message",
+      )?.payload,
+  );
+  expect(message).toMatchObject({
+    input: {
+      sourceExchangeId: OTHER_TASK,
+      recipientPubkey: ANIMA,
+      content: "A different question for Anima",
+    },
+  });
+  expect(await sends(page)).toEqual([]);
+});
+
+test("canceling a focused reply restores the general draft and recipient", async ({
+  page,
+}) => {
+  await open(page, "dark", 0, false, enableOwnerWrites, true, false);
+  await mainPair(page);
+  const chat = page.getByTestId("correspondence-window");
+  await chat.getByTestId("message-input").fill("My general question");
+  await chat
+    .getByRole("button", { name: "Reply to Anima", exact: true })
+    .click();
+  await chat.getByTestId("message-input").fill("A separate task reply");
+  await chat.getByRole("button", { name: /Cancel reply/ }).click();
+  await expect(chat.getByTestId("message-input")).toHaveText(
+    "My general question",
+  );
+  await expect(
+    chat.getByRole("button", { name: "Reply to this task", exact: true }),
+  ).toBeVisible();
+  expect(await sends(page)).toEqual([]);
+});
+
+test("main chat denies foreign recipients and history, without falling back or dispatching", async ({
+  page,
+}) => {
+  await open(page, "light", 0, false, enableOwnerWrites, true, false);
+  await mainPair(page, { seed: TASK, recipient: "ff".repeat(32) });
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "not part of this conversation" }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("correspondence-window").getByTestId("message-input"),
+  ).toHaveCount(0);
+  await mainPair(page, { seed: "ee".repeat(32), recipient: ANIMA });
+  await expect(
+    page.getByRole("alert").filter({ hasText: "unavailable" }),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId("correspondence-window").getByTestId("message-input"),
+  ).toHaveCount(0);
+  expect(await sends(page)).toEqual([]);
+});
+
+test("an explicit beside request for the current main pair never duplicates its chat", async ({
+  page,
+}) => {
+  await open(page, "dark", 0, false, enableOwnerWrites, true, false);
+  await mainPair(page);
+  await page.evaluate(
+    (id) =>
+      window.dispatchEvent(
+        new CustomEvent("polyphonic:open-task-chat", { detail: id }),
+      ),
+    OTHER_TASK,
+  );
+  await expect(page).toHaveURL(new RegExp(`task=${OTHER_TASK}`));
+  await expect(page.getByTestId("task-chat-pane")).toHaveCount(0);
+  await expect(page.getByTestId("correspondence-window")).toHaveCount(1);
+  await expect(
+    page.getByText("Sending a message resumes this task with Anima."),
+  ).toBeVisible();
+  expect(await sends(page)).toEqual([]);
+});
+
+test("Open beside is explicit in the rail menu and normal navigation closes it without execution", async ({
+  page,
+}) => {
+  await open(page, "dark", 0, false, enableOwnerWrites, true, false);
+  const route = page.url();
+  const row = page.getByRole("button", { name: /^With Luca/ });
+  await row.click({ button: "right" });
+  await page
+    .getByRole("menuitem", { name: "Open beside", exact: true })
+    .click();
+  await expect(page.getByTestId("task-chat-pane")).toBeVisible();
+  expect(page.url()).toBe(route);
+  await row.click();
+  await expect(page.getByTestId("task-chat-pane")).toHaveCount(0);
+  await expect(page.getByTestId("correspondence-window")).toHaveAttribute(
+    "data-presentation",
+    "main",
+  );
+  expect(await sends(page)).toEqual([]);
+});
+
+test("main and beside share a general draft and retain the reading position", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(
+    page,
+    "dark",
+    0,
+    false,
+    (data) => {
+      enableOwnerWrites(data);
+      const source = data.reads[TASK].events[1];
+      for (let i = 0; i < 60; i++)
+        data.reads[TASK].events.push({
+          ...source,
+          id: i.toString(16).padStart(64, "0"),
+          created_at: source.created_at + i + 1,
+          content: `Review note ${i}. The same canonical conversation can be read in either presentation.`,
+        });
+    },
+    true,
+  );
+  const pane = page.getByTestId("task-chat-pane");
+  const scroller = pane.locator(
+    "[data-testid=correspondence-window] > .overflow-y-auto",
+  );
+  await scroller.evaluate((node) => {
+    node.scrollTop = 240;
+    node.dispatchEvent(new Event("scroll"));
+  });
+  await pane.getByRole("button", { name: "Conversation options" }).click();
+  await page
+    .getByRole("menuitem", { name: "New message", exact: true })
+    .click();
+  await pane
+    .getByTestId("message-input")
+    .fill("A general draft while reading history");
+  const readingPosition = await scroller.evaluate((node) => node.scrollTop);
+  await pane.getByRole("button", { name: "Conversation options" }).click();
+  await page.getByRole("menuitem", { name: "Open in main chat" }).click();
+  const chat = page.getByTestId("correspondence-window");
+  await expect(pane).toHaveCount(0);
+  await expect(chat.getByTestId("message-input")).toHaveText(
+    "A general draft while reading history",
+  );
+  await expect(
+    chat.getByRole("button", { name: "Reply to this task", exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      chat
+        .locator(":scope > .overflow-y-auto")
+        .evaluate((node) => node.scrollTop),
+    )
+    .toBe(readingPosition);
+  expect(await sends(page)).toEqual([]);
+});
+
+for (const theme of ["dark", "light"]) {
+  test(`main correspondence uses production chat at desktop sizes: ${theme}`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await open(page, theme, 0, false, enableOwnerWrites, true, false);
+    await mainPair(page);
+    for (const width of [1440, 1280, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(
+        page.getByTestId("correspondence-window").getByTestId("message-input"),
+      ).toBeVisible();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: `test-results/task-chat/main-${theme}-${width}.png`,
+      });
+    }
+  });
+}

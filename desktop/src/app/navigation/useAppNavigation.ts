@@ -13,7 +13,6 @@ import {
 
 import { cacheSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { resolveSearchHitDestination } from "@/app/navigation/resolveSearchHitDestination";
-import { openTaskWindow } from "@/features/exchange/openTaskWindow";
 import type { SearchHit } from "@/shared/api/types";
 
 import { rememberLastConversation } from "./lastConversation";
@@ -137,6 +136,30 @@ export function useAppNavigation() {
         {
           to: "/apps/$appId/tasks/$taskId",
           params: { appId: family, taskId },
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
+  /** Open the canonical pair as the main conversation. A seed only loads
+   * history; an explicit task selects a task reply instead of a new message. */
+  const goCorrespondence = React.useCallback(
+    (
+      correspondenceId: string,
+      target: {
+        seed?: string;
+        task?: string;
+        recipient?: string;
+        reply?: string;
+      },
+      behavior?: NavigationBehavior,
+    ) =>
+      commitNavigation(
+        {
+          to: "/correspondence/$correspondenceId",
+          params: { correspondenceId },
+          search: target,
         },
         behavior,
       ),
@@ -427,8 +450,10 @@ export function useAppNavigation() {
       }
 
       if (destination.kind === "agent-task") {
-        await openTaskWindow(destination.exchangeId);
-        return true;
+        return goCorrespondence(destination.correspondenceId, {
+          task: destination.exchangeId,
+          recipient: destination.recipientPubkey,
+        });
       }
 
       if (destination.kind === "forum-post") {
@@ -442,7 +467,7 @@ export function useAppNavigation() {
         threadRootId: destination.threadRootId,
       });
     },
-    [goChannel, goForumPost],
+    [goChannel, goCorrespondence, goForumPost],
   );
 
   return {
@@ -456,6 +481,7 @@ export function useAppNavigation() {
     goArtifacts,
     goBrain,
     goChannel,
+    goCorrespondence,
     goForumPost,
     goHome,
     goDashboard,

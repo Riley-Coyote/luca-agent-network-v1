@@ -10,7 +10,12 @@ import {
 } from "@/shared/constants/kinds";
 
 export type SearchHitDestination =
-  | { kind: "agent-task"; exchangeId: string }
+  | {
+      kind: "agent-task";
+      exchangeId: string;
+      correspondenceId: string;
+      recipientPubkey: string;
+    }
   | {
       kind: "channel";
       channelId: string;
@@ -32,12 +37,12 @@ export async function resolveSearchHitDestination(
   }
 
   if (hit.kind === KIND_STREAM_MESSAGE) {
-    const exchangeId = await resolveInboxSearchTask(
+    const target = await resolveInboxSearchTask(
       hit,
       getEventById,
       queryAgentInbox,
     );
-    if (exchangeId) return { kind: "agent-task", exchangeId };
+    if (target) return { kind: "agent-task", ...target };
   }
 
   if (hit.kind === KIND_FORUM_POST) {

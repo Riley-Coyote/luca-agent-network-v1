@@ -11,7 +11,11 @@ export async function resolveInboxSearchTask(
     exchangeId: string;
     limit: number;
   }) => Promise<AgentInboxPage>,
-): Promise<string | null> {
+): Promise<{
+  exchangeId: string;
+  correspondenceId: string;
+  recipientPubkey: string;
+} | null> {
   if (!hit.channelId) return null;
   try {
     const event = await getEvent(hit.eventId);
@@ -34,7 +38,13 @@ export async function resolveInboxSearchTask(
       !task.record.members.includes(event.pubkey)
     )
       return null;
-    return exchangeId;
+    return {
+      exchangeId,
+      correspondenceId: task.correspondenceId,
+      recipientPubkey:
+        task.record.members.find((key) => key !== task.record.openedBy) ??
+        task.record.openedBy,
+    };
   } catch {
     // Existing channel deep-links remain usable when a pair is not available.
     return null;

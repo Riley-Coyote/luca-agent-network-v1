@@ -51,7 +51,7 @@ export function ExchangeReceiptRow({
   return (
     <div className="luca-measure py-1.5">
       <button
-        aria-label={`Open task chat: ${title}`}
+        aria-label={`${members.length === 2 && onOpenTaskWindow ? "Open beside" : "Open task chat"}: ${title}`}
         className="group flex min-h-11 w-full items-center gap-3 rounded-xl bg-plate px-3 py-2 text-left transition-colors duration-150 hover:bg-plate-hover focus-visible:outline-hidden focus-visible:shadow-[inset_0_0_0_1px_var(--ink-faint)]"
         data-exchange-id={exchangeId}
         data-testid={`exchange-receipt-${exchangeId}`}
@@ -83,6 +83,9 @@ export function ExchangeReceiptRow({
             {exchangeStatusLabel(exchange?.phase, exchange?.replyReceived)}
           </span>
         </span>
+        {members.length === 2 && onOpenTaskWindow ? (
+          <span className="shrink-0 text-xs text-ink-faint">Open beside</span>
+        ) : null}
       </button>
     </div>
   );

@@ -18,6 +18,8 @@ export function TaskChatHeader({
   onStop,
   onLoadOlder,
   onClose,
+  onOpenMain,
+  primary = false,
 }: {
   title: string;
   taskId?: string;
@@ -29,11 +31,15 @@ export function TaskChatHeader({
   onStop?: () => void;
   onLoadOlder?: () => void;
   onClose?: () => void;
+  onOpenMain?: () => void;
+  primary?: boolean;
 }) {
   return (
     <header className="luca-task-chat__header shrink-0">
       <div className="min-w-0 flex-1">
-        <h2 className="truncate text-sm font-medium">{title}</h2>
+        <h2 className={primary ? "sr-only" : "truncate text-sm font-medium"}>
+          {title}
+        </h2>
         <select
           aria-label="Task"
           className="mt-1 w-full truncate bg-transparent text-xs text-muted-foreground"
@@ -56,6 +62,11 @@ export function TaskChatHeader({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {onOpenMain ? (
+            <DropdownMenuItem onSelect={onOpenMain}>
+              Open in main chat
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem onSelect={onRefresh}>Refresh</DropdownMenuItem>
           <DropdownMenuItem disabled={!onNewMessage} onSelect={onNewMessage}>
             New message
@@ -70,13 +81,15 @@ export function TaskChatHeader({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-      <button
-        type="button"
-        aria-label="Close task conversation"
-        onClick={onClose}
-      >
-        <X className="size-4" />
-      </button>
+      {onClose ? (
+        <button
+          type="button"
+          aria-label="Close task conversation"
+          onClick={onClose}
+        >
+          <X className="size-4" />
+        </button>
+      ) : null}
     </header>
   );
 }

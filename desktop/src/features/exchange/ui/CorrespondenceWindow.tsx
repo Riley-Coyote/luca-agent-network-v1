@@ -5,6 +5,11 @@ import {
 } from "@tanstack/react-query";
 import * as React from "react";
 import { TaskChatHeader } from "./TaskChatHeader";
+import { CorrespondenceComposer } from "./CorrespondenceComposer";
+import {
+  generalCorrespondenceDraftKey,
+  type CorrespondenceIntent,
+} from "../correspondenceNavigation";
 import { useTaskChatScroll } from "../useTaskChatScroll";
 import { listen } from "@tauri-apps/api/event";
 import { isTauri } from "@tauri-apps/api/core";
@@ -30,7 +35,10 @@ import {
   exchangeTaskSubject,
 } from "@/features/exchange/sideConversations";
 import { parseImetaTags } from "@/features/messages/lib/parseImeta";
-import { initDraftStore } from "@/features/messages/lib/useDrafts";
+import {
+  getActiveDraftEntries,
+  initDraftStore,
+} from "@/features/messages/lib/useDrafts";
 import {
   clearPendingInboxReply,
   pendingInboxReplyRequest,
@@ -60,12 +68,22 @@ import { subscribeCorrespondenceUpdates } from "@/features/exchange/corresponden
 export type CorrespondenceWindowProps = {
   correspondenceId: string;
   initialTaskId?: string | null;
+  initialIntent?: CorrespondenceIntent;
+  initialRecipient?: string;
+  initialReplyEventId?: string;
   residentPubkeys?: readonly string[];
   onTitleChange?: (title: string) => void;
   embedded?: boolean;
+  primary?: boolean;
   /** A retained closing view is passive; task execution is independent. */
   active?: boolean;
   onClose?: () => void;
+  onOpenMain?: (
+    taskId: string,
+    recipient: string,
+    intent: CorrespondenceIntent,
+    replyEventId?: string,
+  ) => void;
 };
 
 const errorText = (error: unknown) =>
@@ -82,12 +100,18 @@ function taskState(task: AgentInboxTask) {
 export function CorrespondenceWindow({
   correspondenceId,
   initialTaskId = null,
+  initialIntent = "reply",
+  initialRecipient = "",
+  initialReplyEventId,
   residentPubkeys,
   onTitleChange,
   embedded = false,
+  primary = false,
   active = true,
   onClose,
+  onOpenMain,
 }: CorrespondenceWindowProps) {
+  const conversational = embedded || primary;
   const queryClient = useQueryClient();
   const identity = useIdentityQuery().data;
   const { activeCommunity, reinitKey } = useCommunities();
@@ -101,13 +125,26 @@ export function CorrespondenceWindow({
     correspondenceId,
   ] as const;
   const [selectedTaskId, setSelectedTaskId] = React.useState(initialTaskId);
-  const [recipient, setRecipient] = React.useState("");
+  const [recipient, setRecipient] = React.useState(initialRecipient);
   const [composeMode, setComposeMode] = React.useState<"reply" | "new-message">(
-    "reply",
+    initialIntent,
   );
   const [continuationRequested, setContinuationRequested] =
     React.useState(false);
-  const [replyEventId, setReplyEventId] = React.useState<string | undefined>();
+  const [replyEventId, setReplyEventId] = React.useState(initialReplyEventId);
+  const replyReturn = React.useRef<{
+    recipient: string;
+    mode: CorrespondenceIntent;
+  } | null>(null);
+  const cancelReply = () => {
+    const previous = replyReturn.current;
+    if (previous) {
+      setRecipient(previous.recipient);
+      setComposeMode(previous.mode);
+    }
+    replyReturn.current = null;
+    setReplyEventId(undefined);
+  };
   const [sending, setSending] = React.useState(false);
   const [sendError, setSendError] = React.useState<string | null>(null);
   const [stopping, setStopping] = React.useState(false);
@@ -118,6 +155,8 @@ export function CorrespondenceWindow({
     correspondenceId,
     selectedTaskId,
     composeMode,
+    recipient,
+    replyEventId,
   ]);
   const [draftStoreScope, setDraftStoreScope] = React.useState<string | null>(
     null,
@@ -136,13 +175,21 @@ export function CorrespondenceWindow({
   // biome-ignore lint/correctness/useExhaustiveDependencies: owner/community/correspondence switches must discard the previous view target and retry identity.
   React.useEffect(() => {
     setSelectedTaskId(initialTaskId);
-    setRecipient("");
-    setComposeMode("reply");
+    setRecipient(initialRecipient);
+    setComposeMode(initialIntent);
+    replyReturn.current = null;
     setContinuationRequested(false);
-    setReplyEventId(undefined);
+    setReplyEventId(initialReplyEventId);
     setSendError(null);
     setStopError(null);
-  }, [correspondenceId, initialTaskId, workspace]);
+  }, [
+    correspondenceId,
+    initialTaskId,
+    initialRecipient,
+    initialIntent,
+    initialReplyEventId,
+    workspace,
+  ]);
   React.useEffect(() => {
     if (!active || !isTauri()) return;
     let disposed = false;
@@ -348,7 +395,13 @@ export function CorrespondenceWindow({
     undefined,
   );
   const latestReadEventId = latestReadEvent?.id;
-  useTaskChatScroll(active && embedded, scrollRef, taskId, latestReadEventId);
+  useTaskChatScroll(
+    active && conversational,
+    scrollRef,
+    taskId,
+    latestReadEventId,
+    `${workspace}:${correspondenceId}`,
+  );
   const unreadCount = taskId
     ? taskUnreadCount(events, ownerPubkey, readPosition.data?.[taskId])
     : null;
@@ -426,9 +479,9 @@ export function CorrespondenceWindow({
   );
   // The task's addressee is the default, never whichever participant spoke last.
   React.useEffect(() => {
-    if (embedded && defaultResponder && !recipient)
+    if (conversational && defaultResponder && !recipient)
       setRecipient(defaultResponder);
-  }, [embedded, defaultResponder, recipient]);
+  }, [conversational, defaultResponder, recipient]);
   const subject = exchangeTaskSubject(
     root?.content,
     recipient
@@ -442,22 +495,40 @@ export function CorrespondenceWindow({
   const needsContinuation =
     state === "closed" || state === "expired" || state === "paused";
   const capabilities = read.data?.writeCapabilities;
+  const validReplyTarget =
+    !replyEventId ||
+    events.some(
+      (event) =>
+        event.id === replyEventId &&
+        event.pubkey === recipient &&
+        task?.record.members.includes(event.pubkey),
+    );
   const mayCompose =
-    composeMode === "new-message"
+    validReplyTarget &&
+    (composeMode === "new-message"
       ? capabilities?.newMessage === true
       : needsContinuation
         ? capabilities?.continuation === true &&
-          (embedded || continuationRequested)
-        : capabilities?.reply !== false;
+          (conversational || continuationRequested)
+        : capabilities?.reply !== false);
   const validRecipient = task?.record.members.includes(recipient) ?? false;
   const draftKey =
     taskId && read.data
-      ? correspondenceDraftKey(
-          read.data.scope,
-          correspondenceId,
-          composeMode === "new-message" ? `new-topic:${taskId}` : taskId,
-          recipient,
-        )
+      ? composeMode === "new-message"
+        ? generalCorrespondenceDraftKey(
+            read.data.scope,
+            correspondenceId,
+            recipient,
+            draftStoreScope === workspace
+              ? getActiveDraftEntries().map((entry) => entry.key)
+              : [],
+          )
+        : correspondenceDraftKey(
+            read.data.scope,
+            correspondenceId,
+            taskId,
+            recipient,
+          )
       : undefined;
   React.useEffect(() => {
     if (draftKey)
@@ -552,6 +623,7 @@ export function CorrespondenceWindow({
       clearPendingInboxReply(draftKey, idempotencyKey);
       await queryClient.invalidateQueries({ queryKey: queryPrefix });
       if (viewIdentity.current === view) {
+        replyReturn.current = null;
         setReplyEventId(undefined);
         setContinuationRequested(false);
       }
@@ -577,10 +649,12 @@ export function CorrespondenceWindow({
     <section
       className="flex h-full min-h-0 flex-col bg-background text-foreground"
       data-testid="correspondence-window"
+      data-presentation={primary ? "main" : embedded ? "beside" : "detached"}
       inert={!active}
     >
-      {embedded ? (
+      {conversational ? (
         <TaskChatHeader
+          primary={primary}
           title={title}
           taskId={taskId}
           tasks={tasks.map((item) => ({
@@ -601,7 +675,8 @@ export function CorrespondenceWindow({
           onSelect={(id) => {
             setSelectedTaskId(id);
             setComposeMode("reply");
-            setRecipient("");
+            setRecipient(initialRecipient);
+            replyReturn.current = null;
             setReplyEventId(undefined);
             setSendError(null);
             setStopError(null);
@@ -613,6 +688,7 @@ export function CorrespondenceWindow({
             !sending && capabilities?.newMessage
               ? () => {
                   setComposeMode("new-message");
+                  replyReturn.current = null;
                   setReplyEventId(undefined);
                   setSendError(null);
                 }
@@ -632,6 +708,11 @@ export function CorrespondenceWindow({
               : undefined
           }
           onClose={onClose}
+          onOpenMain={
+            onOpenMain && taskId
+              ? () => onOpenMain(taskId, recipient, composeMode, replyEventId)
+              : undefined
+          }
         />
       ) : (
         <header className="luca-measure shrink-0 pb-3 pt-4">
@@ -670,7 +751,7 @@ export function CorrespondenceWindow({
             </p>
           ) : null}
           <nav
-            hidden={embedded}
+            hidden={conversational}
             aria-label="Tasks"
             className="mb-4 flex max-h-40 flex-col gap-1 overflow-y-auto overscroll-contain"
           >
@@ -717,7 +798,7 @@ export function CorrespondenceWindow({
               </button>
             ))}
           </nav>
-          {!embedded && pages.hasNextPage ? (
+          {!conversational && pages.hasNextPage ? (
             <button
               className="mb-4 text-sm text-primary hover:underline"
               disabled={pages.isFetchingNextPage}
@@ -738,7 +819,7 @@ export function CorrespondenceWindow({
               Choose a task to read or reply.
             </p>
           ) : null}
-          {read.isFetching && selectedTaskId ? (
+          {read.isFetching && !read.data && selectedTaskId ? (
             <p className="py-3 text-sm text-muted-foreground">
               Loading conversation…
             </p>
@@ -757,7 +838,7 @@ export function CorrespondenceWindow({
                     className={`group/task-message flex gap-2 ${event.pubkey === ownerPubkey ? "justify-end" : ""}`}
                     key={event.id}
                   >
-                    {!embedded ? (
+                    {!conversational ? (
                       <ExchangeIdentityMark
                         name={nameOf(event.pubkey)}
                         pubkey={event.pubkey}
@@ -766,7 +847,7 @@ export function CorrespondenceWindow({
                     ) : null}
                     <div
                       className={
-                        embedded && event.pubkey === ownerPubkey
+                        conversational && event.pubkey === ownerPubkey
                           ? "min-w-0 max-w-[90%] rounded-2xl bg-plate px-4 py-2"
                           : "min-w-0 flex-1"
                       }
@@ -782,11 +863,16 @@ export function CorrespondenceWindow({
                       {task.record.members.includes(event.pubkey) ? (
                         <button
                           className={
-                            embedded
+                            conversational
                               ? "mt-1 text-xs text-muted-foreground opacity-0 hover:underline focus-visible:opacity-100 group-hover/task-message:opacity-100"
                               : "mt-1 text-xs text-primary hover:underline"
                           }
                           onClick={() => {
+                            if (!replyEventId)
+                              replyReturn.current = {
+                                recipient,
+                                mode: composeMode,
+                              };
                             setRecipient(event.pubkey);
                             setComposeMode("reply");
                             setContinuationRequested(false);
@@ -824,174 +910,69 @@ export function CorrespondenceWindow({
         </div>
       </div>
       {task && read.data ? (
-        <footer className="shrink-0 pb-3 pt-2">
-          {embedded ? (
-            <div className="luca-measure mb-2 text-xs text-muted-foreground">
-              {partial ? <p>Some history is unavailable.</p> : null}
-              {needsContinuation && mayCompose ? (
-                <p>
-                  Sending a message resumes this task with {nameOf(recipient)}.
-                </p>
-              ) : null}
-              {!mayCompose ? (
-                <p>This task is read-only under its current permissions.</p>
-              ) : null}
-              {composeMode === "new-message" ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setComposeMode("reply");
-                    setReplyEventId(undefined);
-                  }}
-                >
-                  New topic · Back to task
-                </button>
-              ) : null}
-              {replyEventId ? (
-                <button
-                  type="button"
-                  onClick={() => setReplyEventId(undefined)}
-                >
-                  Replying to {nameOf(recipient)} · Cancel reply
-                </button>
-              ) : null}
-              {sendError || stopError ? (
-                <p role="alert" className="text-destructive">
-                  {sendError ?? stopError} Your draft is kept.
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <div className="luca-measure grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2">
-              <div className="col-start-2 row-start-1 mb-2 text-xs">
-                {composeMode === "new-message" ? (
-                  <button
-                    className="text-primary hover:underline"
-                    disabled={sending}
-                    onClick={() => {
-                      setComposeMode("reply");
-                      setReplyEventId(undefined);
-                      setSendError(null);
-                    }}
-                    type="button"
-                  >
-                    Back to task
-                  </button>
-                ) : (
-                  <button
-                    className="text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
-                    disabled={sending || capabilities?.newMessage !== true}
-                    onClick={() => {
-                      setComposeMode("new-message");
-                      setContinuationRequested(false);
-                      setReplyEventId(undefined);
-                      setSendError(null);
-                    }}
-                    title={
-                      capabilities?.newMessage
-                        ? undefined
-                        : "New topics are not available from this host yet."
-                    }
-                    type="button"
-                  >
-                    New message
-                  </button>
-                )}
-              </div>
-              <label className="col-start-1 row-start-1 mb-2 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                {composeMode === "new-message" ? "Message to" : "Reply to"}
-                <select
-                  aria-label="Reply recipient"
-                  className="min-w-0 rounded-md bg-plate px-2 py-1 text-sm text-foreground"
-                  onChange={(event) => {
-                    setRecipient(event.target.value);
-                    setReplyEventId(undefined);
-                  }}
-                  value={recipient}
-                >
-                  <option value="">Choose an agent</option>
-                  {task.record.members.map((key) => (
-                    <option key={key} value={key}>
-                      {nameOf(key)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="col-start-1 row-start-2 mb-2 min-w-0 truncate text-xs text-muted-foreground">
-                {composeMode === "new-message"
-                  ? `Source: ${subject}`
-                  : `${subject} · ${exchangeStatusLabel(state, exchangeState.data?.replyReceived ?? task.outcome === "reply_received")}`}
-              </p>
-              {composeMode === "reply" &&
-              exchangeState.data &&
-              ["open", "paused"].includes(exchangeState.data.phase) ? (
-                <button
-                  className="col-start-2 row-start-2 mb-2 text-xs text-destructive hover:underline disabled:opacity-50"
-                  disabled={stopping || sending}
-                  onClick={() => void stopSelectedExchange()}
-                  type="button"
-                >
-                  {stopping ? "Stopping exchange…" : "Stop exchange"}
-                </button>
-              ) : null}
-              {stopError ? (
-                <p
-                  className="col-span-2 mb-2 text-xs text-destructive"
-                  role="alert"
-                >
-                  {stopError}
-                </p>
-              ) : null}
-              {composeMode === "reply" &&
-              needsContinuation &&
-              capabilities?.continuation ? (
-                <label className="col-span-2 mb-2 flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={continuationRequested}
-                    onChange={(event) =>
-                      setContinuationRequested(event.target.checked)
-                    }
-                    disabled={sending}
-                  />
-                  Continue this task with a new bounded attempt
-                </label>
-              ) : composeMode === "reply" && needsContinuation ? (
-                <p className="col-span-2 mb-2 text-xs text-muted-foreground">
-                  This task is {state}. Continuing it is not available here yet.
-                </p>
-              ) : null}
-              {sendError ? (
-                <p
-                  className="col-span-2 mb-2 text-xs text-destructive"
-                  role="alert"
-                >
-                  {sendError} Your draft is kept. Sending it again uses the same
-                  request identity.
-                </p>
-              ) : null}
-            </div>
-          )}
-          {validRecipient &&
-          draftKey &&
-          (mayCompose || embedded) &&
-          draftStoreScope === workspace ? (
-            <MessageComposer
-              fixedAudiencePubkeys={[recipient]}
-              channelId={task.record.conversationId}
-              channelName={subject}
-              containerClassName="px-0"
-              disabled={sending || stopping || !mayCompose}
-              draftKey={draftKey}
-              isSending={sending}
-              key={draftKey}
-              onPrepareSendChannel={async () => task.record.conversationId}
-              onSend={send}
-              placeholder={`${embedded || composeMode === "new-message" ? "Message" : needsContinuation ? "Continue with" : "Reply to"} ${nameOf(recipient)}…`}
-              profiles={profiles}
-            />
+        <>
+          {!validRecipient ? (
+            <p className="luca-measure py-2 text-sm" role="alert">
+              This recipient is not part of this conversation. Open it again
+              from the agent’s inbox.
+            </p>
           ) : null}
-        </footer>
+          {!validReplyTarget ? (
+            <p className="luca-measure py-2 text-xs" role="alert">
+              The message you’re replying to isn’t in the loaded history. Load
+              older replies or cancel the reply.
+            </p>
+          ) : null}
+          <CorrespondenceComposer
+            {...{
+              partial,
+              needsContinuation,
+              mayCompose,
+              nameOf,
+              recipient,
+              composeMode,
+              replyEventId,
+              sendError,
+              stopError,
+              sending,
+              stopping,
+              capabilities,
+              task,
+              subject,
+              state,
+              exchangeState,
+              continuationRequested,
+              setComposeMode,
+              setReplyEventId,
+              setSendError,
+              setRecipient,
+              setContinuationRequested,
+              stopSelectedExchange,
+            }}
+            embedded={conversational}
+            cancelReply={cancelReply}
+          >
+            {validRecipient &&
+            draftKey &&
+            (mayCompose || conversational) &&
+            draftStoreScope === workspace ? (
+              <MessageComposer
+                fixedAudiencePubkeys={[recipient]}
+                channelId={task.record.conversationId}
+                channelName={subject}
+                containerClassName="px-0"
+                disabled={sending || stopping || !mayCompose}
+                draftKey={draftKey}
+                isSending={sending}
+                key={draftKey}
+                onPrepareSendChannel={async () => task.record.conversationId}
+                onSend={send}
+                placeholder={`${composeMode === "new-message" ? "Message" : needsContinuation ? "Continue with" : "Reply to"} ${nameOf(recipient)}…`}
+                profiles={profiles}
+              />
+            ) : null}
+          </CorrespondenceComposer>
+        </>
       ) : null}
     </section>
   );

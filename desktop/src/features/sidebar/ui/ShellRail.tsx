@@ -14,6 +14,7 @@ import {
 
 import "@/app/shell/shell-rail.css";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { correspondencePathId } from "@/features/exchange/correspondenceNavigation";
 import { appPathOf } from "@/app/shell/placeRails/appTask";
 import { needsYouNote } from "@/app/shell/placeRails/needsYou";
 import { HarnessFace } from "@/app/shell/placeRails/placeFaces";
@@ -457,12 +458,21 @@ export function ShellRail({
     threadTarget,
     work.rows,
   );
+  const pairId = correspondencePathId(pathname);
+  const pairRecipient = useRouterState({
+    select: (state) =>
+      (state.location.search as { recipient?: string }).recipient,
+  });
   const openSideId = appPath?.taskId
     ? `task:${appPath.taskId}`
-    : openRoomSideId;
+    : pairId
+      ? `correspondence:${pairId}`
+      : openRoomSideId;
   const sideHome = openSideId
-    ? ([...homes.agents, ...appHomes].find((home) =>
-        sideOf(home).some((row) => row.id === openSideId),
+    ? ([...homes.agents, ...appHomes].find(
+        (home) =>
+          (!pairId || !pairRecipient || home.pubkey === pairRecipient) &&
+          sideOf(home).some((row) => row.id === openSideId),
       ) ?? null)
     : null;
   const sideOpen = Boolean(sideHome);
@@ -593,13 +603,19 @@ export function ShellRail({
     goAppTask,
     goBrain,
     goChannel,
+    goCorrespondence,
     goNeedsYou,
     goSettings,
   } = useAppNavigation();
   const newAppConversation = useNewAppConversation();
-  const openSide = (side: RailSideRow) => {
+  const openSide = (side: RailSideRow, recipient?: string) => {
     if (side.correspondenceId && side.taskIds?.[0]) {
-      void openTaskWindow(side.taskIds[0]);
+      clearOpenSide();
+      void goCorrespondence(side.correspondenceId, {
+        seed: side.taskIds[0],
+        recipient,
+      });
+      onLeave?.();
       return;
     }
     const [kind, ...rest] = side.id.split(":");
@@ -748,7 +764,7 @@ export function ShellRail({
         clearOpenSide();
         onSelectChannel(channelId);
       }}
-      onSide={openSide}
+      onSide={(side) => openSide(side, home.pubkey ?? undefined)}
       openSideId={sideHome?.id === home.id ? openSideId : null}
       side={sideOf(home)}
       onToggle={(open) => setOpen(home.id, open)}
@@ -762,6 +778,17 @@ export function ShellRail({
   return (
     <>
       <ChatRowContextMenu
+        sideMenuItems={(id) => {
+          const side = work.rows.find((row) => row.id === id);
+          const task = side?.correspondenceId ? side.taskIds?.[0] : undefined;
+          return task ? (
+            <ContextMenuItem
+              onSelect={() => deferMenuAction(() => void openTaskWindow(task))}
+            >
+              Open beside
+            </ContextMenuItem>
+          ) : null;
+        }}
         agentMenuItems={(pubkey) => (
           <ContextMenuItem
             onSelect={() =>
