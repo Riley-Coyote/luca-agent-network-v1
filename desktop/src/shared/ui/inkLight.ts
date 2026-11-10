@@ -109,12 +109,17 @@ function refresh(): void {
 }
 
 /** Read eligibility and clipping, sharing ancestor reads across all wet words. */
-function drawableBox(
+export function inkDrawableBox(
   word: HTMLElement,
   styles: Map<HTMLElement, CSSStyleDeclaration>,
   boxes: Map<HTMLElement, DOMRect>,
+  suppressedSelector = SUPPRESSED_SELECTOR,
 ): DOMRect | null {
-  if (!word.isConnected || word.closest(SUPPRESSED_SELECTOR)) return null;
+  if (
+    !word.isConnected ||
+    (suppressedSelector && word.closest(suppressedSelector))
+  )
+    return null;
   const readBox = (element: HTMLElement) => {
     let box = boxes.get(element);
     if (!box) {
@@ -191,7 +196,7 @@ function paint(nowMs: number): void {
   const writes: [HTMLElement, string][] = [];
   for (const [word, intersecting] of words) {
     if (intersecting === false) continue;
-    const box = drawableBox(word, styles, boxes);
+    const box = inkDrawableBox(word, styles, boxes);
     if (!box) continue;
     writes.push([word, `${inkLightAlong(light, box).toFixed(1)}px`]);
   }
@@ -233,7 +238,9 @@ function onAppearanceSettled(event: Event): void {
 }
 
 function withoutLight(style: string | null): string {
-  return (style ?? "").replace(/--ink-light\s*:[^;]*(;|$)/g, "").trim();
+  return (style ?? "")
+    .replace(/--ink-(?:light|paint|film-tint)\s*:[^;]*(;|$)/g, "")
+    .trim();
 }
 
 function listen(): void {

@@ -20,8 +20,7 @@ test.beforeEach(async ({ page }) => {
       { displayName: "Claude Code", isAgent: true, pubkey: CLAUDE },
     ],
   });
-  await page.goto("/?e2e=mock");
-  await page.getByTestId("channel-general").click();
+  await page.goto(`/?e2e=mock#/channels/${CHANNEL_ID}`);
   await expect
     .poll(() =>
       page.evaluate(

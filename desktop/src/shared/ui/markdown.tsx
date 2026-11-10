@@ -128,6 +128,7 @@ import {
 import { inkHeardEqual } from "@/shared/lib/inkHeard";
 import type { MarkdownProps, MarkdownRuntime } from "./markdown/types";
 import { useStreamingWordEffect } from "./useStreamingWordEffect";
+import { attachLivingInk } from "./livingInk";
 import { SpoilerInline } from "./markdown/SpoilerInline";
 import {
   imageReserveStyle,
@@ -1885,6 +1886,11 @@ function MarkdownInner({
   videoReviewContext,
 }: MarkdownProps) {
   const rootRef = React.useRef<HTMLDivElement>(null);
+  const hasInk = /\]\((?:ink|color):/.test(content);
+  React.useLayoutEffect(
+    () => (hasInk ? attachLivingInk(rootRef.current) : undefined),
+    [hasInk],
+  );
   // A streamed reply's words arrive one at a time. Everything else — settled
   // managed rows, history, every other Markdown surface — passes `off` and
   // takes the idle path: no spans in the parse, no frame loop, no attribute.
@@ -2007,6 +2013,7 @@ function MarkdownInner({
         customEmoji={customEmoji}
         mentionNames={mentionNames}
         streamWords={streamWords}
+        livingInk
         variant={parseVariant}
         withholdOpenInk={streaming}
       />
@@ -2017,6 +2024,7 @@ function MarkdownInner({
         content: processedContent,
         customEmoji,
         inkHeard,
+        livingInk: true,
         mentionNames,
         searchQuery,
         variant: parseVariant,

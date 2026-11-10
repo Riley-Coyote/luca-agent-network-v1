@@ -29,6 +29,18 @@ import { TemporarySurfacesStudy } from "@/testing/temporarySurfacesStudy/Tempora
 import { HarnessDashboardStudy } from "@/testing/harnessDashboardStudy/HarnessDashboardStudy";
 import { HARNESS_STUDY_KEY } from "@/testing/harnessDashboardStudy/fixtures";
 import { TEMPORARY_SURFACES_KEY } from "@/testing/temporarySurfacesStudy/design";
+import {
+  ConversationPolishStudy,
+  ConversationPolishCanvas,
+} from "@/testing/conversationPolishStudy/ConversationPolishStudy";
+import {
+  CONVERSATION_STUDY_KEY,
+  CONVERSATION_TRANSCRIPT,
+  LIVING_INK_ROOM,
+  LIVING_INK_TRANSCRIPT,
+  CONVERSATION_ROOM_TRANSCRIPTS,
+  SCENES,
+} from "@/testing/conversationPolishStudy/fixtures";
 
 import { App } from "@/app/App";
 import { PERSONAL_HOME_TENANCY_ID } from "@/app/personalHomeTenancy";
@@ -73,6 +85,7 @@ import {
   type LabTurn,
 } from "@/testing/labScene";
 import { roomProjectStorageKey } from "@/features/channels/lib/roomProjects";
+import { localReadStateKey } from "@/features/channels/readState/readStateFormat";
 
 import "@fontsource-variable/instrument-sans";
 import "@fontsource-variable/inter/wght.css";
@@ -101,6 +114,12 @@ const TEMPORARY_SURFACES_STUDY =
 const HARNESS_DASHBOARD_STUDY =
   new URLSearchParams(window.location.search).get("experience") ===
   "harness-dashboard";
+const CONVERSATION_POLISH_STUDY =
+  new URLSearchParams(window.location.search).get("experience") ===
+  "conversation-polish";
+const CONVERSATION_CANVAS =
+  CONVERSATION_POLISH_STUDY &&
+  new URLSearchParams(window.location.search).get("canvas") === "1";
 const SHELL_STUDY =
   TEMPORARY_SURFACES_STUDY ||
   AGENT_SPACE_STUDY ||
@@ -143,11 +162,14 @@ function seedStorage() {
   const agentStudy = store.getItem(AGENT_SPACE_KEY);
   const temporaryStudy = store.getItem(TEMPORARY_SURFACES_KEY);
   const harnessStudy = store.getItem(HARNESS_STUDY_KEY);
+  const conversationStudy = store.getItem(CONVERSATION_STUDY_KEY);
   const homeStudy = store.getItem("ui-design-lab.polyphonic.home.v1");
   const oldTemporaryStudy = store.getItem(
     "ui-design-lab.polyphonic.temporary-surfaces.v1",
   );
   store.clear();
+  if (conversationStudy !== null)
+    store.setItem(CONVERSATION_STUDY_KEY, conversationStudy);
   if (harnessStudy !== null) store.setItem(HARNESS_STUDY_KEY, harnessStudy);
   if (homeStudy !== null)
     store.setItem("ui-design-lab.polyphonic.home.v1", homeStudy);
@@ -214,6 +236,19 @@ function seedStorage() {
   );
   store.setItem(`buzz-onboarding-complete.v1:${LAB_OWNER.pubkey}`, "true");
   store.setItem("luca-owner-onboarding-complete.v1", "true");
+  if (CONVERSATION_POLISH_STUDY) {
+    store.setItem(
+      localReadStateKey(LAB_OWNER.pubkey),
+      JSON.stringify(
+        Object.fromEntries(
+          SCENES.map((scene) => [
+            scene.channel,
+            new Date(Date.now() + 1000).toISOString(),
+          ]),
+        ),
+      ),
+    );
+  }
   store.setItem(
     `buzz-welcome-channel-ensured.v2:${encodeURIComponent(RELAY_URL)}:${LAB_OWNER.pubkey}`,
     "true",
@@ -223,7 +258,10 @@ function seedStorage() {
 function configureBridge() {
   window.__BUZZ_E2E__ = {
     mock: {
-      exchanges: Object.values(LAB_EXCHANGES).map((exchange) => ({
+      exchanges: (CONVERSATION_POLISH_STUDY
+        ? []
+        : Object.values(LAB_EXCHANGES)
+      ).map((exchange) => ({
         bucket: exchange.bucket,
         conversationId: LAB_ROOMS[exchange.room].id,
         exchangeId: exchange.exchangeId,
@@ -235,8 +273,12 @@ function configureBridge() {
         state: exchange.state,
       })),
       managedAgents: Object.values(LAB_RESIDENTS).map((resident) => ({
-        agentCommand: resident.harness,
-        name: resident.name,
+        agentCommand: CONVERSATION_POLISH_STUDY ? "claude" : resident.harness,
+        name:
+          CONVERSATION_POLISH_STUDY &&
+          resident.pubkey === LAB_RESIDENTS.ziggy.pubkey
+            ? "Anima"
+            : resident.name,
         personaId:
           resident.pubkey === LAB_RESIDENTS.luca.pubkey ? "builtin:fizz" : null,
         pubkey: resident.pubkey,
@@ -431,19 +473,44 @@ async function buildScene() {
         }),
       );
     }
-    sayAll(room.id, LAB_TRANSCRIPTS[key]);
+    sayAll(
+      room.id,
+      CONVERSATION_POLISH_STUDY
+        ? CONVERSATION_ROOM_TRANSCRIPTS[key]
+        : LAB_TRANSCRIPTS[key],
+    );
   }
 
   if (LAB_AD_SCENE) await buildAdSessions();
 
+  if (CONVERSATION_POLISH_STUDY) {
+    await withPinnedUuid(LIVING_INK_ROOM, () =>
+      invokeMock("open_dm", {
+        pubkeys: [LAB_RESIDENTS.luca.pubkey, LAB_RESIDENTS.vektor.pubkey],
+      }),
+    );
+    sayAll(LIVING_INK_ROOM, LIVING_INK_TRANSCRIPT);
+  }
+
   await withPinnedUuid(LAB_DM_ID, () =>
     invokeMock("open_dm", { pubkeys: [LAB_DM_WITH.pubkey] }),
   );
-  if (DM_SCENE !== "first") sayAll(LAB_DM_ID, LAB_DM_TRANSCRIPT);
+  if (DM_SCENE !== "first")
+    sayAll(
+      LAB_DM_ID,
+      CONVERSATION_POLISH_STUDY ? CONVERSATION_TRANSCRIPT : LAB_DM_TRANSCRIPT,
+    );
 
   if (LAB_AD_SCENE) markAdSceneRead();
 
-  const openRoomId = DM_SCENE ? LAB_DM_ID : LAB_ROOMS[LAB_OPEN_ROOM].id;
+  const openRoomId = CONVERSATION_POLISH_STUDY
+    ? (SCENES.find(
+        (scene) =>
+          scene.id === new URLSearchParams(location.search).get("scene"),
+      )?.channel ?? LAB_DM_ID)
+    : DM_SCENE
+      ? LAB_DM_ID
+      : LAB_ROOMS[LAB_OPEN_ROOM].id;
   window.localStorage.setItem("luca:last-conversation.v1", openRoomId);
   // Hash routing, so this works unchanged from a file:// URL.
   window.location.hash = HARNESS_DASHBOARD_STUDY
@@ -478,7 +545,9 @@ function renderApp() {
               <EmojiBurstProvider>
                 <PoofBurstProvider>
                   <UpdaterProvider>
-                    {SHELL_STUDY ? (
+                    {CONVERSATION_POLISH_STUDY && !CONVERSATION_CANVAS ? (
+                      <ConversationPolishStudy />
+                    ) : SHELL_STUDY ? (
                       <ShellStudy
                         conversationStudy={
                           TEMPORARY_SURFACES_STUDY ? (
@@ -501,6 +570,7 @@ function renderApp() {
                     ) : (
                       <App />
                     )}
+                    {CONVERSATION_CANVAS ? <ConversationPolishCanvas /> : null}
                     {new URLSearchParams(window.location.search).get(
                       "experience",
                     ) === "inline-sessions" ? (
@@ -528,7 +598,8 @@ async function boot() {
   configureBridge();
   maybeInstallE2eTauriMocks();
   // The shell study draws its own sample conversations; it needs no scene.
-  if (!SHELL_STUDY) await buildScene();
+  if (!SHELL_STUDY && (!CONVERSATION_POLISH_STUDY || CONVERSATION_CANVAS))
+    await buildScene();
   renderApp();
 }
 

@@ -76,6 +76,7 @@ export function progressiveMarkdownRendererPropsEqual(
     previous.components === next.components &&
     previous.streamWords === next.streamWords &&
     previous.withholdOpenInk === next.withholdOpenInk &&
+    previous.livingInk === next.livingInk &&
     customEmojiEqual(previous.customEmoji, next.customEmoji) &&
     previous.variant === next.variant &&
     shallowArrayEqual(previous.channelNames, next.channelNames) &&
@@ -109,6 +110,7 @@ const ProgressiveMarkdownBlockNode = React.memo(
     channelNames,
     components,
     customEmoji,
+    livingInk,
     mentionNames,
     streamWords,
     variant,
@@ -121,6 +123,7 @@ const ProgressiveMarkdownBlockNode = React.memo(
           components,
           content: block.content,
           customEmoji,
+          livingInk,
           mentionNames,
           streamWords,
           variant,
@@ -132,6 +135,7 @@ const ProgressiveMarkdownBlockNode = React.memo(
     previous.block === next.block &&
     previous.components === next.components &&
     previous.streamWords === next.streamWords &&
+    previous.livingInk === next.livingInk &&
     customEmojiEqual(previous.customEmoji, next.customEmoji) &&
     previous.variant === next.variant &&
     shallowArrayEqual(previous.channelNames, next.channelNames) &&
@@ -162,6 +166,7 @@ const CompletedProgressiveMarkdownBlocks = React.memo(
     previous.blocks === next.blocks &&
     previous.components === next.components &&
     previous.streamWords === next.streamWords &&
+    previous.livingInk === next.livingInk &&
     customEmojiEqual(previous.customEmoji, next.customEmoji) &&
     previous.variant === next.variant &&
     shallowArrayEqual(previous.channelNames, next.channelNames) &&

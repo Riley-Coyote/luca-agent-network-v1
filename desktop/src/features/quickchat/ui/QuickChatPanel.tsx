@@ -391,6 +391,7 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
             {model.messages.map((message) => (
               <div
                 key={message.id}
+                data-message-id={message.id}
                 className={`qc-message ${message.role === "owner" ? "qc-owner" : "qc-assistant"}`}
               >
                 {message.role === "owner" ? (

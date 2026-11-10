@@ -19,8 +19,7 @@ test.describe("wet gloss accessibility", () => {
         { theme, key: FEATURE_OVERRIDES_STORAGE_KEY },
       );
       await installMockBridge(page);
-      await page.goto("/");
-      await page.getByTestId("channel-engineering").click();
+      await page.goto("/#/channels/1c7e1c02-87bb-5e88-b2da-5a7a9432d0c9");
       await expect
         .poll(() =>
           page.evaluate(() =>
@@ -52,6 +51,12 @@ test.describe("wet gloss accessibility", () => {
       await page.addStyleTag({
         content:
           "[data-expression-wet-word] { --ink-light: 10px !important; } [data-expression-wet-word]::after { opacity: 1 !important; transition: none !important; }",
+      });
+      // Freeze the new pigment clock too: this compares accessibility
+      // alternatives, not two different moments of living colour.
+      await page.evaluate(() => {
+        const now = Date.now();
+        Date.now = () => now;
       });
       await waitForAnimations(page);
       const candidate = await phrase.screenshot({
@@ -96,8 +101,7 @@ for (const theme of ["dark", "light"]) {
       theme,
     );
     await installMockBridge(page);
-    await page.goto("/");
-    await page.getByTestId("channel-engineering").click();
+    await page.goto("/#/channels/1c7e1c02-87bb-5e88-b2da-5a7a9432d0c9");
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -157,8 +161,7 @@ for (const theme of ["dark", "light"]) {
       theme,
     );
     await installMockBridge(page);
-    await page.goto("/");
-    await page.getByTestId("channel-engineering").click();
+    await page.goto("/#/channels/1c7e1c02-87bb-5e88-b2da-5a7a9432d0c9");
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -178,12 +181,13 @@ for (const theme of ["dark", "light"]) {
       { content: STUDY, pubkey: TEST_IDENTITIES.alice.pubkey },
     );
     await page.getByRole("button", { name: "Show more", exact: true }).click();
-    await expect(page.getByText("Exact blue", { exact: true })).toHaveCSS(
-      "color",
-      "rgb(0, 0, 255)",
-    );
+    const exactBlue = page.locator('[data-ink-field="#0000ff"]');
+    await expect(exactBlue).toHaveCSS("--expression-fill", "#0000ff");
     const gradient = page.locator("[data-expression-gradient]").first();
-    await expect(gradient).toHaveCSS("background-image", /linear-gradient/);
+    await expect(gradient.locator("[data-ink-painted]").first()).toHaveCSS(
+      "background-image",
+      /linear-gradient/,
+    );
     const glyph = page.locator("[data-expression-glyph]").first();
     await expect(glyph).toHaveCSS("animation-name", "expression-drift");
     // Demonstrate movement through computed positions, not a static screenshot.

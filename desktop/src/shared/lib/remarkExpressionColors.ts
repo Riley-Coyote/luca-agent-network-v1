@@ -1,5 +1,7 @@
 import { parseExpressionSyntax, type ExpressionSpec } from "./expressionSyntax";
 import { buildExpressionTree, type ExpressionNode } from "./expressionTree";
+import { decorateLivingInk, decorateLandNeighbours } from "./livingInkTree";
+import { parseExpressionColor } from "./expressionColorMath";
 
 /** Text-fill vocabulary shared by finalized and streaming Markdown. */
 export const EXPRESSION_COLORS = {
@@ -69,7 +71,7 @@ function withinLimits(
 }
 
 /** Parse expressive Markdown links while keeping code and escaped notation literal. */
-export default function remarkExpressionColors() {
+export default function remarkExpressionColors(options?: { living?: boolean }) {
   return (tree: ExpressionNode) => {
     const budget = { remaining: 512 };
     const spent: Spent = { holds: 0, echoes: 0, lands: new Set() };
@@ -86,6 +88,20 @@ export default function remarkExpressionColors() {
             hName: "span",
             hProperties: { "data-expression-color": color },
           };
+          if (options?.living)
+            decorateLivingInk(
+              node,
+              {
+                stops: [
+                  parseExpressionColor(
+                    EXPRESSION_COLORS[color as keyof typeof EXPRESSION_COLORS],
+                  ) ?? [0, 0, 0],
+                ],
+                axis: "flow",
+                duration: 0,
+              },
+              budget,
+            );
         } else {
           const spec = parseExpressionSyntax(value, (name) => {
             const key = expressionColor(name) as
@@ -93,9 +109,16 @@ export default function remarkExpressionColors() {
               | undefined;
             return key ? EXPRESSION_COLORS[key] : undefined;
           });
-          if (spec && enhancements++ < 64)
-            buildExpressionTree(node, withinLimits(spec, block, spent), budget);
-          else {
+          if (spec && enhancements++ < 64) {
+            const kept = withinLimits(spec, block, spent);
+            buildExpressionTree(node, kept, budget);
+            if (options?.living) {
+              decorateLivingInk(node, kept, budget);
+              const props = node.data?.hProperties;
+              if (props && (kept.motion || kept.pressure === "land"))
+                props["data-ink-gesture"] = "pending";
+            }
+          } else {
             node.type = "expressionColor";
             delete node.url;
             node.data = { hName: "span", hProperties: {} };
@@ -107,5 +130,6 @@ export default function remarkExpressionColors() {
       for (const child of node.children ?? []) transform(child, inner);
     }
     transform(tree, tree);
+    if (options?.living) decorateLandNeighbours(tree, budget);
   };
 }

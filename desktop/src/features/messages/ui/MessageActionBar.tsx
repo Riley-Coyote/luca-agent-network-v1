@@ -11,6 +11,7 @@ import {
   MailOpen,
   MessagesSquare,
   Pencil,
+  RotateCcw,
   SmilePlus,
   Trash2,
 } from "lucide-react";
@@ -57,6 +58,7 @@ import {
 import { isPositiveEmojiParticle } from "@/shared/ui/EmojiBurstProvider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { canReplayLivingInk, replayLivingInk } from "@/shared/ui/livingInk";
 
 const ACTION_BUTTON_CLASS = "h-8 w-8 rounded-full p-0";
 const ACTION_ICON_CLASS = "!h-4 !w-4";
@@ -221,6 +223,13 @@ function MoreActionsMenu({
             >
               <Copy className="h-4 w-4" />
               Copy message
+            </DropdownMenuItem>
+          ) : null}
+
+          {hasCopyActions && canReplayLivingInk(message.id) ? (
+            <DropdownMenuItem onClick={() => replayLivingInk(message.id)}>
+              <RotateCcw className="h-4 w-4" />
+              Replay expression
             </DropdownMenuItem>
           ) : null}
 

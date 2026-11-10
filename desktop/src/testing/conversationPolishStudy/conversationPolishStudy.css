@@ -1,0 +1,158 @@
+/* Lab-only comparison with the pre-polish baseline.
+   Deliberately do not change --mn-reading-measure: the composer uses it too. */
+:root[data-luca-shell][data-conversation-study="before"]
+  [data-timeline-item-key][data-luca-reading-plane] {
+  max-width: var(--mn-reading-measure);
+}
+:root[data-luca-shell][data-conversation-study="before"]
+  [data-timeline-item-key]
+  [data-testid="message-row"] {
+  padding-block: 6px;
+}
+:root[data-luca-shell][data-conversation-study="before"]
+  [data-message-side="other"]
+  [data-message-column] {
+  gap: 2px;
+}
+:root[data-luca-shell][data-conversation-study="before"]
+  [data-message-side="other"]
+  [data-message-plate] {
+  margin-block-start: -2px;
+}
+:root[data-luca-shell][data-conversation-study="before"]
+  [data-message-side="other"]
+  [data-testid="message-author"] {
+  font-size: var(--type-ui-size);
+  color: hsl(var(--mn-ink));
+}
+
+/* The comparison controls are outside the app viewport, not new shell UI.
+   The iframe is 1:1: never zoom or scale the production components to fit. */
+.cps-host {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  background: hsl(var(--mn-surface));
+  color: hsl(var(--mn-ink));
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+}
+.cps-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  min-height: 48px;
+  border-bottom: 1px solid hsl(var(--mn-ink) / 0.1);
+}
+.cps-label {
+  margin-right: 4px;
+  font-weight: 500;
+}
+.cps-directions {
+  display: flex;
+  gap: 2px;
+}
+.cps-toolbar button,
+.cps-brief button,
+.cps-show-controls,
+.cps-select select {
+  min-height: 30px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cps-directions button {
+  color: hsl(var(--mn-ink-muted));
+}
+.cps-directions button[aria-pressed="true"] {
+  color: hsl(var(--mn-surface));
+  background: hsl(var(--mn-ink));
+}
+.cps-toolbar button:hover:not([aria-pressed="true"]),
+.cps-brief button:hover,
+.cps-select select {
+  background: hsl(var(--mn-ink) / 0.06);
+}
+.cps-host :is(button, select, textarea):focus-visible {
+  outline: 2px solid hsl(var(--mn-ink) / 0.65);
+  outline-offset: 2px;
+}
+.cps-disclaimer {
+  margin-left: auto;
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.75rem;
+}
+.cps-canvas {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+}
+.cps-show-controls {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  z-index: 100;
+  background: hsl(var(--mn-raised));
+}
+.cps-brief {
+  position: absolute;
+  top: 58px;
+  right: 12px;
+  z-index: 101;
+  width: min(540px, calc(100% - 24px));
+  max-height: calc(100dvh - 80px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid hsl(var(--mn-ink) / 0.12);
+  border-radius: 8px;
+  background: hsl(var(--mn-surface));
+  box-shadow: 0 12px 36px rgb(0 0 0 / 0.18);
+}
+.cps-brief-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.cps-brief textarea {
+  width: 100%;
+  height: 340px;
+  margin-top: 12px;
+  resize: vertical;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  line-height: 1.6;
+}
+.cps-storage-error {
+  position: fixed;
+  bottom: 8px;
+  left: 12px;
+  padding: 8px;
+  background: hsl(var(--mn-surface));
+}
+@media (max-width: 720px) {
+  .cps-label,
+  .cps-disclaimer {
+    display: none;
+  }
+  .cps-toolbar {
+    gap: 4px;
+    padding: 6px 8px;
+  }
+  .cps-select select {
+    max-width: 160px;
+  }
+  .cps-brief {
+    top: 92px;
+    max-height: calc(100dvh - 104px);
+  }
+}

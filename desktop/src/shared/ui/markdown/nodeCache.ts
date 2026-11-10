@@ -78,6 +78,8 @@ export type MarkdownParseInputs = {
    * made with spans can never be reused for one made without them.
    */
   streamWords?: boolean;
+  /** The live text renderer's bounded, evolving pigment field. */
+  livingInk?: boolean;
   variant: string;
 };
 
@@ -114,7 +116,7 @@ function buildMarkdownElement(input: MarkdownParseInputs): React.ReactElement {
     remarkPlugins: [
       remarkGfm,
       remarkBreaks,
-      remarkExpressionColors,
+      [remarkExpressionColors, { living: input.livingInk === true }],
       remarkSpoilers,
       remarkMessageLinks,
       [remarkMentions, { mentionNames: input.mentionNames }],
@@ -156,6 +158,7 @@ export function renderCachedMarkdown(
   // before it is self-delimiting.
   const key =
     segment(input.variant) +
+    segment(input.livingInk ? "living" : "") +
     listSegment(input.mentionNames) +
     listSegment(input.channelNames) +
     listSegment(

@@ -140,3 +140,24 @@
 :root[data-luca-shell] .resident-activity-summary:is(:hover, :focus-visible) {
   color: hsl(var(--mn-ink));
 }
+
+/* Riley's selected conversation comparison, Nov 10. Widen only the message
+   lane: the composer, glass and shell keep their existing geometry. */
+:root[data-luca-shell] [data-timeline-item-key][data-luca-reading-plane] {
+  max-width: 48rem;
+}
+:root[data-luca-shell] [data-timeline-item-key] [data-testid="message-row"] {
+  padding-block: 16px;
+}
+:root[data-luca-shell] [data-message-side="other"] [data-message-column] {
+  gap: 8px;
+}
+:root[data-luca-shell] [data-message-side="other"] [data-message-plate] {
+  margin-block-start: 0;
+}
+:root[data-luca-shell]
+  [data-message-side="other"]
+  [data-testid="message-author"] {
+  font-size: var(--type-author-size);
+  color: hsl(var(--mn-ink-muted));
+}

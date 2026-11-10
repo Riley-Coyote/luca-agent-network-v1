@@ -330,6 +330,320 @@
 [data-expression-pressure="land"] {
   font-weight: 640;
 }
+[data-expression-pressure="land"] {
+  position: relative;
+  top: var(--ink-sink, 0px);
+  animation:
+    expression-land 0.9s linear 1,
+    expression-take 0.9s linear 1;
+}
+/* Ink takes into light paper rather than becoming a low-contrast white flash. */
+:root:not(.dark) [data-expression-pressure="land"] {
+  --ink-take-polarity: -0.3;
+}
+[data-ink-giving] {
+  position: relative;
+  left: var(--ink-give, 0px);
+  animation: expression-give 0.9s linear 1;
+}
+[data-ink-giving][data-ink-give="before"] {
+  left: calc(-1 * var(--ink-give, 0px));
+}
+@property --ink-give {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes expression-give {
+  0% {
+    --ink-give: 0em;
+  }
+  3.333% {
+    --ink-give: 0.023796em;
+  }
+  6.667% {
+    --ink-give: 0.034575em;
+  }
+  10% {
+    --ink-give: 0.034927em;
+  }
+  13.333% {
+    --ink-give: 0.028505em;
+  }
+  16.667% {
+    --ink-give: 0.018946em;
+  }
+  20% {
+    --ink-give: 0.00919em;
+  }
+  23.333% {
+    --ink-give: 0.001164em;
+  }
+  26.667% {
+    --ink-give: -0.004221em;
+  }
+  30% {
+    --ink-give: -0.006882em;
+  }
+  33.333% {
+    --ink-give: -0.007284em;
+  }
+  36.667% {
+    --ink-give: -0.006156em;
+  }
+  40% {
+    --ink-give: -0.004258em;
+  }
+  43.333% {
+    --ink-give: -0.002227em;
+  }
+  46.667% {
+    --ink-give: -0.000496em;
+  }
+  50% {
+    --ink-give: 0.000712em;
+  }
+  53.333% {
+    --ink-give: 0.001354em;
+  }
+  56.667% {
+    --ink-give: 0.001509em;
+  }
+  60% {
+    --ink-give: 0.001321em;
+  }
+  63.333% {
+    --ink-give: 0.000949em;
+  }
+  66.667% {
+    --ink-give: 0.000529em;
+  }
+  70% {
+    --ink-give: 0.000158em;
+  }
+  73.333% {
+    --ink-give: -0.000111em;
+  }
+  76.667% {
+    --ink-give: -0.000263em;
+  }
+  80% {
+    --ink-give: -0.00031em;
+  }
+  83.333% {
+    --ink-give: -0.000282em;
+  }
+  86.667% {
+    --ink-give: -0.00021em;
+  }
+  90% {
+    --ink-give: -0.000124em;
+  }
+  93.333% {
+    --ink-give: -0.000045em;
+  }
+  96.667% {
+    --ink-give: 0.000015em;
+  }
+  100% {
+    --ink-give: 0em;
+  }
+}
+@keyframes expression-take {
+  0% {
+    filter: brightness(calc(1 + 0 * var(--ink-take-polarity, 1)));
+  }
+  3.333% {
+    filter: brightness(calc(1 + 0.240587 * var(--ink-take-polarity, 1)));
+  }
+  6.667% {
+    filter: brightness(calc(1 + 0.269445 * var(--ink-take-polarity, 1)));
+  }
+  10% {
+    filter: brightness(calc(1 + 0.248082 * var(--ink-take-polarity, 1)));
+  }
+  13.333% {
+    filter: brightness(calc(1 + 0.217718 * var(--ink-take-polarity, 1)));
+  }
+  16.667% {
+    filter: brightness(calc(1 + 0.188478 * var(--ink-take-polarity, 1)));
+  }
+  20% {
+    filter: brightness(calc(1 + 0.162506 * var(--ink-take-polarity, 1)));
+  }
+  23.333% {
+    filter: brightness(calc(1 + 0.139944 * var(--ink-take-polarity, 1)));
+  }
+  26.667% {
+    filter: brightness(calc(1 + 0.12047 * var(--ink-take-polarity, 1)));
+  }
+  30% {
+    filter: brightness(calc(1 + 0.103694 * var(--ink-take-polarity, 1)));
+  }
+  33.333% {
+    filter: brightness(calc(1 + 0.089252 * var(--ink-take-polarity, 1)));
+  }
+  36.667% {
+    filter: brightness(calc(1 + 0.07682 * var(--ink-take-polarity, 1)));
+  }
+  40% {
+    filter: brightness(calc(1 + 0.06612 * var(--ink-take-polarity, 1)));
+  }
+  43.333% {
+    filter: brightness(calc(1 + 0.05691 * var(--ink-take-polarity, 1)));
+  }
+  46.667% {
+    filter: brightness(calc(1 + 0.048983 * var(--ink-take-polarity, 1)));
+  }
+  50% {
+    filter: brightness(calc(1 + 0.04216 * var(--ink-take-polarity, 1)));
+  }
+  53.333% {
+    filter: brightness(calc(1 + 0.036287 * var(--ink-take-polarity, 1)));
+  }
+  56.667% {
+    filter: brightness(calc(1 + 0.031233 * var(--ink-take-polarity, 1)));
+  }
+  60% {
+    filter: brightness(calc(1 + 0.026882 * var(--ink-take-polarity, 1)));
+  }
+  63.333% {
+    filter: brightness(calc(1 + 0.023138 * var(--ink-take-polarity, 1)));
+  }
+  66.667% {
+    filter: brightness(calc(1 + 0.019915 * var(--ink-take-polarity, 1)));
+  }
+  70% {
+    filter: brightness(calc(1 + 0.017141 * var(--ink-take-polarity, 1)));
+  }
+  73.333% {
+    filter: brightness(calc(1 + 0.014753 * var(--ink-take-polarity, 1)));
+  }
+  76.667% {
+    filter: brightness(calc(1 + 0.012698 * var(--ink-take-polarity, 1)));
+  }
+  80% {
+    filter: brightness(calc(1 + 0.010929 * var(--ink-take-polarity, 1)));
+  }
+  83.333% {
+    filter: brightness(calc(1 + 0.009407 * var(--ink-take-polarity, 1)));
+  }
+  86.667% {
+    filter: brightness(calc(1 + 0.008097 * var(--ink-take-polarity, 1)));
+  }
+  90% {
+    filter: brightness(calc(1 + 0.006969 * var(--ink-take-polarity, 1)));
+  }
+  93.333% {
+    filter: brightness(calc(1 + 0.005998 * var(--ink-take-polarity, 1)));
+  }
+  96.667% {
+    filter: brightness(calc(1 + 0.005163 * var(--ink-take-polarity, 1)));
+  }
+  100% {
+    filter: brightness(calc(1 + 0 * var(--ink-take-polarity, 1)));
+  }
+}
+@property --ink-sink {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+/* Ghost's Landing.sink: one damped press, sampled every 30ms. It moves
+   the painted words without pushing any line or changing the text measure. */
+@keyframes expression-land {
+  0%,
+  100% {
+    --ink-sink: 0em;
+  }
+  3.333% {
+    --ink-sink: 0.039989em;
+  }
+  6.667% {
+    --ink-sink: 0.059683em;
+  }
+  10% {
+    --ink-sink: 0.061522em;
+  }
+  13.333% {
+    --ink-sink: 0.050696em;
+  }
+  16.667% {
+    --ink-sink: 0.033272em;
+  }
+  20% {
+    --ink-sink: 0.014727em;
+  }
+  23.333% {
+    --ink-sink: -0.000946em;
+  }
+  26.667% {
+    --ink-sink: -0.011559em;
+  }
+  30% {
+    --ink-sink: -0.0166em;
+  }
+  33.333% {
+    --ink-sink: -0.016811em;
+  }
+  36.667% {
+    --ink-sink: -0.013651em;
+  }
+  40% {
+    --ink-sink: -0.008791em;
+  }
+  43.333% {
+    --ink-sink: -0.003715em;
+  }
+  46.667% {
+    --ink-sink: 0.000514em;
+  }
+  50% {
+    --ink-sink: 0.003326em;
+  }
+  53.333% {
+    --ink-sink: 0.00461em;
+  }
+  56.667% {
+    --ink-sink: 0.004589em;
+  }
+  60% {
+    --ink-sink: 0.003672em;
+  }
+  63.333% {
+    --ink-sink: 0.002319em;
+  }
+  66.667% {
+    --ink-sink: 0.00093em;
+  }
+  70% {
+    --ink-sink: -0.000209em;
+  }
+  73.333% {
+    --ink-sink: -0.000953em;
+  }
+  76.667% {
+    --ink-sink: -0.001278em;
+  }
+  80% {
+    --ink-sink: -0.001251em;
+  }
+  83.333% {
+    --ink-sink: -0.000987em;
+  }
+  86.667% {
+    --ink-sink: -0.00061em;
+  }
+  90% {
+    --ink-sink: -0.000231em;
+  }
+  93.333% {
+    --ink-sink: 0.000076em;
+  }
+  96.667% {
+    --ink-sink: 0.000272em;
+  }
+}
 /* Wet ink is still open: the mind isn't sure yet, or it's the person's to
    change. Painted words sit a shade deeper, as a wet surface does, and a
    narrow gloss lies along each word where the room's one light falls (see
@@ -372,7 +686,7 @@
     background-image: linear-gradient(
       104deg,
       transparent calc(var(--ink-light, -9999px) - 1.1em),
-      rgb(255 249 238 / 0.85) var(--ink-light, -9999px),
+      var(--ink-film-tint, rgb(255 249 238 / 0.42)) var(--ink-light, -9999px),
       transparent calc(var(--ink-light, -9999px) + 1.1em)
     );
     background-clip: text;
@@ -478,31 +792,55 @@
   animation: expression-drift var(--expression-duration) ease-in-out
     var(--expression-delay) 1;
 }
+[data-expression-pressure="land"][data-expression-motion="breathe"] {
+  animation:
+    expression-breathe var(--expression-duration) ease-in-out 1,
+    expression-land 0.9s linear 1,
+    expression-take 0.9s linear 1;
+}
+[data-expression-pressure="land"][data-expression-motion="drift"] {
+  animation:
+    expression-drift var(--expression-duration) ease-in-out 1,
+    expression-land 0.9s linear 1,
+    expression-take 0.9s linear 1;
+}
+/* Visibility owns the one-shot gesture. Remounting history is not replay. */
+:is([data-ink-gesture="pending"], [data-ink-gesture="done"]):is(
+  [data-expression-motion],
+  [data-expression-pressure]
+),
+[data-ink-gesture="pending"] [data-expression-glyph],
+[data-ink-gesture="done"] [data-expression-glyph] {
+  animation: none;
+}
 @keyframes expression-breathe {
   0%,
   100% {
-    text-shadow: none;
+    text-shadow: 0 0 0.12em
+      color-mix(in srgb, var(--expression-fill, currentColor) 0%, transparent);
   }
   50% {
     /* Paint-less ink has no fill; its halo is the page's own colour. */
-    text-shadow: 0 0 0.35em
-      color-mix(in srgb, var(--expression-fill, currentColor) 35%, transparent);
+    text-shadow: 0 0 0.12em
+      color-mix(in srgb, var(--expression-fill, currentColor) 30%, transparent);
   }
 }
 @keyframes expression-drift {
   0%,
   100% {
-    top: 0;
+    top: var(--ink-sink, 0px);
   }
   40% {
-    top: -0.08em;
+    top: calc(var(--ink-sink, 0px) - 0.08em);
   }
   70% {
-    top: 0.025em;
+    top: calc(var(--ink-sink, 0px) + 0.025em);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   [data-expression-motion],
+  [data-expression-pressure="land"],
+  [data-ink-giving],
   [data-expression-motion="wave"] [data-expression-glyph] {
     animation: none;
   }
@@ -520,6 +858,8 @@
 
 @media (forced-colors: active) {
   [data-expression-motion],
+  [data-expression-pressure="land"],
+  [data-ink-giving],
   [data-expression-motion="wave"] [data-expression-glyph] {
     animation: none;
   }
@@ -528,4 +868,34 @@
 [data-expression-gradient] ::selection {
   color: HighlightText;
   background: Highlight;
+}
+
+/* Ghost's Living pigment, painted through real browser glyphs. No canvas
+   covers the words: copying, selection, ligatures and text zoom remain native.
+   The static authored paint is the fallback until the field has painted. */
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  [data-ink-field-ready][data-expression-gradient] {
+    background-image: none;
+    color: var(--expression-fill);
+  }
+  [data-ink-painted] {
+    background-image: var(--ink-paint);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+  [data-ink-painted]::selection {
+    color: HighlightText;
+    -webkit-text-fill-color: HighlightText;
+    background: Highlight;
+  }
+}
+@media (forced-colors: active) {
+  [data-ink-field-ready],
+  [data-ink-painted] {
+    background-image: none;
+    color: CanvasText;
+    -webkit-text-fill-color: CanvasText;
+  }
 }

@@ -30,8 +30,9 @@ to load the updated host prompt.
 
 Use a named color, `#rgb`, `#rrggbb`, or `hsl(275,95%,65%)` with no spaces.
 Hue supports fractional degrees across 0–360, saturation/lightness 0–100%.
-Custom paint preserves the authored sRGB color on both Void and Paper without
-contrast adjustment. Join two to six stops with `~` for a perceptually
+The static parser preserves authored sRGB paint; the live renderer uses it as
+pigment, with small within-family variation and a lightness correction when
+needed for reading contrast on either theme. Join two to six stops with `~` for a perceptually
 interpolated gradient.
 
 - `[a changing thought](color:#ff52ad~#955cff~#36cfff)` — continuous fill.
@@ -112,8 +113,9 @@ Marks read like the legacy controls and combine with them using `&`.
   tightened by a backlog. With Reduce Motion, or the streaming effect off,
   words appear as they arrive and nothing moves, but holds keep their pause.
 - Wet ink is split into word spans (`data-expression-wet-word`, each with its
-  text in `data-ink-text`). Painted wet passages sit 14% deeper (gradients keep
-  their own colour). A gloss on each word lies where the room's one light
+  text in `data-ink-text`). The static fallback's painted wet passages sit 14%
+  deeper (gradients keep their own colour); the live pigment uses the Ghost
+  depth described below. A gloss on each word lies where the room's one light
   falls (`inkLight.ts`): the pointer, followed with a soft lag, and a slow
   wander after 2.6 s at rest. Rows before the owner's latest message carry
   `data-ink-answered` (from `buildTimelineItems`), and there the gloss fades
@@ -128,7 +130,43 @@ Marks read like the legacy controls and combine with them using `&`.
   old. Code is never lit.
 - Thread panels do not yet dry wet ink or show echoes; the main timeline does.
 
-## Source and validation
+## Ghost mobile pigment parity (Nov 10, 2026)
+
+Source: Prompt Ghost `origin/claude/ghost-agents` at
+`691adc32de36ebf1d22c6959190196d6`, with the Oct 27 "Keep drifting" changes
+in `lab/phone/Sources/Text/Living.swift` and `Living.metal`. The Ghost mobile
+hub confirmed these sources directly. Ghost itself is untouched.
+
+The real shared Markdown renderer now adds the native analytic clock, seeded
+four-octave simplex pigment field, OKLab thick/thin variation, bleeding colour
+fronts, wet-film interference tint and 0.9-second damped press. A tighter
+0.12em breathing light replaces the older soft halo. Existing hold, tempo,
+echo, pressure and gesture semantics remain. Shared phone touch marks are
+accepted without haptic actuation on desktop.
+
+Browser adaptation: 3–17 colour samples per word/letter span, not per-pixel Metal;
+colour follows arriving words after 280ms over 400ms, rather than the native
+front simulation. The two immediate plain neighbouring words give way only on
+the same line; the press briefly takes light (or deepens on Paper for contrast).
+The breath keeps its radius fixed and changes strength alone.
+Pigment is active at 12Hz, rests at 3Hz after 100s, and its phase slows
+to 16% after the first minute with an 8-second ease. One visibility-aware clock
+serves main, mini and detached Markdown. Off-screen and hidden documents sleep;
+Reduce Motion keeps one still field, and forced colours use system text.
+Mac Low Power Mode is not exposed through a browser API and is not inferred.
+One-shot gestures wait until visible and no longer streaming. A bounded,
+window-local playback ledger keeps settled gestures quiet across conversation
+switches and virtualized remounts; message IDs isolate identical passages in
+different replies. It retains no transcript text, writes nothing to disk, and
+clears on community changes. A fresh app window has its own playback lifetime.
+
+An explicit **Replay expression** message-menu action resets only visual clocks;
+it never sends, regenerates, changes a transcript or calls a provider. It is
+unavailable with Reduce Motion or forced colours. No hover-triggered replay,
+new inferred emotions, per-agent palette substitution or extra motion vocabulary
+is introduced. The existing 512-span budget is shared with pigment spans.
+
+## Original implementation history
 
 Branch `codex/expressive-text` starts at `b050d914b`, the delivery-notes-only
 continuation of installed Dev source `5916ac567`. The baseline includes the

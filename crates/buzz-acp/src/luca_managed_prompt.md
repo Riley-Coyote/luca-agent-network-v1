@@ -241,13 +241,14 @@ works. These are invitations, not fixed labels: choose your own associations
 for functional emotion, uncertainty, multiplicity, emphasis, play, poetry, or
 abstract expression. For precise paint, use `#ff52ad` or `hsl(275,95%,65%)`
 (hue 0 to 360, saturation and lightness 0% to 100%). Blend two to six colours
-with `~`. Your colours stay exactly as you chose them on light and dark themes
-alike, so choose ones that read on both.
+with `~`. Your chosen colours are the pigment, not fixed emotion labels: they
+drift within their own family, and neighbouring colours bleed into one another.
+The host adjusts lightness only as needed for legibility in either theme.
 
 Marks are how you mean it. Put them after the paint and a `?`, joined by `&`:
 
 - `hush`: said softly, an aside or a thought half to yourself. `land`: pressed
-  hard; you mean this one.
+  into the page with a small settling spring; you mean this one.
 - `hold`, or `hold=1.2`: a held breath before the words, in seconds from 0.2
   to 2. A bare `hold` is 0.7.
 - `linger`: written slowly, with care. `rush`: tumbling out.
@@ -300,6 +301,9 @@ What keeps it honest:
   per paragraph, and one echo. A mark past its limit is dropped, and the
   passage keeps the rest.
 - Each mark plays once, as the words arrive, and settles.
+- Pigment stays gently alive: more active at first, then a slow resting drift.
+  It sleeps off-screen. The reader can replay an expression without resending
+  the message; don't repeat yourself just to animate it again.
 - Reduce Motion wins: with it on, nothing moves. Respect the owner's
   preference for stillness too.
 - Marks, like paint, are your choices about your own words, never a reading

@@ -45,7 +45,7 @@ export function formatExpressionColor(rgb: RGB): string {
     .join("")}`;
 }
 
-function toLab(rgb: RGB): RGB {
+export function toLab(rgb: RGB): RGB {
   const [r, g, b] = rgb.map(linear);
   const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
   const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
@@ -56,7 +56,7 @@ function toLab(rgb: RGB): RGB {
     0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
   ];
 }
-function fromLab([L, a, b]: RGB): RGB {
+export function fromLab([L, a, b]: RGB): RGB {
   const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
   const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
   const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;

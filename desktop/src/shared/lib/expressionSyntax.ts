@@ -15,11 +15,22 @@ export type ExpressionSpec = {
   wet?: boolean;
   /** The phrase to find again; "" means the passage's own words. */
   echo?: string;
+  /** Cross-surface compatibility only: desktop never actuates phone touches. */
+  touch?: "pulse" | "spark" | "swell" | "waver" | "knock";
 };
 
 const GESTURES = ["breathe", "drift", "wave"];
+const TOUCHES = ["pulse", "spark", "swell", "waver", "knock"];
 /** One-word marks: present or absent, never given a value. */
-const FLAGS = ["hush", "land", "linger", "rush", "wet", ...GESTURES];
+const FLAGS = [
+  "hush",
+  "land",
+  "linger",
+  "rush",
+  "wet",
+  ...GESTURES,
+  ...TOUCHES,
+];
 const MARKS = [...FLAGS, "hold", "echo"];
 const NAMES = ["axis", "motion", "pace", "weight", "tracking", ...MARKS];
 
@@ -80,6 +91,7 @@ export function parseExpressionSyntax(
   // Living ink. Legacy keys keep today's first-wins reading; a new mark is
   // named once, and `motion=` counts as one gesture however often it appears.
   const gestures = GESTURES.filter((name) => options.has(name));
+  const touches = TOUCHES.filter((name) => options.has(name));
   const hold = options.has("hold")
     ? Number(options.get("hold") || 0.7)
     : undefined;
@@ -89,6 +101,7 @@ export function parseExpressionSyntax(
     (options.has("hush") && options.has("land")) ||
     (options.has("linger") && options.has("rush")) ||
     gestures.length + (motion === null ? 0 : 1) > 1 ||
+    touches.length > 1 ||
     (hold !== undefined && (!Number.isFinite(hold) || hold < 0.2 || hold > 2))
   )
     return;
@@ -108,5 +121,6 @@ export function parseExpressionSyntax(
     hold,
     wet: options.has("wet"),
     echo: options.get("echo") ?? undefined,
+    ...(touches.length ? { touch: touches[0] as ExpressionSpec["touch"] } : {}),
   };
 }

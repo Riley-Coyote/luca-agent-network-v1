@@ -36,6 +36,8 @@
  * separate animations on one line.
  */
 [data-md-stream-effect] [data-expression-motion],
+[data-md-stream-effect] [data-expression-pressure="land"],
+[data-md-stream-effect] [data-ink-giving],
 [data-md-stream-effect]
   [data-expression-motion="wave"]
   [data-expression-glyph] {

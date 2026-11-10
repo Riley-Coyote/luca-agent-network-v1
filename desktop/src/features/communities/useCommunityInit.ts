@@ -28,6 +28,7 @@ import { resetOpenSide } from "@/features/exchange/openSide";
 import { resetPaneState } from "@/features/panes/paneState";
 import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
+import { resetLivingInkClocks } from "@/shared/ui/livingInk";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
 import { resetManagedPresentationStore } from "@/features/messages/managedPresentationStore";
 import { resetActivityTraceStore } from "@/features/messages/activity/activityTraceStore";
@@ -65,6 +66,7 @@ function resetCommunityState(): void {
   resetRenderScopedReactionHydration();
   clearSearchHitEventCache();
   clearMarkdownNodeCache();
+  resetLivingInkClocks();
   resetExchangeStore();
   resetOpenSide();
   resetPaneState();
