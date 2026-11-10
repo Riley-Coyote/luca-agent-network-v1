@@ -510,6 +510,23 @@ fn project_rule_does_not_cross_projects() {
 }
 
 #[test]
+fn persisted_same_access_rule_reuses_approval_across_turns_but_not_residents() {
+    let matcher = PermissionMatcherV1::Command { token: "git".into(), argv_prefix: vec!["status".into()] };
+    let saved = serde_json::to_vec(&vec![rule("remembered-status", here(), matcher, PermissionEffectV1::Allow)]).unwrap();
+    let rules: Vec<PermissionRuleV1> = serde_json::from_slice(&saved).unwrap();
+    for turn in ["first-turn", "later-turn-after-restart"] {
+        let mut request = command_request("git", &["status"]);
+        request.turn_id = OpaqueId::parse(turn).unwrap();
+        request.session_epoch = SafeU53::new(if turn == "first-turn" { 1 } else { 9 }).unwrap();
+        let subject = subject_for(&request, Some(project("source-a", "/tmp/luca")));
+        assert!(matches!(decide_with(&rules, &[], &subject, false), Verdict::Allow(AllowReason::Rule { .. })));
+        request.resident_pubkey = Hex64::parse("22".repeat(32)).unwrap();
+        let other = subject_for(&request, Some(project("source-a", "/tmp/luca")));
+        assert!(matches!(decide_with(&rules, &[], &other, false), Verdict::Ask { .. }));
+    }
+}
+
+#[test]
 fn everywhere_never_allows_commands_or_writes() {
     let everywhere = PermissionRuleScopeV1::Everywhere;
 

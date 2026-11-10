@@ -29,6 +29,7 @@
     [data-has-asks],
     :has(
       .luca-activity-shelf[data-state="active"],
+      [data-testid="runtime-task-notice"],
       [data-testid="runtime-task-result-receipt"]
     )
   ) {
@@ -42,6 +43,7 @@
     [data-has-asks],
     :has(
       .luca-activity-shelf[data-state="active"],
+      [data-testid="runtime-task-notice"],
       [data-testid="runtime-task-result-receipt"]
     )
   )::before {
@@ -64,6 +66,99 @@
   /* Status text arrives immediately; its backing must arrive with it. */
   --luca-temporary-sheet-motion: none;
   --luca-temporary-inset: 8px;
+}
+
+/* Exceptions, not a running transcript of receipts. One quiet line above the
+ * composer; the original task controls and diagnostics open only on request. */
+:root[data-luca-frame] .luca-task-notice {
+  pointer-events: auto;
+  padding: 0 20px 4px;
+}
+.luca-task-notice__row,
+.luca-task-notice__disclosure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.luca-task-notice__disclosure {
+  flex: 1;
+  min-height: 32px;
+  text-align: left;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: hsl(var(--mn-ink));
+}
+.luca-task-notice__disclosure span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.luca-task-notice svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.luca-task-notice__dismiss {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+}
+.luca-task-notice__dismiss:hover,
+.luca-task-notice__choices button:hover {
+  background: hsl(var(--mn-ink) / 0.08);
+}
+.luca-task-notice button:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+.luca-task-notice__details {
+  max-height: min(320px, 40vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-block: 6px;
+}
+.luca-task-notice__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.luca-task-notice__choices button {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: hsl(var(--mn-ink-muted));
+}
+.luca-task-notice__choices button[aria-pressed="true"] {
+  color: hsl(var(--mn-ink));
+  background: hsl(var(--mn-ink) / 0.08);
+}
+.luca-task-notice__details [data-testid="runtime-task-result-receipt"] {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+/* A notice already names its exception. Don't add a second, misleading work
+ * heading just because its diagnostic receipt was opened. */
+:root[data-luca-frame]
+  .luca-room-stack:has(.luca-task-notice):not(
+    :has(.luca-activity-shelf[data-state="active"])
+  )
+  > .luca-room-stack__head[data-kind="work"] {
+  display: none;
+}
+/* Empty-chat identity hangs above the composer in a zero-height slot. Let
+ * an actionable notice occupy that space alone, then restore the greeting
+ * unchanged on dismissal. The approved first-message surface stays intact. */
+:root[data-luca-frame]
+  .luca-room-stack:has(.luca-task-notice)
+  + .luca-first-message-greeting-slot {
+  visibility: hidden;
 }
 :root[data-luca-frame] .luca-room-stack[data-has-asks] .luca-room-stack__head {
   padding-inline: 44px;

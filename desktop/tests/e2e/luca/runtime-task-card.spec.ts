@@ -7,6 +7,10 @@ import type {
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
+import {
+  TASK_NOTICE_KEY,
+  taskNoticeScope,
+} from "../../../src/features/capabilities/lib/runtimeTaskNotices";
 
 // A resident DM: no project, so nothing resolves a working folder for it.
 // That is the surface where the raised card lives, and where it was inert.
@@ -320,6 +324,28 @@ async function installHost(page: Page, options: HostOptions) {
             );
             return null;
           }
+          if (command === "retry_runtime_task") {
+            const taskId = (payload as { taskId: string }).taskId;
+            const prior = state.tasks.find((task) => task.taskId === taskId);
+            if (prior?.state !== "failed" || !prior.canRetry)
+              throw new Error("This task cannot be retried.");
+            const updated: RuntimeTaskProjection = {
+              ...prior,
+              taskId: `retry:${taskId}`,
+              retryOfTaskId: taskId,
+              state: "queued",
+              error: null,
+              completedAt: null,
+              startedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+            state.tasks.unshift(updated);
+            window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+              "luca://runtime-task",
+              updated,
+            );
+            return updated;
+          }
           if (!realInvoke) throw new Error("Mock bridge is unavailable.");
           return realInvoke(command, payload, invokeOptions);
         },
@@ -353,18 +379,307 @@ async function open(page: Page, options: HostOptions = {}, channelId = DM_ID) {
   });
 }
 
+async function quietShell(
+  page: Page,
+  keepHistoryBoundary = false,
+  light = false,
+) {
+  await page.addInitScript(
+    ({ flagKey, noticeKey, keepHistoryBoundary, light }) => {
+      localStorage.setItem(flagKey, JSON.stringify({ "shell-frame": true }));
+      localStorage.setItem("buzz-theme", light ? "paper" : "obsidian");
+      localStorage.setItem("buzz-follow-system", "false");
+      if (keepHistoryBoundary && !localStorage.getItem(noticeKey))
+        localStorage.setItem(
+          noticeKey,
+          JSON.stringify({ since: 0, dismissed: {} }),
+        );
+    },
+    {
+      flagKey: FEATURE_OVERRIDES_STORAGE_KEY,
+      noticeKey: `${TASK_NOTICE_KEY}:${taskNoticeScope("deadbeef".repeat(8), "e2e-default-community")}`,
+      keepHistoryBoundary,
+      light,
+    },
+  );
+}
+
+test.describe("quiet notice Retina rendering", () => {
+  test.use({ deviceScaleFactor: 2 });
+  for (const light of [false, true]) {
+    test(`compact details remain usable by keyboard (${light ? "light" : "dark"})`, async ({
+      page,
+    }, testInfo) => {
+      await quietShell(page, true, light);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await open(page, {
+        tasks: [
+          priorTask({
+            state: "failed",
+            error: "Check the selected runtime connection before trying again.",
+          }),
+        ],
+      });
+      const notice = page.getByTestId("runtime-task-notice");
+      const disclosure = notice.getByRole("button", {
+        name: "Review task notices",
+      });
+      for (const width of [1440, 1280, 1024, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(disclosure).toBeVisible();
+        await disclosure.focus();
+        await page.keyboard.press("Enter");
+        await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+        await expect(notice).toContainText(
+          "Check the selected runtime connection",
+        );
+        await expect(page.locator(".luca-first-message-greeting")).toBeHidden();
+        await expect(
+          page.locator('.luca-room-stack__head[data-kind="work"]'),
+        ).toBeHidden();
+        await notice
+          .getByRole("button", { name: "Dismiss task receipt" })
+          .click({ trial: true });
+        await waitForAnimations(page);
+        await page.screenshot({
+          path: testInfo.outputPath(
+            `notice-retina-${light ? "light" : "dark"}-${width}.png`,
+          ),
+        });
+        await disclosure.focus();
+        await page.keyboard.press("Enter");
+        await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+      }
+    });
+  }
+});
+
+async function emitTask(page: Page, task: RuntimeTaskProjection) {
+  await page.evaluate((task) => {
+    const host = window.__RUNTIME_TASK_CARD_TEST__;
+    if (!host) throw new Error("Host unavailable");
+    host.tasks = [
+      task,
+      ...host.tasks.filter((item) => item.taskId !== task.taskId),
+    ];
+    window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("luca://runtime-task", task);
+  }, task);
+}
+
+test("quiet notices do not replay historical QA, success, stopped or native acknowledgement", async ({
+  page,
+}) => {
+  await quietShell(page);
+  await open(page, {
+    tasks: [
+      priorTask({
+        taskId: "old-failure",
+        state: "failed",
+        error: "Old QA failure",
+      }),
+      priorTask({
+        taskId: "complete",
+        state: "succeeded",
+        deliveryState: "published",
+      }),
+      priorTask({ taskId: "stopped", state: "stopped" }),
+      priorTask({
+        taskId: "native-queued",
+        state: "awaiting_native",
+        controlOwner: "native_app",
+      }),
+    ],
+  });
+  await expect(page.getByTestId("runtime-task-notice")).toHaveCount(0);
+  await expect(page.getByTestId("runtime-task-result-receipt")).toHaveCount(0);
+  await expect(page.locator(".luca-runtime-task-item")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => window.__RUNTIME_TASK_CARD_TEST__?.tasks.length),
+  ).toBe(4);
+});
+
+test("quiet notice batch dismisses durably without a conveyor belt or task mutation", async ({
+  page,
+}) => {
+  await quietShell(page, true);
+  const failures = [
+    priorTask({ taskId: "failed-one", state: "failed", error: "Failure one" }),
+    priorTask({
+      taskId: "uncertain-two",
+      state: "interrupted",
+      controlOwner: "native_app",
+      operation: "send_message",
+      error: "Delivery not confirmed",
+    }),
+  ];
+  await open(page, { tasks: failures });
+  const notice = page.getByTestId("runtime-task-notice");
+  await expect(notice).toContainText("2 tasks need attention");
+  await expect(notice).not.toContainText(failures[0].summary);
+  await expect(notice).not.toContainText("Handle approvals");
+  await notice
+    .getByRole("button", { name: "Dismiss task notices", exact: true })
+    .click();
+  await expect(notice).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId("message-input")).toBeVisible();
+  await expect(notice).toHaveCount(0);
+  expect(
+    await page.evaluate(() =>
+      window.__RUNTIME_TASK_CARD_TEST__?.tasks.map((t) => t.state),
+    ),
+  ).toEqual(["failed", "interrupted"]);
+  const next = priorTask({
+    taskId: "new-failure",
+    state: "failed",
+    updatedAt: new Date(Date.now() + 1000).toISOString(),
+    error: "New failure",
+  });
+  await emitTask(page, next);
+  await expect(notice).toContainText("Claude Code task needs attention");
+  await notice.getByRole("button", { name: "Review task notices" }).click();
+  await expect(notice).toContainText("New failure");
+  await expect(notice).not.toContainText("Failure one");
+  const calls = await page.evaluate(
+    () => window.__RUNTIME_TASK_CARD_TEST__?.calls ?? [],
+  );
+  expect(
+    calls.filter((call) =>
+      /^(start|retry|cancel)_runtime_task/.test(call.command),
+    ),
+  ).toEqual([]);
+});
+
+test("a new issue is visible once and a refresh cannot revive its dismissed revision", async ({
+  page,
+}) => {
+  await quietShell(page);
+  await open(page);
+  const failure = priorTask({
+    taskId: "fresh-uncertain",
+    state: "interrupted",
+    runtimeFamily: "codex",
+    controlOwner: "native_app",
+    operation: "send_message",
+    updatedAt: new Date(Date.now() + 1000).toISOString(),
+  });
+  await emitTask(page, failure);
+  const notice = page.getByTestId("runtime-task-notice");
+  await expect(notice).toContainText("Check delivery in Codex");
+  await notice.getByRole("button", { name: "Review task notices" }).click();
+  await expect(notice).toContainText("no automatic retry will run");
+  await expect(
+    notice.getByRole("button", { name: "Open in Codex" }),
+  ).toBeVisible();
+  await expect(notice.getByRole("button", { name: "Retry task" })).toHaveCount(
+    0,
+  );
+  await notice.getByRole("button", { name: "Dismiss task notices" }).click();
+  await emitTask(page, {
+    ...failure,
+    updatedAt: new Date(Date.now() + 2000).toISOString(),
+  });
+  await expect(notice).toHaveCount(0);
+  await emitTask(page, {
+    ...failure,
+    updatedAt: new Date(Date.now() + 3000).toISOString(),
+    error: "A different confirmed failure",
+  });
+  await expect(notice).toBeVisible();
+  await expect(
+    notice.getByRole("button", { name: "Review task notices" }),
+  ).toHaveAttribute("aria-expanded", "false");
+});
+
+test("a quiet result-return failure uses the exact delivery retry without rerunning work", async ({
+  page,
+}) => {
+  await quietShell(page, true);
+  const task = priorTask({
+    taskId: "return-only",
+    deliveryState: "retryable",
+    deliveryCanRetry: true,
+  });
+  await open(page, { tasks: [task], suppressDeliveryEvents: true });
+  const notice = page.getByTestId("runtime-task-notice");
+  await expect(notice).toContainText("Return the Claude Code result");
+  await notice.getByRole("button", { name: "Review task notices" }).click();
+  await notice.getByRole("button", { name: "Retry result summary" }).click();
+  await expect(notice).toHaveCount(0);
+  const calls = await page.evaluate(
+    () => window.__RUNTIME_TASK_CARD_TEST__?.calls ?? [],
+  );
+  expect(
+    calls
+      .filter((c) => c.command === "retry_runtime_task_delivery")
+      .map((c) => c.payload),
+  ).toEqual([{ taskId: task.taskId }]);
+  expect(
+    calls.filter((c) =>
+      [
+        "start_runtime_task",
+        "retry_runtime_task",
+        "cancel_runtime_task",
+      ].includes(c.command),
+    ),
+  ).toEqual([]);
+});
+
+test("a quiet failed task retries only after an explicit owner click", async ({
+  page,
+}) => {
+  await quietShell(page, true);
+  const failed = priorTask({
+    taskId: "explicit-retry",
+    state: "failed",
+    canRetry: true,
+    error: "Runtime unavailable",
+  });
+  await open(page, { tasks: [failed] });
+  const notice = page.getByTestId("runtime-task-notice");
+  await expect(notice).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      window.__RUNTIME_TASK_CARD_TEST__?.calls.filter(
+        (call) => call.command === "retry_runtime_task",
+      ),
+    ),
+  ).toEqual([]);
+  await notice.getByRole("button", { name: "Review task notices" }).click();
+  await notice.getByRole("button", { name: "Retry task", exact: true }).click();
+  await expect(notice).toHaveCount(0);
+  await expect(page.locator(".luca-runtime-task-item")).toContainText(
+    "Starting task",
+  );
+  expect(
+    await page.evaluate(() =>
+      window.__RUNTIME_TASK_CARD_TEST__?.calls
+        .filter((call) => call.command === "retry_runtime_task")
+        .map((call) => call.payload),
+    ),
+  ).toEqual([{ taskId: failed.taskId }]);
+});
+
 for (const light of [false, true]) {
   test(`work-only notices keep their backing over scrolling messages (${light ? "light" : "dark"})`, async ({
     page,
   }, testInfo) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.addInitScript(
-      ({ key, light }) => {
+      ({ key, light, noticeKey }) => {
         localStorage.setItem(key, JSON.stringify({ "shell-frame": true }));
         localStorage.setItem("buzz-theme", light ? "paper" : "obsidian");
         localStorage.setItem("buzz-follow-system", "false");
+        localStorage.setItem(
+          noticeKey,
+          JSON.stringify({ since: 0, dismissed: {} }),
+        );
       },
-      { key: FEATURE_OVERRIDES_STORAGE_KEY, light },
+      {
+        key: FEATURE_OVERRIDES_STORAGE_KEY,
+        light,
+        noticeKey: `${TASK_NOTICE_KEY}:${taskNoticeScope("deadbeef".repeat(8), "e2e-default-community")}`,
+      },
     );
     const failed = priorTask({
       taskId: "failed-codex-task",
@@ -402,12 +717,12 @@ for (const light of [false, true]) {
       }
     });
     const stack = page.getByTestId("room-stack");
-    const receipt = page.getByTestId("runtime-task-result-receipt");
+    const receipt = page.getByTestId("runtime-task-notice");
     const item = stack.locator(".luca-runtime-task-item");
-    await expect(item).toContainText(failed.summary);
-    await expect(item).toContainText(failed.error ?? "");
+    await expect(item).toHaveCount(0);
     await expect(stack).not.toHaveAttribute("data-has-asks");
-    await expect(receipt).toContainText("Completed with Claude Code");
+    await expect(receipt).toContainText("Codex task needs attention");
+    await expect(receipt).not.toContainText("Completed with Claude Code");
 
     for (const width of [1440, 1280, 1024, 390]) {
       await page.setViewportSize({ width, height: 900 });
@@ -432,13 +747,12 @@ for (const light of [false, true]) {
       expect(paint.left).toBe(8);
       expect(paint.right).toBe(8);
       for (const control of [
-        item.getByRole("button", { name: "Dismiss", exact: true }),
         receipt.getByRole("button", {
-          name: "Review task result",
+          name: "Review task notices",
           exact: true,
         }),
         receipt.getByRole("button", {
-          name: "Dismiss task receipt",
+          name: "Dismiss task notices",
           exact: true,
         }),
       ]) {
@@ -461,10 +775,10 @@ for (const light of [false, true]) {
           (element) => getComputedStyle(element, "::before").backgroundColor,
         ),
       ).toBe(paint.fill);
-      const itemBox = await item.boundingBox();
       const receiptBox = await receipt.boundingBox();
-      if (!itemBox || !receiptBox) throw new Error("Missing work rows");
-      expect(itemBox.y + itemBox.height).toBeLessThanOrEqual(receiptBox.y + 1);
+      if (!receiptBox) throw new Error("Missing work notice");
+      expect(receiptBox.height).toBeLessThan(52);
+      await waitForAnimations(page);
       await page.screenshot({
         path: testInfo.outputPath(
           `work-notices-${light ? "light" : "dark"}-${width}.png`,
@@ -477,21 +791,15 @@ for (const light of [false, true]) {
     await page.evaluate(() => {
       document.documentElement.style.fontSize = "20px";
     });
-    await item
-      .getByRole("button", { name: "Dismiss", exact: true })
+    await receipt
+      .getByRole("button", { name: "Review task notices", exact: true })
       .click({ trial: true });
-    const enlargedItem = await item.boundingBox();
     const enlargedReceipt = await receipt.boundingBox();
-    if (!enlargedItem || !enlargedReceipt)
-      throw new Error("Missing enlarged work rows");
-    expect(enlargedItem.y + enlargedItem.height).toBeLessThanOrEqual(
-      enlargedReceipt.y + 1,
-    );
+    if (!enlargedReceipt) throw new Error("Missing enlarged work notice");
+    expect(enlargedReceipt.height).toBeLessThan(60);
     await page.evaluate(() =>
       document.documentElement.style.removeProperty("font-size"),
     );
-    await item.getByRole("button", { name: "Dismiss", exact: true }).click();
-    await expect(item).toBeHidden();
     await expect(receipt).toBeVisible();
     expect(
       await stack.evaluate(
@@ -499,7 +807,7 @@ for (const light of [false, true]) {
       ),
     ).toMatch(/^rgb\(/);
     await receipt
-      .getByRole("button", { name: "Dismiss task receipt", exact: true })
+      .getByRole("button", { name: "Dismiss task notices", exact: true })
       .click();
     await expect(receipt).toBeHidden();
     expect(

@@ -157,6 +157,24 @@ pub(super) fn configure(
         .as_ref()
         .map(ReturnSetupSnapshotV1::effective_quiet_hours)
         .unwrap_or((1320, 480));
+    let already_followed = roots.iter().map(|(harness, root)| {
+        follow::following_with_choices(&state, &target, *harness, root,
+            request.options.keep_notes, request.options.share_activity_with_agents)
+    }).collect::<Result<Option<Vec<_>>, _>>()?;
+    let background_already_active = initiative_before.enabled && !initiative_before.paused
+        && initiative_before.allow_local_creations
+        && !state.companion_execution.is_paused(&initiative_scope)
+            .map_err(|e| format!("companion control: {e:?}"))?;
+    // A fresh one-off sample still needs its own review. Otherwise repeated
+    // setup is a read-only no-op when every selected scope is already active.
+    if !request.options.initial_context
+        && already_followed.as_ref().is_some_and(|sources| {
+            (!request.options.background_work || background_already_active)
+                && return_snapshot.as_ref().is_none_or(|snapshot| snapshot.already_approved(&state, sources))
+        }) && before == follow::setup_approval_state(&state, &target)? {
+        return Ok(json!({"status":if results.iter().any(|r| r["status"] == "incomplete") {"incomplete"} else {"already_configured"},"results":results,"permissionsChanged":false,
+            "message":"The available companion choices are already active with their existing approvals. Nothing changed. Report any listed unavailable profiles honestly; do not request another review for unchanged choices."}).to_string());
+    }
     let fingerprint = Sha256Ref::parse(format!(
         "sha256:{}",
         canonical_sha256(&json!([

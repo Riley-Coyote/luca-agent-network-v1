@@ -115,3 +115,45 @@ Focused commands and local candidate evidence are recorded in Riley's isolated c
 Implementation gates: 199 focused unit tests passed; 55 browser checks passed across runtime task cards, Stop navigation/replacement, queued sends and mini chat. Typecheck/e2e build, changed-file Biome, text-size and diff checks passed. The file-size check reports its existing informational warnings. Both-theme rendered notices were inspected; no approved visual styling was changed. The six wider-suite baseline failures above remain explicitly separate.
 
 Next priorities, only with a scoped reproducer: in-place correspondence send/Stop busy ownership; agent-edit save vs form/agent switches; media capture/source replacement; interruption/restart fault injection at each persisted dispatch/outbox/delivery boundary. Already-authoritative native state machines are not a refactor backlog by default.
+
+## Follow-up: quiet task notices and unchanged approvals
+
+The shell no longer treats the persisted task catalogue as a queue of composer
+notifications. Live Polyphonic-owned work retains its existing status/Stop
+surface. Success, owner Stop and a native queue acknowledgement are quiet;
+results return through the existing conversation and remain in Activity/history.
+Only execution failures, interrupted/uncertain delivery and blocked/retryable
+result returns enter one compact, collapsed notice. Details retain exact task
+actions and authority. An uncertain native send is never resent automatically.
+
+Presentation acknowledgement is scoped to owner, community, conversation, task
+and failure revision. Dismissing the compact row acknowledges its current batch,
+not one item followed by the next old receipt. Each acknowledgement has its own
+storage key, so separate task windows cannot clobber one another's dismissal.
+Browser storage contains identifiers and diagnostic hashes, not task bodies or
+error text. Storage failure degrades to session-only acknowledgement; it never
+changes execution or permission authority. A genuinely changed problem may show
+again; heartbeat timestamps alone cannot resurrect a dismissed problem.
+
+The first use of this notice policy records a per-owner/community rollout time.
+Earlier terminal receipts stay in Activity/history rather than replaying as new
+notifications. This is a presentation migration only: no task, result, message,
+conversation or permission record is deleted or rewritten. The unscoped legacy
+dismissal list is not applied to another owner/community. Classic flag-off task
+presentation is retained for compatibility.
+
+Repeated companion configuration is now read-only when the exact requested
+choice is already active. Combined setup rechecks the selected profiles, note
+and sharing grants, runtime binding, return destination, source revisions and
+quiet hours before taking that shortcut. New scopes, a fresh one-off history
+sample, changed grants/model/destination, an explicit saved or process-only pause,
+and genuinely new permissions retain their existing review paths. Remembered
+runtime rules still use the native permission ledger; an owner/project/resident
+grant is not a global permission or permission to suppress a harness-owned ask.
+
+Focused proof includes durable batch dismissal/reload, a later changed issue,
+two independent acknowledgement writers, exact task retry and summary-only
+retry, no native resend, keyboard use, text zoom, both themes and 1x/2x renders.
+An empty-chat render exposed the greeting overlapping expanded diagnostics;
+the greeting now yields that space while a notice is present and returns
+unchanged on dismissal. No shell/composer restyle or new permission is applied.

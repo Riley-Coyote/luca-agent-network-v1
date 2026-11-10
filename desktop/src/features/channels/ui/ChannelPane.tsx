@@ -116,6 +116,9 @@ import {
   useRuntimeTasks,
 } from "@/features/capabilities/useRuntimeTasks";
 import { RuntimeTaskResultReceipts } from "@/features/capabilities/ui/RuntimeTaskResultReceipts";
+import { RuntimeTaskNotices } from "@/features/capabilities/ui/RuntimeTaskNotices";
+import { taskNoticeScope } from "@/features/capabilities/lib/runtimeTaskNotices";
+import { useCommunities } from "@/features/communities/useCommunities";
 import { RuntimeTaskProposalConfirmation } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
 import { useConversationEffort } from "@/features/thinking/useConversationEffort";
 import { ConversationAccessPicker } from "@/features/settings/ui/ConversationAccessPicker";
@@ -255,6 +258,11 @@ export const ChannelPane = React.memo(function ChannelPane({
   const hasMainComposerOverlay = !isNonMemberView;
   const activeChannelId = activeChannel?.id ?? null;
   const runtimeTasksQuery = useRuntimeTasks(activeChannelId);
+  const { activeCommunity } = useCommunities();
+  const noticeScope = taskNoticeScope(
+    currentPubkey ?? "",
+    activeCommunity?.id ?? "",
+  );
   const runtimeTaskProposalsQuery = useRuntimeTaskProposals(activeChannelId);
   const dragChannelIdRef = React.useRef(activeChannelId);
   React.useEffect(() => {
@@ -1176,6 +1184,7 @@ export const ChannelPane = React.memo(function ChannelPane({
         ) : null
       }
       runtimeTasks={runtimeTasksQuery.data ?? []}
+      quietRuntimeTasks={shellFrame}
       sessionAgents={agentSessionAgents}
       presentationActivityByPubkey={stripPresentationActivity}
       presentationStateByPubkey={stripPresentationState}
@@ -1196,7 +1205,14 @@ export const ChannelPane = React.memo(function ChannelPane({
       }
     />
   );
-  const runtimeTaskReceipts = (
+  const runtimeTaskReceipts = shellFrame ? (
+    <RuntimeTaskNotices
+      key={noticeScope}
+      scope={noticeScope}
+      onRetrySynthesis={handleRetryRuntimeTaskSynthesis}
+      tasks={runtimeTasksQuery.data ?? []}
+    />
+  ) : (
     <RuntimeTaskResultReceipts
       onRetrySynthesis={handleRetryRuntimeTaskSynthesis}
       tasks={runtimeTasksQuery.data ?? []}

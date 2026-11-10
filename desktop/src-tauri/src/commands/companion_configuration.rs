@@ -385,6 +385,10 @@ pub(crate) fn configure(
         return Ok(json!({"status":if unavailable.is_empty() {"already_following"} else {"incomplete"},"harnesses":request.harnesses,"results":unavailable,
             "message":"These profiles are already being followed with the approved sharing choices. Nothing was changed."}).to_string());
     }
+    if already_configured(&state, &target, request.action)? {
+        return Ok(json!({"status":"already_configured","action":request.action,
+            "message":"This companion setting already matches the request. The existing approval is still in use; nothing changed. Do not ask for the same approval again."}).to_string());
+    }
     let follow_states = roots
         .iter()
         .map(|(harness, root)| follow_expected(&state, &target, *harness, root))
@@ -823,6 +827,58 @@ pub(super) fn already_following(
     })()
     .unwrap_or(false)
 }
+
+/// Reuse an existing, exact choice only when there is no state change to make.
+/// A paused/withdrawn scope is never resumed by this shortcut.
+fn already_configured(
+    state: &AppState,
+    target: &FollowTarget,
+    action: Action,
+) -> Result<bool, String> {
+    match action {
+        Action::ResumeAwareness => Ok(!state.companion_awareness
+            .resident_state(&target.owner, &target.resident).map_err(err)?.paused),
+        Action::ShareActivityWithAgents => {
+            let grants = state.companion_awareness.list_grants(&target.owner, &target.resident, 64).map_err(err)?;
+            if grants.truncated || grants.entries.is_empty() { return Ok(false); }
+            Ok(grants.entries.iter().all(|entry| {
+                let key = AwarenessGrantKeyV1 {
+                    source: AwarenessSourceKeyV1 { owner_pubkey: target.owner.clone(), source_id: entry.grant.source_id.clone(), device_id: entry.grant.device_id.clone() },
+                    resident_pubkey: target.resident.clone(),
+                };
+                state.companion_awareness.recheck_owned_agent_sharing(&target.owner, &key, &target.binding).is_ok()
+            }))
+        }
+        Action::EnableBackground | Action::ResumeBackground => {
+            let home = crate::luca::companion_initiative::host_scope::home_scope(state, &target.owner, &target.resident)
+                .map_err(|e| format!("companion initiative: {e:?}"))?;
+            let policy = state.companion_initiative.with_control(&home, |store| store.policy(&home))
+                .map_err(|e| format!("companion initiative: {e:?}"))?;
+            let process_paused = state.companion_execution.is_paused(&home)
+                .map_err(|e| format!("companion control: {e:?}"))?;
+            Ok(!process_paused && background_request_satisfied(action, policy.enabled, policy.paused, policy.allow_local_creations))
+        }
+        _ => Ok(false),
+    }
+}
+
+fn background_request_satisfied(action: Action, enabled: bool, paused: bool, creations: bool) -> bool {
+    enabled && !paused && (action != Action::EnableBackground || creations)
+}
+
+/// Exact follow/note/sharing grants used by combined setup's no-change check.
+pub(super) fn following_with_choices(
+    state: &AppState, target: &FollowTarget, harness: Harness, root: &Path,
+    notes: bool, sharing: bool,
+) -> Result<Option<AwarenessGrantKeyV1>, String> {
+    if !already_following(state, target, harness, root) { return Ok(None); }
+    let expected = follow_expected(state, target, harness, root)?;
+    if (notes && state.companion_awareness.recheck_semantic_note_choice(&target.owner, &expected.key, &target.binding).is_err())
+        || (sharing && state.companion_awareness.recheck_owned_agent_sharing(&target.owner, &expected.key, &target.binding).is_err()) {
+        return Ok(None);
+    }
+    Ok(Some(expected.key))
+}
 pub(super) fn id(prefix: &str) -> Result<OpaqueId, String> {
     OpaqueId::parse(format!("{prefix}-{}", uuid::Uuid::new_v4()))
         .map_err(|_| "Invalid operation identifier.".into())
@@ -903,6 +959,33 @@ pub(super) fn setup_approval_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unchanged_background_choices_reuse_the_existing_state_only() {
+        for action in [Action::EnableBackground, Action::ResumeBackground] {
+            assert!(background_request_satisfied(action, true, false, true));
+            assert!(!background_request_satisfied(action, false, true, true));
+            assert!(!background_request_satisfied(action, true, true, true));
+        }
+        assert!(!background_request_satisfied(Action::EnableBackground, true, false, false));
+        assert!(background_request_satisfied(Action::ResumeBackground, true, false, false));
+    }
+    #[test]
+    fn unchanged_awareness_does_not_review_again_but_pause_is_never_bypassed() {
+        use crate::luca::companion_awareness::selected_files::tests::{id as fixture_id, now, Fixture};
+        let fixture = Fixture::new();
+        let live = LiveAwarenessOwner::authenticate(&fixture.state).unwrap();
+        fixture.state.companion_awareness.initialize(&fixture.root, Some(live.owner()));
+        let target = FollowTarget { owner: live.owner().clone(), resident: fixture.resident.clone(),
+            binding: Sha256Ref::parse(format!("sha256:{}", "ab".repeat(32))).unwrap(), session_epoch: SafeU53::new(1).unwrap() };
+        let before = follow_approval_state(&fixture.state, &target).unwrap();
+        assert!(already_configured(&fixture.state, &target, Action::ResumeAwareness).unwrap());
+        assert_eq!(before, follow_approval_state(&fixture.state, &target).unwrap());
+        assert!(!already_configured(&fixture.state, &target, Action::ShareActivityWithAgents).unwrap());
+        let current = fixture.state.companion_awareness.resident_state(&target.owner, &target.resident).unwrap();
+        fixture.state.companion_awareness.set_paused(&target.owner, &target.resident, None,
+            expected_revision(current.revision), true, &now(), &fixture_id("idempotent-pause")).unwrap();
+        assert!(!already_configured(&fixture.state, &target, Action::ResumeAwareness).unwrap());
+    }
     #[test]
     fn request_is_small_and_cannot_supply_paths_or_grants() {
         for value in [

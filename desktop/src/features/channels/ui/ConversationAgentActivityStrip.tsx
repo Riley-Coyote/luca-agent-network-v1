@@ -82,6 +82,8 @@ export type ConversationAgentActivityStripProps = {
   /** Explicit provider-root tasks are projected here; this surface never
    * becomes their execution or persistence authority. */
   runtimeTasks?: RuntimeTaskProjection[];
+  /** Terminal history lives in one acknowledged notice, not this work shelf. */
+  quietRuntimeTasks?: boolean;
 };
 
 /** Shared so an un-narrated item keeps one identity between renders. */
@@ -655,6 +657,7 @@ export function ConversationAgentActivityStrip({
   permissionContent,
   permissionLabel = "Permission needed",
   runtimeTasks = [],
+  quietRuntimeTasks = false,
 }: ConversationAgentActivityStripProps) {
   const queryClient = useQueryClient();
   const stoppingTasks = React.useRef(new Set<string>());
@@ -710,11 +713,17 @@ export function ConversationAgentActivityStrip({
     () => new Set<string>(),
   );
   const [runtimeNow, setRuntimeNow] = React.useState(() => Date.now());
-  const visibleRuntimeTasks = runtimeTasks.filter((task) =>
-    runtimeTaskVisible(task, dismissedRuntimeTasks, runtimeNow),
+  const visibleRuntimeTasks = runtimeTasks.filter(
+    (task) =>
+      (!quietRuntimeTasks ||
+        task.state === "queued" ||
+        task.state === "active" ||
+        task.state === "stopping") &&
+      runtimeTaskVisible(task, dismissedRuntimeTasks, runtimeNow),
   );
 
   React.useEffect(() => {
+    if (quietRuntimeTasks) return;
     const nextExpiry = runtimeTasks
       .filter((task) => task.state === "succeeded" && task.completedAt)
       .map(
@@ -728,7 +737,7 @@ export function ConversationAgentActivityStrip({
       nextExpiry + 16,
     );
     return () => window.clearTimeout(id);
-  }, [runtimeTasks]);
+  }, [quietRuntimeTasks, runtimeTasks]);
 
   const sessions = React.useMemo(
     () =>

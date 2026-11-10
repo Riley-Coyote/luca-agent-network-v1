@@ -1,6 +1,7 @@
 import {
   ArrowUpRight,
   Check,
+  CircleAlert,
   ChevronDown,
   ChevronUp,
   RotateCcw,
@@ -12,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   getRuntimeTaskResult,
   openRuntimeTaskSession,
+  retryRuntimeTask,
   retryRuntimeTaskDelivery,
   type RuntimeTaskProjection,
 } from "@/shared/api/tauriRuntimeTasks";
@@ -91,10 +93,10 @@ type ResultView =
 
 type ReceiptAction =
   | { phase: "idle" }
-  | { phase: "pending"; kind: "summary" | "native" }
+  | { phase: "pending"; kind: "summary" | "native" | "task" }
   | { phase: "failed"; message: string };
 
-function RuntimeTaskResultReceipt({
+export function RuntimeTaskResultReceipt({
   task,
   onDismiss,
   onRetrySynthesis,
@@ -134,7 +136,7 @@ function RuntimeTaskResultReceipt({
         : null;
 
   const runAction = (
-    kind: "summary" | "native",
+    kind: "summary" | "native" | "task",
     perform: () => Promise<unknown>,
     fallback: string,
   ) => {
@@ -202,6 +204,8 @@ function RuntimeTaskResultReceipt({
         <span className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground/[0.06]">
           {nativeHandoff ? (
             <ArrowUpRight aria-hidden className="size-3.5" />
+          ) : task.state === "failed" || task.state === "interrupted" ? (
+            <CircleAlert aria-hidden className="size-3.5" />
           ) : (
             <Check aria-hidden className="size-3.5" />
           )}
@@ -211,7 +215,10 @@ function RuntimeTaskResultReceipt({
           onClick={toggle}
           type="button"
         >
-          <span className="block truncate text-sm font-medium text-ink">
+          <span
+            className="block truncate text-sm font-medium text-ink"
+            title={task.summary}
+          >
             {task.summary}
           </span>
           <span className="block text-xs text-ink-muted">
@@ -279,6 +286,36 @@ function RuntimeTaskResultReceipt({
                 : "Retry synthesis"}
           </button>
         ) : null}
+        {!nativeHandoff && task.state === "failed" && task.canRetry ? (
+          <button
+            className="flex h-7 items-center gap-1.5 rounded-full px-2 text-xs text-ink-muted hover:bg-foreground/[0.06] hover:text-ink disabled:opacity-45"
+            disabled={action.phase === "pending"}
+            onClick={() =>
+              runAction(
+                "task",
+                () =>
+                  retryRuntimeTask(task.taskId).then((updated) => {
+                    if (
+                      updated.retryOfTaskId !== task.taskId ||
+                      updated.conversationId !== task.conversationId
+                    )
+                      throw new Error("The task retry could not be verified.");
+                    queryClient.setQueryData<RuntimeTaskProjection[]>(
+                      runtimeTasksKey(task.conversationId),
+                      (current = []) => mergeRuntimeTasks(current, [updated]),
+                    );
+                    onDismiss();
+                  }),
+                "The task could not be retried.",
+              )
+            }
+            type="button"
+          >
+            {action.phase === "pending" && action.kind === "task"
+              ? "Retrying…"
+              : "Retry task"}
+          </button>
+        ) : null}
         {canReview ? (
           <button
             aria-label={expanded ? "Hide task result" : "Review task result"}
@@ -313,14 +350,20 @@ function RuntimeTaskResultReceipt({
       {nativeHandoff ? (
         <p className="mt-2 text-xs text-ink-muted">
           {task.targetLabel ? `${task.targetLabel}. ` : ""}
-          {task.state === "failed" || task.state === "interrupted"
-            ? "Check this exact session before sending again. Delivery could not be confirmed; no automatic retry will run. "
-            : "Polyphonic is not observing a verified result for this handoff. "}
+          {task.error
+            ? `${task.error} `
+            : task.state === "failed" || task.state === "interrupted"
+              ? "Delivery could not be confirmed. "
+              : "Polyphonic is not observing a verified result for this handoff. "}
+          {(task.state === "failed" || task.state === "interrupted") &&
+          !/no automatic retry|not resend automatically/i.test(task.error ?? "")
+            ? "Check this session first; no automatic retry will run. "
+            : ""}
           Handle approvals and stopping in{" "}
           {task.runtimeFamily === "codex" ? "Codex" : "Claude Code"}.
         </p>
       ) : null}
-      {nativeHandoff && task.error ? (
+      {!nativeHandoff && task.error ? (
         <p className="mt-2 text-xs text-ink-muted">{task.error}</p>
       ) : null}
       {actionError ? (

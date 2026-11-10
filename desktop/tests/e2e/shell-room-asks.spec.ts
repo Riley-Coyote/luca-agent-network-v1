@@ -372,7 +372,8 @@ async function settle(page: Page, width: number) {
   await expect(page.getByTestId("room-stack")).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByTestId("runtime-task-result-receipt")).toHaveCount(1, {
+  // A successful result belongs in chat/history, never beside the approvals.
+  await expect(page.getByTestId("runtime-task-result-receipt")).toHaveCount(0, {
     timeout: 20_000,
   });
   await page.mouse.move(width - 10, 10);
@@ -456,8 +457,7 @@ for (const [width, height] of [
         expect(row.paint?.background).toBe("rgba(0, 0, 0, 0)");
         expect(row.paint?.border.startsWith("0px")).toBe(true);
       }
-      expect(shown?.receipt?.background).toBe("rgba(0, 0, 0, 0)");
-      expect(shown?.receipt?.shadow).toBe("none");
+      expect(shown?.receipt).toBeNull();
       expect(restShot.colours).toBeGreaterThan(8);
     });
   }

@@ -32,6 +32,8 @@ export function runtimeTaskReceiptLabel(
     }
     return `Native handoff to ${provider} — check the session`;
   }
+  if (task.state === "failed") return `Task failed in ${provider}`;
+  if (task.state === "interrupted") return `Task interrupted in ${provider}`;
   return `${task.state === "succeeded" ? "Completed" : "Stopped"} with ${provider}`;
 }
 

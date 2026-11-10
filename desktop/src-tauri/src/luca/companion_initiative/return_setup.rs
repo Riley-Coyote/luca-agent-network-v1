@@ -167,6 +167,25 @@ impl ReturnSetupSnapshotV1 {
                 && previous.origin_relay_ref == self.relay
         })
     }
+
+    /// A repeated setup may reuse consent only for the same destination,
+    /// model, quiet hours and still-current source revisions. No writes here.
+    pub(crate) fn already_approved(&self, state: &AppState, sources: &[AwarenessGrantKeyV1]) -> bool {
+        let Some(consent) = self.previous_consent() else { return false; };
+        if consent.validate().is_err() || self.policy.max_outreach_per_24h == 0
+            || (consent.quiet_start_minute, consent.quiet_end_minute) != self.effective_quiet_hours()
+            || sources.len() != consent.sources.len() { return false; }
+        sources.iter().all(|key| {
+            key.source.owner_pubkey == self.owner && key.resident_pubkey == self.resident
+                && state.companion_awareness.recheck_semantic_note_choice(&self.owner, key, &self.binding).is_ok()
+                && state.companion_awareness.snapshot(&self.owner, key).is_ok_and(|snapshot| {
+                    consent.sources.iter().any(|approved|
+                        approved.source_id == key.source.source_id && approved.device_id == key.source.device_id
+                            && approved.grant_revision == snapshot.grant.grant_revision
+                            && approved.deny_epoch == snapshot.source.deny_epoch)
+                })
+        })
+    }
 }
 
 /// Apply only following the caller's exact host-owned combined approval. Source
@@ -353,6 +372,66 @@ mod tests {
             quiet_hours_override: None,
             denial_generation: 0,
         }
+    }
+    #[test]
+    fn repeated_return_setup_rechecks_the_existing_source_and_note_grant() {
+        use crate::luca::companion_awareness::selected_files::tests::{id, now, number, Fixture};
+        let fixture = Fixture::new();
+        let live = LiveAwarenessOwner::authenticate(&fixture.state).unwrap();
+        fixture.state.companion_awareness.initialize(&fixture.root, Some(live.owner()));
+        let key = fixture.grant(id("return-approved-source"), true);
+        let binding = Sha256Ref::parse(format!("sha256:{}", "c".repeat(64))).unwrap();
+        let mut grant = fixture.runtime.snapshot(live.owner(), &key).unwrap().grant;
+        grant.grant_revision = number(2);
+        grant.choices.promote = true;
+        grant.choices.provider_egress_binding = Some(binding.clone());
+        fixture.runtime.put_grant(&live, &grant, Some(number(1)), &id("return-provider")).unwrap();
+        let (history, _) = fixture.runtime.set_native_history_choice(live.owner(), &key,
+            Some(&live), number(0), true, Some(&binding), &now(), &id("return-history")).unwrap();
+        fixture.runtime.set_semantic_note_choice(live.owner(), &key, Some(&live), history.revision,
+            true, Some(&binding), &now(), &id("return-notes")).unwrap();
+        let mut approved = snapshot();
+        approved.owner = live.owner().clone();
+        approved.resident = fixture.resident.clone();
+        let mut previous = consent();
+        previous.owner_pubkey = approved.owner.clone();
+        previous.resident_pubkey = approved.resident.clone();
+        previous.sources = vec![InitiativeReturnSourceV1 {
+            source_id: key.source.source_id.clone(), device_id: key.source.device_id.clone(),
+            grant_revision: grant.grant_revision, deny_epoch: grant.deny_epoch,
+        }];
+        approved.policy.return_consent = Some(previous);
+        approved.policy.max_outreach_per_24h = 1;
+        assert!(approved.already_approved(&fixture.state, std::slice::from_ref(&key)));
+        grant.grant_revision = number(3);
+        fixture.runtime.put_grant(&live, &grant, Some(number(2)), &id("return-new-revision")).unwrap();
+        assert!(!approved.already_approved(&fixture.state, &[key]));
+    }
+    #[test]
+    fn repeated_return_setup_reuses_only_exact_existing_consent() {
+        let fixture = crate::luca::companion_awareness::selected_files::tests::Fixture::new();
+        let mut approved = snapshot();
+        assert!(!approved.already_approved(&fixture.state, &[]));
+        approved.policy.return_consent = Some(consent());
+        approved.policy.max_outreach_per_24h = 1;
+        assert!(approved.already_approved(&fixture.state, &[]));
+        for changed in [
+            { let mut value = approved.clone(); value.binding = Sha256Ref::parse(format!("sha256:{}", "e".repeat(64))).unwrap(); value },
+            { let mut value = approved.clone(); value.resident = Hex64::parse("f".repeat(64)).unwrap(); value },
+            { let mut value = approved.clone(); value.owner = Hex64::parse("f".repeat(64)).unwrap(); value },
+            { let mut value = approved.clone(); value.relay = Sha256Ref::parse(format!("sha256:{}", "e".repeat(64))).unwrap(); value },
+            { let mut value = approved.clone(); value.conversation = OpaqueId::parse("different-dm").unwrap(); value },
+            approved.clone().with_quiet_hours(1200, 420).unwrap(),
+            { let mut value = approved.clone(); value.policy.max_outreach_per_24h = 0; value },
+        ] {
+            assert!(!changed.already_approved(&fixture.state, &[]));
+        }
+        let key = AwarenessGrantKeyV1 {
+            source: crate::luca::companion_awareness::AwarenessSourceKeyV1 {
+                owner_pubkey: approved.owner.clone(), source_id: OpaqueId::parse("unapproved-source").unwrap(), device_id: OpaqueId::parse("this-device").unwrap(),
+            }, resident_pubkey: approved.resident.clone(),
+        };
+        assert!(!approved.already_approved(&fixture.state, &[key]));
     }
     #[test]
     fn quiet_review_defaults_preserves_only_same_scope_and_accepts_explicit_override() {
