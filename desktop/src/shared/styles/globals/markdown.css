@@ -878,14 +878,18 @@
     background-image: none;
     color: var(--expression-fill);
   }
-  [data-ink-painted] {
+  [data-ink-painted],
+  [data-ink-painted] .md-stream-word[data-md-stream-word] {
+    /* Streamed words are composited inline-blocks. A parent's text clip
+       cannot paint through that layer in WebKit; each word needs its own. */
     background-image: var(--ink-paint);
     background-clip: text;
     -webkit-background-clip: text;
     color: transparent;
     -webkit-text-fill-color: transparent;
   }
-  [data-ink-painted]::selection {
+  [data-ink-painted]::selection,
+  [data-ink-painted] .md-stream-word[data-md-stream-word]::selection {
     color: HighlightText;
     -webkit-text-fill-color: HighlightText;
     background: Highlight;
@@ -893,7 +897,8 @@
 }
 @media (forced-colors: active) {
   [data-ink-field-ready],
-  [data-ink-painted] {
+  [data-ink-painted],
+  [data-ink-painted] .md-stream-word[data-md-stream-word] {
     background-image: none;
     color: CanvasText;
     -webkit-text-fill-color: CanvasText;

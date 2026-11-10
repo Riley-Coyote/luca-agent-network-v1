@@ -105,6 +105,48 @@ function managedRow(page: Page): Locator {
   return page.locator("[data-managed-response-ui-key]").last();
 }
 
+for (const paint of ["calm", "calm~care"]) {
+  test(`streamed Living Ink remains painted through word layers: ${paint}`, async ({
+    page,
+  }) => {
+    const receiptId = await send(page, "Visual rendering check only.");
+    const content = `[A quiet moment.](ink:${paint}?breathe)\n\nReady for the walkthrough.`;
+    const turnId = `ink-stream-${paint.replace("~", "-")}`;
+    await emitFrame(page, {
+      kind: "turn_started",
+      receiptId,
+      sequence: 1,
+      turnId,
+    });
+    await emitFrame(page, {
+      kind: "public_chunk",
+      receiptId,
+      sequence: 2,
+      turnId,
+      publicChunk: content,
+    });
+    const response = managedRow(page);
+    const word = response
+      .locator("[data-ink-painted] [data-md-stream-word]")
+      .first();
+    await expect(word).toBeAttached();
+    await expect(word).toHaveCSS("background-image", /linear-gradient/);
+    await expect(word).toHaveCSS("background-clip", "text");
+    await emitFrame(page, {
+      kind: "completed",
+      receiptId,
+      sequence: 3,
+      turnId,
+    });
+    await emitSignedFinal(page, receiptId, content, `ink-signed-${paint}`);
+    await expect(response).toContainText("Ready for the walkthrough.");
+    await expect(response.locator("[data-md-stream-effect]")).toHaveCount(0);
+    // The word DOM stays mounted after settlement; its own paint must remain.
+    await expect(word).toHaveCSS("background-image", /linear-gradient/);
+    await expect(word).toHaveCSS("opacity", "1");
+  });
+}
+
 test("a mounted streamed row never folds when its signed final settles", async ({
   page,
 }) => {
