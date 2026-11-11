@@ -1524,13 +1524,18 @@ fn activity_label(
     update: &serde_json::Value,
     detail: Option<&str>,
 ) -> Option<String> {
+    if let Some(label) = plain_tool_label(update) {
+        return Some(label.to_owned());
+    }
     let title = update
         .get("title")
         .and_then(serde_json::Value::as_str)
         .and_then(|title| bounded_text(title, MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES));
     // A title with a space is prose the runtime wrote; a single token is the
     // tool's identifier wearing the title's clothes.
-    if let Some(title) = title.as_deref().filter(|title| title.contains(' ')) {
+    if let Some(title) = title.as_deref().filter(|title| {
+        title.contains(' ') && !title.starts_with("mcp_") && !title.starts_with("mcp.")
+    }) {
         return Some(title.to_owned());
     }
     let sentence = match kind {
@@ -1569,11 +1574,40 @@ fn activity_label(
         },
         ManagedPresentationActivityKindV1::Thinking => "Thinking".to_owned(),
         ManagedPresentationActivityKindV1::Delegation => "Delegating work".to_owned(),
-        // Nothing was recognised and the runtime wrote no prose. A bare tool
-        // name is better than a phase word, but an empty title is not.
-        ManagedPresentationActivityKindV1::Other => title?,
+        // Unknown identifiers belong in diagnostics, not the conversation.
+        // An unnamed frame still emits no invented activity step.
+        ManagedPresentationActivityKindV1::Other => {
+            title?;
+            "Using a tool".to_owned()
+        }
     };
     bounded_text(&sentence, MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES)
+}
+
+/// Product-owned tools have a stable, payload-free activity vocabulary. Match
+/// actual tool identities, never arguments, results, or arbitrary user text.
+pub(crate) fn plain_tool_label(update: &serde_json::Value) -> Option<&'static str> {
+    if ["toolName", "title"].iter().any(|field| {
+        matches!(update.get(field).and_then(serde_json::Value::as_str),
+            Some("ToolSearch" | "tool_search"))
+    }) {
+        return Some("Finding the right tool");
+    }
+    let (server, tool) = mcp_tool_identity(update)?;
+    match (server.as_str(), tool.as_str()) {
+        ("buzz", "todo") => Some("Updating the plan"),
+        ("luca-repositories", "list_resident_runtimes") => Some("Checking available agents"),
+        ("luca-repositories", "propose_runtime_task") => Some("Preparing a delegated task"),
+        ("luca-repositories", "get_runtime_task" | "list_runtime_tasks") => Some("Checking task progress"),
+        ("luca-repositories", "propose_resident") => Some("Preparing an agent"),
+        (server, "list_inbox" | "read_inbox" | "inbox_list" | "inbox_read")
+            if server == "luca-communications" || server.starts_with("luca-communications-") =>
+            Some("Reading messages"),
+        (server, "send_message" | "message_send" | "reply_to_inbox" | "inbox_reply")
+            if server == "luca-communications" || server.starts_with("luca-communications-") =>
+            Some("Sending a message"),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2295,6 +2329,39 @@ mod tests {
     }
 
     #[test]
+    fn product_tools_have_payload_free_readable_activity_through_settlement() {
+        for (title, expected) in [
+            ("mcp__buzz__todo", "Updating the plan"),
+            ("mcp.buzz.todo", "Updating the plan"),
+            ("ToolSearch", "Finding the right tool"),
+            ("mcp__luca-repositories__list_resident_runtimes", "Checking available agents"),
+            ("mcp__luca-repositories__propose_runtime_task", "Preparing a delegated task"),
+            ("mcp__third-party__todo", "Using a tool"),
+            ("mcp__unknown__tool PRIVATE_PAYLOAD", "Using a tool"),
+        ] {
+            let mut ledger = ActivityLedger::default();
+            let activity = ledger.start(&serde_json::json!({
+                "toolCallId": "readable", "title": title,
+                "rawInput": {"body": "PRIVATE_PAYLOAD"},
+            })).unwrap();
+            assert_eq!(activity.label, expected);
+            assert!(activity.detail.is_none());
+            let settled = ledger.settle(&serde_json::json!({
+                "toolCallId": "readable", "status": "completed",
+            })).unwrap();
+            assert_eq!(settled.label, expected);
+            assert_eq!(settled.step, activity.step);
+        }
+        let typed = serde_json::json!({
+            "title": "mcp tool", "_meta": {"is_mcp_tool_call": true},
+            "rawInput": {"server": "buzz", "tool": "todo", "arguments": {"body": "PRIVATE"}},
+        });
+        assert_eq!(activity_label(activity_kind(&typed), &typed, None).as_deref(), Some("Updating the plan"));
+        let claude = serde_json::json!({"_meta": {"claudeCode": {"toolName": "mcp__buzz__todo"}}});
+        assert_eq!(activity_label(activity_kind(&claude), &claude, None).as_deref(), Some("Updating the plan"));
+    }
+
+    #[test]
     fn a_runtime_written_title_survives_verbatim() {
         let mut ledger = ActivityLedger::default();
         let activity = ledger
@@ -2324,7 +2391,7 @@ mod tests {
             }))
             .expect("a named step");
         assert_eq!(activity.kind, ManagedPresentationActivityKindV1::Other);
-        assert_eq!(activity.label, "artifact_create");
+        assert_eq!(activity.label, "Using a tool");
         assert_eq!(activity.detail, None);
     }
 

@@ -15,6 +15,7 @@ import {
   managedPermissionOutcomeCopy,
   mergeManagedActivityStep,
   parseManagedActivityStep,
+  readableActivityLabel,
   sanitizedAttachmentFailure,
   settleManagedActivitySteps,
   truncateActivityPathFront,
@@ -317,6 +318,36 @@ describe("rich activity", () => {
       ),
       "Ran build — failed",
     );
+  });
+
+  it("keeps restored tool identifiers out of live and settled activity", () => {
+    for (const [raw, live, done] of [
+      ["mcp__buzz__todo", "Updating the plan", "Updated the plan"],
+      ["ToolSearch", "Finding the right tool", "Found the right tool"],
+      [
+        "mcp__luca-repositories__list_resident_runtimes",
+        "Checking available agents",
+        "Checked available agents",
+      ],
+      [
+        "mcp__luca-repositories__propose_runtime_task",
+        "Preparing a delegated task",
+        "Prepared a delegated task",
+      ],
+      ["mcp__unknown__opaque", "Using a tool", "Used a tool"],
+    ]) {
+      assert.equal(readableActivityLabel(raw), live);
+      assert.equal(managedActivityStepLabel(step({ label: raw })), live);
+      assert.equal(
+        managedActivityStepLabel(step({ label: raw, status: "done" })),
+        done,
+      );
+      assert.equal(
+        managedActivityStepLabel(step({ label: raw, status: "failed" })),
+        `${done} — failed`,
+      );
+    }
+    assert.equal(readableActivityLabel("Reading the poem"), "Reading the poem");
   });
 
   it("shows the bare domain and keeps the filename", () => {

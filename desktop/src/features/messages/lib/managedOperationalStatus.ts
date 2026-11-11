@@ -287,6 +287,11 @@ const SETTLED_VERBS = new Map([
   ["Browsing", "Browsed"],
   ["Building", "Built"],
   ["Checking", "Checked"],
+  ["Finding", "Found"],
+  ["Preparing", "Prepared"],
+  ["Sending", "Sent"],
+  ["Updating", "Updated"],
+  ["Using", "Used"],
   ["Downloading", "Downloaded"],
   ["Editing", "Edited"],
   ["Fetching", "Fetched"],
@@ -319,12 +324,57 @@ function countSuffix(step: ManagedTurnActivityStep): string {
 export function managedActivityStepLabel(
   step: ManagedTurnActivityStep,
 ): string {
-  if (step.status === "active") return step.label;
-  const [first, ...rest] = step.label.split(" ");
+  const readable = readableActivityLabel(step.label);
+  if (step.status === "active") return readable;
+  const [first, ...rest] = readable.split(" ");
   const settledVerb = SETTLED_VERBS.get(first ?? "");
-  const label = settledVerb ? [settledVerb, ...rest].join(" ") : step.label;
+  const label = settledVerb ? [settledVerb, ...rest].join(" ") : readable;
   if (step.status === "failed") return `${label} — failed`;
   return `${label}${countSuffix(step)}`;
+}
+
+/** Compatibility projection for persisted activity, not message/plan text.
+ * New frames are named by the host; old records must not leak tool IDs back
+ * into the badge or work disclosure after restarting or reopening a chat. */
+export function readableActivityLabel(label: string): string {
+  if (label === "ToolSearch" || label === "tool_search") {
+    return "Finding the right tool";
+  }
+  if (label === "mcp__buzz__todo" || label === "mcp.buzz.todo") {
+    return "Updating the plan";
+  }
+  if (
+    label === "mcp__luca-repositories__list_resident_runtimes" ||
+    label === "mcp.luca-repositories.list_resident_runtimes"
+  )
+    return "Checking available agents";
+  if (
+    label === "mcp__luca-repositories__propose_runtime_task" ||
+    label === "mcp.luca-repositories.propose_runtime_task"
+  )
+    return "Preparing a delegated task";
+  if (label.startsWith("mcp_") || label.startsWith("mcp.")) {
+    return "Using a tool";
+  }
+  return label;
+}
+
+/** These app-owned tools are not file reads, edits, or repository searches. */
+export function toolActivityPhrase(label: string): string | null {
+  const readable = readableActivityLabel(label);
+  return [
+    "Finding the right tool",
+    "Updating the plan",
+    "Checking available agents",
+    "Preparing a delegated task",
+    "Checking task progress",
+    "Preparing an agent",
+    "Reading messages",
+    "Sending a message",
+    "Using a tool",
+  ].includes(readable)
+    ? readable
+    : null;
 }
 
 /** Paths and commands are read from the end; prose is read from the start. */

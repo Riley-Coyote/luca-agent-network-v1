@@ -75,6 +75,56 @@ function render(traceOverrides = {}, props = {}) {
   );
 }
 
+test("restored activity is readable without rewriting authored narration", () => {
+  const markup = render({
+    entries: [
+      entry("tool", 1, "activity", "mcp__buzz__todo", "Using a tool"),
+      entry(
+        "prose",
+        2,
+        "narration",
+        "The example identifier is mcp__buzz__todo.",
+        "Work update",
+      ),
+    ],
+  });
+  assert.match(markup, /Updating the plan/);
+  assert.match(markup, /The example identifier is mcp__buzz__todo\./);
+  assert.equal((markup.match(/mcp__buzz__todo/g) ?? []).length, 1);
+  const room = render(
+    {
+      entries: [
+        entry("tool", 1, "activity", "mcp__buzz__todo", "Using a tool"),
+      ],
+    },
+    { privateConversation: false },
+  );
+  assert.doesNotMatch(room, /mcp__|Updating the plan/);
+});
+
+test("planning and tool discovery do not pretend to be file or repository work", () => {
+  for (const [raw, readable] of [
+    ["mcp__buzz__todo", "Updating the plan"],
+    ["ToolSearch", "Finding the right tool"],
+  ]) {
+    const live = render({
+      status: "working",
+      endedAt: null,
+      entries: [
+        {
+          ...entry("tool", 1, "activity", raw, "Using a tool"),
+          status: "active",
+        },
+      ],
+    });
+    assert.match(live, new RegExp(`data-activity-status[^>]*>.*?${readable}`));
+    assert.doesNotMatch(
+      live,
+      /Editing a file|Searching the code|Exploring the repository/,
+    );
+  }
+});
+
 test("real plans keep explicit states and fold into one work disclosure", () => {
   const plan = {
     steps: [

@@ -143,6 +143,9 @@ struct ManagedSessionContextResultV1 {
     awareness_context: Option<super::companion_awareness::turn_context::AwarenessTurnContextV1>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     isolate_awareness_history: bool,
+    /// Exact clean finals admitted by host provenance, never model assertions.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    clean_conversation_reply_ids: Vec<Hex64>,
 }
 
 /// Strict mirror of the authority-minimized ACP request. Its custom Debug
@@ -550,6 +553,7 @@ fn write_session_context_result(
         first_meeting_context: None,
         awareness_context: None,
         isolate_awareness_history: false,
+        clean_conversation_reply_ids: Vec::new(),
     };
     let now_unix_ms = unix_time_millis();
     if intent.isolate_exchange_history {
@@ -705,6 +709,7 @@ fn write_session_context_result(
                                             first_meeting_context: None,
                                             awareness_context: None,
                                             isolate_awareness_history: false,
+                                            clean_conversation_reply_ids: Vec::new(),
                                         }
                                     }
                                     _ => unavailable(ManagedSessionContextStatusV1::Unavailable),
@@ -725,15 +730,18 @@ fn write_session_context_result(
     result.quick_chat_context = quick_chat_context;
     result.first_meeting_context = first_meeting_context;
     if let Some(authority) = &receipt_authority {
-        result.isolate_awareness_history = global_dispatch_store(app)
-            .ok()
+        if let Some((isolate, clean_replies)) = global_dispatch_store(app).ok()
             .and_then(|store| {
-                store
-                    .lock()
-                    .ok()
-                    .map(|store| store.awareness_history_requires_isolation(authority))
-            })
-            .unwrap_or(true);
+                store.lock().ok().map(|store| (
+                    store.awareness_history_requires_isolation(authority),
+                    store.clean_conversation_reply_ids(authority),
+                ))
+            }) {
+            result.isolate_awareness_history = isolate;
+            result.clean_conversation_reply_ids = clean_replies;
+        } else {
+            result.isolate_awareness_history = true;
+        }
     }
 
     // Readiness is host-owned and false until native-history consent and all

@@ -131,6 +131,10 @@ pub(crate) struct ManagedSessionContextResultV1 {
     /// replay. Never interpreted as permission to read a source.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) isolate_awareness_history: bool,
+    /// Host-attested activity-clean finals for this exact owner/resident/channel.
+    /// Does not authorize source reads or reuse of a source-exposed session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) clean_conversation_reply_ids: Vec<Hex64>,
 }
 
 /// Bounded local-only ordinary-turn awareness from the exact inherited desktop
@@ -197,10 +201,13 @@ impl ManagedSessionContextResultV1 {
             && self.quick_chat_context.is_none()
             && self.first_meeting_context.is_none()
             && self.awareness_context.is_none()
+            && self.clean_conversation_reply_ids.is_empty()
     }
 
     fn is_valid(&self) -> bool {
-        if self
+        if self.clean_conversation_reply_ids.len() > 128
+            || self.clean_conversation_reply_ids.windows(2).any(|pair| pair[0] >= pair[1])
+            || self
             .quick_chat_context
             .as_ref()
             .is_some_and(|text| text.len() > 13000)
@@ -1229,6 +1236,7 @@ mod tests {
             first_meeting_context: None,
             awareness_context: None,
             isolate_awareness_history: false,
+            clean_conversation_reply_ids: Vec::new(),
         }
     }
 
@@ -1250,11 +1258,32 @@ mod tests {
         assert!(result.acknowledges_exchange_isolation());
         assert!(result.awareness_context.is_none());
         assert!(result.attached_session_context.is_none());
+        result.clean_conversation_reply_ids = vec![Hex64::parse("a".repeat(64)).unwrap()];
+        assert!(!result.acknowledges_exchange_isolation());
+        result.clean_conversation_reply_ids.clear();
         result.first_meeting_context = Some("owner-only context".into());
         assert!(!result.acknowledges_exchange_isolation());
         result.first_meeting_context = None;
         result.status = ManagedSessionContextStatusV1::Denied;
         assert!(!result.acknowledges_exchange_isolation());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clean_reply_allowlist_is_bounded_unique_and_legacy_optional() {
+        let intent = session_context_intent("history", unix_time_millis() + 1000);
+        let mut result = session_context_result(&intent);
+        let wire = serde_json::to_value(&result).unwrap();
+        assert!(wire.get("clean_conversation_reply_ids").is_none());
+        let legacy: ManagedSessionContextResultV1 = serde_json::from_value(wire).unwrap();
+        assert!(legacy.clean_conversation_reply_ids.is_empty());
+        let id = Hex64::parse("a".repeat(64)).unwrap();
+        result.clean_conversation_reply_ids = vec![id.clone()];
+        assert!(result.is_valid_for(&intent));
+        result.clean_conversation_reply_ids.push(id.clone());
+        assert!(!result.is_valid_for(&intent));
+        result.clean_conversation_reply_ids = vec![id; 129];
+        assert!(!result.is_valid_for(&intent));
     }
 
     #[cfg(unix)]

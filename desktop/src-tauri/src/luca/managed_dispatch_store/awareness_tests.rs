@@ -99,6 +99,59 @@ impl Fixture {
 }
 
 #[test]
+fn clean_reply_replay_is_exact_source_free_and_survives_restart() {
+    let mut fixture = Fixture::new();
+    fixture.store.bind_isolated_awareness_turn(
+        &fixture.authority, number(7), &hash('a'), None, &[], 100,
+    ).unwrap();
+    fixture.store.bind_communication_turn_start(
+        &fixture.trigger.id.to_hex(), &fixture.resident.public_key().to_hex(), CHANNEL, 7, 100,
+    ).unwrap();
+    let final_id = "e".repeat(64);
+    fixture.store.begin_submission(&fixture.trigger.id.to_hex(),
+        &fixture.resident.public_key().to_hex(), 7, &final_id).unwrap();
+    fixture.store.mark_published(&fixture.trigger.id.to_hex(),
+        &fixture.resident.public_key().to_hex(), &final_id).unwrap();
+    let expected = vec![Hex64::parse(final_id).unwrap()];
+    assert_eq!(fixture.store.clean_conversation_reply_ids(&fixture.authority), expected);
+    let reopened = ManagedDispatchStore::load(fixture.path.clone()).unwrap();
+    assert_eq!(reopened.clean_conversation_reply_ids(&fixture.authority), expected);
+    for coordinate in 0..3 {
+        let mut other = fixture.authority.clone();
+        match coordinate {
+            0 => other.owner_pubkey = Hex64::parse("d".repeat(64)).unwrap(),
+            1 => other.resident_pubkey = Hex64::parse("d".repeat(64)).unwrap(),
+            _ => other.conversation_id = id("other-room"),
+        }
+        assert!(reopened.clean_conversation_reply_ids(&other).is_empty());
+    }
+    // A missing/observed/inherited receipt and non-accepted outcomes must not
+    // become clean just because a matching author or final ID exists.
+    let key = (fixture.trigger.id.to_hex(), fixture.resident.public_key().to_hex());
+    let original = fixture.store.dispatches[&key].clone();
+    for variant in 0..5 {
+        let row = fixture.store.dispatches.get_mut(&key).unwrap();
+        *row = original.clone();
+        match variant {
+            0 => row.awareness_context_binding = None,
+            1 => row.state = ManagedDispatchState::Active,
+            2 => row.submitted_event_id = None,
+            3 => row.awareness_context_binding.as_mut().unwrap().fresh_native_history = false,
+            _ => row.awareness_context_binding.as_mut().unwrap().mode = BindingMode::Observed,
+        }
+        if variant == 3 {
+            fixture.store.awareness_tainted_scopes.push(ManagedAwarenessTaintedScopeV1 {
+                owner: fixture.authority.owner_pubkey.clone(),
+                resident: fixture.authority.resident_pubkey.clone(),
+                conversation: fixture.authority.conversation_id.clone(),
+                nodes: vec![id("previously-observed")],
+            });
+        }
+        assert!(fixture.store.clean_conversation_reply_ids(&fixture.authority).is_empty());
+    }
+}
+
+#[test]
 fn exact_frame_binding_is_body_free_immutable_replay_and_not_injection_authority() {
     let mut fixture = Fixture::new();
     assert!(ordinary_turn_awareness_consumers_ready());

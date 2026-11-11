@@ -232,6 +232,37 @@ pub(crate) enum ManagedTurnAwarenessLookupV1 {
 }
 
 impl ManagedDispatchStore {
+    /// Body-free replay allowlist for this exact private conversation. Only
+    /// accepted finals with a positively activity-clean host receipt qualify.
+    /// An absent receipt, observed/inherited context, or a sibling's final grants nothing.
+    /// The ACP receiver still verifies the event signature, channel and author.
+    pub(crate) fn clean_conversation_reply_ids(
+        &self,
+        authority: &ContinuityDispatchAuthority,
+    ) -> Vec<Hex64> {
+        let mut rows: Vec<_> = self.dispatches.values()
+            .filter(|row| {
+                row.owner_pubkey == authority.owner_pubkey.as_str()
+                    && row.resident_pubkey == authority.resident_pubkey.as_str()
+                    && row.conversation_id == authority.conversation_id.as_str()
+                    && row.state == ManagedDispatchState::Published
+                    && row.published_event_id.is_some()
+                    && row.submitted_event_id == row.published_event_id
+                    && row.awareness_context_binding.as_ref()
+                        .is_some_and(|binding| binding.fresh_native_history)
+                    && self.awareness_lookup(row) == ManagedTurnAwarenessLookupV1::Untainted
+            })
+            .collect();
+        rows.sort_by_key(|row| std::cmp::Reverse(row.created_at));
+        let mut ids: Vec<_> = rows.into_iter()
+            .take(128)
+            .filter_map(|row| Hex64::parse(row.published_event_id.as_ref()?.clone()).ok())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
     /// Actual active dispatch deadline for a pre-frame body-free reservation.
     /// A caller cannot replace it with a new response-relative duration.
     pub(crate) fn awareness_reply_deadline(

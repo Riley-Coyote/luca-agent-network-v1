@@ -3257,7 +3257,8 @@ fn public_tool_lifecycle_frame(
         ),
         ("bodyRedacted".to_owned(), serde_json::Value::Bool(true)),
     ]);
-    let title = artifact_title
+    let title = crate::managed_presentation::plain_tool_label(update)
+        .or(artifact_title)
         .map(str::to_owned)
         .or_else(|| safe_public_tool_metadata(update.get("title"), 160));
     for (key, candidate) in [
@@ -5378,6 +5379,21 @@ esac"#,
         assert!(!log.contains(SENTINEL));
         assert!(log.contains("session/prompt"));
         assert!(log.contains("body_bytes="));
+    }
+
+    #[test]
+    fn readable_tool_labels_cross_the_guard_without_arguments_or_results() {
+        let mut state = ArtifactObserverState { guard_active: true, ..Default::default() };
+        let value = serde_json::json!({"jsonrpc":"2.0", "method":"session/update", "params": {
+            "sessionId":"s", "update": {"sessionUpdate":"tool_call", "toolCallId":"todo",
+                "title":"mcp tool", "_meta":{"is_mcp_tool_call":true},
+                "rawInput":{"server":"buzz","tool":"todo","arguments":{"text":"PRIVATE"}},
+                "rawOutput":"PRIVATE"}
+        }});
+        let projected = observer_payload_for_managed_read(&value, &mut state);
+        assert_eq!(projected["params"]["update"]["title"], "Updating the plan");
+        assert!(!projected.to_string().contains("PRIVATE"));
+        assert!(projected["params"]["update"].get("rawInput").is_none());
     }
 
     #[test]

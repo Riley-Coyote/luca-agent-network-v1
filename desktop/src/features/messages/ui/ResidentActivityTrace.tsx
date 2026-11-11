@@ -13,6 +13,10 @@ import { TurnContextReceipt } from "./TurnContextReceipt";
 import "./ResidentActivityTrace.css";
 import { WorkPlan } from "@/shared/ui/WorkPlan";
 import { companionControlReceiptText } from "../activity/activityTraceProjection";
+import {
+  readableActivityLabel,
+  toolActivityPhrase,
+} from "../lib/managedOperationalStatus";
 
 /** Public activity presented inside the resident's existing message row. */
 export type ResidentActivityTraceProps = {
@@ -68,7 +72,8 @@ function entryText(
   privateConversation: boolean,
 ): string {
   // Never fall back to owner-visible text if a room projection is absent.
-  return privateConversation ? entry.text : entry.roomText;
+  const text = privateConversation ? entry.text : entry.roomText;
+  return entry.kind === "activity" ? readableActivityLabel(text) : text;
 }
 
 type TraceTransition = Pick<
@@ -203,19 +208,27 @@ export function ResidentActivityTrace({
   );
   const activities = entries.filter((entry) => entry.kind === "activity");
   const latestActivity = activities.at(-1);
+  const namedTool =
+    privateConversation &&
+    latestActivity &&
+    (!streaming || latestActivity.status === "active")
+      ? toolActivityPhrase(latestActivity.text)
+      : null;
   // Riley, 2026-09-15: one plain phrase, and it changes as the step changes.
   // Not the runtime's thought header, not its narration, not its arguments.
-  const phrase = activityPhrase({
-    step: latestActivity
-      ? {
-          text: latestActivity.text,
-          roomText: latestActivity.roomText,
-          active: latestActivity.status === "active",
-        }
-      : null,
-    streaming,
-    privateConversation,
-  });
+  const phrase =
+    namedTool ??
+    activityPhrase({
+      step: latestActivity
+        ? {
+            text: latestActivity.text,
+            roomText: latestActivity.roomText,
+            active: latestActivity.status === "active",
+          }
+        : null,
+      streaming,
+      privateConversation,
+    });
   // Replaced in place, never two at once: the old phrase fades out, the new
   // one fades in behind it, and the row's height never moves.
   const [shownPhrase, setShownPhrase] = React.useState(phrase);

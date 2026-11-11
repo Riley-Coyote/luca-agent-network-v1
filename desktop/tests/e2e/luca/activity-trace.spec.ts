@@ -6,6 +6,7 @@ import type {
 } from "../../../src/features/messages/activity/activityTraceTypes";
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 
 const ROOM = "general";
 const ROOM_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
@@ -109,6 +110,7 @@ async function open(
   page: Page,
   activityTraces: ActivityTrace[] = [],
   channel = DM,
+  shellTheme?: "dark" | "light",
 ) {
   const mock = {
     activityTraces,
@@ -124,6 +126,23 @@ async function open(
     })),
   };
   await installMockBridge(page, mock);
+  if (shellTheme) {
+    await page.addInitScript(
+      ({ key, theme }) => {
+        const overrides = JSON.parse(localStorage.getItem(key) ?? "{}");
+        localStorage.setItem(
+          key,
+          JSON.stringify({ ...overrides, "shell-frame": true }),
+        );
+        localStorage.setItem(
+          "buzz-theme",
+          theme === "light" ? "paper" : "buzz-dark",
+        );
+        localStorage.setItem("buzz-follow-system", "false");
+      },
+      { key: FEATURE_OVERRIDES_STORAGE_KEY, theme: shellTheme },
+    );
+  }
   if (channel === DM) {
     // Resident DMs live in the agent's chat column, not the person-DM rail.
     await page.goto(`/?e2e=mock#/channels/${DM_ID}`);
@@ -425,6 +444,58 @@ test("Luca's real plan updates in the conversation and unfinished steps never be
   await publishSnapshots(page, [{ ...current, plan: { steps: [] } }]);
   await expect(plan).toHaveCount(0);
 });
+
+for (const theme of ["dark", "light"] as const) {
+  test(`restored activity uses readable tool labels without restyling the chat (${theme})`, async ({
+    page,
+  }) => {
+    const restored = snapshot({
+      conversationId: DM_ID,
+      entries: [
+        "ToolSearch",
+        "mcp__buzz__todo",
+        "mcp__luca-repositories__propose_runtime_task",
+      ].map((text, index) => ({
+        id: `legacy-${index}`,
+        sequence: index + 1,
+        kind: "activity",
+        status: "done",
+        text,
+        roomText: "Using a tool",
+      })),
+    });
+    await open(page, [restored], DM, theme);
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-luca-frame",
+      "solid",
+    );
+    if (theme === "light")
+      await expect(page.locator("html")).not.toHaveClass(/dark/);
+    const trace = page.locator(
+      '[data-activity-trace="activity-test-dispatch"]',
+    );
+    const summary = trace.locator("[data-activity-trace-summary]");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    const record = trace.locator("[data-activity-trace-list]");
+    await expect(record.locator("li")).toHaveText([
+      "Finding the right tool",
+      "Updating the plan",
+      "Preparing a delegated task",
+    ]);
+    await expect(trace).not.toContainText("mcp__");
+    await expect(trace).not.toContainText("ToolSearch");
+    for (const width of [1440, 1280, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await capture(page, `readable-labels-${theme}-${width}`);
+    }
+    await page.reload();
+    await summary.click();
+    await expect(record.locator("li").first()).toHaveText(
+      "Finding the right tool",
+    );
+  });
+}
 
 test("restored cancelled, failed and interrupted turns keep honest records without live controls", async ({
   page,

@@ -2811,26 +2811,27 @@ fn conversation_context_messages(context: &ConversationContext) -> &[crate::queu
     }
 }
 
-/// Drop conversation-context messages a warm session has already been
-/// shown: any message already delivered on an earlier turn (by event-id
-/// digest), and — once the session is genuinely continuing, not its first
-/// turn — any message the resident itself authored, since the live session
-/// already remembers what it said.
-///
-/// Returns the filtered context and whether the *original* window shared
-/// any message at all with `entry`'s delivered ids — the signal
-/// `gap_marker_needed` uses to decide whether this window may have skipped
-/// content the session never saw.
+/// A fresh private-history session can replay owner messages and the exact
+/// resident finals the trusted desktop attests were source-free. Unknown and
+/// source-derived replies remain excluded, even when the same resident signed
+/// them. Signature/channel verification happens before this projection.
 fn filter_awareness_history(
     mut context: ConversationContext,
     owner: Option<&str>,
+    resident: Option<&str>,
+    clean_reply_ids: &[luca_protocol::Hex64],
 ) -> ConversationContext {
     let messages = match &mut context {
         ConversationContext::Thread { messages, .. }
         | ConversationContext::Dm { messages, .. }
         | ConversationContext::Room { messages, .. } => messages,
     };
-    messages.retain(|message| owner.is_some_and(|owner| owner.eq_ignore_ascii_case(&message.pubkey)));
+    messages.retain(|message| {
+        owner.is_some_and(|owner| owner.eq_ignore_ascii_case(&message.pubkey))
+            || (owner.is_some()
+                && resident.is_some_and(|resident| resident.eq_ignore_ascii_case(&message.pubkey))
+                && clean_reply_ids.iter().any(|id| id.as_str() == message.event_id))
+    });
     context
 }
 
@@ -4868,7 +4869,10 @@ async fn run_prompt_task_inner(
             .as_ref()
             .and_then(|store| store.snapshot(&b.channel_id.to_string()).ok())
             .and_then(|(entry, _)| entry);
-        let is_continuing_session = !first_channel_session;
+        // Greeting/cadence deliberately continues after a scoped rotation, but
+        // a fresh provider session remembers none of our earlier replies.
+        // Only actual warm reuse or native restore permits replay deduplication.
+        let is_continuing_session = !is_new_session;
         let resident_pubkey = ctx
             .managed_final_publisher
             .as_ref()
@@ -4886,14 +4890,17 @@ async fn run_prompt_task_inner(
         };
         let conversation_context = conversation_context.map(|context| {
             if isolate_awareness_history {
-                // Old assistant replies can contain source-derived excerpts.
-                // Keep owner-authored conversation and canonical clean memory,
-                // not an unverified replay of those generated derivatives.
+                // Never infer clean provenance from the words or their author.
+                // The desktop admits only exact, accepted source-free finals.
                 filter_awareness_history(
                     context,
                     ctx.managed_final_publisher
                         .as_ref()
                         .map(|managed| managed.owner_pubkey.as_str()),
+                    resident_pubkey.as_deref(),
+                    resolved_managed_context.as_ref()
+                        .map(|context| context.clean_conversation_reply_ids.as_slice())
+                        .unwrap_or_default(),
                 )
             } else {
                 context
@@ -7660,10 +7667,37 @@ mod tests {
                 truncated: false,
             },
         ] {
-            let filtered = filter_awareness_history(context, Some("owner"));
+            let filtered = filter_awareness_history(context, Some("owner"), Some("resident"), &[]);
             assert_eq!(conversation_context_messages(&filtered).iter().map(|message| message.event_id.as_str()).collect::<Vec<_>>(), vec!["owner-event"]);
-            assert!(conversation_context_messages(&filter_awareness_history(filtered, None)).is_empty());
+            assert!(conversation_context_messages(&filter_awareness_history(filtered, None, None, &[])).is_empty());
         }
+    }
+
+    #[test]
+    fn isolated_history_restores_only_host_attested_resident_replies() {
+        let clean = luca_protocol::Hex64::parse("c".repeat(64)).unwrap();
+        let context = ConversationContext::Dm {
+            messages: vec![
+                make_context_message("owner-event", "owner"),
+                make_context_message(clean.as_str(), "RESIDENT"),
+                make_context_message("unverified-reply", "resident"),
+                make_context_message(clean.as_str(), "sibling"),
+            ],
+            total: 4,
+            truncated: false,
+        };
+        let filtered = filter_awareness_history(context.clone(), Some("owner"), Some("resident"), &[clean.clone()]);
+        assert_eq!(conversation_context_messages(&filtered).iter()
+            .map(|message| message.event_id.as_str()).collect::<Vec<_>>(),
+            vec!["owner-event", clean.as_str()]);
+        assert!(conversation_context_messages(&filter_awareness_history(
+            context, None, Some("resident"), &[clean])).is_empty());
+        // Session invalidation/restart must replay the admitted reply, while
+        // warm-session deduplication still avoids sending it twice.
+        let (fresh, _) = filter_replayed_context(filtered.clone(), None, Some("resident"), false);
+        assert_eq!(conversation_context_messages(&fresh).len(), 2);
+        let (warm, _) = filter_replayed_context(filtered, None, Some("resident"), true);
+        assert_eq!(conversation_context_messages(&warm).len(), 1);
     }
 
     #[test]
