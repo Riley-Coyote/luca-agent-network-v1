@@ -62,6 +62,8 @@ pub(crate) struct ActivityTrace {
     pub(crate) ended_at: Option<u64>,
     pub(crate) status: TraceStatus,
     pub(crate) entries: Vec<TraceEntry>,
+    #[serde(default)]
+    pub(crate) plan: luca_protocol::WorkPlanV1,
     pub(crate) truncated: bool,
 }
 
@@ -269,7 +271,8 @@ impl TraceStore {
                 return Err("activity trace schema or count is invalid".into());
             }
             if file.traces.iter().any(|row| {
-                row.trace.entries.len() > MAX_ENTRIES
+                !row.trace.plan.is_valid()
+                    || row.trace.entries.len() > MAX_ENTRIES
                     || row
                         .trace
                         .entries
@@ -363,6 +366,7 @@ impl TraceStore {
                         anchor_message_id: None,
                         response_surface: None,
                         thread_root_id: None,
+                        plan: Default::default(),
                         started_at: now,
                         ended_at: None,
                         status: TraceStatus::Working,
@@ -397,6 +401,20 @@ impl TraceStore {
                 return false;
             }
             ManagedPresentationKindV1::Phase => {
+                if let Some(plan) = frame.plan.as_ref() {
+                    if !plan.is_valid() {
+                        return false;
+                    }
+                    let mut next = plan.clone();
+                    for step in &mut next.steps {
+                        step.content = public_text(&step.content, "Planned step").0;
+                    }
+                    if row.trace.plan == next {
+                        return false;
+                    }
+                    row.trace.plan = next;
+                    return true;
+                }
                 let Some(activity) = frame.activity.as_ref() else {
                     return false;
                 };
@@ -578,6 +596,7 @@ impl TraceStore {
                 anchor_message_id: None,
                 response_surface: None,
                 thread_root_id: None,
+                plan: Default::default(),
                 started_at: now,
                 ended_at: Some(now),
                 status: TraceStatus::Completed,
@@ -648,6 +667,7 @@ impl TraceStore {
                 anchor_message_id: None,
                 response_surface: None,
                 thread_root_id: None,
+                plan: Default::default(),
                 started_at: now,
                 ended_at: Some(now),
                 status: TraceStatus::Completed,
@@ -716,6 +736,7 @@ impl TraceStore {
                 anchor_message_id: None,
                 response_surface: None,
                 thread_root_id: None,
+                plan: Default::default(),
                 started_at: now,
                 ended_at: Some(now),
                 status: TraceStatus::Completed,

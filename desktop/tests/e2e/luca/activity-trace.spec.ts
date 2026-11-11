@@ -373,6 +373,59 @@ test("a settled record stays above its signed reply and hydrates again after rel
   ).toBe(true);
 });
 
+test("Luca's real plan updates in the conversation and unfinished steps never become fake checks", async ({
+  page,
+}) => {
+  await open(page);
+  await page
+    .getByTestId("message-input")
+    .fill("Inspect, update, and verify this small example.");
+  await page.getByTestId("send-message").click();
+  const ownerRow = page
+    .getByTestId("message-row")
+    .filter({ hasText: "Inspect, update, and verify this small example." })
+    .last();
+  const receipt = await ownerRow.getAttribute("data-message-id");
+  if (!receipt) throw new Error("Missing dispatch");
+  await presentation(page, receipt, "turn_started", 1);
+  const current = snapshot({
+    conversationId: DM_ID,
+    dispatchReceiptId: receipt,
+    status: "working",
+    endedAt: null,
+    plan: {
+      steps: [
+        { content: "Inspect the example", status: "completed" },
+        { content: "Update the example", status: "in_progress" },
+        { content: "Verify the result", status: "pending" },
+      ],
+    },
+  });
+  await publishSnapshots(page, [current]);
+  const plan = page
+    .locator(`[data-activity-trace="${receipt}"]`)
+    .getByTestId("work-plan");
+  await expect(plan.getByRole("list", { name: "Plan" })).toBeVisible();
+  await expect(plan.locator('[data-plan-status="completed"]')).toHaveText(
+    "Completed: Inspect the example",
+  );
+  await expect(plan.locator('[data-plan-status="pending"]')).toHaveText(
+    "Pending: Verify the result",
+  );
+  await publishSnapshots(page, [
+    { ...current, status: "interrupted", endedAt: Date.now() },
+  ]);
+  const summary = page.locator(
+    `[data-activity-trace="${receipt}"] [data-activity-trace-summary]`,
+  );
+  await expect(summary).toContainText("1 of 3 plan steps completed");
+  await summary.focus();
+  await page.keyboard.press("Enter");
+  await expect(plan.locator('[data-plan-status="pending"]')).toBeVisible();
+  await publishSnapshots(page, [{ ...current, plan: { steps: [] } }]);
+  await expect(plan).toHaveCount(0);
+});
+
 test("restored cancelled, failed and interrupted turns keep honest records without live controls", async ({
   page,
 }) => {

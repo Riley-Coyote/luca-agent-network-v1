@@ -78,6 +78,9 @@ pub struct RuntimeTaskDeliveryRequestV1 {
     pub result_total_bytes: SafeU53,
     /// Explicit evidence that the reference is shorter than the full result.
     pub result_is_excerpt: bool,
+    /// Host-selected exact answer return. Never evaluates the result as instructions.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quote_result: bool,
     /// Absolute host deadline for synthesis and broker handoff.
     pub deadline_unix_ms: SafeU53,
     /// Maximum bytes in the resident-authored final draft.
@@ -100,6 +103,8 @@ struct RawRequest {
     result_excerpt: String,
     result_total_bytes: SafeU53,
     result_is_excerpt: bool,
+    #[serde(default)]
+    quote_result: bool,
     deadline_unix_ms: SafeU53,
     max_draft_bytes: SafeU53,
 }
@@ -121,6 +126,7 @@ impl<'de> Deserialize<'de> for RuntimeTaskDeliveryRequestV1 {
             result_excerpt: raw.result_excerpt,
             result_total_bytes: raw.result_total_bytes,
             result_is_excerpt: raw.result_is_excerpt,
+            quote_result: raw.quote_result,
             deadline_unix_ms: raw.deadline_unix_ms,
             max_draft_bytes: raw.max_draft_bytes,
         };
@@ -160,6 +166,12 @@ impl RuntimeTaskDeliveryRequestV1 {
             return Err(RuntimeTaskDeliveryError::Bounds);
         }
         let excerpt_bytes = self.result_excerpt.len() as u64;
+        if self.quote_result
+            && (self.result_is_excerpt
+                || !matches!(self.runtime_family.as_str(), "claude_code" | "codex"))
+        {
+            return Err(RuntimeTaskDeliveryError::Excerpt);
+        }
         if excerpt_bytes > total || self.result_is_excerpt != (excerpt_bytes < total) {
             return Err(RuntimeTaskDeliveryError::Excerpt);
         }
@@ -175,6 +187,25 @@ impl RuntimeTaskDeliveryRequestV1 {
             return Err(RuntimeTaskDeliveryError::Excerpt);
         }
         Ok(())
+    }
+
+    /// Return a verified complete answer with attribution, without another model call.
+    /// Publication still uses the exact same resident broker, lease and outbox.
+    pub fn quoted_result(&self) -> Result<Option<String>, RuntimeTaskDeliveryError> {
+        if !self.quote_result {
+            return Ok(None);
+        }
+        self.validate()?;
+        let name = if self.runtime_family == "codex" {
+            "Codex"
+        } else {
+            "Claude Code"
+        };
+        let draft = format!("**{name} replied:**\n\n{}", self.result_excerpt);
+        if draft.len() > self.max_draft_bytes.get() as usize {
+            return Err(RuntimeTaskDeliveryError::Bounds);
+        }
+        Ok(Some(draft))
     }
 }
 
@@ -268,6 +299,7 @@ mod tests {
 
     fn request() -> RuntimeTaskDeliveryRequestV1 {
         RuntimeTaskDeliveryRequestV1 {
+            quote_result: false,
             protocol: RUNTIME_TASK_DELIVERY_PROTOCOL.into(),
             delivery_id: OpaqueId::parse(format!("task-result:{}", "d".repeat(64)))
                 .expect("fixture delivery ID"),
@@ -340,6 +372,45 @@ mod tests {
         assert!(request.validate().is_ok());
         request.result_excerpt.push('λ');
         assert_eq!(request.validate(), Err(RuntimeTaskDeliveryError::Excerpt));
+    }
+
+    #[test]
+    fn quoted_answer_is_complete_attributed_and_keeps_original_formatting() {
+        let mut r = request();
+        assert!(serde_json::to_value(&r)
+            .unwrap()
+            .get("quote_result")
+            .is_none());
+        assert_eq!(r.quoted_result(), Ok(None));
+        r.quote_result = true;
+        assert!(r.quoted_result().is_err(), "excerpts are not exact answers");
+        r.runtime_family = "claude_code".into();
+        r.result_excerpt = "[hello](ink:amber)\n\n```sh\nprintf 'λ'\n```".into();
+        r.result_is_excerpt = false;
+        r.result_total_bytes = SafeU53::new(r.result_excerpt.len() as u64).unwrap();
+        r.result_sha256 = Sha256Ref::parse(format!(
+            "sha256:{}",
+            hex::encode(Sha256::digest(r.result_excerpt.as_bytes()))
+        ))
+        .unwrap();
+        assert_eq!(
+            r.quoted_result().unwrap().unwrap(),
+            format!("**Claude Code replied:**\n\n{}", r.result_excerpt)
+        );
+        r.runtime_family = "companion_initiative".into();
+        assert!(
+            r.quoted_result().is_err(),
+            "not an alternate initiative publisher"
+        );
+        r.runtime_family = "codex".into();
+        r.max_draft_bytes = SafeU53::new(1).unwrap();
+        assert_eq!(r.quoted_result(), Err(RuntimeTaskDeliveryError::Bounds));
+        r.max_draft_bytes = SafeU53::new(512).unwrap();
+        r.result_excerpt.push('!');
+        assert!(
+            r.quoted_result().is_err(),
+            "digest must still bind the whole answer"
+        );
     }
 
     #[test]

@@ -167,11 +167,33 @@
   max-width: 28rem;
 }
 
+:root[data-luca-shell] .luca-runtime-task {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+:root[data-luca-shell] .luca-runtime-task > .work-plan {
+  margin: 6px 0;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+:root[data-luca-shell] .luca-runtime-task-item__title {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+
 :root[data-luca-shell] .luca-runtime-task-item__identity {
   align-items: center;
   display: flex;
   gap: 7px;
   min-width: 0;
+  width: 100%;
 }
 
 :root[data-luca-shell] .luca-runtime-task-item__badge {
@@ -325,6 +347,10 @@
   outline: none;
   pointer-events: auto;
   text-align: left;
+}
+
+:root[data-luca-shell] .luca-runtime-task-item .luca-activity-item__resident {
+  flex-basis: 0;
 }
 
 :root[data-luca-shell] .luca-activity-item__resident:focus-visible,
@@ -621,9 +647,17 @@
   .luca-room-stack:has(
     .luca-activity-shelf[data-state="active"],
     [data-testid="runtime-task-result-receipt"]
-  )
+  ):not(:has(.luca-runtime-task-item))
   .luca-room-stack__head[data-kind="work"] {
   display: flex;
+}
+
+/* A delegated request replaces the empty-chat greeting, not its composer.
+ * Keep the normal greeting untouched when no work occupies this space. */
+:root[data-luca-frame]
+  .luca-room-stack:has(.luca-runtime-task-item)
+  + .luca-first-message-greeting-slot {
+  visibility: hidden;
 }
 
 /* Folded, the stack is its one line: "Needs you · 2 · Show". */

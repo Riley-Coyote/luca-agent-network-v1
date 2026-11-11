@@ -592,6 +592,7 @@ pub(super) async fn start_existing(
     }
     let now = Utc::now().to_rfc3339();
     let mut projection = RuntimeTaskProjectionV1 {
+        options: Default::default(),
         task_id: Uuid::new_v4().to_string(),
         owner_pubkey: dispatch_owner.as_str().to_owned(),
         origin_relay_ref: Some(delivery::current_origin(&app)?.0),
@@ -620,6 +621,7 @@ pub(super) async fn start_existing(
         provider_session_id: Some(target.provider_session_id.to_string()),
         current_step: Some("Dispatching to the selected native session".into()),
         completed_steps: 0,
+        plan: Default::default(),
         steps: Vec::new(),
         started_at: now.clone(),
         updated_at: now,

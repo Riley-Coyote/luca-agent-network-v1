@@ -315,7 +315,23 @@ impl ManagedPresentationPublisher {
                             }
                         }
                     }
-                    Some(marker @ ("tool_call" | "tool_call_update" | "plan")) => {
+                    Some("plan") => {
+                        state.public_text.mark_boundary();
+                        if let Some(plan) = luca_protocol::WorkPlanV1::from_acp(update) {
+                            state.phase = Some(ManagedPresentationPhaseV1::Working);
+                            self.emit_frame(
+                                state,
+                                ManagedPresentationKindV1::Phase,
+                                Some(ManagedPresentationPhaseV1::Working),
+                                None,
+                                None,
+                                None,
+                                Some(plan),
+                            )
+                            .await;
+                        }
+                    }
+                    Some(marker @ ("tool_call" | "tool_call_update")) => {
                         // Public text that resumes after this marker starts a
                         // new paragraph instead of gluing onto the sentence
                         // written before the tool call.
@@ -490,6 +506,7 @@ impl ManagedPresentationPublisher {
             None,
             None,
             Some(activity),
+            None,
         )
         .await;
     }
@@ -502,10 +519,11 @@ impl ManagedPresentationPublisher {
         public_chunk: Option<String>,
         failure: Option<ManagedPresentationFailureV1>,
     ) {
-        self.emit_frame(state, kind, phase, public_chunk, failure, None)
+        self.emit_frame(state, kind, phase, public_chunk, failure, None, None)
             .await;
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn emit_frame(
         &self,
         state: &mut TurnState,
@@ -514,6 +532,7 @@ impl ManagedPresentationPublisher {
         public_chunk: Option<String>,
         failure: Option<ManagedPresentationFailureV1>,
         activity: Option<ManagedPresentationActivityV1>,
+        plan: Option<luca_protocol::WorkPlanV1>,
     ) {
         state.sequence = state.sequence.saturating_add(1);
         let Ok(sequence) = SafeU53::new(state.sequence) else {
@@ -532,6 +551,7 @@ impl ManagedPresentationPublisher {
             public_chunk,
             failure,
             activity,
+            plan,
         };
         if frame.validate().is_err() {
             return;
@@ -1924,6 +1944,7 @@ mod tests {
             public_chunk: None,
             failure: None,
             activity,
+            plan: None,
         }
     }
 
@@ -2647,8 +2668,10 @@ mod tests {
                 "sessionUpdate": "tool_call", "toolCallId": "call-1",
                 "title": "shell", "rawInput": {"command": "pnpm test"},
             }),
-            // A plan is not a step: it must leave the phase word alone.
-            serde_json::json!({"sessionUpdate": "plan"}),
+            // An actual plan uses its own snapshot, not the activity ledger.
+            serde_json::json!({"sessionUpdate": "plan", "entries":[
+                {"content":"Verify the change", "status":"pending"}
+            ]}),
             serde_json::json!({
                 "sessionUpdate": "tool_call_update", "toolCallId": "call-1",
                 "status": "completed", "rawOutput": {"count": 2},
@@ -2666,10 +2689,12 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str(line).expect("a valid frame"))
             .collect();
+        let plans = frames.iter().filter_map(|frame| frame.plan.as_ref()).collect::<Vec<_>>();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].steps[0].status, luca_protocol::WorkPlanStatusV1::Pending);
 
-        // turn_started, the opening Thinking phase, then exactly two activity
-        // frames — the plan in between adds none.
-        assert_eq!(frames.len(), 4, "frames: {frames:?}");
+        // turn_started, Thinking, two activity frames and one plan snapshot.
+        assert_eq!(frames.len(), 5, "frames: {frames:?}");
         assert_eq!(frames[0].kind, ManagedPresentationKindV1::TurnStarted);
         assert_eq!(frames[1].phase, Some(ManagedPresentationPhaseV1::Thinking));
         assert!(frames[1].activity.is_none());
@@ -2685,7 +2710,7 @@ mod tests {
         );
         assert_eq!(start.step.map(SafeU53::get), Some(1));
 
-        let settled = frames[3].activity.as_ref().expect("the settling step");
+        let settled = frames[4].activity.as_ref().expect("the settling step");
         assert_eq!(
             settled.status,
             Some(ManagedPresentationActivityStatusV1::Done)

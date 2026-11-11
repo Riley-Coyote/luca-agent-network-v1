@@ -100,6 +100,13 @@ with a TypeScript lookup table or an id comparison in a component.
 
 ## Keep this file true
 
+New runtime tasks may pin a model/effort for that session only. The task runner
+accepts exact IDs advertised in the live ACP config options and verifies the
+acknowledgement before sending the prompt; no silent model fallback or native
+preference edits. Answer-only asks request low effort only when advertised.
+Existing-session continuation and native peer messages retain their own policy
+and configuration. Task-specific choices do not change resident defaults.
+
 Model catalogs preserve ACP `name`, `description`, nested option groups, and
 stable `currentValue` (legacy `displayName` remains supported). Never turn an
 explicit model selection into an unset default merely because it currently

@@ -154,6 +154,7 @@ pub(super) async fn run(args: &RuntimeTaskArgs, input: &RuntimeTaskInputV1) -> R
     .await;
     match outcome {
         Ok(result) => emit(RuntimeTaskOutputV1 {
+            plan: None,
             protocol: PROTOCOL,
             kind: "result",
             // execute() verified this exact ID and consumed the full terminal
@@ -165,6 +166,7 @@ pub(super) async fn run(args: &RuntimeTaskArgs, input: &RuntimeTaskInputV1) -> R
             error: None,
         }),
         Err(failure) => emit(RuntimeTaskOutputV1 {
+            plan: None,
             protocol: PROTOCOL,
             kind: "failed",
             provider_session_id: None,
@@ -178,9 +180,10 @@ pub(super) async fn run(args: &RuntimeTaskArgs, input: &RuntimeTaskInputV1) -> R
 }
 
 fn emit_progress(progress: Progress, session_id: &str) {
-    let (kind, label) = match progress {
-        Progress::Session => ("session", None),
-        Progress::Step(label) => ("step", Some(label)),
+    let (kind, label, plan) = match progress {
+        Progress::Session => ("session", None, None),
+        Progress::Step(label) => ("step", Some(label), None),
+        Progress::Plan(plan) => ("plan", None, Some(plan)),
     };
     emit(RuntimeTaskOutputV1 {
         protocol: PROTOCOL,
@@ -190,6 +193,7 @@ fn emit_progress(progress: Progress, session_id: &str) {
         result: None,
         stop_reason: None,
         error: None,
+        plan,
     });
 }
 

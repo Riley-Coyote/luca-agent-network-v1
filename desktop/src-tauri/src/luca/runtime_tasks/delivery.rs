@@ -568,6 +568,8 @@ fn run(app: AppHandle, id: String, manual: bool) -> Result<(), String> {
             runtime_family: projection.runtime_family,
             summary: projection.summary,
             result_is_excerpt: excerpt.len() < result.len(),
+            quote_result: projection.options.purpose == luca_protocol::RuntimeTaskPurposeV1::Ask
+                && excerpt.len() == result.len(),
             result_excerpt: excerpt,
             result_total_bytes: SafeU53::new(result.len() as u64)
                 .map_err(|_| "Task result size is invalid.".to_owned())?,

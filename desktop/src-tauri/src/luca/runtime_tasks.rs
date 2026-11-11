@@ -104,6 +104,8 @@ pub struct RuntimeTaskStepV1 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeTaskProjectionV1 {
+    #[serde(default)]
+    options: luca_protocol::RuntimeTaskOptionsV1,
     task_id: String,
     #[serde(default)]
     owner_pubkey: String,
@@ -137,6 +139,8 @@ pub struct RuntimeTaskProjectionV1 {
     completed_steps: u64,
     #[serde(default)]
     steps: Vec<RuntimeTaskStepV1>,
+    #[serde(default)]
+    plan: luca_protocol::WorkPlanV1,
     started_at: String,
     updated_at: String,
     completed_at: Option<String>,
@@ -150,6 +154,8 @@ pub struct RuntimeTaskProjectionV1 {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartRuntimeTaskInputV1 {
+    #[serde(default)]
+    options: luca_protocol::RuntimeTaskOptionsV1,
     conversation_id: String,
     resident_pubkey: String,
     runtime_family: String,
@@ -175,6 +181,8 @@ pub struct RuntimeTaskResultV1 {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeTaskProposalV1 {
+    #[serde(default)]
+    options: luca_protocol::RuntimeTaskOptionsV1,
     proposal_id: String,
     conversation_id: String,
     resident_pubkey: String,
@@ -201,6 +209,10 @@ pub struct RespondRuntimeTaskProposalInputV1 {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RuntimeTaskProposalArgumentsV1 {
+    #[serde(default)]
+    purpose: luca_protocol::RuntimeTaskPurposeV1,
+    model: Option<String>,
+    effort: Option<String>,
     target_runtime: String,
     summary: String,
     task: String,
@@ -344,6 +356,12 @@ async fn start_runtime_task_internal(
 ) -> Result<RuntimeTaskProjectionV1, String> {
     load_receipts(&app)?;
     let retry_input = input.clone();
+    if !input.options.is_valid()
+        || (input.operation != RuntimeTaskOperationV1::NewTask
+            && input.options != Default::default())
+    {
+        return Err("Existing native sessions retain their model, effort and work context.".into());
+    }
     validate_identity(&input.resident_pubkey)?;
     validate_opaque(&input.conversation_id, 128, "conversation")?;
     let runtime_family = match input.runtime_family.as_str() {
@@ -433,6 +451,12 @@ async fn start_runtime_task_internal(
         .kill_on_drop(true);
     process.env("BUZZ_ACP_AGENT_COMMAND", adapter);
     process.env("BUZZ_ACP_AGENT_ARGS", "");
+    if runtime_family == "claude_code" {
+        crate::managed_agents::claude_model_bridge::configure_claude_model_bridge(
+            process.as_std_mut(),
+            "claude-agent-acp",
+        )?;
+    }
     if let Some((key, path)) = native_cli_environment {
         process.env(key, path);
     }
@@ -479,11 +503,13 @@ async fn start_runtime_task_internal(
         "prompt": prompt,
         "workingFolder": working_folder.to_string_lossy(),
         "permissionMode": permission_mode,
+        "options": input.options,
     });
     let encoded_input = serde_json::to_vec(&task_input)
         .map_err(|_| "runtime task input could not be encoded".to_owned())?;
     let now = Utc::now().to_rfc3339();
     let projection = RuntimeTaskProjectionV1 {
+        options: input.options,
         task_id: task_id.clone(),
         owner_pubkey,
         origin_relay_ref: Some(delivery::current_origin(&app)?.0),
@@ -505,6 +531,7 @@ async fn start_runtime_task_internal(
         provider_session_id: None,
         current_step: Some(format!("Starting {}", runtime_label(runtime_family))),
         completed_steps: 0,
+        plan: Default::default(),
         steps: vec![RuntimeTaskStepV1 {
             label: format!("Starting {}", runtime_label(runtime_family)),
             state: "active".to_owned(),
@@ -961,6 +988,15 @@ pub fn respond_runtime_task_proposal(
             let working_folder = validate_working_folder(Path::new(working_folder))?
                 .to_string_lossy()
                 .into_owned();
+            if snapshot.options.purpose == luca_protocol::RuntimeTaskPurposeV1::Ask
+                && (snapshot.target_working_folder.as_deref() != Some(working_folder.as_str())
+                    || runtime_family != snapshot.runtime_family)
+            {
+                return Err("This answer request must keep its reviewed harness and private working folder.".into());
+            }
+            if snapshot.options.model.is_some() && runtime_family != snapshot.runtime_family {
+                return Err("The requested model belongs to the reviewed harness.".into());
+            }
             let permission_mode = match input.permission_mode.as_deref() {
                 Some("normal") => "normal".to_owned(),
                 Some("full_access") => "full_access".to_owned(),
@@ -1007,6 +1043,16 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
     validate_opaque(conversation_id, 128, "conversation")?;
     let arguments: RuntimeTaskProposalArgumentsV1 = serde_json::from_value(arguments)
         .map_err(|_| "runtime task proposal is invalid".to_owned())?;
+    let options = luca_protocol::RuntimeTaskOptionsV1 {
+        purpose: arguments.purpose,
+        model: arguments.model,
+        effort: arguments.effort,
+    };
+    if !options.is_valid()
+        || (arguments.operation != RuntimeTaskOperationV1::NewTask && options != Default::default())
+    {
+        return Err("Existing sessions keep their native model, effort and workspace.".into());
+    }
     if let Some(source) = arguments.source_id.as_deref() {
         dashboard::reject_resident_source(source)?;
     }
@@ -1041,6 +1087,7 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
     };
     let proposal_id = Uuid::new_v4().to_string();
     let projection = RuntimeTaskProposalV1 {
+        options,
         proposal_id: proposal_id.clone(),
         conversation_id: conversation_id.to_owned(),
         resident_pubkey: resident_pubkey.to_ascii_lowercase(),
@@ -1050,12 +1097,16 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
         source_id: arguments.source_id,
         session_id: arguments.session_id,
         target_label: target.as_ref().map(|value| value.label.clone()),
-        target_working_folder: target.as_ref().map(|value| {
-            value
-                .canonical_working_folder
-                .to_string_lossy()
-                .into_owned()
-        }),
+        target_working_folder: if arguments.purpose == luca_protocol::RuntimeTaskPurposeV1::Ask {
+            Some(ask_workspace(app, resident_pubkey)?)
+        } else {
+            target.as_ref().map(|value| {
+                value
+                    .canonical_working_folder
+                    .to_string_lossy()
+                    .into_owned()
+            })
+        },
         created_at: Utc::now().to_rfc3339(),
     };
     let (response, decision) = mpsc::sync_channel(1);
@@ -1137,6 +1188,7 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
     let task = tauri::async_runtime::block_on(start_runtime_task(
         app.clone(),
         StartRuntimeTaskInputV1 {
+            options: projection.options,
             conversation_id: conversation_id.to_owned(),
             resident_pubkey: resident_pubkey.to_owned(),
             runtime_family,
@@ -1396,6 +1448,38 @@ fn next_session_epoch() -> Result<luca_protocol::SafeU53, String> {
     let random = Uuid::new_v4().as_u128() as u64;
     let epoch = (random & luca_protocol::JSON_SAFE_INTEGER_MAX).max(1);
     luca_protocol::SafeU53::new(epoch).map_err(|error| error.to_string())
+}
+
+fn ask_workspace(app: &AppHandle, resident: &str) -> Result<String, String> {
+    let root = app
+        .buzz_path()
+        .app_data_dir()
+        .map_err(|_| "Private answer workspace is unavailable.")?;
+    private_answer_workspace(&root, resident).map(|path| path.to_string_lossy().into_owned())
+}
+
+fn private_answer_workspace(root: &Path, resident: &str) -> Result<PathBuf, String> {
+    validate_identity(resident)?;
+    let mut path = root.canonicalize().map_err(|_| "Private answer workspace is unavailable.")?;
+    for component in ["luca", "answer-workspaces", resident] {
+        path.push(component);
+        match std::fs::create_dir(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(_) => return Err("Private answer workspace is unavailable.".into()),
+        }
+        let metadata = std::fs::symlink_metadata(&path).map_err(|_| "Private answer workspace is unavailable.")?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("Private answer workspace cannot use a linked or replaced folder.".into());
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+            .map_err(|_| "Private answer workspace could not be protected.")?;
+    }
+    validate_working_folder(&path)
 }
 
 fn validate_working_folder(path: &Path) -> Result<PathBuf, String> {
@@ -1676,6 +1760,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn answer_workspace_is_private_reusable_and_never_follows_a_project_link() {
+        let root = tempfile::tempdir().unwrap();
+        let resident = "33".repeat(32);
+        let path = private_answer_workspace(root.path(), &resident).unwrap();
+        assert!(path.starts_with(root.path().canonicalize().unwrap()));
+        assert_eq!(private_answer_workspace(root.path(), &resident).unwrap(), path);
+        assert!(private_answer_workspace(root.path(), "../project").is_err());
+        #[cfg(unix)] {
+            use std::os::unix::{fs::PermissionsExt, fs::symlink};
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o700);
+            let other = tempfile::tempdir().unwrap();
+            symlink(other.path(), path.parent().unwrap().join("44".repeat(32))).unwrap();
+            assert!(private_answer_workspace(root.path(), &"44".repeat(32)).is_err());
+        }
+    }
+
+    #[test]
     fn rejects_home_and_filesystem_root() {
         assert!(validate_working_folder(Path::new("/")).is_err());
         if let Some(home) = dirs::home_dir() {
@@ -1711,6 +1812,7 @@ mod tests {
             "first line\nsecond line"
         );
         let projection = RuntimeTaskProjectionV1 {
+            options: Default::default(),
             task_id: "task-1".into(),
             owner_pubkey: "33".repeat(32),
             origin_relay_ref: None,
@@ -1732,6 +1834,7 @@ mod tests {
             provider_session_id: Some("provider-session".into()),
             current_step: Some("Reading files".into()),
             completed_steps: 1,
+            plan: Default::default(),
             steps: vec![RuntimeTaskStepV1 {
                 label: "Reading files".into(),
                 state: "active".into(),
@@ -1765,6 +1868,7 @@ mod tests {
         ));
 
         let proposal = RuntimeTaskProposalV1 {
+            options: Default::default(),
             proposal_id: "proposal-1".into(),
             conversation_id: "conversation-1".into(),
             resident_pubkey: "11".repeat(32),
@@ -1784,6 +1888,7 @@ mod tests {
 
     fn task_in(task_id: &str, conversation_id: &str, started_at: &str) -> RuntimeTaskProjectionV1 {
         RuntimeTaskProjectionV1 {
+            options: Default::default(),
             task_id: task_id.into(),
             owner_pubkey: "33".repeat(32),
             origin_relay_ref: None,
@@ -1805,6 +1910,7 @@ mod tests {
             provider_session_id: None,
             current_step: None,
             completed_steps: 0,
+            plan: Default::default(),
             steps: Vec::new(),
             started_at: started_at.into(),
             updated_at: started_at.into(),
@@ -1821,6 +1927,7 @@ mod tests {
         created_at: &str,
     ) -> RuntimeTaskProposalV1 {
         RuntimeTaskProposalV1 {
+            options: Default::default(),
             proposal_id: proposal_id.into(),
             conversation_id: conversation_id.into(),
             resident_pubkey: "11".repeat(32),

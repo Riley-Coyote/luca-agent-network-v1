@@ -564,11 +564,8 @@ for (const mode of ["dark", "light"] as const) {
     expect(done.cameBackLabel).toBe("What came back");
     expect(done.cameBack).toBe(RESULTS["task-build"]);
     expect(done.retry).toBeNull();
-    expect(done.between.map((row) => row.face)).toEqual([
-      "agent-mark",
-      "app-mark",
-    ]);
-    expect(done.between[1]?.detail).toBe("Claude Code");
+    expect(done.between.map((row) => row.face)).toEqual(["agent-mark"]);
+    expect(done.between).toHaveLength(1); // The formatted result appears once above.
     await expect(rail.getByTestId("rail-side-task:task-build")).toHaveAttribute(
       "data-current",
       "true",

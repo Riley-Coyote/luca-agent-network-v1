@@ -31,6 +31,43 @@ fn acknowledged() -> HostEvents {
 }
 
 #[test]
+fn plan_is_a_bounded_snapshot_not_session_or_completion_authority() {
+    let update = line(
+        "plan",
+        serde_json::json!({"providerSessionId":SESSION,"plan":{"steps":[
+            {"content":"Inspect","status":"completed"}, {"content":"Verify","status":"pending"}
+        ]}}),
+    );
+    let mut before_ack = HostEvents::new(Some(SESSION)).unwrap();
+    assert!(matches!(before_ack.accept(&update), Ok(HostEvent::Plan(_))));
+    assert!(before_ack.accept(&result(Some(SESSION), "not acknowledged", "end_turn")).is_err());
+    let mut events = acknowledged();
+    let HostEvent::Plan(plan) = events.accept(&update).unwrap() else {
+        panic!("plan")
+    };
+    assert_eq!(
+        plan.steps[1].status,
+        luca_protocol::WorkPlanStatusV1::Pending
+    );
+    assert_eq!(
+        events.accept(&line("plan", serde_json::json!({"plan":{"steps":[]}}))),
+        Ok(HostEvent::Plan(Default::default()))
+    );
+    events
+        .accept(&result(Some(SESSION), "done", "end_turn"))
+        .unwrap();
+    assert!(events.accept(&update).is_err());
+    assert!(events.finish(true).is_err());
+    for fields in [
+        serde_json::json!({"plan":{"steps":[{"content":"x","status":"invented"}]}}),
+        serde_json::json!({"plan":{"steps":[]},"providerSessionId":OTHER}),
+        serde_json::json!({"plan":{"steps":[]},"result":"not a plan"}),
+    ] {
+        assert!(acknowledged().accept(&line("plan", fields)).is_err());
+    }
+}
+
+#[test]
 fn continuation_retains_exact_native_identity_and_stages_result_until_finish() {
     let mut events = acknowledged();
     assert_eq!(events.provider_session_id(), Some(SESSION));

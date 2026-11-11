@@ -2821,7 +2821,10 @@ fn conversation_context_messages(context: &ConversationContext) -> &[crate::queu
 /// any message at all with `entry`'s delivered ids — the signal
 /// `gap_marker_needed` uses to decide whether this window may have skipped
 /// content the session never saw.
-fn filter_awareness_history(mut context: ConversationContext, owner: Option<&str>) -> ConversationContext {
+fn filter_awareness_history(
+    mut context: ConversationContext,
+    owner: Option<&str>,
+) -> ConversationContext {
     let messages = match &mut context {
         ConversationContext::Thread { messages, .. }
         | ConversationContext::Dm { messages, .. }
@@ -3981,9 +3984,46 @@ async fn run_prompt_task_inner(
     prompt_text: Option<String>,
     ctx: Arc<PromptContext>,
     result_tx: mpsc::UnboundedSender<PromptResult>,
-    control_rx: Option<tokio::sync::oneshot::Receiver<ControlSignal>>,
+    mut control_rx: Option<tokio::sync::oneshot::Receiver<ControlSignal>>,
     turn_id: String,
 ) {
+    if let PromptSource::Continuity(request) = &source {
+        if let luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request } =
+            request.as_ref()
+        {
+            if request.quote_result {
+                let cancelled = control_rx.as_mut().is_some_and(|rx| {
+                    !matches!(
+                        rx.try_recv(),
+                        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+                    )
+                });
+                let output = if cancelled {
+                    None
+                } else {
+                    request.quoted_result().ok().flatten()
+                };
+                let outcome = if cancelled {
+                    PromptOutcome::Cancelled
+                } else if output.is_some() {
+                    PromptOutcome::Ok(StopReason::EndTurn)
+                } else {
+                    PromptOutcome::Error(AcpError::Protocol(
+                        "Exact task answer could not be verified.".into(),
+                    ))
+                };
+                let _ = result_tx.send(PromptResult {
+                    agent,
+                    source,
+                    turn_id,
+                    outcome,
+                    private_output: output,
+                    batch: None,
+                });
+                return;
+            }
+        }
+    }
     let managed_conversation_id = match &source {
         PromptSource::Channel(channel_id) => Some(channel_id.to_string()),
         PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
@@ -4116,7 +4156,9 @@ async fn run_prompt_task_inner(
         // A local sticky marker protects restart/host-channel failure as well.
         let isolation = (|| -> Result<(), AcpError> {
             if isolate_awareness_history && ctx.runtime_session_map.is_none() {
-                return Err(AcpError::Protocol("Private activity requires durable native-history isolation.".into()));
+                return Err(AcpError::Protocol(
+                    "Private activity requires durable native-history isolation.".into(),
+                ));
             }
             if let Some(map) = &ctx.runtime_session_map {
                 isolate_awareness_history |= map.requires_private_history(&cid.to_string())
@@ -4131,8 +4173,14 @@ async fn run_prompt_task_inner(
             Ok(())
         })();
         if let Err(error) = isolation {
-            send_prompt_result(&result_tx, &turn_id, agent, source,
-                PromptOutcome::Error(error), requeue_batch_if_queue(&ctx, batch.clone()));
+            send_prompt_result(
+                &result_tx,
+                &turn_id,
+                agent,
+                source,
+                PromptOutcome::Error(error),
+                requeue_batch_if_queue(&ctx, batch.clone()),
+            );
             return;
         }
         let current_ref = resolved_managed_context
@@ -4841,9 +4889,15 @@ async fn run_prompt_task_inner(
                 // Old assistant replies can contain source-derived excerpts.
                 // Keep owner-authored conversation and canonical clean memory,
                 // not an unverified replay of those generated derivatives.
-                filter_awareness_history(context, ctx.managed_final_publisher.as_ref()
-                    .map(|managed| managed.owner_pubkey.as_str()))
-            } else { context }
+                filter_awareness_history(
+                    context,
+                    ctx.managed_final_publisher
+                        .as_ref()
+                        .map(|managed| managed.owner_pubkey.as_str()),
+                )
+            } else {
+                context
+            }
         });
         let (conversation_context, gap_marker) = match conversation_context {
             Some(context) => {
@@ -4909,7 +4963,11 @@ async fn run_prompt_task_inner(
             resolved_managed_context.as_ref().and_then(|context| context.awareness_context.as_ref()),
             ctx.managed_final_publisher.as_ref(),
         ) {
-            if awareness.matches_resident(&managed.owner_pubkey, &managed.resident_pubkey, managed.session_epoch) {
+            if awareness.matches_resident(
+                &managed.owner_pubkey,
+                &managed.resident_pubkey,
+                managed.session_epoch,
+            ) {
                 // The endpoint has already crossed the current egress fence.
                 // Native history may keep these bytes; app expiry is not erasure.
                 // Outbound observer/session-map paths remain body-free/hashes.
@@ -7584,11 +7642,24 @@ mod tests {
 
     #[test]
     fn fresh_awareness_history_keeps_owner_messages_not_generated_source_derivatives() {
-        for context in [ConversationContext::Dm { messages: vec![
-            make_context_message("owner-event", "OWNER"), make_context_message("aware-reply", "resident")
-        ], total: 2, truncated: false }, ConversationContext::Thread { messages: vec![
-            make_context_message("owner-event", "owner"), make_context_message("other-event", "other")
-        ], total: 2, truncated: false }] {
+        for context in [
+            ConversationContext::Dm {
+                messages: vec![
+                    make_context_message("owner-event", "OWNER"),
+                    make_context_message("aware-reply", "resident"),
+                ],
+                total: 2,
+                truncated: false,
+            },
+            ConversationContext::Thread {
+                messages: vec![
+                    make_context_message("owner-event", "owner"),
+                    make_context_message("other-event", "other"),
+                ],
+                total: 2,
+                truncated: false,
+            },
+        ] {
             let filtered = filter_awareness_history(context, Some("owner"));
             assert_eq!(conversation_context_messages(&filtered).iter().map(|message| message.event_id.as_str()).collect::<Vec<_>>(), vec!["owner-event"]);
             assert!(conversation_context_messages(&filter_awareness_history(filtered, None)).is_empty());

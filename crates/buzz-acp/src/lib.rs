@@ -13,7 +13,6 @@ mod engram_fetch;
 pub mod exchange_cache;
 mod filter;
 mod local_cognition;
-mod scoped_codex_initiative;
 pub mod luca_final_publisher;
 mod managed_mcp_provider;
 mod managed_presentation;
@@ -25,6 +24,7 @@ mod repository_mcp;
 mod runtime_session_map;
 mod runtime_session_purpose;
 mod runtime_task_runner;
+mod scoped_codex_initiative;
 mod setup_mode;
 mod task_replay;
 mod usage;
@@ -2096,10 +2096,8 @@ async fn tokio_main() -> Result<()> {
     // second are both processed. The seen_membership_ids set handles exact
     // replays that share the same timestamp.
     let mut membership_newest_ts: HashMap<Uuid, u64> = HashMap::new();
-    let mut task_replay = task_replay::TaskReplay::new(
-        subscribed_channel_ids.iter().copied(),
-        startup_watermark,
-    );
+    let mut task_replay =
+        task_replay::TaskReplay::new(subscribed_channel_ids.iter().copied(), startup_watermark);
     // Two-generation dedup for membership event replays (bounded, no amnesia).
     // Rotates at 1000 entries instead of clearing the entire set at 2000.
     let mut seen_membership_current: HashSet<String> = HashSet::new();
@@ -4501,11 +4499,30 @@ async fn run_isolated_native_continuity_task(
     binding: CodexContinuityWorkerBinding,
     source: PromptSource,
     ctx: Arc<PromptContext>,
-    control_rx: tokio::sync::oneshot::Receiver<ControlSignal>,
+    mut control_rx: tokio::sync::oneshot::Receiver<ControlSignal>,
     turn_id: String,
     spawn: CodexContinuitySpawnSpec,
     isolated_claude: bool,
 ) -> (PromptOutcome, Option<String>) {
+    if let PromptSource::Continuity(request) = &source {
+        if let luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request } =
+            request.as_ref()
+        {
+            match request.quoted_result() {
+                Ok(Some(draft)) => {
+                    if !matches!(
+                        control_rx.try_recv(),
+                        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+                    ) {
+                        return (PromptOutcome::Cancelled, None);
+                    }
+                    return (PromptOutcome::Ok(acp::StopReason::EndTurn), Some(draft));
+                }
+                Err(_) => return (isolated_continuity_failure(), None),
+                Ok(None) => {}
+            }
+        }
+    }
     if isolated_claude {
         run_isolated_claude_continuity_task(binding, source, ctx, control_rx, turn_id, spawn).await
     } else {
@@ -5352,10 +5369,15 @@ mod runtime_task_delivery_tests {
     }
 
     #[test]
-    fn companion_return_native_turn_and_final_draft_correlate_without_changing_broker_delivery_id() {
-        let mut request=request();request.runtime_family="companion_initiative".into();
-        let envelope=luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {request:request.clone()};
-        let turn=private_cognition_turn_id(&envelope);assert_eq!(turn,format!("initiative:{}",request.delivery_id.as_str()));
+    fn companion_return_native_turn_and_final_draft_correlate_without_changing_broker_delivery_id()
+    {
+        let mut request = request();
+        request.runtime_family = "companion_initiative".into();
+        let envelope = luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+            request: request.clone(),
+        };
+        let turn = private_cognition_turn_id(&envelope);
+        assert_eq!(turn, format!("initiative:{}", request.delivery_id.as_str()));
         assert!(is_initiative_request(&envelope));
         assert_eq!(runtime_task_delivery_draft(&request,&turn,Some("Useful result.".into()),true,4000),Ok("Useful result.".into()));
         assert_eq!(runtime_task_delivery_draft(&request,request.delivery_id.as_str(),Some("Useful result.".into()),true,4000),Err("invalid_result"));

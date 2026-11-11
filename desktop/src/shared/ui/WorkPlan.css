@@ -1,0 +1,42 @@
+.work-plan {
+  color: hsl(var(--mn-ink-muted));
+  font-family: var(--font-ui);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin-block: 12px;
+}
+.work-plan summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  width: fit-content;
+}
+.work-plan summary:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+.work-plan__steps {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.work-plan__steps li {
+  align-items: start;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.work-plan__steps svg {
+  flex: none;
+  height: 15px;
+  margin-top: 3px;
+  width: 15px;
+}
+.work-plan__steps [data-plan-status="in_progress"] {
+  color: hsl(var(--mn-ink));
+}
+.work-plan__steps [data-plan-status="completed"] svg {
+  color: var(--color-success, #4b9668);
+}

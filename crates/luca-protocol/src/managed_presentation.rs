@@ -149,6 +149,9 @@ pub struct ManagedPresentationFrameV1 {
     /// [`Phase`]: ManagedPresentationKindV1::Phase
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity: Option<ManagedPresentationActivityV1>,
+    /// Explicit runtime plan snapshot. Phase frames only, never activity inference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<crate::WorkPlanV1>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -209,6 +212,13 @@ impl ManagedPresentationFrameV1 {
         if let Some(activity) = self.activity.as_ref() {
             activity.validate()?;
         }
+        if self.plan.as_ref().is_some_and(|plan| {
+            !plan.is_valid()
+                || self.kind != ManagedPresentationKindV1::Phase
+                || self.activity.is_some()
+        }) {
+            return Err(ManagedPresentationError::Shape);
+        }
         let valid_shape = match self.kind {
             ManagedPresentationKindV1::TurnStarted
             | ManagedPresentationKindV1::Liveness
@@ -259,6 +269,7 @@ mod tests {
             public_chunk: None,
             failure: None,
             activity: None,
+            plan: None,
         }
     }
 
@@ -271,6 +282,27 @@ mod tests {
             count: None,
             step: Some(SafeU53::new(1).unwrap()),
         }
+    }
+
+    #[test]
+    fn public_plan_is_a_bounded_phase_snapshot_not_terminal_or_tool_content() {
+        let mut value = frame(ManagedPresentationKindV1::Phase);
+        value.phase = Some(ManagedPresentationPhaseV1::Working);
+        value.plan = Some(crate::WorkPlanV1::from_acp(&serde_json::json!({"entries":[{"content":"Verify the change","status":"pending"}]})).unwrap());
+        assert!(value.validate().is_ok());
+        assert_eq!(
+            serde_json::from_str::<ManagedPresentationFrameV1>(
+                &serde_json::to_string(&value).unwrap()
+            )
+            .unwrap(),
+            value
+        );
+        value.activity = Some(activity());
+        assert!(value.validate().is_err());
+        value.activity = None;
+        value.kind = ManagedPresentationKindV1::Completed;
+        value.phase = None;
+        assert!(value.validate().is_err());
     }
 
     #[test]

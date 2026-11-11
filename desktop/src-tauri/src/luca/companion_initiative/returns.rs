@@ -512,7 +512,7 @@ fn deliver_one(app: &AppHandle, job: &InitiativeJobV1) -> Result<(), String> {
     while !result.is_char_boundary(end) {
         end -= 1;
     }
-    let request=RuntimeTaskDeliveryRequestV1 {protocol:RUNTIME_TASK_DELIVERY_PROTOCOL.into(),delivery_id:key.clone(),task_id:job.input.job_id.clone(),owner_pubkey:job.owner_pubkey.clone(),resident_pubkey:job.resident_pubkey.clone(),
+    let request=RuntimeTaskDeliveryRequestV1 {quote_result:false,protocol:RUNTIME_TASK_DELIVERY_PROTOCOL.into(),delivery_id:key.clone(),task_id:job.input.job_id.clone(),owner_pubkey:job.owner_pubkey.clone(),resident_pubkey:job.resident_pubkey.clone(),
         conversation_id:conversation,binding_ref:job.binding_ref.clone(),result_sha256:result_hash,runtime_family:"companion_initiative".into(),
         summary:"A private result the companion chose to create; mention it only as a useful, optional continuation, not an obligation.".into(),result_excerpt:result[..end].into(),result_total_bytes:SafeU53::new(result.len() as u64).map_err(err)?,result_is_excerpt:end<result.len(),
         deadline_unix_ms:SafeU53::new(deadline).map_err(err)?,max_draft_bytes:SafeU53::new(2048).map_err(err)?};

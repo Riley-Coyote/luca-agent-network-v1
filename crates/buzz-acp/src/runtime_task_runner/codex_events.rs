@@ -50,6 +50,7 @@ impl NativeFailure {
 pub(super) enum Progress {
     Session,
     Step(&'static str),
+    Plan(luca_protocol::WorkPlanV1),
 }
 
 // Typed coordinates reject duplicate keys; optional opaque envelopes are
@@ -81,6 +82,13 @@ struct Item {
     kind: String,
     text: Option<String>,
     phase: Option<String>,
+    items: Option<Vec<TodoItem>>,
+}
+
+#[derive(Deserialize)]
+struct TodoItem {
+    text: String,
+    completed: bool,
 }
 
 pub(super) struct CodexEvents<'a> {
@@ -199,9 +207,23 @@ impl<'a> CodexEvents<'a> {
                     "file_change" => Some("Editing files"),
                     "mcp_tool_call" => Some("Using a tool"),
                     "web_search" => Some("Searching the web"),
-                    "todo_list" => Some("Planning the work"),
+                    "todo_list" => {
+                        let Some(items) = item.items else {
+                            return Ok(None);
+                        };
+                        let entries = items.into_iter().map(|step|
+                            serde_json::json!({"content":step.text,"status":if step.completed {"completed"}else{"pending"}})
+                        ).collect::<Vec<_>>();
+                        let plan = luca_protocol::WorkPlanV1::from_acp(
+                            &serde_json::json!({"entries":entries}),
+                        );
+                        return Ok(plan.map(Progress::Plan));
+                    }
                     _ => None, // No reasoning, commands, paths or tool envelopes.
                 };
+                let label = if event.kind == "item.completed" && matches!(item.kind.as_str(), "command_execution" | "file_change" | "mcp_tool_call" | "web_search") {
+                    Some("Thinking")
+                } else { label };
                 Ok(label.map(Progress::Step))
             }
             "item.started" | "item.updated" | "item.completed" => Err(NativeFailure::Protocol),

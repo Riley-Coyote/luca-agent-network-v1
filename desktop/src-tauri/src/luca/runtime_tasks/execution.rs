@@ -260,6 +260,13 @@ async fn run_owned_task(
                                     if update_projection(&app, &projection).is_err() { failure = Some(evidence.reject_stream()); }
                                 }
                             }
+                            Ok(HostEvent::Plan(plan)) => {
+                                if projection.plan != plan {
+                                    projection.plan = plan;
+                                    projection.updated_at = Utc::now().to_rfc3339();
+                                    if update_projection(&app, &projection).is_err() { failure = Some(evidence.reject_stream()); }
+                                }
+                            }
                             Ok(HostEvent::Result) => {}
                             Ok(HostEvent::Failed(error)) | Err(error) => failure = Some(error),
                         }

@@ -5,6 +5,7 @@ const SESSION: &str = "01a1083a-f0f0-76a3-b1d9-c0268a062636";
 
 fn input(folder: &str) -> RuntimeTaskInputV1 {
     RuntimeTaskInputV1 {
+        options: Default::default(),
         runtime_family: None,
         native_cli: None,
         native_permission_mode: None,

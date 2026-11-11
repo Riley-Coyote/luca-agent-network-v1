@@ -50,6 +50,8 @@ import {
   type RuntimeTaskStep,
 } from "@/shared/api/tauriRuntimeTasks";
 import { AgentMark } from "@/shared/ui/AgentMark";
+import { Markdown } from "@/shared/ui/markdown";
+import { WorkPlan } from "@/shared/ui/WorkPlan";
 
 /**
  * An app's task, as the work (BETA14_RELEASE.md WP-35; the lab's
@@ -80,7 +82,8 @@ function TaskPage({ task }: { task: RuntimeTaskProjection }) {
   const side = useSideConversations();
   const forName = side.nameOf(task.residentPubkey);
   const appName = taskAppName(task);
-  const where = useTaskWhere(task.workingFolder);
+  const workingPlace = useTaskWhere(task.workingFolder);
+  const where = task.options?.purpose === "ask" ? "Quick answer" : workingPlace;
   const live = taskIsLive(task);
   const result = useTaskResult(task);
   const handoff = useNativeHandoff(task);
@@ -115,7 +118,11 @@ function TaskPage({ task }: { task: RuntimeTaskProjection }) {
             })}
           </span>
         }
-        title={task.summary}
+        title={
+          task.summary.length > 96
+            ? `${task.summary.slice(0, 93).trimEnd()}…`
+            : task.summary
+        }
       />
       {handoff.error ? (
         <p className="luca-app-task-alert" role="alert">
@@ -138,7 +145,10 @@ function TaskPage({ task }: { task: RuntimeTaskProjection }) {
         </section>
       ) : null}
 
-      {task.steps.length > 0 ? (
+      <WorkPlan plan={task.plan} />
+      {task.options?.purpose !== "ask" &&
+      !task.plan?.steps.length &&
+      task.steps.length > 0 ? (
         <PlaceList
           count={task.steps.length}
           label="What it has done"
@@ -175,7 +185,10 @@ function TaskPage({ task }: { task: RuntimeTaskProjection }) {
               className="luca-app-task-came-back"
               data-failed={task.state === "succeeded" ? undefined : ""}
             >
-              <p className="luca-app-task-came-back-text">{cameBack}</p>
+              <Markdown
+                className="luca-app-task-came-back-text"
+                content={cameBack}
+              />
               {canRetry ? (
                 <button
                   className="luca-app-task-retry"
@@ -209,15 +222,6 @@ function TaskPage({ task }: { task: RuntimeTaskProjection }) {
           testId="app-task-between-brief"
           title={task.summary}
         />
-        {cameBack ? (
-          <PlaceListRow
-            detail={appName}
-            face={<HarnessFace runtimeId={task.runtimeFamily} size={16} />}
-            note={placeNoteTime(task.completedAt)}
-            testId="app-task-between-result"
-            title={cameBack}
-          />
-        ) : null}
       </PlaceList>
     </PlacePage>
   );

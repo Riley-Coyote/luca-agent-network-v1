@@ -9,6 +9,7 @@ mod claude_saved;
 mod codex_cli;
 mod codex_events;
 mod native_isolation;
+mod options;
 
 use std::{io::Read as _, time::Duration};
 
@@ -45,6 +46,8 @@ enum RuntimeTaskOperation {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RuntimeTaskInputV1 {
+    #[serde(default)]
+    options: luca_protocol::RuntimeTaskOptionsV1,
     task_id: String,
     conversation_id: String,
     prompt: String,
@@ -77,6 +80,8 @@ struct RuntimeTaskOutputV1<'a> {
     stop_reason: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plan: Option<luca_protocol::WorkPlanV1>,
 }
 
 pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
@@ -190,6 +195,13 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
                 )
                 .map_err(crate::acp::AcpError::Protocol)?;
         }
+        options::apply(
+            &mut client,
+            &session.session_id,
+            &session.raw,
+            &input.options,
+        )
+        .await?;
         emit(session_output(&session.session_id));
         if input.permission_mode == "full_access" {
             let wire = PermissionMode::BypassPermissions.as_wire_str();
@@ -256,6 +268,7 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
                 result: None,
                 stop_reason: None,
                 error: Some(&message),
+                plan: None,
             });
         }
     }
@@ -285,6 +298,7 @@ fn session_output(provider_session_id: &str) -> RuntimeTaskOutputV1<'_> {
         result: None,
         stop_reason: None,
         error: None,
+        plan: None,
     }
 }
 
@@ -301,6 +315,7 @@ fn result_output<'a>(
         result: Some(result),
         stop_reason: Some(stop_reason(stop)),
         error: None,
+        plan: None,
     }
 }
 
@@ -316,7 +331,9 @@ fn read_input() -> Result<RuntimeTaskInputV1> {
 }
 
 fn validate_input(input: &RuntimeTaskInputV1) -> Result<()> {
-    if !valid_opaque(&input.task_id)
+    if !input.options.is_valid()
+        || (input.operation != RuntimeTaskOperation::NewTask && input.options != Default::default())
+        || !valid_opaque(&input.task_id)
         || !valid_opaque(&input.conversation_id)
         || input.prompt.trim().is_empty()
         || input.prompt.len() > 64 * 1024
@@ -403,22 +420,47 @@ fn valid_opaque(value: &str) -> bool {
 }
 
 fn spawn_safe_observer(observer: ObserverHandle) -> tokio::task::JoinHandle<()> {
-    spawn_safe_observer_with(observer, |label| {
-        emit(RuntimeTaskOutputV1 {
-            protocol: PROTOCOL,
-            kind: "step",
-            provider_session_id: None,
-            label: Some(label),
-            result: None,
-            stop_reason: None,
-            error: None,
-        });
-    })
+    spawn_observer_progress(
+        observer,
+        |label| {
+            emit(RuntimeTaskOutputV1 {
+                protocol: PROTOCOL,
+                kind: "step",
+                provider_session_id: None,
+                label: Some(label),
+                result: None,
+                stop_reason: None,
+                error: None,
+                plan: None,
+            });
+        },
+        |plan| {
+            emit(RuntimeTaskOutputV1 {
+                protocol: PROTOCOL,
+                kind: "plan",
+                provider_session_id: None,
+                label: None,
+                result: None,
+                stop_reason: None,
+                error: None,
+                plan: Some(plan),
+            });
+        },
+    )
 }
 
+#[cfg(test)]
 fn spawn_safe_observer_with(
     observer: ObserverHandle,
+    emit_label: impl FnMut(&'static str) + Send + 'static,
+) -> tokio::task::JoinHandle<()> {
+    spawn_observer_progress(observer, emit_label, |_| {})
+}
+
+fn spawn_observer_progress(
+    observer: ObserverHandle,
     mut emit_label: impl FnMut(&'static str) + Send + 'static,
+    mut emit_plan: impl FnMut(luca_protocol::WorkPlanV1) + Send + 'static,
 ) -> tokio::task::JoinHandle<()> {
     // Subscribe before spawning, so even progress emitted before the task's
     // first poll is queued. Do not capture the sender in the task: dropping
@@ -434,6 +476,16 @@ fn spawn_safe_observer_with(
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             };
+            if event.kind == "acp_read" {
+                if let Some(update) = event.payload.pointer("/params/update") {
+                    if update["sessionUpdate"] == "plan" {
+                        if let Some(plan) = luca_protocol::WorkPlanV1::from_acp(update) {
+                            emit_plan(plan);
+                        }
+                        continue;
+                    }
+                }
+            }
             let Some(label) = safe_step(&event) else {
                 continue;
             };
@@ -468,9 +520,16 @@ fn safe_step(event: &crate::observer::ObserverEvent) -> Option<&'static str> {
     }
     let update = event.payload.pointer("/params/update")?;
     match update.get("sessionUpdate")?.as_str()? {
-        "plan" => Some("Planning the work"),
+        "plan" => None,
+        "agent_thought_chunk" => Some("Thinking"),
         "agent_message_chunk" => Some("Writing the result"),
         "tool_call" | "tool_call_update" => {
+            if matches!(
+                update.get("status").and_then(serde_json::Value::as_str),
+                Some("completed" | "failed")
+            ) {
+                return Some("Thinking");
+            }
             let name = update
                 .get("kind")
                 .or_else(|| update.get("title"))
@@ -505,7 +564,10 @@ fn stop_reason(reason: &StopReason) -> &'static str {
 
 fn safe_error(error: &str) -> String {
     let lower = error.to_ascii_lowercase();
-    if lower.contains("already has an active controller") {
+    if lower.contains("requested task model or effort") {
+        "The requested task model or effort could not be verified; no task prompt was sent."
+            .into()
+    } else if lower.contains("already has an active controller") {
         "This Claude session is open in another controller. Send a follow-up there or close it before continuing; nothing was sent.".into()
     } else if lower.contains("availability") {
         "Native Claude availability could not be verified. Inspect the selected session in Claude Code before another request.".into()

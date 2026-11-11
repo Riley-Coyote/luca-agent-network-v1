@@ -11,6 +11,7 @@ import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator
 import { TurnContextReceipt } from "./TurnContextReceipt";
 
 import "./ResidentActivityTrace.css";
+import { WorkPlan } from "@/shared/ui/WorkPlan";
 import { companionControlReceiptText } from "../activity/activityTraceProjection";
 
 /** Public activity presented inside the resident's existing message row. */
@@ -47,7 +48,9 @@ function summaryLabel(
     trace.endedAt === null
       ? null
       : elapsedLabel(trace.endedAt - trace.startedAt);
-  const steps = `${stepCount}${trace.truncated ? "+" : ""} ${stepCount === 1 && !trace.truncated ? "step" : "steps"}`;
+  const steps = trace.plan?.steps.length
+    ? `${trace.plan.steps.filter((step) => step.status === "completed").length} of ${trace.plan.steps.length} plan steps completed`
+    : `${stepCount}${trace.truncated ? "+" : ""} ${stepCount === 1 && !trace.truncated ? "step" : "steps"}`;
   switch (trace.status) {
     case "cancelled":
       return `${residentName} stopped${duration ? ` after ${duration}` : ""} · ${steps}`;
@@ -257,6 +260,10 @@ export function ResidentActivityTrace({
       }
       ref={elementRef}
     >
+      <WorkPlan
+        plan={live ? trace.plan : undefined}
+        privateConversation={privateConversation}
+      />
       {live ? (
         <div className="resident-activity-header">
           <span className="resident-activity-indicator" aria-hidden="true">
@@ -325,6 +332,10 @@ export function ResidentActivityTrace({
             >
               {summaryLabel(trace, residentName, activities.length)}
             </summary>
+            <WorkPlan
+              plan={trace.plan}
+              privateConversation={privateConversation}
+            />
             <ol
               className="resident-activity-record"
               data-activity-trace-list

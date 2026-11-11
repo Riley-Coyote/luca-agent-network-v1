@@ -5,6 +5,7 @@ import * as React from "react";
 import {
   pickRuntimeTaskFolder,
   type RuntimeTaskOperation,
+  type RuntimeTaskOptions,
 } from "@/shared/api/tauriRuntimeTasks";
 import { listRuntimeConnectionStatus } from "@/shared/api/tauriMcp";
 import { getResidentCapabilitySettings } from "@/shared/api/residentCapabilities";
@@ -23,6 +24,7 @@ function runtimeTargetLabel(target: RuntimeTarget) {
 }
 
 export type RuntimeTaskDraft = {
+  options?: RuntimeTaskOptions;
   conversationId: string;
   residentPubkey: string;
   residentName: string;

@@ -1,4 +1,6 @@
 import * as React from "react";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { WorkPlan } from "@/shared/ui/WorkPlan";
 import { ChevronDown, ChevronUp, RotateCcw, Square, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -84,6 +86,8 @@ export type ConversationAgentActivityStripProps = {
   runtimeTasks?: RuntimeTaskProjection[];
   /** Terminal history lives in one acknowledged notice, not this work shelf. */
   quietRuntimeTasks?: boolean;
+  /** Public rooms retain the existing private-work redaction. */
+  privateConversation?: boolean;
 };
 
 /** Shared so an un-narrated item keeps one identity between renders. */
@@ -200,6 +204,7 @@ function RuntimeTaskCompactItem({
   onToggle,
   stopping,
   task,
+  privateConversation,
 }: {
   expanded: boolean;
   onDismiss: () => void;
@@ -207,76 +212,106 @@ function RuntimeTaskCompactItem({
   onToggle: () => void;
   stopping: boolean;
   task: RuntimeTaskProjection;
+  privateConversation: boolean;
 }) {
   const action = runtimeTaskAction(task);
+  const { goAppTask } = useAppNavigation();
   const needsAttention =
     task.state === "failed" || task.state === "interrupted";
   return (
-    <div
-      className="luca-activity-item luca-runtime-task-item"
-      data-activity-state={task.state}
-    >
-      <button
-        className="luca-activity-item__resident"
-        onClick={onToggle}
-        type="button"
+    <div className="luca-runtime-task">
+      <div
+        className="luca-activity-item luca-runtime-task-item"
+        data-activity-state={task.state}
       >
-        <span className="luca-runtime-task-item__identity">
-          <span className="luca-activity-item__name">
-            {runtimeTaskProvider(task)}
-          </span>
-          <span className="luca-runtime-task-item__badge">Task</span>
-          <RuntimeTaskElapsed task={task} />
-        </span>
-        {needsAttention ? (
-          <span className="luca-runtime-task-item__summary">
-            {task.summary}
-          </span>
-        ) : null}
-        <span className="luca-activity-item__state">
-          {runtimeTaskLabel(task)}
-        </span>
-      </button>
-      {task.completedSteps > 0 ? (
         <button
-          aria-expanded={expanded}
-          className="luca-activity-item__steps"
+          className="luca-activity-item__resident"
           onClick={onToggle}
           type="button"
         >
-          <span>{task.completedSteps}</span>
-          {expanded ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
+          <span className="luca-runtime-task-item__identity">
+            <span className="luca-activity-item__name">
+              {runtimeTaskProvider(task)}
+            </span>
+            <span
+              className="luca-runtime-task-item__title"
+              title={task.summary}
+            >
+              {task.summary}
+            </span>
+            <RuntimeTaskElapsed task={task} />
+          </span>
+          {needsAttention ? (
+            <span className="luca-runtime-task-item__summary">
+              {task.summary}
+            </span>
+          ) : null}
+          <span className="luca-activity-item__state">
+            {task.options?.purpose === "ask" &&
+            task.state === "active" &&
+            task.currentStep === "Working in Claude Code"
+              ? "Waiting for a reply"
+              : runtimeTaskLabel(task)}
+          </span>
         </button>
-      ) : null}
-      {action === "stop" ? (
         <button
           className="luca-activity-item__action"
-          disabled={stopping}
-          onClick={() => onStop(task)}
           type="button"
+          onClick={() =>
+            goAppTask(
+              task.runtimeFamily === "codex" ? "codex" : "claude",
+              task.taskId,
+            )
+          }
         >
-          <Square aria-hidden className="size-3" />
-          Stop
+          Open task
         </button>
-      ) : action === "retry" ? (
-        <button
-          className="luca-activity-item__action"
-          onClick={() => void retryRuntimeTask(task.taskId)}
-          type="button"
-        >
-          <RotateCcw aria-hidden className="size-3" />
-          Retry
-        </button>
-      ) : action === "dismiss" ? (
-        <button
-          className="luca-activity-item__action"
-          onClick={onDismiss}
-          type="button"
-        >
-          <X aria-hidden className="size-3" />
-          Dismiss
-        </button>
-      ) : null}
+        {task.completedSteps > 0 && task.options?.purpose !== "ask" ? (
+          <button
+            aria-expanded={expanded}
+            className="luca-activity-item__steps"
+            onClick={onToggle}
+            type="button"
+          >
+            <span>{task.completedSteps}</span>
+            {expanded ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
+          </button>
+        ) : null}
+        {action === "stop" ? (
+          <button
+            className="luca-activity-item__action"
+            disabled={stopping}
+            onClick={() => onStop(task)}
+            type="button"
+          >
+            <Square aria-hidden className="size-3" />
+            Stop
+          </button>
+        ) : action === "retry" ? (
+          <button
+            className="luca-activity-item__action"
+            onClick={() => void retryRuntimeTask(task.taskId)}
+            type="button"
+          >
+            <RotateCcw aria-hidden className="size-3" />
+            Retry
+          </button>
+        ) : action === "dismiss" ? (
+          <button
+            className="luca-activity-item__action"
+            onClick={onDismiss}
+            type="button"
+          >
+            <X aria-hidden className="size-3" />
+            Dismiss
+          </button>
+        ) : null}
+      </div>
+      <WorkPlan
+        plan={task.plan}
+        privateConversation={privateConversation}
+        settled={task.state !== "active" && task.state !== "queued"}
+      />
     </div>
   );
 }
@@ -658,6 +693,7 @@ export function ConversationAgentActivityStrip({
   permissionLabel = "Permission needed",
   runtimeTasks = [],
   quietRuntimeTasks = false,
+  privateConversation = false,
 }: ConversationAgentActivityStripProps) {
   const queryClient = useQueryClient();
   const stoppingTasks = React.useRef(new Set<string>());
@@ -1034,6 +1070,7 @@ export function ConversationAgentActivityStrip({
             onToggle={() => setExpanded((value) => !value)}
             stopping={stoppingTaskIds.has(visibleRuntimeTasks[0].taskId)}
             task={visibleRuntimeTasks[0]}
+            privateConversation={privateConversation}
           />
         ) : null}
         <div
@@ -1154,7 +1191,13 @@ export function ConversationAgentActivityStrip({
                   <span>{task.completedSteps} completed</span>
                   <RuntimeTaskElapsed task={task} />
                 </div>
-                {task.steps.length > 0 ? (
+                {task.taskId !== visibleRuntimeTasks[0]?.taskId ? (
+                  <WorkPlan
+                    plan={task.plan}
+                    privateConversation={privateConversation}
+                  />
+                ) : null}
+                {!task.plan?.steps.length && task.steps.length > 0 ? (
                   <ol className="luca-runtime-task-run__steps">
                     {task.steps.map((step) => (
                       <li data-state={step.state} key={step.label}>

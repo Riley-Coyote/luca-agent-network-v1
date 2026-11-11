@@ -1540,3 +1540,25 @@ main chat and new chat keep that correction's 46 px capsule.
   no automatic subscription fallback. Use Claude login explicitly disconnects
   this app's API route and reconnects through the existing native login.
 - No publication, release tag, signing, push or daily-app replacement authorized.
+
+### Quiet delegation and real plans (local candidate, 2026-11-10)
+
+- Answer-only native requests use `purpose: ask`, a short title, and a private,
+  owner/resident-scoped scratch directory rather than a project picker. Project
+  tasks and existing-session operations retain their previous execution policy.
+- Explicit model/effort choices must be advertised and acknowledged by the
+  native session before its prompt is sent. Short asks prefer low effort only
+  when that model advertises it; saved harness preferences remain unchanged.
+- A complete short answer returns with harness attribution through the existing
+  scoped delivery lease and outbox, without a second model synthesis. Excerpts
+  and project-task results retain the existing reviewed summary path.
+- Native public plans/Todo snapshots appear in Luca's chat and the task page.
+  Pending, active, and completed steps remain distinct, including after restart;
+  a terminal turn never fabricates completion of an unfinished plan. Room views
+  redact step text, and reasoning text is never used as a plan.
+- Routine work stays in one compact row, with Open task and Stop. No automatic
+  drawer/window or completion notice is added. Results use the shared formatted
+  message renderer and appear only once on the task page.
+- Verification and native timing are recorded with the isolated candidate.
+  No wider source/tool grant, new harness, Ghost/Mnemos change, publication,
+  signing, tag, push, or daily-app replacement is part of this pass.

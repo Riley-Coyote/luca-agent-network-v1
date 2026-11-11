@@ -165,7 +165,6 @@ fn activity_labels_follow_native_types_without_command_path_or_tool_bodies() {
         ("file_change", "Editing files"),
         ("web_search", "Searching the web"),
         ("mcp_tool_call", "Using a tool"),
-        ("todo_list", "Planning the work"),
     ] {
         let mut events = ready();
         assert_eq!(
@@ -173,6 +172,39 @@ fn activity_labels_follow_native_types_without_command_path_or_tool_bodies() {
             Ok(Some(Progress::Step(label)))
         );
     }
+}
+
+#[test]
+fn native_todos_keep_real_completion_states_and_empty_replacement() {
+    let mut events = ready();
+    let event = |items| {
+        serde_json::json!({"type":"item.updated","item":{"id":"plan-1","type":"todo_list","items":items}}).to_string()
+    };
+    let update = events
+        .accept(&event(serde_json::json!([
+            {"text":"Inspect","completed":true}, {"text":"Verify","completed":false}
+        ])))
+        .unwrap()
+        .unwrap();
+    let Progress::Plan(plan) = update else {
+        panic!("a plan is not a generic activity step")
+    };
+    assert_eq!(
+        plan.steps[0].status,
+        luca_protocol::WorkPlanStatusV1::Completed
+    );
+    assert_eq!(
+        plan.steps[1].status,
+        luca_protocol::WorkPlanStatusV1::Pending
+    );
+    assert_eq!(
+        events.accept(&event(serde_json::json!([]))),
+        Ok(Some(Progress::Plan(Default::default())))
+    );
+    assert!(events
+        .accept(r#"{"type":"item.updated","item":{"id":"plan-1","type":"todo_list"}}"#)
+        .unwrap()
+        .is_none());
 }
 
 #[test]

@@ -15,6 +15,45 @@ fn progress(observer: &ObserverHandle, kind: &str) {
 }
 
 #[tokio::test]
+async fn real_plan_updates_drain_before_terminal_and_completed_tools_return_to_thinking() {
+    let observer = ObserverHandle::in_process();
+    let plans = Arc::new(Mutex::new(Vec::new()));
+    let copy = Arc::clone(&plans);
+    let task = spawn_observer_progress(
+        observer.clone(),
+        |_| {},
+        move |plan| copy.lock().unwrap().push(plan),
+    );
+    observer.emit(
+        "acp_read",
+        None,
+        &ObserverContext::default(),
+        serde_json::json!({"params":{"update":{
+            "sessionUpdate":"plan","entries":[{"content":"Verify","status":"pending"}]
+        }}}),
+    );
+    observer.emit(
+        "acp_read",
+        None,
+        &ObserverContext::default(),
+        serde_json::json!({"params":{"update":{"sessionUpdate":"plan","entries":[]}}}),
+    );
+    drop(observer);
+    finish_safe_observer(task).await.unwrap();
+    let plans = plans.lock().unwrap();
+    assert_eq!(plans.len(), 2);
+    assert_eq!(
+        plans[0].steps[0].status,
+        luca_protocol::WorkPlanStatusV1::Pending
+    );
+    assert!(plans[1].steps.is_empty());
+    let observer = ObserverHandle::in_process();
+    let mut events = observer.subscribe();
+    observer.emit("acp_read", None, &ObserverContext::default(), serde_json::json!({"params":{"update":{"sessionUpdate":"tool_call_update","status":"completed","title":"PRIVATE_BODY"}}}));
+    assert_eq!(safe_step(&events.recv().await.unwrap()), Some("Thinking"));
+}
+
+#[tokio::test]
 async fn queued_progress_and_shutdown_progress_are_drained_before_terminal_output() {
     let observer = ObserverHandle::in_process();
     let events = Arc::new(Mutex::new(Vec::new()));
@@ -24,8 +63,8 @@ async fn queued_progress_and_shutdown_progress_are_drained_before_terminal_outpu
     });
     // No yield before emit: subscribing inside the spawned task would lose
     // these first updates. This reproduces the old scheduling race.
-    progress(&observer, "plan");
-    progress(&observer, "plan");
+    progress(&observer, "agent_thought_chunk");
+    progress(&observer, "agent_thought_chunk");
     let provider_outcome = Ok((
         "acknowledged-session".into(),
         StopReason::EndTurn,
@@ -45,7 +84,7 @@ async fn queued_progress_and_shutdown_progress_are_drained_before_terminal_outpu
     tokio::task::yield_now().await;
     assert_eq!(
         *events.lock().expect("synthetic event ledger"),
-        ["Planning the work", "Writing the result", "result"]
+        ["Thinking", "Writing the result", "result"]
     );
 }
 
@@ -61,7 +100,7 @@ async fn lagged_observer_drains_safe_progress_instead_of_treating_lag_as_closed(
         progress(
             &observer,
             if index % 2 == 0 {
-                "plan"
+                "agent_thought_chunk"
             } else {
                 "agent_message_chunk"
             },

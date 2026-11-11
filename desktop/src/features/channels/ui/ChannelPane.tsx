@@ -1139,6 +1139,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   // strip, the proposal and the receipt stand as they always have.
   const activityStrip = (
     <ConversationAgentActivityStrip
+      privateConversation={activeChannel?.channelType === "dm"}
       agents={activityAgents}
       channelId={activeChannel?.id ?? null}
       idleContent={

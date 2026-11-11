@@ -466,6 +466,122 @@ async function emitTask(page: Page, task: RuntimeTaskProjection) {
   }, task);
 }
 
+for (const light of [false, true]) {
+  test(`short asks stay quiet and real task plans remain visible (${light ? "light" : "dark"})`, async ({
+    page,
+  }, testInfo) => {
+    await quietShell(page, false, light);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const task = priorTask({
+      taskId: "short-ask",
+      summary: "Write a short poem",
+      state: "active",
+      options: { purpose: "ask", model: "claude-opus-5-5" },
+      currentStep: "Thinking",
+      completedAt: null,
+      completedSteps: 0,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await open(page, { tasks: [task] });
+    const item = page.locator(".luca-runtime-task");
+    await expect(item).toContainText("Write a short poem");
+    await expect(item.getByRole("button", { name: "Open task" })).toBeVisible();
+    await expect(
+      page.locator('.luca-room-stack__head[data-kind="work"]'),
+    ).toBeHidden();
+    await expect(page.getByTestId("runtime-task-notice")).toHaveCount(0);
+    await expect(item.getByTestId("work-plan")).toHaveCount(0);
+    const next = {
+      ...task,
+      options: { purpose: "task" as const },
+      plan: {
+        steps: [
+          { content: "Inspect the request", status: "completed" as const },
+          {
+            content: "Build the requested change",
+            status: "in_progress" as const,
+          },
+          {
+            content: "Verify and return the result",
+            status: "pending" as const,
+          },
+        ],
+      },
+    };
+    await emitTask(page, next);
+    await expect(item.getByRole("list", { name: "Plan" })).toBeVisible();
+    await expect(item.locator('[data-plan-status="pending"]')).toContainText(
+      "Verify and return",
+    );
+    for (const width of [1440, 1280, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(
+        item.getByRole("button", { name: "Stop", exact: true }),
+      ).toBeVisible();
+      await item.getByRole("button", { name: "Open task" }).focus();
+      const bounds = await item.evaluate((el) => ({
+        left: el.getBoundingClientRect().left,
+        right: el.getBoundingClientRect().right,
+        viewport: innerWidth,
+      }));
+      expect(bounds.left).toBeGreaterThanOrEqual(0);
+      expect(bounds.right).toBeLessThanOrEqual(bounds.viewport + 1);
+      await page.screenshot({
+        path: testInfo.outputPath(
+          `delegation-${light ? "light" : "dark"}-${width}.png`,
+        ),
+      });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await emitTask(page, {
+      ...next,
+      state: "succeeded",
+      completedAt: new Date().toISOString(),
+      deliveryState: "published",
+    });
+    await expect(item).toHaveCount(0);
+    await expect(page.getByTestId("runtime-task-result-receipt")).toHaveCount(
+      0,
+    );
+  });
+}
+
+test("answer-only approval uses its supplied scratch folder without a folder picker", async ({
+  page,
+}) => {
+  await quietShell(page);
+  await open(page, {
+    proposals: [
+      proposal({
+        options: { purpose: "ask", model: "claude-opus-5-5" },
+        targetWorkingFolder: TARGET_FOLDER,
+        summary: "Write a poem",
+      }),
+    ],
+  });
+  const run = page.getByTestId("needs-you-proposal-run");
+  await expect(run).toBeEnabled();
+  await run.click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          window.__RUNTIME_TASK_CARD_TEST__?.calls.find(
+            (call) => call.command === "respond_runtime_task_proposal",
+          )?.payload,
+      ),
+    )
+    .toMatchObject({ input: { approved: true, workingFolder: TARGET_FOLDER } });
+  expect(
+    await page.evaluate(() =>
+      window.__RUNTIME_TASK_CARD_TEST__?.calls.some(
+        (call) => call.command === "pick_runtime_task_working_folder",
+      ),
+    ),
+  ).toBe(false);
+});
+
 test("quiet notices do not replay historical QA, success, stopped or native acknowledgement", async ({
   page,
 }) => {

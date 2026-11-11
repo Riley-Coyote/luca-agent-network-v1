@@ -27,6 +27,7 @@ export type ActivityTrace = {
   status: "working" | "completed" | "cancelled" | "failed" | "interrupted";
   entries: readonly ActivityTraceEntry[];
   truncated: boolean;
+  plan?: import("@/shared/ui/WorkPlan").WorkPlanSnapshot;
 };
 
 /** Both live rows and signed finals resolve the same immutable dispatch. */

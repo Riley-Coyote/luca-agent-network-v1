@@ -453,6 +453,7 @@ mod tests {
             public_chunk: None,
             failure: None,
             activity: None,
+            plan: None,
         }
     }
 

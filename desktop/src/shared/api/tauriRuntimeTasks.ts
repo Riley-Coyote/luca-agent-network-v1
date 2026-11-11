@@ -34,7 +34,14 @@ export type RuntimeTaskStep = {
   state: "queued" | "active" | "done" | "failed";
 };
 
+export type RuntimeTaskOptions = {
+  purpose: "ask" | "task";
+  model?: string;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+};
+
 export type RuntimeTaskProjection = {
+  options?: RuntimeTaskOptions;
   taskId: string;
   conversationId: string;
   residentPubkey: string;
@@ -51,6 +58,7 @@ export type RuntimeTaskProjection = {
   currentStep: string | null;
   completedSteps: number;
   steps: RuntimeTaskStep[];
+  plan?: import("@/shared/ui/WorkPlan").WorkPlanSnapshot;
   startedAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -69,6 +77,7 @@ export type RuntimeTaskResult = {
 };
 
 export type RuntimeTaskProposal = {
+  options?: RuntimeTaskOptions;
   proposalId: string;
   conversationId: string;
   residentPubkey: string;
@@ -89,6 +98,7 @@ export type RuntimeTaskProposalResolved = {
 };
 
 export type StartRuntimeTaskInput = {
+  options?: RuntimeTaskOptions;
   conversationId: string;
   residentPubkey: string;
   runtimeFamily: "codex" | "claude_code";

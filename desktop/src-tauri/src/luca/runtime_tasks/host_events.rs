@@ -32,6 +32,7 @@ pub(super) enum HostEvent {
     Session(String),
     /// A control-free, UTF-8-safe bounded activity label, not a completion claim.
     Step(String),
+    Plan(luca_protocol::WorkPlanV1),
     /// Candidate completion only; result bytes are unavailable until `finish`.
     Result,
     /// A fixed body-free diagnostic; the parser is permanently failed afterward.
@@ -43,6 +44,7 @@ pub(super) enum HostEvent {
 enum Kind {
     Session,
     Step,
+    Plan,
     Result,
     Failed,
 }
@@ -59,6 +61,7 @@ struct Envelope {
     result: Option<String>,
     stop_reason: Option<String>,
     error: Option<String>,
+    plan: Option<luca_protocol::WorkPlanV1>,
 }
 
 /// One child stream's exact provider binding and staged completion evidence.
@@ -176,6 +179,9 @@ impl HostEvents {
         if envelope.protocol != PROTOCOL {
             return Err(INVALID_STREAM);
         }
+        if envelope.plan.is_some() && !matches!(envelope.kind, Kind::Plan) {
+            return Err(INVALID_STREAM);
+        }
         // A terminal marker cannot be followed by any further task event.
         // Failed is still normalized below so callers see its safe diagnostic.
         if self.completed && !matches!(envelope.kind, Kind::Failed) {
@@ -197,6 +203,26 @@ impl HostEvents {
                 self.bind(&session)?;
                 self.session_acknowledged = true;
                 Ok(HostEvent::Session(session))
+            }
+            Kind::Plan => {
+                // A session/load may replay a public plan before its response.
+                // Like step labels it is presentation only, not session or
+                // completion evidence. Any supplied identity still must match.
+                if envelope.label.is_some()
+                    || envelope.result.is_some()
+                    || envelope.error.is_some()
+                    || envelope.stop_reason.is_some()
+                {
+                    return Err(INVALID_STREAM);
+                }
+                if let Some(session) = envelope.provider_session_id.as_deref() {
+                    self.validate_session(session)?;
+                }
+                let plan = envelope.plan.ok_or(INVALID_STREAM)?;
+                if !plan.is_valid() {
+                    return Err(INVALID_STREAM);
+                }
+                Ok(HostEvent::Plan(plan))
             }
             Kind::Step => {
                 if envelope.result.is_some()

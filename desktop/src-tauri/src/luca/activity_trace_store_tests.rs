@@ -24,6 +24,7 @@ fn frame(sequence: u64, kind: ManagedPresentationKindV1) -> ManagedPresentationF
         public_chunk: None,
         failure: None,
         activity: None,
+        plan: None,
     }
 }
 fn step(sequence: u64, ordinal: u64, status: StepStatus) -> ManagedPresentationFrameV1 {
@@ -55,6 +56,59 @@ fn begin(store: &mut TraceStore) {
         &frame(1, ManagedPresentationKindV1::TurnStarted),
         100
     ));
+}
+
+#[test]
+fn public_plan_replacements_are_scoped_sequenced_and_survive_restart_without_fake_completion() {
+    let (directory, mut store) = fixture();
+    begin(&mut store);
+    let mut update = frame(2, ManagedPresentationKindV1::Phase);
+    update.phase = Some(ManagedPresentationPhaseV1::Working);
+    update.plan = luca_protocol::WorkPlanV1::from_acp(&serde_json::json!({"entries":[
+        {"content":"Inspect","status":"completed"}, {"content":"Verify","status":"in_progress"},
+        {"content":"Report","status":"pending"}
+    ]}));
+    assert!(store.observe(&scope(), &update, 110));
+    assert!(!store.observe(&scope(), &update, 111), "stale sequence");
+    let mut stale = update.clone();
+    stale.sequence = SafeU53::new(3).unwrap();
+    stale.session_epoch = SafeU53::new(3).unwrap();
+    assert!(!store.observe(&scope(), &stale, 112), "old runtime");
+    store.save().unwrap();
+    let reloaded = TraceStore::load(directory.path().join("traces.json"), 120).unwrap();
+    let trace = &reloaded.list(&scope())[0];
+    assert_eq!(trace.plan, update.plan.clone().unwrap());
+    assert_eq!(
+        trace.plan.steps[2].status,
+        luca_protocol::WorkPlanStatusV1::Pending
+    );
+    assert!(reloaded
+        .list(&Scope {
+            owner: "33".repeat(32),
+            relay: scope().relay
+        })
+        .is_empty());
+    let mut clear = update.clone();
+    clear.sequence = SafeU53::new(3).unwrap();
+    clear.plan = Some(Default::default());
+    assert!(store.observe(&scope(), &clear, 113));
+    assert!(store.list(&scope())[0].plan.steps.is_empty());
+    update.sequence = SafeU53::new(4).unwrap();
+    assert!(store.observe(&scope(), &update, 114));
+    assert!(store.observe(
+        &scope(),
+        &frame(5, ManagedPresentationKindV1::Completed),
+        115
+    ));
+    assert_eq!(
+        store.list(&scope())[0].plan.steps[1].status,
+        luca_protocol::WorkPlanStatusV1::InProgress
+    );
+    update.sequence = SafeU53::new(6).unwrap();
+    assert!(
+        !store.observe(&scope(), &update, 116),
+        "late updates cannot reopen a turn"
+    );
 }
 
 #[test]

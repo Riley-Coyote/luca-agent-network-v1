@@ -57,15 +57,17 @@ export function useProposalDraft(
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
       .find((task) => Boolean(task.workingFolder))?.workingFolder ?? null;
   return {
+    options: proposal.options,
     conversationId: proposal.conversationId,
     residentPubkey: proposal.residentPubkey,
     residentName: residentNames.get(proposal.residentPubkey) ?? "Your resident",
     runtimeFamily: proposal.runtimeFamily,
     summary: proposal.summary,
     prompt: proposal.summary,
-    workingFolder: existingSession
-      ? proposal.targetWorkingFolder
-      : (projectFolderQuery.data ?? lastUsedFolder),
+    workingFolder:
+      existingSession || proposal.options?.purpose === "ask"
+        ? proposal.targetWorkingFolder
+        : (projectFolderQuery.data ?? lastUsedFolder),
     operation: proposal.operation,
     sourceId: proposal.sourceId,
     sessionId: proposal.sessionId,
@@ -231,9 +233,21 @@ export function ProposalAsk({
   };
   const defaults = [
     runtimeLabel(proposal.runtimeFamily),
+    proposal.options?.model,
+    proposal.options?.effort
+      ? `${proposal.options.effort} effort`
+      : proposal.options?.purpose === "ask"
+        ? "quick answer"
+        : null,
     existing ? "its own permissions" : "ask when needed",
-    folder ? folderName(folder) : "no folder yet",
-  ].join(" · ");
+    proposal.options?.purpose === "ask"
+      ? null
+      : folder
+        ? folderName(folder)
+        : "no folder yet",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <PlaceAskRow
       {...common}

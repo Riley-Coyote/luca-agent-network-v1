@@ -75,6 +75,26 @@ function render(traceOverrides = {}, props = {}) {
   );
 }
 
+test("real plans keep explicit states and fold into one work disclosure", () => {
+  const plan = {
+    steps: [
+      { content: "Read private-notes.md", status: "completed" },
+      { content: "Update the example", status: "in_progress" },
+      { content: "Verify the result", status: "pending" },
+    ],
+  };
+  const live = render({ plan, status: "working", endedAt: null });
+  assert.match(live, /data-plan-status="pending"/);
+  assert.match(live, /Read private-notes.md/);
+  const completed = render({ plan });
+  assert.match(completed, /1 of 3 plan steps completed/);
+  assert.equal((completed.match(/<details/g) ?? []).length, 1);
+  assert.match(completed, /data-plan-status="in_progress"/);
+  const room = render({ plan }, { privateConversation: false });
+  assert.doesNotMatch(room, /private-notes.md/);
+  assert.match(room, /Step 1/);
+});
+
 test("the working row is one plain phrase, and nothing else", () => {
   const html = render({ status: "working", endedAt: null });
   // The step, said plainly. Not the runtime's own words, not its narration.
