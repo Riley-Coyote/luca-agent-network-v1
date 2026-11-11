@@ -3087,16 +3087,47 @@ struct ArtifactObserverState {
     guard_active: bool,
     sensitive_tool_call_ids: std::collections::HashSet<String>,
     private_question_ids: std::collections::HashSet<String>,
+    todo_plans: crate::public_work_plan::TodoPlanTracker,
 }
 
 impl ArtifactObserverState {
     fn clear_tool_calls(&mut self) {
         self.sensitive_tool_call_ids.clear();
         self.private_question_ids.clear();
+        self.todo_plans.clear();
     }
 }
 
 fn observer_payload_for_managed_read(
+    value: &serde_json::Value,
+    artifact_state: &mut ArtifactObserverState,
+) -> serde_json::Value {
+    if let Some(update) = value.pointer("/params/update") {
+        // Public plans are an explicit bounded metadata exception, not an
+        // exception for arbitrary tool bodies or private reasoning. The todo
+        // parser recognizes only the app's real tool and a successful result.
+        let native_plan = (update["sessionUpdate"] == "plan")
+            .then(|| luca_protocol::WorkPlanV1::from_acp(update))
+            .flatten();
+        let todo_plan = artifact_state.todo_plans.observe(update);
+        if let Some(plan) = native_plan {
+            return serde_json::json!({"jsonrpc":"2.0","method":"session/update","params":{
+                "sessionId":safe_public_tool_metadata(value.pointer("/params/sessionId"),128),
+                "update":{"sessionUpdate":"plan","entries":plan.steps,"bodyRedacted":true}
+            }});
+        }
+        if let Some(plan) = todo_plan {
+            let mut frame = public_tool_lifecycle_frame(value, update, "tool_call_update", None);
+            frame["params"]["update"]["publicPlan"] = serde_json::to_value(plan).unwrap_or_default();
+            // Retain the original scrubber's lifecycle bookkeeping as well.
+            let _ = observer_payload_for_managed_read_body(value, artifact_state);
+            return frame;
+        }
+    }
+    observer_payload_for_managed_read_body(value, artifact_state)
+}
+
+fn observer_payload_for_managed_read_body(
     value: &serde_json::Value,
     artifact_state: &mut ArtifactObserverState,
 ) -> serde_json::Value {
@@ -5347,6 +5378,37 @@ esac"#,
         assert!(!log.contains(SENTINEL));
         assert!(log.contains("session/prompt"));
         assert!(log.contains("body_bytes="));
+    }
+
+    #[test]
+    fn public_plan_metadata_survives_the_body_guard_without_forwarding_tool_bodies() {
+        let mut state = ArtifactObserverState { guard_active: true, ..Default::default() };
+        let frame = |update: serde_json::Value| serde_json::json!({
+            "jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":update}
+        });
+        let native = frame(serde_json::json!({"sessionUpdate":"plan","entries":[
+            {"content":"Choose a topic","status":"pending","private":"PRIVATE_BODY"}
+        ],"rawOutput":"PRIVATE_BODY","reasoning":"PRIVATE_BODY"}));
+        let safe = observer_payload_for_managed_read(&native,&mut state);
+        assert!(!safe.to_string().contains("PRIVATE_BODY"));
+        assert_eq!(safe["params"]["update"]["entries"][0]["content"],"Choose a topic");
+        assert!(crate::public_work_plan::from_update(&safe["params"]["update"]).is_some());
+
+        let start = frame(serde_json::json!({"sessionUpdate":"tool_call","toolCallId":"todo-real",
+            "_meta":{"claudeCode":{"toolName":"mcp__buzz__todo"}},"rawInput":{"private":"PRIVATE_BODY"}}));
+        let _ = observer_payload_for_managed_read(&start,&mut state);
+        let complete = frame(serde_json::json!({"sessionUpdate":"tool_call_update","toolCallId":"todo-real",
+            "status":"completed","rawOutput":[{"type":"text","text":"[x] 1. Choose a topic\n[ ] 2. Draft the scene  ← next\n"}],
+            "content":[{"type":"text","text":"PRIVATE_BODY"}]}));
+        let safe = observer_payload_for_managed_read(&complete,&mut state);
+        let update = &safe["params"]["update"];
+        assert!(!safe.to_string().contains("PRIVATE_BODY"));
+        assert!(update.get("rawOutput").is_none());
+        let plan = crate::public_work_plan::from_update(update).unwrap();
+        assert_eq!(plan.steps[0].status,luca_protocol::WorkPlanStatusV1::Completed);
+        assert_eq!(plan.steps[1].status,luca_protocol::WorkPlanStatusV1::Pending);
+        state.clear_tool_calls();
+        assert!(observer_payload_for_managed_read(&complete,&mut state)["params"]["update"].get("publicPlan").is_none());
     }
 
     #[test]

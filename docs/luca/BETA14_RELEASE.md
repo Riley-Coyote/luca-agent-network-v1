@@ -1556,6 +1556,10 @@ main chat and new chat keep that correction's 46 px capsule.
   Pending, active, and completed steps remain distinct, including after restart;
   a terminal turn never fabricates completion of an unfinished plan. Room views
   redact step text, and reasoning text is never used as a plan.
+- The app-owned `buzz.todo` tool also supplies its actual successful list state.
+  Its older open/done format stays pending/completed; "next" is not invented
+  active work. Only bounded, redacted plan metadata crosses the tool-body guard,
+  never arbitrary tool results, failed writes, commands, or private reasoning.
 - Routine work stays in one compact row, with Open task and Stop. No automatic
   drawer/window or completion notice is added. Results use the shared formatted
   message renderer and appear only once on the task page.

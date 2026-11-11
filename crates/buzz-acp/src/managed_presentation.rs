@@ -336,6 +336,18 @@ impl ManagedPresentationPublisher {
                         // new paragraph instead of gluing onto the sentence
                         // written before the tool call.
                         state.public_text.mark_boundary();
+                        if let Some(plan) = crate::public_work_plan::from_update(update) {
+                            self.emit_frame(
+                                state,
+                                ManagedPresentationKindV1::Phase,
+                                Some(ManagedPresentationPhaseV1::Working),
+                                None,
+                                None,
+                                None,
+                                Some(plan),
+                            )
+                            .await;
+                        }
                         // A step the runtime named gets its own line; a plan,
                         // or a runtime that named nothing, leaves the phase
                         // word to speak for itself exactly as before.
@@ -2676,6 +2688,8 @@ mod tests {
                 "sessionUpdate": "tool_call_update", "toolCallId": "call-1",
                 "status": "completed", "rawOutput": {"count": 2},
             }),
+            serde_json::json!({"sessionUpdate":"tool_call_update","toolCallId":"todo-1","status":"completed",
+                "bodyRedacted":true,"publicPlan":{"steps":[{"content":"Verify the change","status":"completed"}]}}),
         ] {
             publisher.ingest(acp_read(update), &mut turns).await;
         }
@@ -2690,11 +2704,12 @@ mod tests {
             .map(|line| serde_json::from_str(line).expect("a valid frame"))
             .collect();
         let plans = frames.iter().filter_map(|frame| frame.plan.as_ref()).collect::<Vec<_>>();
-        assert_eq!(plans.len(), 1);
+        assert_eq!(plans.len(), 2);
         assert_eq!(plans[0].steps[0].status, luca_protocol::WorkPlanStatusV1::Pending);
+        assert_eq!(plans[1].steps[0].status, luca_protocol::WorkPlanStatusV1::Completed);
 
         // turn_started, Thinking, two activity frames and one plan snapshot.
-        assert_eq!(frames.len(), 5, "frames: {frames:?}");
+        assert_eq!(frames.len(), 6, "frames: {frames:?}");
         assert_eq!(frames[0].kind, ManagedPresentationKindV1::TurnStarted);
         assert_eq!(frames[1].phase, Some(ManagedPresentationPhaseV1::Thinking));
         assert!(frames[1].activity.is_none());

@@ -478,10 +478,10 @@ fn spawn_observer_progress(
             };
             if event.kind == "acp_read" {
                 if let Some(update) = event.payload.pointer("/params/update") {
+                    if let Some(plan) = crate::public_work_plan::from_update(update) {
+                        emit_plan(plan);
+                    }
                     if update["sessionUpdate"] == "plan" {
-                        if let Some(plan) = luca_protocol::WorkPlanV1::from_acp(update) {
-                            emit_plan(plan);
-                        }
                         continue;
                     }
                 }

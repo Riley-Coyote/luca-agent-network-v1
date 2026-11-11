@@ -18,6 +18,7 @@ mod managed_mcp_provider;
 mod managed_presentation;
 mod observer;
 mod pool;
+mod public_work_plan;
 mod queue;
 mod relay;
 mod repository_mcp;
