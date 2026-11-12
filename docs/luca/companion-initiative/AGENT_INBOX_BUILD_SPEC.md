@@ -11,6 +11,16 @@ Recheck the branch, instructions, diff and active jobs before implementation.
 This document supersedes the per-exchange rail-entry behavior described in
 WP-34, only for the changes explicitly scoped here. It does not authorize a release.
 
+## Primary working branches amendment — 2026-11-11
+
+The follow-on [delegation and Luca branches build spec](DELEGATION_AND_LUCA_BRANCHES_BUILD_SPEC.md)
+defines temporary working sessions beneath the configured primary resident. This
+is the sole exception to this document's earlier “primary nests nothing” rule:
+there is still one persistent primary home conversation, not several direct
+chats with Luca. Pair inboxes, other residents' direct conversations and the
+main-versus-beside navigation rule below remain unchanged. The follow-on work
+has not been implemented or verified by this amendment.
+
 ## Navigation amendment — 2026-11-08
 
 Riley approved one predictable navigation rule: a rail conversation opens as the
