@@ -638,16 +638,15 @@
   color: hsl(var(--mn-ink-faint));
 }
 
-/* "Current work" says itself only while work rows are there to name. */
+/* An expanded failure receipt is history, not current work. */
 :root[data-luca-frame] .luca-room-stack__head[data-kind="work"] {
   display: none;
 }
 
 :root[data-luca-frame]
-  .luca-room-stack:has(
-    .luca-activity-shelf[data-state="active"],
-    [data-testid="runtime-task-result-receipt"]
-  ):not(:has(.luca-runtime-task-item))
+  .luca-room-stack:has(.luca-activity-shelf[data-state="active"]):not(
+    :has(.luca-runtime-task-item)
+  )
   .luca-room-stack__head[data-kind="work"] {
   display: flex;
 }

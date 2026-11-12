@@ -444,6 +444,8 @@ export function shownSessions(
  *  "Atlas · Tidepool", "Claude Code · fix the build". */
 export type RailSideRow = {
   id: string;
+  /** Present on a harness task; keeps the native ID without unpacking a UI label. */
+  runtimeTaskId?: string;
   label: string;
   /** When it last moved (ms): what orders it. */
   at: number;

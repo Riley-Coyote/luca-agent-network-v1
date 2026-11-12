@@ -1250,6 +1250,8 @@ pub fn run() {
             list_runtime_task_proposals,
             list_all_runtime_task_proposals,
             respond_runtime_task_proposal,
+            get_remembered_runtime_task_access,
+            forget_remembered_runtime_task_access,
             luca::repository_connection_proposals::list_repository_connection_proposals,
             luca::repository_connection_proposals::authorize_repository_connection_proposal,
             luca::repository_connection_proposals::finish_repository_connection_proposal,

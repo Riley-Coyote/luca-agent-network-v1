@@ -71,6 +71,11 @@ export function RuntimeTaskNotices({
     );
     try {
       writeTaskNoticeMemory(localStorage, scope, next);
+      window.dispatchEvent(
+        new CustomEvent("polyphonic:runtime-task-notices-changed", {
+          detail: { scope },
+        }),
+      );
     } catch {
       // Never let storage failure turn dismissal into task cancellation.
     }

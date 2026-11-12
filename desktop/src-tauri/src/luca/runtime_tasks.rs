@@ -4,6 +4,7 @@
 //! profile. It owns confirmation receipts, cancellation and presentation only;
 //! the provider remains the worker and retains its own session history.
 
+use super::runtime_task_delivery::RuntimeTaskDeliveryStateV1;
 use crate::data_dir::BuzzPathExt;
 use std::{
     collections::HashMap,
@@ -24,6 +25,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
+mod admission;
 mod dashboard;
 mod delegation;
 mod delivery;
@@ -32,6 +34,7 @@ mod host_events;
 mod host_io;
 mod lifecycle;
 mod native_sources;
+mod provider_scope;
 mod storage;
 mod targets;
 
@@ -49,6 +52,91 @@ const MAX_TEXT_BYTES: usize = 1_048_576;
 const MAX_RECEIPTS: usize = 512;
 const PROPOSAL_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_RUNTIME_TASK_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The same unambiguous registry coordinate the shell uses. Neither a persona's
+/// display name nor the currently open pane identifies the owner's primary.
+pub(crate) fn is_primary(
+    app: &AppHandle,
+    owner: &luca_protocol::Hex64,
+    resident: &luca_protocol::Hex64,
+) -> Result<bool, String> {
+    if delegation::owner(app)? != *owner {
+        return Ok(false);
+    }
+    let registry = super::resident_registry::load_resident_registry(
+        app,
+        &app.state::<crate::app_state::AppState>(),
+    )?;
+    let mut primary = registry
+        .residents
+        .iter()
+        .filter(|row| row.persona_id.as_deref() == Some("builtin:fizz"));
+    Ok(primary
+        .next()
+        .is_some_and(|row| row.resident_pubkey == *resident)
+        && primary.next().is_none())
+}
+
+pub(crate) fn remembered_access(app: &AppHandle) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({"count":admission::manage(app,false)?}))
+}
+pub(crate) async fn forget_access(app: AppHandle) -> Result<(), String> {
+    let owner = delegation::owner(&app)?;
+    let relay = delivery::current_origin(&app)?.0;
+    admission::manage(&app, true)?;
+    let ids = {
+        let state = memory().lock().map_err(|_| "Task state is unavailable.")?;
+        state
+            .running
+            .keys()
+            .filter(|id| {
+                state.projections.get(*id).is_some_and(|r| {
+                    r.owner_pubkey == owner.as_str() && r.origin_relay_ref.as_ref() == Some(&relay)
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let mut unconfirmed = 0usize;
+    for id in ids {
+        match admission::used_remembered(&app, &owner, &relay, &id) {
+            Ok(false) => (),
+            Ok(true) => {
+                if cancel_runtime_task(app.clone(), id).await.is_err() {
+                    unconfirmed += 1;
+                }
+            }
+            Err(_) => unconfirmed += 1,
+        }
+    }
+    if unconfirmed == 0 {
+        Ok(())
+    } else {
+        Err(format!("Remembered access was removed. Stop could not be confirmed for {unconfirmed} active task(s)."))
+    }
+}
+pub(crate) fn verify_private_admission(
+    app: &AppHandle,
+    approval: &super::runtime_task_delivery::RuntimeTaskDeliveryApprovalV1,
+) -> Result<(), String> {
+    with_private_publication(app, approval, || Ok::<(), String>(()))?
+}
+pub(crate) fn with_private_publication<T, E>(
+    app: &AppHandle,
+    approval: &super::runtime_task_delivery::RuntimeTaskDeliveryApprovalV1,
+    effect: impl FnOnce() -> Result<T, E>,
+) -> Result<Result<T, E>, String> {
+    if !approval.private_home {
+        return Ok(effect());
+    }
+    admission::with_return(
+        app,
+        &approval.owner_pubkey,
+        &approval.origin_relay_ref,
+        approval.task_id.as_str(),
+        effect,
+    )
+}
 
 /// Trusted, local broker authority for one resident's native-session lookup.
 /// This is never supplied by the model, serialized, or persisted.
@@ -104,6 +192,14 @@ pub struct RuntimeTaskStepV1 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeTaskProjectionV1 {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "host_events::deserialize_actual_cost"
+    )]
+    actual_cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    budget_exceeded: Option<bool>,
     #[serde(default)]
     options: luca_protocol::RuntimeTaskOptionsV1,
     task_id: String,
@@ -182,6 +278,8 @@ pub struct RuntimeTaskResultV1 {
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeTaskProposalV1 {
     #[serde(default)]
+    can_remember_private_ask: bool,
+    #[serde(default)]
     options: luca_protocol::RuntimeTaskOptionsV1,
     proposal_id: String,
     conversation_id: String,
@@ -201,6 +299,10 @@ pub struct RuntimeTaskProposalV1 {
 pub struct RespondRuntimeTaskProposalInputV1 {
     proposal_id: String,
     approved: bool,
+    #[serde(default)]
+    use_claude_api: bool,
+    #[serde(default)]
+    remember_access: bool,
     runtime_family: Option<String>,
     working_folder: Option<String>,
     permission_mode: Option<String>,
@@ -231,6 +333,8 @@ struct RuntimeTaskResultArgumentsV1 {
 enum RuntimeTaskProposalDecision {
     Cancel,
     Run {
+        use_claude_api: bool,
+        remember_access: bool,
         runtime_family: String,
         working_folder: String,
         permission_mode: String,
@@ -346,13 +450,14 @@ pub async fn start_runtime_task(
     app: AppHandle,
     input: StartRuntimeTaskInputV1,
 ) -> Result<RuntimeTaskProjectionV1, String> {
-    start_runtime_task_internal(app, input, None).await
+    start_runtime_task_internal(app, input, None, None).await
 }
 
 async fn start_runtime_task_internal(
     app: AppHandle,
     input: StartRuntimeTaskInputV1,
     retry_of_task_id: Option<String>,
+    permit: Option<admission::Permit>,
 ) -> Result<RuntimeTaskProjectionV1, String> {
     load_receipts(&app)?;
     let retry_input = input.clone();
@@ -390,24 +495,53 @@ async fn start_runtime_task_internal(
     )?;
     let permission_mode = permission_mode_for_access(requested_permission_mode, effective_access)?;
     if input.operation != RuntimeTaskOperationV1::NewTask {
-        return delegation::start_existing(app, input, retry_of_task_id).await;
+        return delegation::start_existing(app, input, retry_of_task_id, permit).await;
     }
     if input.source_id.is_some() || input.session_id.is_some() {
         return Err("A new task cannot silently adopt an existing session target.".into());
     }
     #[cfg(not(unix))]
     return Err("Explicit runtime tasks require Polyphonic's local managed host.".into());
-    let (command, adapter) = command_for(runtime_family)?;
+    let provider_pin = permit.as_ref().and_then(|permit| permit.provider.clone());
+    let api_ask = provider_pin
+        .as_ref()
+        .map(|pin| provider_scope::ask_input(&app, pin))
+        .transpose()?;
+    let (command, adapter) = if let Some(route) = &api_ask {
+        if runtime_family != "claude_code"
+            || input.options.purpose != luca_protocol::RuntimeTaskPurposeV1::Ask
+            || permission_mode != "normal"
+            || input.options.model.is_none()
+            || Path::new(&ask_workspace(&app, resident_pubkey.as_str())?) != working_folder
+        {
+            return Err("The writing request no longer matches its private no-tool scope.".into());
+        }
+        (
+            crate::managed_agents::resolve_command("buzz-acp")
+                .ok_or("The task host is unavailable.")?,
+            PathBuf::from(
+                route["executable"]
+                    .as_str()
+                    .ok_or("The exact Claude CLI is unavailable.")?,
+            ),
+        )
+    } else {
+        command_for(runtime_family)?
+    };
     let runtime = crate::managed_agents::known_acp_runtime_exact(if runtime_family == "codex" {
         "codex"
     } else {
         "claude"
     });
-    let native_cli_environment = tauri::async_runtime::spawn_blocking(move || {
-        crate::managed_agents::adapter_runtime_cli_environment(runtime)
-    })
-    .await
-    .map_err(|_| "Native runtime discovery is unavailable.".to_owned())??;
+    let native_cli_environment = if provider_pin.is_some() {
+        None
+    } else {
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::managed_agents::adapter_runtime_cli_environment(runtime)
+        })
+        .await
+        .map_err(|_| "Native runtime discovery is unavailable.".to_owned())??
+    };
     let session_epoch = next_session_epoch()?;
     let app_data_dir = app
         .buzz_path()
@@ -432,15 +566,22 @@ async fn start_runtime_task_internal(
         session_epoch,
     );
     #[cfg(unix)]
-    let managed_permission_fd = super::managed_permission::create_owned_task_endpoint(
-        app.clone(),
-        &permission_lease.scope(),
-        working_folder.clone(),
-    )?;
+    let managed_permission_fd = if provider_pin.is_some() {
+        None
+    } else {
+        Some(super::managed_permission::create_owned_task_endpoint(
+            app.clone(),
+            &permission_lease.scope(),
+            working_folder.clone(),
+        )?)
+    };
     #[cfg(unix)]
-    let managed_mcp_fd =
+    let managed_mcp_fd = if provider_pin.is_none() {
         super::managed_mcp::create_endpoint(app.clone(), resident_pubkey.clone(), session_epoch)
-            .ok();
+            .ok()
+    } else {
+        None
+    };
     let mut process = Command::new(command);
     process
         .arg("runtime-task")
@@ -451,7 +592,7 @@ async fn start_runtime_task_internal(
         .kill_on_drop(true);
     process.env("BUZZ_ACP_AGENT_COMMAND", adapter);
     process.env("BUZZ_ACP_AGENT_ARGS", "");
-    if runtime_family == "claude_code" {
+    if runtime_family == "claude_code" && provider_pin.is_none() {
         crate::managed_agents::claude_model_bridge::configure_claude_model_bridge(
             process.as_std_mut(),
             "claude-agent-acp",
@@ -466,7 +607,11 @@ async fn start_runtime_task_internal(
         "LUCA_MANAGED_SESSION_EPOCH",
         session_epoch.get().to_string(),
     );
-    process.env("LUCA_MANAGED_PERMISSION_FD", "3");
+    if provider_pin.is_none() {
+        process.env("LUCA_MANAGED_PERMISSION_FD", "3");
+    } else {
+        process.env_remove("LUCA_MANAGED_PERMISSION_FD");
+    }
     process.env(
         super::runtime_session_purpose::SESSION_PURPOSE_STORE_ENV,
         purpose_store,
@@ -492,11 +637,14 @@ async fn start_runtime_task_internal(
     #[cfg(unix)]
     {
         process.process_group(0);
-        let permission_fd = managed_permission_fd.raw_fd();
-        let mcp_fd = managed_mcp_fd.as_ref().map(|fd| fd.raw_fd());
-        install_owned_task_descriptors(&mut process, permission_fd, mcp_fd);
+        if let Some(permission_fd) = managed_permission_fd.as_ref() {
+            let mcp_fd = managed_mcp_fd.as_ref().map(|fd| fd.raw_fd());
+            install_owned_task_descriptors(&mut process, permission_fd.raw_fd(), mcp_fd);
+        }
     }
-    let task_id = Uuid::new_v4().to_string();
+    let task_id = permit
+        .as_ref()
+        .map_or_else(|| Uuid::new_v4().to_string(), |p| p.root.task_id.clone());
     let task_input = serde_json::json!({
         "taskId": task_id,
         "conversationId": input.conversation_id.clone(),
@@ -504,11 +652,14 @@ async fn start_runtime_task_internal(
         "workingFolder": working_folder.to_string_lossy(),
         "permissionMode": permission_mode,
         "options": input.options,
+        "claudeApiAsk": api_ask,
     });
     let encoded_input = serde_json::to_vec(&task_input)
         .map_err(|_| "runtime task input could not be encoded".to_owned())?;
     let now = Utc::now().to_rfc3339();
     let projection = RuntimeTaskProjectionV1 {
+        actual_cost_usd: None,
+        budget_exceeded: None,
         options: input.options,
         task_id: task_id.clone(),
         owner_pubkey,
@@ -543,14 +694,27 @@ async fn start_runtime_task_internal(
         can_retry: false,
         retry_of_task_id,
     };
-    execution::launch_owned_task(
-        app,
-        projection,
-        process,
-        encoded_input,
-        Some(retry_input),
-        Some(permission_lease),
-    )
+    // Keychain and the signed audience read can wait for I/O. Neither belongs on
+    // the async executor or under the global task lock.
+    tauri::async_runtime::spawn_blocking(move || {
+        execution::launch_owned_task(
+            app,
+            projection,
+            process,
+            encoded_input,
+            if permit.is_none() {
+                Some(retry_input)
+            } else {
+                None
+            },
+            Some(permission_lease),
+            permit.is_some(),
+            provider_pin,
+            permit.as_ref(),
+        )
+    })
+    .await
+    .map_err(|_| "Task admission could not finish. Check its existing receipt.".to_owned())?
 }
 
 fn permission_mode_for_access(
@@ -595,7 +759,7 @@ pub async fn retry_runtime_task(
             "This task can no longer be retried without reviewing its request.".to_owned()
         })?
     };
-    start_runtime_task_internal(app, input, Some(task_id)).await
+    start_runtime_task_internal(app, input, Some(task_id), None).await
 }
 
 pub async fn cancel_runtime_task(
@@ -603,17 +767,34 @@ pub async fn cancel_runtime_task(
     task_id: String,
 ) -> Result<RuntimeTaskProjectionV1, String> {
     load_receipts(&app)?;
+    // A native application's already-handed-off session cannot be stopped by
+    // this control. Its historical receipt must not acquire a false tombstone.
+    let projected = delivery::ensure_stop_projection(&app, &task_id);
+    if projected.is_ok() {
+        let state = memory().lock().map_err(|_| "Task state is unavailable.")?;
+        if let Some(p) = state.projections.get(&task_id) {
+            delivery::ensure_current_scope(&app, p)?;
+            if p.control_owner != RuntimeTaskControlOwnerV1::Polyphonic {
+                return Err("Stop this externally owned work in the native app.".into());
+            }
+        }
+    }
+    let reserved_stop = admission::stop_if_reserved(&app, &task_id)?;
+    if let Err(error) = projected {
+        return Err(if reserved_stop {
+            "Stop was saved before worker confirmation. This request won't launch again.".into()
+        } else {
+            error
+        });
+    }
     let (cancel, child, permission_scope, projection) = {
         let mut state = memory()
             .lock()
             .map_err(|_| "runtime task state is unavailable".to_owned())?;
-        let running = state
-            .running
-            .get(&task_id)
-            .ok_or_else(|| "runtime task is no longer active".to_owned())?;
-        let cancel = running.cancel.clone();
-        let child = Arc::clone(&running.child);
-        let permission_scope = running.permission_scope.clone();
+        let running = state.running.get(&task_id);
+        let cancel = running.map(|running| running.cancel.clone());
+        let child = running.map(|running| Arc::clone(&running.child));
+        let permission_scope = running.and_then(|running| running.permission_scope.clone());
         let mut projection = state
             .projections
             .get(&task_id)
@@ -623,19 +804,39 @@ pub async fn cancel_runtime_task(
             return Err("Stop this externally owned work in the native app.".into());
         }
         delivery::ensure_current_scope(&app, &projection)?;
-        if !lifecycle::can_cancel(projection.state) {
-            return Err("The task already finished; no stop request was accepted.".into());
+        // Delivery denial is durable first, including after result save. Do
+        // not claim a submitted answer can be recalled or erase worker truth.
+        let return_state = delivery::stop(&app, &task_id)?;
+        if lifecycle::can_cancel(projection.state) {
+            projection.state = if child.is_some() {
+                RuntimeTaskStateV1::Stopping
+            } else {
+                RuntimeTaskStateV1::Stopped
+            };
+            projection.current_step = child.as_ref().map(|_| "Stopping task".to_owned());
         }
-        projection.state = RuntimeTaskStateV1::Stopping;
-        projection.current_step = Some("Stopping task".to_owned());
+        projection.delivery_state = Some(return_state);
+        projection.delivery_can_retry = false;
+        projection.error = Some(match return_state {
+            RuntimeTaskDeliveryStateV1::Published => "The answer was already published; Stop cannot recall it.",
+            RuntimeTaskDeliveryStateV1::Prepared | RuntimeTaskDeliveryStateV1::Submitted => "Stop is saved. The answer may already have been submitted; its exact event will be reconciled, not resent.",
+            _ => "Stop is saved. No new task return will be sent.",
+        }.to_owned());
         projection.updated_at = Utc::now().to_rfc3339();
-        persist_projection(&app, &projection)?;
+        if persist_projection(&app, &projection).is_err() {
+            // The delivery authority already holds the durable denial. A
+            // secondary projection-write failure must not suppress the signal
+            // or leave task-bound permission approvals live.
+            projection.error = Some("Stop is durably saved, but the task display could not be saved. Native cancellation was still requested; an already submitted answer may arrive.".into());
+        }
         state
             .projections
             .insert(task_id.clone(), projection.clone());
         // The durable stop request and signal are committed under the same
         // lock as progress, so a late activity event cannot restore Active.
-        let _ = cancel.send(true);
+        if let Some(cancel) = &cancel {
+            let _ = cancel.send(true);
+        }
         (cancel, child, permission_scope, projection)
     };
     if let Some(scope) = permission_scope {
@@ -643,7 +844,9 @@ pub async fn cancel_runtime_task(
     }
     emit_projection_in_scope(&app, &projection);
     drop(cancel);
-    let _ = execution::stop_owned_child(&child).await;
+    if let Some(child) = child {
+        let _ = execution::stop_owned_child(&child).await;
+    }
     Ok(projection)
 }
 
@@ -951,6 +1154,14 @@ pub fn respond_runtime_task_proposal(
     }
     let decision = if input.approved {
         native_sources::validate_current_scope(&app, &access_scope)?;
+        if (input.remember_access && !input.use_claude_api)
+            || (input.use_claude_api
+                && (!snapshot.can_remember_private_ask
+                    || input.permission_mode.as_deref() != Some("normal")
+                    || input.runtime_family.as_deref() != Some("claude_code")))
+        {
+            return Err("This approval does not cover Claude API writing requests.".into());
+        }
         if let Some(target) = target {
             if input.runtime_family.as_deref() != Some(snapshot.runtime_family.as_str())
                 || input.working_folder.as_deref() != snapshot.target_working_folder.as_deref()
@@ -966,6 +1177,8 @@ pub fn respond_runtime_task_proposal(
                 snapshot.operation,
             )?;
             RuntimeTaskProposalDecision::Run {
+                use_claude_api: false,
+                remember_access: false,
                 runtime_family: snapshot.runtime_family.clone(),
                 working_folder: target
                     .canonical_working_folder
@@ -1003,6 +1216,8 @@ pub fn respond_runtime_task_proposal(
                 _ => return Err("task permission mode is invalid".to_owned()),
             };
             RuntimeTaskProposalDecision::Run {
+                use_claude_api: input.use_claude_api,
+                remember_access: input.remember_access,
                 runtime_family,
                 working_folder,
                 permission_mode,
@@ -1033,6 +1248,7 @@ pub fn respond_runtime_task_proposal(
 pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
     app: &AppHandle,
     access_scope: RuntimeTaskAccessScopeV1,
+    host_trigger: Option<luca_protocol::Hex64>,
     arguments: serde_json::Value,
     mut cancelled: C,
 ) -> Result<String, String> {
@@ -1085,8 +1301,32 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
             None,
         )?)
     };
-    let proposal_id = Uuid::new_v4().to_string();
-    let projection = RuntimeTaskProposalV1 {
+    let private_trigger = match host_trigger {
+        Some(event) if admission::private_owner_turn(app, &access_scope, &event)? => Some(event),
+        _ => None,
+    };
+    let intent = serde_json::json!([
+        runtime_family,
+        options,
+        arguments.operation,
+        arguments.source_id,
+        arguments.session_id,
+        prompt,
+        summary
+    ]);
+    let root = if let Some(event) = &private_trigger {
+        match admission::begin(app, &access_scope, &origin, event, &intent)? {
+            admission::Begin::Existing(ack) => return Ok(ack),
+            admission::Begin::Review(root) => Some(root),
+        }
+    } else {
+        None
+    };
+    let proposal_id = root
+        .as_ref()
+        .map_or_else(|| Uuid::new_v4().to_string(), |r| r.task_id.clone());
+    let mut projection = RuntimeTaskProposalV1 {
+        can_remember_private_ask: false,
         options,
         proposal_id: proposal_id.clone(),
         conversation_id: conversation_id.to_owned(),
@@ -1109,70 +1349,145 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
         },
         created_at: Utc::now().to_rfc3339(),
     };
+    // Treat errors and missing evidence as unavailable, never as a payer,
+    // policy or source the owner implicitly selected.
+    let pin = if root.is_some()
+        && projection.operation == RuntimeTaskOperationV1::NewTask
+        && projection.options.purpose == luca_protocol::RuntimeTaskPurposeV1::Ask
+        && projection
+            .options
+            .model
+            .as_deref()
+            .is_some_and(|m| m.starts_with("claude-") && !m.contains("latest"))
+        && projection.runtime_family == "claude_code"
+    {
+        provider_scope::prepare_review(app, "claude_code")
+            .ok()
+            .and_then(|_| provider_scope::witness(app, "claude_code").ok().flatten())
+    } else {
+        None
+    };
+    let key = pin
+        .as_ref()
+        .map(|pin| {
+            admission::scope_key(
+                &access_scope,
+                &origin,
+                projection
+                    .target_working_folder
+                    .as_deref()
+                    .ok_or("Missing private answer workspace.")?,
+                &projection.options,
+                pin,
+            )
+        })
+        .transpose()?;
+    projection.can_remember_private_ask = key.is_some();
+    let reused = match (&root, &key) {
+        (Some(root), Some(key)) => root.reusable(key)?,
+        _ => false,
+    };
     let (response, decision) = mpsc::sync_channel(1);
     if cancelled() || native_sources::validate_current_scope(app, &access_scope).is_err() {
         return Err("Runtime task authority ended before confirmation. Nothing ran.".into());
     }
-    proposals()
-        .lock()
-        .map_err(|_| "runtime task proposal state is unavailable".to_owned())?
-        .insert(
-            proposal_id.clone(),
-            PendingRuntimeTaskProposal {
-                projection: projection.clone(),
-                response,
-                owner_pubkey: owner.as_str().to_owned(),
-                origin_relay_ref: origin.clone(),
-                target,
-                access_scope: access_scope.clone(),
-            },
-        );
-    let _ = app.emit(PROPOSAL_EVENT_NAME, &projection);
-    let deadline = Instant::now() + PROPOSAL_CONFIRMATION_TIMEOUT;
-    let decision = loop {
-        if cancelled()
-            || native_sources::validate_current_scope(app, &access_scope).is_err()
-            || delegation::owner(app)?.as_str() != owner.as_str()
-            || delivery::current_origin(app)?.0 != origin
-            || app
-                .state::<crate::app_state::AppState>()
-                .shutdown_started
-                .load(std::sync::atomic::Ordering::Acquire)
-        {
-            break Ok(RuntimeTaskProposalDecision::Cancel);
-        }
-        match decision.recv_timeout(Duration::from_millis(100)) {
-            Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => continue,
-            value => break value,
-        }
-    };
-    if let Ok(mut pending) = proposals().lock() {
-        if pending.remove(&proposal_id).is_some()
-            && delegation::owner(app).is_ok_and(|current| current == owner)
-            && delivery::current_origin(app).is_ok_and(|(relay, _)| relay == origin)
-        {
-            let _ = app.emit(
-                PROPOSAL_RESOLVED_EVENT_NAME,
-                serde_json::json!({
-                    "proposalId": proposal_id,
-                    "conversationId": conversation_id,
-                }),
+    let decision = if reused {
+        Ok(RuntimeTaskProposalDecision::Run {
+            runtime_family: projection.runtime_family.clone(),
+            working_folder: projection
+                .target_working_folder
+                .clone()
+                .ok_or("No writing workspace.")?,
+            permission_mode: "normal".into(),
+            use_claude_api: true,
+            remember_access: false,
+        })
+    } else {
+        proposals()
+            .lock()
+            .map_err(|_| "runtime task proposal state is unavailable".to_owned())?
+            .insert(
+                proposal_id.clone(),
+                PendingRuntimeTaskProposal {
+                    projection: projection.clone(),
+                    response,
+                    owner_pubkey: owner.as_str().to_owned(),
+                    origin_relay_ref: origin.clone(),
+                    target,
+                    access_scope: access_scope.clone(),
+                },
             );
+        let _ = app.emit(PROPOSAL_EVENT_NAME, &projection);
+        let deadline = Instant::now() + PROPOSAL_CONFIRMATION_TIMEOUT;
+        let mut next_review_check = Instant::now() + Duration::from_secs(2);
+        let decision = loop {
+            let check_scope = Instant::now() >= next_review_check;
+            if check_scope {
+                next_review_check = Instant::now() + Duration::from_secs(2);
+            }
+            if cancelled()
+                || !access_scope
+                    .active
+                    .load(std::sync::atomic::Ordering::Acquire)
+                || (check_scope
+                    && (native_sources::validate_current_scope(app, &access_scope).is_err()
+                        || delegation::owner(app)?.as_str() != owner.as_str()
+                        || delivery::current_origin(app)?.0 != origin))
+                || app
+                    .state::<crate::app_state::AppState>()
+                    .shutdown_started
+                    .load(std::sync::atomic::Ordering::Acquire)
+            {
+                break Ok(RuntimeTaskProposalDecision::Cancel);
+            }
+            match decision.recv_timeout(Duration::from_millis(100)) {
+                Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => continue,
+                value => break value,
+            }
+        };
+        if let Ok(mut pending) = proposals().lock() {
+            if pending.remove(&proposal_id).is_some()
+                && delegation::owner(app).is_ok_and(|current| current == owner)
+                && delivery::current_origin(app).is_ok_and(|(relay, _)| relay == origin)
+            {
+                let _ = app.emit(
+                    PROPOSAL_RESOLVED_EVENT_NAME,
+                    serde_json::json!({
+                        "proposalId": proposal_id,
+                        "conversationId": conversation_id,
+                    }),
+                );
+            }
         }
-    }
-    let (runtime_family, working_folder, permission_mode) = match decision {
+        decision
+    };
+    let (runtime_family, working_folder, permission_mode, use_api, remember) = match decision {
         Ok(RuntimeTaskProposalDecision::Cancel) => {
-            return Ok("The owner cancelled the proposed runtime task. Nothing ran.".to_owned())
+            if let Some(root) = &root {
+                root.decline()?;
+            }
+            return Ok("The owner cancelled the proposed runtime task. Nothing ran.".to_owned());
         }
         Ok(RuntimeTaskProposalDecision::Run {
+            use_claude_api,
+            remember_access,
             runtime_family,
             working_folder,
             permission_mode,
-        }) => (runtime_family, working_folder, permission_mode),
+        }) => (
+            runtime_family,
+            working_folder,
+            permission_mode,
+            use_claude_api,
+            remember_access,
+        ),
         Err(mpsc::RecvTimeoutError::Timeout) => {
+            if let Some(root) = &root {
+                root.decline()?;
+            }
             return Ok(
                 "The runtime task proposal expired without confirmation. Nothing ran.".to_owned(),
-            )
+            );
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => {
             return Err("runtime task confirmation became unavailable".to_owned())
@@ -1185,7 +1500,35 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
     {
         return Err("Runtime task authority ended before dispatch. Nothing ran.".into());
     }
-    let task = tauri::async_runtime::block_on(start_runtime_task(
+    let mut prompt = prompt;
+    let permit = match (root, private_trigger) {
+        (Some(root), Some(event)) => {
+            if !admission::private_owner_turn(app, &access_scope, &event)? {
+                return Err("The original private task scope changed; nothing ran.".into());
+            }
+            let selected = if use_api {
+                let expected = pin.ok_or("The selected API account isn't available.")?;
+                if provider_scope::witness(app, &runtime_family)?.as_ref() != Some(&expected)
+                    || permission_mode != "normal"
+                {
+                    return Err("The selected account changed. Nothing was sent.".into());
+                }
+                prompt = admission::owner_brief(app, &access_scope, &event)?;
+                Some(expected)
+            } else {
+                None
+            };
+            root.reserve(key.as_deref(), remember, reused, selected.as_ref())?;
+            Some(admission::Permit {
+                root,
+                provider: selected,
+                grant: if remember || reused { key } else { None },
+            })
+        }
+        _ if use_api || remember => return Err("No reviewed private scope.".into()),
+        _ => None,
+    };
+    let task = tauri::async_runtime::block_on(start_runtime_task_internal(
         app.clone(),
         StartRuntimeTaskInputV1 {
             options: projection.options,
@@ -1200,6 +1543,8 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
             source_id: projection.source_id,
             session_id: projection.session_id,
         },
+        None,
+        permit,
     ))?;
     if task.control_owner == RuntimeTaskControlOwnerV1::NativeApp {
         return serde_json::to_string(&serde_json::json!({
@@ -1715,14 +2060,8 @@ fn load_receipts_once(app: &AppHandle) -> Result<(), String> {
         {
             continue;
         }
-        if !projection.owner_pubkey.is_empty() && projection.owner_pubkey != owner {
+        if projection.owner_pubkey != owner {
             continue;
-        }
-        // Legacy receipts predate owner scoping. They stay local to this data
-        // profile and are attributed once on load; new receipts always bind it.
-        if projection.owner_pubkey.is_empty() {
-            projection.owner_pubkey = owner.clone();
-            persist_projection(app, &projection)?;
         }
         projection.can_retry = false;
         if matches!(
@@ -1812,6 +2151,8 @@ mod tests {
             "first line\nsecond line"
         );
         let projection = RuntimeTaskProjectionV1 {
+            actual_cost_usd: None,
+            budget_exceeded: None,
             options: Default::default(),
             task_id: "task-1".into(),
             owner_pubkey: "33".repeat(32),
@@ -1868,6 +2209,7 @@ mod tests {
         ));
 
         let proposal = RuntimeTaskProposalV1 {
+            can_remember_private_ask: false,
             options: Default::default(),
             proposal_id: "proposal-1".into(),
             conversation_id: "conversation-1".into(),
@@ -1883,11 +2225,37 @@ mod tests {
         };
         let encoded = serde_json::to_value(&proposal).unwrap();
         assert!(encoded.get("task").is_none());
+        assert!(encoded.get("actualCostUsd").is_none());
+        assert!(encoded.get("budgetExceeded").is_none());
         assert!(encoded.get("prompt").is_none());
+    }
+
+    #[test]
+    fn optional_final_budget_metadata_round_trips_without_changing_legacy_receipts() {
+        let projection = task_in("task-cost", "private-home", "2026-11-12T00:00:00Z");
+        let mut value = serde_json::to_value(&projection).unwrap();
+        assert!(value.get("actualCostUsd").is_none());
+        assert!(value.get("budgetExceeded").is_none());
+        let legacy: RuntimeTaskProjectionV1 = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(legacy.actual_cost_usd, None);
+        assert_eq!(legacy.budget_exceeded, None);
+        value["actualCostUsd"] = serde_json::json!(0.251);
+        value["budgetExceeded"] = serde_json::json!(true);
+        let with_cost: RuntimeTaskProjectionV1 = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(with_cost.actual_cost_usd, Some(0.251));
+        assert_eq!(with_cost.budget_exceeded, Some(true));
+        assert_eq!(serde_json::to_value(&with_cost).unwrap(), value);
+        value["actualCostUsd"] = serde_json::json!(-0.1);
+        assert!(serde_json::from_value::<RuntimeTaskProjectionV1>(value.clone()).is_err());
+        value["actualCostUsd"] = serde_json::json!(0.1);
+        value["budgetExceeded"] = serde_json::json!("false");
+        assert!(serde_json::from_value::<RuntimeTaskProjectionV1>(value).is_err());
     }
 
     fn task_in(task_id: &str, conversation_id: &str, started_at: &str) -> RuntimeTaskProjectionV1 {
         RuntimeTaskProjectionV1 {
+            actual_cost_usd: None,
+            budget_exceeded: None,
             options: Default::default(),
             task_id: task_id.into(),
             owner_pubkey: "33".repeat(32),
@@ -1927,6 +2295,7 @@ mod tests {
         created_at: &str,
     ) -> RuntimeTaskProposalV1 {
         RuntimeTaskProposalV1 {
+            can_remember_private_ask: false,
             options: Default::default(),
             proposal_id: proposal_id.into(),
             conversation_id: conversation_id.into(),

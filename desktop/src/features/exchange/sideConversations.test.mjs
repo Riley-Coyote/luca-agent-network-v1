@@ -33,6 +33,22 @@ const ROOMS = new Map([
 ]);
 const roomOf = (id) => ROOMS.get(id) ?? "";
 
+test("native-owned tasks never imply observed ongoing execution", () => {
+  for (const state of ["active", "queued", "stopping", "awaiting_native"]) {
+    const [item] = buildSideConversations({
+      exchanges: [],
+      tasks: [
+        task("native", {
+          state,
+          controlOwner: "native_app",
+        }),
+      ],
+    });
+    assert.equal(item.live, false);
+    assert.equal(sideLiveWord(item), null);
+  }
+});
+
 test("a verified reply is not shown as ongoing work or a claim of success", () => {
   assert.equal(exchangeStatusLabel("open", true), "Replied");
   assert.equal(exchangeStatusLabel("closed", true), "Replied");

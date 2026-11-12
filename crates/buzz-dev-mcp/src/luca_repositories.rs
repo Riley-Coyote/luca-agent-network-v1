@@ -231,6 +231,7 @@ struct RepositoryBrokerClient {
     endpoint: PathBuf,
     capability: String,
     conversation_id: String,
+    turn_gate_endpoint: Option<PathBuf>,
 }
 
 impl RepositoryBrokerClient {
@@ -256,6 +257,8 @@ impl RepositoryBrokerClient {
             endpoint,
             capability,
             conversation_id,
+            turn_gate_endpoint: std::env::var_os("LUCA_REPOSITORY_TURN_GATE_ENDPOINT")
+                .map(PathBuf::from),
         })
     }
 
@@ -291,7 +294,12 @@ impl RepositoryBrokerClient {
         }
         bytes.push(b'\n');
         let response = tokio::time::timeout(deadline, async {
-            let mut stream = UnixStream::connect(&self.endpoint)
+            let endpoint = if operation == "propose_runtime_task" {
+                self.turn_gate_endpoint.as_ref().unwrap_or(&self.endpoint)
+            } else {
+                &self.endpoint
+            };
+            let mut stream = UnixStream::connect(endpoint)
                 .await
                 .map_err(|_| internal_error("repository broker is unavailable"))?;
             stream
@@ -1275,6 +1283,7 @@ mod tests {
                 endpoint,
                 capability: format!("sha256:{}", "a".repeat(64)),
                 conversation_id: "attachment-room".into(),
+                turn_gate_endpoint: None,
             }),
             tool_router: LucaRepositoriesMcp::tool_router(),
         };
@@ -1312,6 +1321,7 @@ mod tests {
                 endpoint,
                 capability: format!("sha256:{}", "a".repeat(64)),
                 conversation_id: "setup-room".into(),
+                turn_gate_endpoint: None,
             }),
             tool_router: LucaRepositoriesMcp::tool_router(),
         };
@@ -1525,6 +1535,7 @@ mod tests {
                     endpoint,
                     capability: format!("sha256:{}", "a".repeat(64)),
                     conversation_id: "original-conversation".into(),
+                    turn_gate_endpoint: None,
                 }),
                 tool_router: LucaRepositoriesMcp::tool_router(),
             };
@@ -1742,6 +1753,7 @@ mod tests {
                 endpoint,
                 capability: format!("sha256:{}", "a".repeat(64)),
                 conversation_id: "origin-conversation".into(),
+                turn_gate_endpoint: None,
             }),
             tool_router: LucaRepositoriesMcp::tool_router(),
         };
@@ -1802,6 +1814,7 @@ mod tests {
                     endpoint,
                     capability: format!("sha256:{}", "a".repeat(64)),
                     conversation_id: "origin-conversation".into(),
+                    turn_gate_endpoint: None,
                 }),
                 tool_router: LucaRepositoriesMcp::tool_router(),
             };

@@ -36,8 +36,7 @@ use super::{
     },
     runtime_task_delivery::{
         community_id_for_relay_ref, global_runtime_task_delivery_store, origin_relay_ref,
-        verified_conversation_members, RuntimeTaskDeliveryError,
-        RuntimeTaskDeliveryReconciliationV1, RuntimeTaskDeliveryScopeV1,
+        RuntimeTaskDeliveryError, RuntimeTaskDeliveryReconciliationV1, RuntimeTaskDeliveryScopeV1,
         RuntimeTaskDeliveryStateV1, RuntimeTaskDeliveryStore,
     },
 };
@@ -116,6 +115,13 @@ enum ManagedRelayProbeOutcome {
     Retryable,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TaskPublicationScope {
+    Live,
+    FrozenSubmit,
+    ObserveSubmitted,
+}
+
 enum SerializedSubmission {
     Accepted,
     Published,
@@ -132,6 +138,9 @@ enum SerializedSubmission {
 }
 
 trait ManagedRelayTransport: Send {
+    /// Read-only reconciliation. Never give this path a signed draft to send.
+    fn observe_id(&mut self, event_id: &Hex64, timeout: Duration) -> ManagedRelayProbeOutcome;
+
     fn submit_exact(
         &mut self,
         signed_event_json: &str,
@@ -227,6 +236,35 @@ impl HttpManagedRelayTransport {
 }
 
 impl ManagedRelayTransport for HttpManagedRelayTransport {
+    fn observe_id(&mut self, event_id: &Hex64, timeout: Duration) -> ManagedRelayProbeOutcome {
+        let Ok(body) = serde_json::to_vec(&serde_json::json!([{"ids":[event_id],"limit":1}]))
+        else {
+            return ManagedRelayProbeOutcome::Retryable;
+        };
+        let Ok(response) = self.post_exact("/query", body, timeout) else {
+            return ManagedRelayProbeOutcome::Retryable;
+        };
+        if !response.status().is_success() {
+            return ManagedRelayProbeOutcome::Retryable;
+        }
+        match Self::parse_bounded_json::<Vec<Event>>(response).as_deref() {
+            Ok([]) => ManagedRelayProbeOutcome::Absent,
+            Ok([event])
+                if event.id.to_hex() == event_id.as_str()
+                    && event.pubkey == self.resident_keys.public_key()
+                    && event.kind.as_u16() == 9
+                    && event.verify().is_ok() =>
+            {
+                ManagedRelayProbeOutcome::Present(crate::relay::SubmitEventResponse {
+                    event_id: event_id.as_str().to_owned(),
+                    accepted: true,
+                    message: "observed:".into(),
+                })
+            }
+            _ => ManagedRelayProbeOutcome::Retryable,
+        }
+    }
+
     fn submit_exact(
         &mut self,
         signed_event_json: &str,
@@ -779,13 +817,13 @@ impl ManagedMessagePublisher {
         &self,
         request: &ManagedMessagePublishRequestV1,
     ) -> Result<Option<RuntimeTaskDeliveryScopeV1>, ManagedPublicationAuthorityError> {
-        self.runtime_task_delivery_scope_for(request, false)
+        self.runtime_task_delivery_scope_for(request, TaskPublicationScope::Live)
     }
 
     fn runtime_task_delivery_scope_for(
         &self,
         request: &ManagedMessagePublishRequestV1,
-        frozen_reconciliation: bool,
+        mode: TaskPublicationScope,
     ) -> Result<Option<RuntimeTaskDeliveryScopeV1>, ManagedPublicationAuthorityError> {
         if !self.is_runtime_task_delivery(request)? {
             return Ok(None);
@@ -822,7 +860,7 @@ impl ManagedMessagePublisher {
         // The first synthesis/publication must belong to this live resident
         // host. Once exact bytes are Prepared/Submitted, a restarted host may
         // only reconcile those bytes; it may not synthesize or re-sign them.
-        if !frozen_reconciliation
+        if mode == TaskPublicationScope::Live
             && (authority.active_session_epoch != request.cancellation_epoch.get()
                 || !self
                     .dispatch_store
@@ -835,7 +873,7 @@ impl ManagedMessagePublisher {
         {
             return Err(ManagedPublicationAuthorityError::Denied);
         }
-        if frozen_reconciliation
+        if mode != TaskPublicationScope::Live
             && !matches!(
                 delivery_state,
                 RuntimeTaskDeliveryStateV1::Prepared
@@ -847,10 +885,18 @@ impl ManagedMessagePublisher {
         {
             return Err(ManagedPublicationAuthorityError::Denied);
         }
-        let members = verified_conversation_members(&authority.app, &request.conversation_id)
-            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
-        if !members.contains(&owner) || !members.contains(&request.resident_pubkey) {
-            return Err(ManagedPublicationAuthorityError::Denied);
+        let approval = authority
+            .store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .approval_for_delivery(&request.dispatch_receipt_id)
+            .ok_or(ManagedPublicationAuthorityError::Denied)?;
+        // A prior submission may have been accepted before Stop or Forget.
+        // Observing its ID cannot publish; the store still checks the frozen
+        // request digest, event ID, owner, resident, binding and origin.
+        if mode != TaskPublicationScope::ObserveSubmitted || !approval.private_home {
+            super::runtime_task_delivery::verify_return_home(&authority.app, &approval)
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         }
         Ok(Some(RuntimeTaskDeliveryScopeV1 {
             owner_pubkey: owner,
@@ -1656,7 +1702,14 @@ impl ManagedMessagePublisher {
         frozen_reconciliation: bool,
     ) -> Result<(), ManagedPublicationAuthorityError> {
         let scope = self
-            .runtime_task_delivery_scope_for(&entry.request, frozen_reconciliation)?
+            .runtime_task_delivery_scope_for(
+                &entry.request,
+                if frozen_reconciliation {
+                    TaskPublicationScope::FrozenSubmit
+                } else {
+                    TaskPublicationScope::Live
+                },
+            )?
             .ok_or(ManagedPublicationAuthorityError::Denied)?;
         if entry.state == ManagedOutboxState::Prepared {
             outbox
@@ -1701,24 +1754,50 @@ impl ManagedMessagePublisher {
             .ok_or(ManagedPublicationAuthorityError::Unavailable)?
             .app
             .clone();
-        let initiative=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.store.lock()
-            .map_err(|_|ManagedPublicationAuthorityError::Unavailable)?.approval_for_delivery(&entry.request.dispatch_receipt_id)
-            .is_some_and(|approval|approval.operation==super::runtime_task_delivery::RuntimeTaskDeliveryOperationV1::InitiativeReturn);
-        // Initiative-only external effects hold the denial fence for at most
-        // one second, including connect/write/read. Process the response after
-        // releasing every authority lock; ambiguity retains exact outbox bytes.
+        let authority = self
+            .runtime_task_delivery
+            .as_ref()
+            .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+        let approval = authority
+            .store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .approval_for_delivery(&entry.request.dispatch_receipt_id)
+            .ok_or(ManagedPublicationAuthorityError::Denied)?;
+        let fenced = approval.private_home
+            || approval.operation
+                == super::runtime_task_delivery::RuntimeTaskDeliveryOperationV1::InitiativeReturn;
+        // Fenced submissions have a one-second transport deadline. Process
+        // the response after releasing locks; ambiguity keeps the exact outbox.
         let outcome = super::companion_initiative::returns::with_publication(
             &app,
             &entry.request.dispatch_receipt_id,
             || {
-                Ok(self.transport.submit_exact(
-                    &entry.signed_event_json,
-                    if initiative {
-                        timeout.min(Duration::from_secs(1))
-                    } else {
-                        timeout
-                    },
-                ))
+                // Serialize the final Stop recheck with the external effect.
+                // Stop either persists first or truthfully observes a possibly
+                // submitted event. No task-memory lock crosses this I/O.
+                let mut submit = || -> Result<_, String> {
+                    // Never wait for a contended delivery mutex under admission.
+                    let Ok(guard) = authority.store.try_lock() else {
+                        return Ok(ManagedRelaySubmitOutcome::Retryable);
+                    };
+                    if guard.publication_stopped(&entry.request.dispatch_receipt_id) {
+                        return Err("The owner stopped this task return.".to_owned());
+                    }
+                    Ok(self.transport.submit_exact(
+                        &entry.signed_event_json,
+                        if fenced {
+                            timeout.min(Duration::from_secs(1))
+                        } else {
+                            timeout
+                        },
+                    ))
+                };
+                if approval.private_home {
+                    super::runtime_tasks::with_private_publication(&app, &approval, submit)?
+                } else {
+                    submit()
+                }
             },
         )
         .map_err(|_| ManagedPublicationAuthorityError::Denied)?;
@@ -1752,7 +1831,14 @@ impl ManagedMessagePublisher {
             return self.reject_runtime_task_entry(&entry, outbox);
         }
         let scope = self
-            .runtime_task_delivery_scope_for(&entry.request, true)?
+            .runtime_task_delivery_scope_for(
+                &entry.request,
+                if entry.state == ManagedOutboxState::Submitted {
+                    TaskPublicationScope::ObserveSubmitted
+                } else {
+                    TaskPublicationScope::FrozenSubmit
+                },
+            )?
             .ok_or(ManagedPublicationAuthorityError::Denied)?;
         let decision = self
             .runtime_task_delivery
@@ -1778,9 +1864,12 @@ impl ManagedMessagePublisher {
                 self.reject_runtime_task_entry(&entry, outbox)?;
                 return Err(ManagedPublicationAuthorityError::Denied);
             }
-            RuntimeTaskDeliveryReconciliationV1::Cancelled => {
+            RuntimeTaskDeliveryReconciliationV1::Cancelled
+                if entry.state != ManagedOutboxState::Submitted =>
+            {
                 return Err(ManagedPublicationAuthorityError::Cancelled)
             }
+            RuntimeTaskDeliveryReconciliationV1::Cancelled => {}
             RuntimeTaskDeliveryReconciliationV1::Ready => {}
         }
         if entry.state == ManagedOutboxState::Prepared {
@@ -1797,14 +1886,14 @@ impl ManagedMessagePublisher {
         let initiative=self.runtime_task_delivery.as_ref().ok_or(ManagedPublicationAuthorityError::Unavailable)?.store.lock()
             .map_err(|_|ManagedPublicationAuthorityError::Unavailable)?.approval_for_delivery(&entry.request.dispatch_receipt_id)
             .is_some_and(|approval|approval.operation==super::runtime_task_delivery::RuntimeTaskDeliveryOperationV1::InitiativeReturn);
-        // Probe sends the exact signed body too: it needs the same live fences.
+        // Even while an answer is stopped or its grant is gone, observe only
+        // the exact signed event ID. Absence never authorizes a submission.
         let probe = super::companion_initiative::returns::with_publication(
             &app,
             &entry.request.dispatch_receipt_id,
             || {
-                Ok(self.transport.probe_exact(
-                    &entry.signed_event_json,
-                    entry.event_id.as_str(),
+                Ok(self.transport.observe_id(
+                    &entry.event_id,
                     if initiative {
                         Duration::from_secs(1)
                     } else {
@@ -1819,6 +1908,11 @@ impl ManagedMessagePublisher {
                 if response.event_id == entry.event_id.as_str() && response.accepted =>
             {
                 self.mark_runtime_task_accepted(&entry, outbox)
+            }
+            ManagedRelayProbeOutcome::Absent
+                if decision == RuntimeTaskDeliveryReconciliationV1::Cancelled =>
+            {
+                Err(ManagedPublicationAuthorityError::Cancelled)
             }
             ManagedRelayProbeOutcome::Absent => self.submit_runtime_task_entry(
                 &entry,

@@ -43,6 +43,16 @@ import {
 import { useNewAppConversation } from "@/features/sidebar/lib/appConversation";
 import { useProjectRoomsPlacement } from "@/features/sidebar/lib/projectRoomsPlacement";
 import { useRailWork } from "@/features/sidebar/lib/useRailWork";
+import { activeRuntimeRailRows } from "@/features/sidebar/lib/railWork";
+import { useAllRuntimeTasks } from "@/features/capabilities/useAllRuntimeTasks";
+import {
+  TASK_NOTICE_KEY,
+  readTaskNoticeMemory,
+  taskNoticeScope,
+  visibleTaskNotices,
+} from "@/features/capabilities/lib/runtimeTaskNotices";
+import { useCommunities } from "@/features/communities/useCommunities";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import {
   clearOpenSide,
   noteOpenSide,
@@ -411,6 +421,76 @@ export function ShellRail({
   // The work under whoever does it (WP-34, Decided 3): the exchanges an
   // agent is asked into, the tasks an app runs.
   const work = useRailWork();
+  const runtimeTasks = useAllRuntimeTasks();
+  const { activeCommunity } = useCommunities();
+  const ownerPubkey = useIdentityQuery().data?.pubkey;
+  const noticeScope = taskNoticeScope(
+    ownerPubkey ?? "",
+    activeCommunity?.id ?? "",
+  );
+  const noticeSince = React.useRef(Date.now());
+  const [noticeRevision, refreshNoticeMemory] = React.useReducer(
+    (value: number) => value + 1,
+    0,
+  );
+  React.useEffect(() => {
+    // Share the existing rollout boundary with notices, including when the
+    // first work arrives while its conversation is closed.
+    noticeSince.current = Date.now();
+    if (ownerPubkey && activeCommunity?.id) {
+      const memory = readTaskNoticeMemory(
+        localStorage,
+        noticeScope,
+        noticeSince.current,
+      );
+      try {
+        localStorage.setItem(
+          `${TASK_NOTICE_KEY}:${noticeScope}`,
+          JSON.stringify(memory),
+        );
+      } catch {
+        // Presentation remains session-only when browser storage is unavailable.
+      }
+      refreshNoticeMemory();
+    }
+    const changed = () => refreshNoticeMemory();
+    const storageChanged = (event: StorageEvent) => {
+      if (
+        event.key === null ||
+        event.key.startsWith(`${TASK_NOTICE_KEY}:${noticeScope}`)
+      )
+        changed();
+    };
+    window.addEventListener("storage", storageChanged);
+    window.addEventListener("polyphonic:runtime-task-notices-changed", changed);
+    return () => {
+      window.removeEventListener("storage", storageChanged);
+      window.removeEventListener(
+        "polyphonic:runtime-task-notices-changed",
+        changed,
+      );
+    };
+  }, [noticeScope, ownerPubkey, activeCommunity?.id]);
+  const currentIssueIds = React.useMemo(() => {
+    // Signals only invalidate this read; event payloads never supply authority.
+    void noticeRevision;
+    const memory = readTaskNoticeMemory(
+      localStorage,
+      noticeScope,
+      noticeSince.current,
+    );
+    return new Set(
+      visibleTaskNotices(runtimeTasks, memory).map((task) => task.taskId),
+    );
+  }, [runtimeTasks, noticeScope, noticeRevision]);
+  const tasksById = React.useMemo(
+    () => new Map(runtimeTasks.map((task) => [task.taskId, task])),
+    [runtimeTasks],
+  );
+  const [focusedSide, setFocusedSide] = React.useState<{
+    scope: string;
+    id: string;
+  } | null>(null);
   const sideOf = React.useCallback(
     (home: RailHome): readonly RailSideRow[] => {
       if (home.kind === "agent" && home.pubkey)
@@ -766,7 +846,19 @@ export function ShellRail({
       }}
       onSide={(side) => openSide(side, home.pubkey ?? undefined)}
       openSideId={sideHome?.id === home.id ? openSideId : null}
-      side={sideOf(home)}
+      side={
+        home.kind === "app"
+          ? activeRuntimeRailRows(
+              sideOf(home),
+              tasksById,
+              currentIssueIds,
+              new Set([
+                ...(openSideId ? [openSideId] : []),
+                ...(focusedSide?.scope === noticeScope ? [focusedSide.id] : []),
+              ]),
+            )
+          : sideOf(home)
+      }
       onToggle={(open) => setOpen(home.id, open)}
       selectedChannelId={selectedChannelId}
       unreadChannelIds={unreadChannelIds}
@@ -824,6 +916,23 @@ export function ShellRail({
               railClickAt.current = performance.now();
           }}
           onKeyDown={railKeys}
+          onFocusCapture={(event) => {
+            const target =
+              event.target instanceof Element
+                ? event.target.closest<HTMLElement>("[data-side-id]")
+                : null;
+            setFocusedSide(
+              target?.dataset.sideId
+                ? { scope: noticeScope, id: target.dataset.sideId }
+                : null,
+            );
+          }}
+          onBlurCapture={(event) => {
+            if (
+              !event.currentTarget.contains(event.relatedTarget as Node | null)
+            )
+              setFocusedSide(null);
+          }}
           ref={railRef}
         >
           <div className="luca-rail-section-head luca-rail-head type-eyebrow">
@@ -1226,7 +1335,7 @@ function HomeRow({
   const hiddenLive = side.filter((row) => row.live && !shownSide.has(row.id));
   const sideWord = hiddenLive.some((row) => row.word === "working")
     ? "working"
-    : hiddenLive.length > 0
+    : hiddenLive.some((row) => row.word === "talking")
       ? "talking"
       : null;
   // State words are lowercase, as the study and the Agents rail say them.

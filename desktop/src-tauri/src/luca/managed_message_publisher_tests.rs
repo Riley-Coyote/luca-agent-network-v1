@@ -56,6 +56,15 @@ struct FakeRelayTransport {
 }
 
 impl ManagedRelayTransport for FakeRelayTransport {
+    fn observe_id(&mut self, event_id: &Hex64, _timeout: Duration) -> ManagedRelayProbeOutcome {
+        let mut state = self.state.lock().expect("state");
+        state.probes.push(event_id.as_str().to_owned());
+        state
+            .probe_results
+            .pop_front()
+            .unwrap_or(ManagedRelayProbeOutcome::Retryable)
+    }
+
     fn submit_exact(
         &mut self,
         signed_event_json: &str,
@@ -239,6 +248,12 @@ fn one_shot_http_response(
             let read = stream.read(&mut chunk).expect("read request body");
             assert_ne!(read, 0, "request closed before body");
             request.extend_from_slice(&chunk[..read]);
+        }
+        if expected_path == Some("/query") {
+            let body: serde_json::Value = serde_json::from_slice(&request[header_end..]).unwrap();
+            let id = body[0]["ids"][0].as_str().unwrap();
+            assert!(Hex64::parse(id.to_owned()).is_ok());
+            assert_eq!(body, serde_json::json!([{"ids":[id],"limit":1}]));
         }
         let reason = if status == 200 { "OK" } else { "Test" };
         let response = format!(
@@ -436,6 +451,46 @@ fn managed_http_probe_uses_payload_bound_mode_and_typed_absence() {
         ManagedRelayProbeOutcome::Absent
     ));
     server.join().expect("server");
+}
+
+#[test]
+fn runtime_task_observation_sends_only_id_and_confirms_only_verified_resident_event() {
+    let fixture = fixture();
+    let id = Hex64::parse(fixture.event_id.clone()).unwrap();
+    let signed: serde_json::Value = serde_json::from_str(&fixture.exact_event_json).unwrap();
+    let mut tampered = signed.clone();
+    tampered["content"] = serde_json::json!("different answer");
+    let other = Keys::parse(&"95".repeat(32)).unwrap();
+    for (keys, response, expected) in [
+        (
+            fixture.resident.clone(),
+            serde_json::json!([signed.clone()]),
+            "present",
+        ),
+        (fixture.resident.clone(), serde_json::json!([]), "absent"),
+        (
+            fixture.resident.clone(),
+            serde_json::json!([tampered]),
+            "unknown",
+        ),
+        (other, serde_json::json!([signed]), "unknown"),
+    ] {
+        let (url, server) =
+            one_shot_http_response(200, serde_json::to_vec(&response).unwrap(), Some("/query"));
+        let mut transport = HttpManagedRelayTransport::new(keys, &url, None).unwrap();
+        let actual = match transport.observe_id(&id, Duration::from_secs(2)) {
+            ManagedRelayProbeOutcome::Present(ack)
+                if ack.event_id == id.as_str() && ack.accepted =>
+            {
+                "present"
+            }
+            ManagedRelayProbeOutcome::Absent => "absent",
+            ManagedRelayProbeOutcome::Retryable => "unknown",
+            other => panic!("unexpected observation {other:?}"),
+        };
+        assert_eq!(actual, expected);
+        server.join().unwrap();
+    }
 }
 
 #[test]

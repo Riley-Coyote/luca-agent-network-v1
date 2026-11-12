@@ -135,6 +135,20 @@ pub(super) fn read_bounded(path: &Path, max_bytes: usize) -> io::Result<Vec<u8>>
     Ok(bytes)
 }
 
+/// Resolve one host-issued task ID directly, never a path or archive scan.
+pub(super) fn exact_receipt_bytes(directory: &Path, id: &str) -> io::Result<Vec<u8>> {
+    let uuid = uuid::Uuid::parse_str(id).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "invalid runtime task identity")
+    })?;
+    if uuid.to_string() != id {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "noncanonical runtime task identity",
+        ));
+    }
+    read_bounded(&directory.join(format!("{id}.json")), 64 * 1024)
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct ReceiptCandidate {
     modified: SystemTime,
@@ -329,6 +343,46 @@ mod tests {
             std::os::unix::fs::symlink(&path, &link).unwrap();
             assert!(read_bounded(&link, 7).is_err());
         }
+    }
+
+    #[test]
+    fn exact_receipt_recovery_ignores_latest_512_and_rejects_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let id = "11111111-1111-4111-8111-111111111111";
+        receipt_file(
+            directory.path(),
+            &format!("{id}.json"),
+            1,
+            b"retained result receipt",
+        );
+        for index in 0..513 {
+            receipt_file(
+                directory.path(),
+                &format!("newer-{index}.json"),
+                2,
+                b"newer",
+            );
+        }
+        assert!(!newest_receipt_paths(directory.path(), 512, 64 * 1024)
+            .unwrap()
+            .contains(&directory.path().join(format!("{id}.json"))));
+        assert_eq!(
+            exact_receipt_bytes(directory.path(), id).unwrap(),
+            b"retained result receipt"
+        );
+        for invalid in [
+            "../secret",
+            "not-a-uuid",
+            "{11111111-1111-4111-8111-111111111111}",
+        ] {
+            assert!(exact_receipt_bytes(directory.path(), invalid).is_err());
+        }
+        fs::write(
+            directory.path().join(format!("{id}.json")),
+            vec![b'x'; 64 * 1024 + 1],
+        )
+        .unwrap();
+        assert!(exact_receipt_bytes(directory.path(), id).is_err());
     }
 
     fn receipt_file(directory: &Path, name: &str, modified_seconds: u64, contents: &[u8]) {

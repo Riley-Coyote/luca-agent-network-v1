@@ -70,6 +70,9 @@ impl RuntimeTaskDeliveryStateV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RuntimeTaskDeliveryApprovalV1 {
+    /// Host-verified quiet delegation; legacy/group returns retain their audience rules.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub private_home: bool,
     pub task_id: OpaqueId,
     pub owner_pubkey: Hex64,
     pub resident_pubkey: Hex64,
@@ -204,6 +207,8 @@ impl std::error::Error for RuntimeTaskDeliveryError {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RuntimeTaskDeliveryRowV1 {
+    #[serde(default, skip_serializing_if = "is_false")]
+    stop_requested: bool,
     approval: RuntimeTaskDeliveryApprovalV1,
     approval_sha256: Sha256Ref,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -238,6 +243,10 @@ struct PersistedRuntimeTaskDeliveryStoreV1 {
 pub(crate) struct RuntimeTaskDeliveryStore {
     path: PathBuf,
     rows: HashMap<String, RuntimeTaskDeliveryRowV1>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Bound the opened stream as well as its metadata. Concurrent growth must not
@@ -301,6 +310,9 @@ impl RuntimeTaskDeliveryStore {
         validate_approval(&approval)?;
         let approval_sha256 = sha256_ref(&approval)?;
         if let Some(existing) = self.rows.get(approval.task_id.as_str()) {
+            if existing.stop_requested {
+                return Err(RuntimeTaskDeliveryError::Cancelled);
+            }
             return if existing.approval_sha256 == approval_sha256 {
                 Ok(receipt(existing))
             } else {
@@ -314,6 +326,7 @@ impl RuntimeTaskDeliveryStore {
             return Err(RuntimeTaskDeliveryError::Unavailable);
         }
         let row = RuntimeTaskDeliveryRowV1 {
+            stop_requested: false,
             updated_at: approval.approved_at.clone(),
             approval,
             approval_sha256,
@@ -382,6 +395,9 @@ impl RuntimeTaskDeliveryStore {
     ) -> Result<RuntimeTaskDeliveryReceiptV1, RuntimeTaskDeliveryError> {
         let key = task_id.as_str();
         let existing = self.rows.get(key).ok_or(RuntimeTaskDeliveryError::Denied)?;
+        if existing.stop_requested {
+            return Err(RuntimeTaskDeliveryError::Cancelled);
+        }
         if let Some(bound) = &existing.result_sha256 {
             return if bound == &result_sha256 {
                 Ok(receipt(existing))
@@ -446,6 +462,60 @@ impl RuntimeTaskDeliveryStore {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// Persist task-specific denial before signalling a worker. Submitted bytes
+    /// remain reconcilable: Stop cannot recall an effect already sent.
+    pub(crate) fn stop_task(
+        &mut self,
+        task_id: &OpaqueId,
+        updated_at: CanonicalTimestamp,
+    ) -> Result<RuntimeTaskDeliveryStateV1, RuntimeTaskDeliveryError> {
+        let key = task_id.as_str();
+        let current = self.rows.get(key).ok_or(RuntimeTaskDeliveryError::Denied)?;
+        if current.stop_requested {
+            return Ok(current.state);
+        }
+        let before = current.clone();
+        let row = self
+            .rows
+            .get_mut(key)
+            .ok_or(RuntimeTaskDeliveryError::Unavailable)?;
+        row.stop_requested = true;
+        if !matches!(
+            row.state,
+            RuntimeTaskDeliveryStateV1::Published | RuntimeTaskDeliveryStateV1::Rejected
+        ) && row.submitted_event_id.is_none()
+        {
+            let prepared = row.state == RuntimeTaskDeliveryStateV1::Prepared;
+            row.state = RuntimeTaskDeliveryStateV1::Cancelled;
+            row.synthesis_lease_deadline_unix_ms = None;
+            row.outbox_finalized = !prepared;
+        }
+        row.updated_at = updated_at;
+        let stopped_state = row.state;
+        if let Err(error) = self.persist() {
+            self.rows.insert(key.to_owned(), before);
+            return Err(error);
+        }
+        Ok(stopped_state)
+    }
+
+    /// Check while holding this store lock continuously through external submit.
+    pub(crate) fn publication_stopped(&self, delivery_id: &OpaqueId) -> bool {
+        self.key_for_delivery(delivery_id)
+            .ok()
+            .and_then(|key| self.rows.get(&key))
+            .is_none_or(|row| row.stop_requested)
+    }
+
+    pub(crate) fn approval_for_task(
+        &self,
+        task_id: &OpaqueId,
+    ) -> Option<RuntimeTaskDeliveryApprovalV1> {
+        self.rows
+            .get(task_id.as_str())
+            .map(|row| row.approval.clone())
     }
 
     /// Close an authority when a durable projection claims success but the
@@ -602,6 +672,9 @@ impl RuntimeTaskDeliveryStore {
             .rows
             .get(&key)
             .ok_or(RuntimeTaskDeliveryError::Unavailable)?;
+        if current.stop_requested {
+            return Err(RuntimeTaskDeliveryError::Cancelled);
+        }
         if !scope_matches(current, scope) {
             self.block(&key, updated_at)?;
             return Err(RuntimeTaskDeliveryError::Denied);
@@ -854,7 +927,8 @@ impl RuntimeTaskDeliveryStore {
 
     pub(crate) fn has_synthesis_claim(&self, expected: &RuntimeTaskSynthesisClaimV1) -> bool {
         self.rows.get(expected.task_id.as_str()).is_some_and(|row| {
-            row.state == RuntimeTaskDeliveryStateV1::Synthesizing
+            !row.stop_requested
+                && row.state == RuntimeTaskDeliveryStateV1::Synthesizing
                 && claim(row).is_ok_and(|current| current == *expected)
         })
     }
@@ -912,7 +986,7 @@ impl RuntimeTaskDeliveryStore {
         if !scope_matches(row, scope) || !request_matches(row, request) {
             return Err(RuntimeTaskDeliveryError::Denied);
         }
-        if row.state == RuntimeTaskDeliveryStateV1::Cancelled {
+        if row.stop_requested || row.state == RuntimeTaskDeliveryStateV1::Cancelled {
             return Err(RuntimeTaskDeliveryError::Cancelled);
         }
         if row.state == RuntimeTaskDeliveryStateV1::Published {
@@ -989,7 +1063,8 @@ impl RuntimeTaskDeliveryStore {
             .rows
             .get(&key)
             .ok_or(RuntimeTaskDeliveryError::Unavailable)?;
-        if current.state != RuntimeTaskDeliveryStateV1::Prepared
+        if current.stop_requested
+            || current.state != RuntimeTaskDeliveryStateV1::Prepared
             || current.request_sha256.as_ref() != Some(&request_sha256)
             || current
                 .submitted_event_id
@@ -1045,11 +1120,15 @@ impl RuntimeTaskDeliveryStore {
             .submitted_event_id
             .as_ref()
             .is_some_and(|bound| bound != event_id)
+            || (current.approval.private_home
+                && was_submitted
+                && current.submitted_event_id.as_ref() != Some(event_id))
         {
             return Err(RuntimeTaskDeliveryError::Denied);
         }
         let decision = match current.state {
             RuntimeTaskDeliveryStateV1::Published => RuntimeTaskDeliveryReconciliationV1::Published,
+            _ if current.stop_requested => RuntimeTaskDeliveryReconciliationV1::Cancelled,
             RuntimeTaskDeliveryStateV1::Cancelled => RuntimeTaskDeliveryReconciliationV1::Cancelled,
             RuntimeTaskDeliveryStateV1::Rejected => RuntimeTaskDeliveryReconciliationV1::Rejected,
             RuntimeTaskDeliveryStateV1::Prepared | RuntimeTaskDeliveryStateV1::Submitted => {
@@ -1426,15 +1505,135 @@ pub(crate) fn verify_private_return_dm(
     resident: &Hex64,
 ) -> Result<(), String> {
     let (relay_self, events) = verified_conversation_events(app, conversation_id)?;
-    let metadata = exact_relay_coordinate(&events, &relay_self, conversation_id, 39000)?;
+    verify_private_return_dm_from_events(&relay_self, conversation_id, owner, resident, &events)
+}
+
+/// Positive signed classifications only. Failure to prove either is an error,
+/// never permission to downgrade a private request to reviewed group delivery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum VerifiedReturnHomeV1 {
+    ExactPrivate,
+    OtherConversation,
+}
+
+/// Fetch current relay authority once and distinguish an exact private home
+/// from a positively identified ordinary conversation. Transport, missing or
+/// ambiguous evidence, archived homes and expanded DMs fail closed.
+pub(crate) fn classify_private_return_home(
+    app: &AppHandle,
+    conversation_id: &OpaqueId,
+    owner: &Hex64,
+    resident: &Hex64,
+) -> Result<VerifiedReturnHomeV1, String> {
+    let (relay_self, events) = verified_conversation_events(app, conversation_id)?;
+    classify_private_return_home_from_events(&relay_self, conversation_id, owner, resident, &events)
+}
+
+fn classify_private_return_home_from_events(
+    relay_self: &str,
+    conversation_id: &OpaqueId,
+    owner: &Hex64,
+    resident: &Hex64,
+    events: &[nostr::Event],
+) -> Result<VerifiedReturnHomeV1, String> {
+    let metadata = exact_relay_coordinate(events, relay_self, conversation_id, 39000)?;
+    // ChannelInfo's no-type fallback is useful for display, but the absence of
+    // a type tag is not positive proof that a room is an ordinary stream.
+    // Retain the relay's documented legacy hidden=>DM representation only.
+    let type_tags = metadata
+        .tags
+        .iter()
+        .filter(|tag| tag.as_slice().first().is_some_and(|part| part == "t"))
+        .collect::<Vec<_>>();
+    if type_tags.len() > 1
+        || type_tags
+            .first()
+            .is_some_and(|tag| tag.as_slice().len() != 2)
+    {
+        return Err("Conversation type evidence is ambiguous.".into());
+    }
     let channel = crate::nostr_convert::channel_info_from_event(metadata, None, None)?;
-    let members = verified_conversation_members_from_events(&relay_self, conversation_id, &events)?;
-    if channel.channel_type != "dm"
-        || members.len() != 2
-        || !members.contains(owner)
-        || !members.contains(resident)
+    if channel.archived_at.is_some() || owner == resident {
+        return Err("The original conversation is not an available return home.".into());
+    }
+    if type_tags.is_empty() && channel.channel_type != "dm" {
+        return Err("Conversation type evidence is unavailable.".into());
+    }
+    if !matches!(
+        channel.channel_type.as_str(),
+        "dm" | "stream" | "forum" | "workflow"
+    ) {
+        return Err("Conversation type evidence is invalid.".into());
+    }
+    let members = verified_conversation_members_from_events(relay_self, conversation_id, events)?;
+    if !members.contains(owner) || !members.contains(resident) {
+        return Err("Conversation audience could not be verified.".into());
+    }
+    if channel.channel_type == "dm" {
+        if members.len() != 2 {
+            return Err(
+                "The private conversation audience changed; no group fallback is permitted.".into(),
+            );
+        }
+        Ok(VerifiedReturnHomeV1::ExactPrivate)
+    } else {
+        Ok(VerifiedReturnHomeV1::OtherConversation)
+    }
+}
+
+fn verify_private_return_dm_from_events(
+    relay_self: &str,
+    conversation_id: &OpaqueId,
+    owner: &Hex64,
+    resident: &Hex64,
+    events: &[nostr::Event],
+) -> Result<(), String> {
+    if classify_private_return_home_from_events(
+        relay_self,
+        conversation_id,
+        owner,
+        resident,
+        events,
+    )? != VerifiedReturnHomeV1::ExactPrivate
     {
         return Err("Companion returns require your private two-member conversation.".into());
+    }
+    Ok(())
+}
+
+/// Recheck exact audience only for host-admitted private flows; group delivery
+/// keeps its established owner/resident membership semantics.
+pub(crate) fn verify_return_home(
+    app: &AppHandle,
+    approval: &RuntimeTaskDeliveryApprovalV1,
+) -> Result<(), String> {
+    if approval.private_home {
+        super::runtime_tasks::verify_private_admission(app, approval)?;
+    }
+    if approval.private_home
+        && !super::runtime_tasks::is_primary(
+            app,
+            &approval.owner_pubkey,
+            &approval.resident_pubkey,
+        )?
+    {
+        return Err(
+            "The original primary resident is no longer selected; the result stays private.".into(),
+        );
+    }
+    if approval.private_home
+        || approval.operation == RuntimeTaskDeliveryOperationV1::InitiativeReturn
+    {
+        return verify_private_return_dm(
+            app,
+            &approval.conversation_id,
+            &approval.owner_pubkey,
+            &approval.resident_pubkey,
+        );
+    }
+    let members = verified_conversation_members(app, &approval.conversation_id)?;
+    if !members.contains(&approval.owner_pubkey) || !members.contains(&approval.resident_pubkey) {
+        return Err("Task return audience changed.".into());
     }
     Ok(())
 }
@@ -1621,13 +1820,14 @@ fn validate_row(row: &RuntimeTaskDeliveryRowV1) -> Result<(), RuntimeTaskDeliver
             bound_pair && row.submitted_event_id.is_some() && row.published_event_id.is_none()
         }
         RuntimeTaskDeliveryStateV1::Cancelled => {
-            (!bound_pair
-                && row.delivery_id.is_none()
-                && row.result_sha256.is_none()
-                && row.request_sha256.is_none()
-                && row.submitted_event_id.is_none()
-                && row.published_event_id.is_none()
-                && row.outbox_finalized)
+            (row.stop_requested && bound_pair && row.published_event_id.is_none())
+                || (!bound_pair
+                    && row.delivery_id.is_none()
+                    && row.result_sha256.is_none()
+                    && row.request_sha256.is_none()
+                    && row.submitted_event_id.is_none()
+                    && row.published_event_id.is_none()
+                    && row.outbox_finalized)
                 || (bound_pair
                     && row.submitted_event_id.is_some()
                     && row.published_event_id.is_none())
@@ -1647,7 +1847,8 @@ fn validate_row(row: &RuntimeTaskDeliveryRowV1) -> Result<(), RuntimeTaskDeliver
         )
         || (row.synthesis_attempts == 0
             && row.state == RuntimeTaskDeliveryStateV1::Cancelled
-            && bound_pair)
+            && bound_pair
+            && !row.stop_requested)
     {
         return Err(RuntimeTaskDeliveryError::Invalid);
     }

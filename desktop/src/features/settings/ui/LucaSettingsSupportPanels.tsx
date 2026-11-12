@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getVersion } from "@tauri-apps/api/app";
 import {
   Activity,
@@ -10,6 +11,12 @@ import {
 } from "lucide-react";
 
 import { UpdateChecker } from "@/features/settings/UpdateChecker";
+import { useCommunities } from "@/features/communities/useCommunities";
+import { useIdentityQuery } from "@/shared/api/hooks";
+import {
+  getRememberedRuntimeTaskAccess,
+  forgetRememberedRuntimeTaskAccess,
+} from "@/shared/api/tauriRuntimeTasks";
 import {
   listLucaMcpRegistry,
   listRuntimeConnectionStatus,
@@ -111,11 +118,90 @@ export function DefaultsPermissionsSettings() {
               Enabled by default
             </span>
           </SettingsOptionRow>
+          <RememberedPrivateAskAccessRow />
         </SettingsOptionGroup>
       </section>
       <PreventSleepSettingsCard />
       <AgentDefaultsSettingsCard />
     </div>
+  );
+}
+
+/** Revoke only host-reported remembered scopes; this row never issues grants. */
+export function RememberedPrivateAskAccessRow() {
+  const queryClient = useQueryClient();
+  const owner = useIdentityQuery().data?.pubkey;
+  const { activeCommunity, reinitKey } = useCommunities();
+  const frame = useShellFrameEnabled();
+  const queryKey = [
+    "remembered-runtime-task-access",
+    owner,
+    activeCommunity?.id,
+    reinitKey,
+  ];
+  const scopes = useQuery({
+    queryKey,
+    queryFn: getRememberedRuntimeTaskAccess,
+    enabled: Boolean(owner && activeCommunity?.id),
+    retry: false,
+    staleTime: 0,
+  });
+  const forget = useMutation({
+    mutationFn: forgetRememberedRuntimeTaskAccess,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey });
+    },
+  });
+  return (
+    <RememberedPrivateAskAccessControls
+      count={scopes.isSuccess ? scopes.data.count : 0}
+      error={forget.isError}
+      frame={frame}
+      onForget={() => forget.mutate()}
+      pending={forget.isPending}
+    />
+  );
+}
+
+/** Existing permission-row presentation, populated only by the native count. */
+export function RememberedPrivateAskAccessControls({
+  count,
+  error,
+  frame,
+  onForget,
+  pending,
+}: {
+  count: number;
+  error: boolean;
+  frame: boolean;
+  onForget: () => void;
+  pending: boolean;
+}) {
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return (
+    <SettingsOptionRow className="border-t border-border/50">
+      <div>
+        <p className="text-sm font-medium">Remembered private-chat asks</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Matching asks can use the approved Claude API account and model.
+          Project files and tools are not included.
+        </p>
+        {error ? (
+          <p className="mt-1 text-sm text-destructive" role="alert">
+            Could not forget this access. Try again.
+          </p>
+        ) : null}
+      </div>
+      <Button
+        aria-label="Forget remembered private-chat ask access"
+        disabled={pending}
+        onClick={onForget}
+        size={frame ? "quiet" : "sm"}
+        variant={frame ? "quiet" : "outline"}
+      >
+        {pending ? "Forgetting…" : "Forget"}
+      </Button>
+    </SettingsOptionRow>
   );
 }
 

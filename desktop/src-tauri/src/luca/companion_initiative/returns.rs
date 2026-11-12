@@ -437,6 +437,7 @@ fn deliver_one(app: &AppHandle, job: &InitiativeJobV1) -> Result<(), String> {
         .clone()
         .ok_or_else(|| err(()))?;
     let approval = RuntimeTaskDeliveryApprovalV1 {
+        private_home: false, // InitiativeReturn has its own reviewed private-destination gate.
         task_id: job.input.job_id.clone(),
         owner_pubkey: job.owner_pubkey.clone(),
         resident_pubkey: job.resident_pubkey.clone(),

@@ -24,6 +24,8 @@ function runtimeTargetLabel(target: RuntimeTarget) {
 }
 
 export type RuntimeTaskDraft = {
+  /** Host-bound eligibility only; never inferred from the prompt. */
+  canRememberPrivateAsk?: boolean;
   options?: RuntimeTaskOptions;
   conversationId: string;
   residentPubkey: string;
@@ -40,6 +42,8 @@ export type RuntimeTaskDraft = {
 };
 
 export type RuntimeTaskConfirmationDetails = {
+  useClaudeApi?: boolean;
+  rememberAccess?: boolean;
   runtimeFamily: RuntimeTarget;
   workingFolder: string;
   permissionMode: "normal" | "full_access";
@@ -47,6 +51,23 @@ export type RuntimeTaskConfirmationDetails = {
   sourceId?: string | null;
   sessionId?: string | null;
 };
+
+/** Explicit API access is narrow, and remembering never implies selecting it. */
+export function privateAskAccessSelection(
+  draft: RuntimeTaskDraft,
+  useClaudeApi: boolean,
+  rememberAccess: boolean,
+): Partial<RuntimeTaskConfirmationDetails> {
+  return draft.canRememberPrivateAsk === true && useClaudeApi
+    ? {
+        useClaudeApi: true,
+        rememberAccess: rememberAccess === true,
+        runtimeFamily: "claude_code",
+        permissionMode: "normal",
+        workingFolder: draft.targetWorkingFolder ?? "",
+      }
+    : {};
+}
 
 export function RuntimeTaskConfirmationCard({
   draft,
@@ -62,6 +83,7 @@ export function RuntimeTaskConfirmationCard({
   // Under the frame its confirm is the ask's quiet answer: Talk stays the only
   // solid action on a screen (SHELL_BUILD.md WP-16, Decided 2).
   const shellFrame = useShellFrameEnabled();
+  const apiDisclosureId = React.useId();
   const existingSession = isExistingRuntimeTask(draft.operation);
   const operationLabel =
     draft.operation === "send_message" ? "Send" : "Continue";
@@ -96,10 +118,18 @@ export function RuntimeTaskConfirmationCard({
   const [selectedFolder, setWorkingFolder] = React.useState(
     draft.workingFolder ?? "",
   );
-  const target = existingSession ? draft.runtimeFamily : selectedTarget;
-  const workingFolder = existingSession
-    ? (draft.targetWorkingFolder ?? "")
-    : selectedFolder;
+  const [useClaudeApi, setUseClaudeApi] = React.useState(false);
+  const [rememberAccess, setRememberAccess] = React.useState(false);
+  const apiSelected = draft.canRememberPrivateAsk === true && useClaudeApi;
+  const target = apiSelected
+    ? "claude_code"
+    : existingSession
+      ? draft.runtimeFamily
+      : selectedTarget;
+  const workingFolder =
+    apiSelected || existingSession
+      ? (draft.targetWorkingFolder ?? "")
+      : selectedFolder;
   const exactTargetReady = Boolean(
     draft.sourceId?.trim() && draft.sessionId?.trim() && workingFolder.trim(),
   );
@@ -126,9 +156,11 @@ export function RuntimeTaskConfirmationCard({
     }
   }, [draft.workingFolder, existingSession, selectedFolder]);
 
-  const targetReady = existingSession
-    ? exactTargetReady
-    : availableTargets.some((runtime) => runtime.runtimeId === target);
+  const targetReady = apiSelected
+    ? Boolean(draft.targetWorkingFolder?.trim())
+    : existingSession
+      ? exactTargetReady
+      : availableTargets.some((runtime) => runtime.runtimeId === target);
 
   const confirm = () => {
     setIsStarting(true);
@@ -136,7 +168,8 @@ export function RuntimeTaskConfirmationCard({
     void onConfirm({
       runtimeFamily: target,
       workingFolder,
-      permissionMode: existingSession ? "normal" : permissionMode,
+      permissionMode:
+        apiSelected || existingSession ? "normal" : permissionMode,
       ...(existingSession
         ? {
             operation: draft.operation,
@@ -144,6 +177,7 @@ export function RuntimeTaskConfirmationCard({
             sessionId: draft.sessionId,
           }
         : {}),
+      ...privateAskAccessSelection(draft, apiSelected, rememberAccess),
     })
       .then(onConfirmed)
       .catch((cause: unknown) => {
@@ -158,10 +192,14 @@ export function RuntimeTaskConfirmationCard({
   const confirmLabel = isStarting
     ? existingSession
       ? "Sending…"
-      : "Starting…"
+      : apiSelected
+        ? "Asking…"
+        : "Starting…"
     : existingSession
       ? operationLabel
-      : "Run";
+      : apiSelected
+        ? "Ask"
+        : "Run";
 
   return (
     <section
@@ -176,7 +214,9 @@ export function RuntimeTaskConfirmationCard({
               ? draft.operation === "send_message"
                 ? "Send to existing session"
                 : "Continue existing session"
-              : "Run task"}
+              : draft.canRememberPrivateAsk
+                ? "Ask Claude Code"
+                : "Run task"}
           </p>
           <p className="mt-0.5 text-xs text-ink-muted">
             {existingSession
@@ -196,92 +236,141 @@ export function RuntimeTaskConfirmationCard({
         </Button>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="grid gap-1 text-xs text-ink-muted">
-          Runtime
-          <select
-            className="h-9 rounded-lg border border-border/55 bg-background px-2.5 text-sm text-ink outline-none focus-visible:border-ring"
-            disabled={
-              existingSession ||
-              isStarting ||
-              runtimeQuery.isLoading ||
-              availableTargets.length === 0
-            }
-            onChange={(event) =>
-              setTarget(event.currentTarget.value as RuntimeTarget)
-            }
-            value={target}
-          >
-            {existingSession ? (
-              <option value={target}>{runtimeTargetLabel(target)}</option>
-            ) : !targetReady ? (
-              <option disabled value={target}>
-                {runtimeTargetLabel(target)} —{" "}
-                {runtimeQuery.isLoading
-                  ? "checking"
-                  : runtimeQuery.isError
-                    ? "could not verify"
-                    : "unavailable"}
-              </option>
-            ) : null}
-            {!existingSession &&
-              availableTargets.map((runtime) => (
-                <option key={runtime.runtimeId} value={runtime.runtimeId}>
-                  {runtime.label}
-                </option>
-              ))}
-          </select>
-        </label>
-        {existingSession ? (
-          <div className="grid gap-1 text-xs text-ink-muted">
-            <span>Permission policy</span>
-            <span>Keep this session's native permissions</span>
-          </div>
-        ) : (
-          <label className="grid gap-1 text-xs text-ink-muted">
-            Permission mode
-            <select
-              className="h-9 rounded-lg border border-border/55 bg-background px-2.5 text-sm text-ink outline-none focus-visible:border-ring"
+      {draft.canRememberPrivateAsk === true ? (
+        <div className="mt-4 grid gap-3 text-xs text-ink-muted">
+          <label className="flex items-start gap-2">
+            <input
+              aria-describedby={apiDisclosureId}
+              checked={apiSelected}
               disabled={isStarting}
-              onChange={(event) =>
-                setPermissionMode(
-                  event.currentTarget.value as "normal" | "full_access",
-                )
-              }
-              value={permissionMode}
-            >
-              <option value="normal">Ask when needed</option>
-              <option disabled={!fullAccessEnabled} value="full_access">
-                {fullAccessEnabled
-                  ? "Full Access"
-                  : "Full Access — enable in Settings"}
-              </option>
-            </select>
+              onChange={(event) => {
+                setUseClaudeApi(event.currentTarget.checked);
+                setRememberAccess(false);
+              }}
+              type="checkbox"
+            />
+            <span>Use the connected Claude API account for this answer</span>
           </label>
-        )}
-      </div>
+          <p id={apiDisclosureId}>
+            Only your current message goes to{" "}
+            {draft.options?.model ?? "the selected Claude model"}. No project
+            files or tools. Claude Code uses a $0.25 task budget. Final charges
+            come from Anthropic.
+          </p>
+          {apiSelected ? (
+            <label className="flex items-start gap-2">
+              <input
+                checked={rememberAccess}
+                disabled={isStarting}
+                onChange={(event) =>
+                  setRememberAccess(event.currentTarget.checked)
+                }
+                type="checkbox"
+              />
+              <span>
+                Remember for matching asks in this private chat
+                <span className="mt-1 block">
+                  Same model and account. No project access.
+                </span>
+              </span>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
 
-      <div className="mt-3 grid gap-1">
-        <span className="text-xs text-ink-muted">Working folder</span>
-        <button
-          className="flex h-9 min-w-0 items-center gap-2 rounded-lg border border-border/55 bg-background px-2.5 text-left text-sm text-ink hover:bg-plate"
-          disabled={isStarting || existingSession}
-          onClick={() => {
-            void pickRuntimeTaskFolder().then((folder) => {
-              if (folder) {
-                setWorkingFolder(folder);
-                setError(null);
-              }
-            });
-          }}
-          type="button"
-        >
-          <FolderOpen aria-hidden className="size-4 shrink-0 text-ink-muted" />
-          <span className="truncate">
-            {workingFolder || "Choose a project or working folder"}
-          </span>
-        </button>
-      </div>
+      {!apiSelected ? (
+        <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-xs text-ink-muted">
+              Runtime
+              <select
+                className="h-9 rounded-lg border border-border/55 bg-background px-2.5 text-sm text-ink outline-none focus-visible:border-ring"
+                disabled={
+                  existingSession ||
+                  isStarting ||
+                  runtimeQuery.isLoading ||
+                  availableTargets.length === 0
+                }
+                onChange={(event) =>
+                  setTarget(event.currentTarget.value as RuntimeTarget)
+                }
+                value={target}
+              >
+                {existingSession ? (
+                  <option value={target}>{runtimeTargetLabel(target)}</option>
+                ) : !targetReady ? (
+                  <option disabled value={target}>
+                    {runtimeTargetLabel(target)} —{" "}
+                    {runtimeQuery.isLoading
+                      ? "checking"
+                      : runtimeQuery.isError
+                        ? "could not verify"
+                        : "unavailable"}
+                  </option>
+                ) : null}
+                {!existingSession &&
+                  availableTargets.map((runtime) => (
+                    <option key={runtime.runtimeId} value={runtime.runtimeId}>
+                      {runtime.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {existingSession ? (
+              <div className="grid gap-1 text-xs text-ink-muted">
+                <span>Permission policy</span>
+                <span>Keep this session's native permissions</span>
+              </div>
+            ) : (
+              <label className="grid gap-1 text-xs text-ink-muted">
+                Permission mode
+                <select
+                  className="h-9 rounded-lg border border-border/55 bg-background px-2.5 text-sm text-ink outline-none focus-visible:border-ring"
+                  disabled={isStarting}
+                  onChange={(event) =>
+                    setPermissionMode(
+                      event.currentTarget.value as "normal" | "full_access",
+                    )
+                  }
+                  value={permissionMode}
+                >
+                  <option value="normal">Ask when needed</option>
+                  <option disabled={!fullAccessEnabled} value="full_access">
+                    {fullAccessEnabled
+                      ? "Full Access"
+                      : "Full Access — enable in Settings"}
+                  </option>
+                </select>
+              </label>
+            )}
+          </div>
+
+          <div className="mt-3 grid gap-1">
+            <span className="text-xs text-ink-muted">Working folder</span>
+            <button
+              className="flex h-9 min-w-0 items-center gap-2 rounded-lg border border-border/55 bg-background px-2.5 text-left text-sm text-ink hover:bg-plate"
+              disabled={isStarting || existingSession}
+              onClick={() => {
+                void pickRuntimeTaskFolder().then((folder) => {
+                  if (folder) {
+                    setWorkingFolder(folder);
+                    setError(null);
+                  }
+                });
+              }}
+              type="button"
+            >
+              <FolderOpen
+                aria-hidden
+                className="size-4 shrink-0 text-ink-muted"
+              />
+              <span className="truncate">
+                {workingFolder || "Choose a project or working folder"}
+              </span>
+            </button>
+          </div>
+        </>
+      ) : null}
 
       <div className="mt-3 rounded-xl bg-background/70 px-3 py-2.5">
         {existingSession && draft.targetLabel ? (
@@ -306,9 +395,19 @@ export function RuntimeTaskConfirmationCard({
       ) : null}
       {draft.operation !== "send_message" ? (
         <p className="mt-3 text-xs text-ink-muted">
-          Confirming authorizes this exact task and one result summary by{" "}
-          {draft.residentName} back into this same conversation. It does not
-          authorize another provider task.
+          {apiSelected ? (
+            rememberAccess ? (
+              "Matching asks can run without another review. Answers come back here. You can forget this access in Settings."
+            ) : (
+              "This approves one answer in this private chat."
+            )
+          ) : (
+            <>
+              Confirming authorizes this exact task and one result summary by{" "}
+              {draft.residentName} back into this same conversation. It does not
+              authorize another provider task.
+            </>
+          )}
         </p>
       ) : null}
       {existingSession && !exactTargetReady ? (
@@ -317,32 +416,40 @@ export function RuntimeTaskConfirmationCard({
           resident to resolve the target again; no work will be sent.
         </p>
       ) : null}
-      {!existingSession && permissionMode === "full_access" ? (
+      {apiSelected && !targetReady ? (
+        <p className="mt-3 text-xs text-destructive" role="alert">
+          The private answer workspace is unavailable. Ask again; no API request
+          will be sent.
+        </p>
+      ) : null}
+      {!apiSelected && !existingSession && permissionMode === "full_access" ? (
         <div className="mt-3 flex gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           <ShieldCheck aria-hidden className="mt-0.5 size-3.5 shrink-0" />
           Full Access lets this runtime work without individual approval prompts
           for this task.
         </div>
       ) : null}
-      {!existingSession && capabilitySettingsQuery.isError ? (
+      {!apiSelected && !existingSession && capabilitySettingsQuery.isError ? (
         <p className="mt-3 text-xs text-ink-muted">
           Full Access could not be verified, so this task will ask when needed.
         </p>
       ) : null}
-      {!existingSession && runtimeQuery.isError ? (
+      {!apiSelected && !existingSession && runtimeQuery.isError ? (
         <p className="mt-3 text-xs text-destructive">
           Polyphonic could not check which runtimes are ready. Reconnect Codex
           or Claude Code, then try this task again.
         </p>
       ) : null}
-      {!existingSession &&
+      {!apiSelected &&
+      !existingSession &&
       runtimeQuery.isSuccess &&
       availableTargets.length === 0 ? (
         <p className="mt-3 text-xs text-destructive">
           Connect and authenticate Codex or Claude Code before running a task.
         </p>
       ) : null}
-      {!existingSession &&
+      {!apiSelected &&
+      !existingSession &&
       runtimeQuery.isSuccess &&
       availableTargets.length > 0 &&
       !targetReady ? (

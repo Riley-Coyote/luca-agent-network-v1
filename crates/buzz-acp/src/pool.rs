@@ -2574,19 +2574,41 @@ fn managed_artifact_turn(
 fn open_artifact_turn_gate(
     ctx: &PromptContext,
     turn: Option<&crate::artifact_mcp::ArtifactTurnBindingV1>,
-) -> Option<crate::artifact_turn_gate::OwnerTurnGuard> {
-    let gate = ctx.artifact_turn_gate.as_ref()?;
-    let turn = turn?;
-    Some(gate.open_guarded(turn.clone()))
+    repository_turn: Option<&crate::communications_mcp::CommunicationsTurnBindingV1>,
+) -> Option<ToolTurnGuards> {
+    let artifact = ctx
+        .artifact_turn_gate
+        .as_ref()
+        .zip(turn)
+        .map(|(gate, turn)| gate.open_guarded(turn.clone()));
+    let repository = ctx
+        .repository_mcp
+        .as_ref()
+        .zip(repository_turn)
+        .and_then(|(gate, turn)| gate.open_turn(turn.clone()));
+    Some(ToolTurnGuards {
+        artifact,
+        repository,
+    })
+}
+
+struct ToolTurnGuards {
+    artifact: Option<crate::artifact_turn_gate::OwnerTurnGuard>,
+    repository: Option<crate::repository_mcp::RepositoryTurnGuard>,
 }
 
 /// Close a turn early, before a point where closing matters more than
 /// waiting for the guard's own drop (a cancel, the final hand-off). A no-op
 /// when there was no gate, no resolved turn, or the guard was already
 /// closed.
-fn close_artifact_turn_gate(guard: &mut Option<crate::artifact_turn_gate::OwnerTurnGuard>) {
+fn close_artifact_turn_gate(guard: &mut Option<ToolTurnGuards>) {
     if let Some(guard) = guard.as_mut() {
-        guard.close();
+        if let Some(artifact) = guard.artifact.as_mut() {
+            artifact.close();
+        }
+        if let Some(repository) = guard.repository.as_mut() {
+            repository.close();
+        }
     }
 }
 
@@ -4054,6 +4076,34 @@ async fn run_prompt_task_inner(
         PromptSource::Channel(_) => managed_artifact_turn(&ctx, batch.as_ref(), &turn_id),
         PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
     };
+    // Resolve from this trusted batch, not from a warm session's old MCP env
+    // or whichever conversation happens to be selected in the shell.
+    let repository_turn = if matches!(source, PromptSource::Channel(_))
+        && ctx.repository_mcp.is_some()
+    {
+        ctx.managed_final_publisher
+            .as_ref()
+            .zip(batch.as_ref())
+            .and_then(|(managed, batch)| {
+                let trigger = last_eligible_managed_trigger(batch, &managed.owner_pubkey)?;
+                let turn = crate::luca_final_publisher::ManagedFinalTurn::from_triggering_event(
+                    managed,
+                    &turn_id,
+                    batch.channel_id,
+                    trigger,
+                    None,
+                )
+                .ok()?;
+                Some(crate::communications_mcp::CommunicationsTurnBindingV1 {
+                    conversation_id: turn.conversation_id,
+                    turn_id: turn.turn_id,
+                    dispatch_receipt_id: turn.dispatch_receipt_id,
+                    cancellation_epoch: turn.cancellation_epoch,
+                })
+            })
+    } else {
+        None
+    };
     let triggering_event_ids: Vec<String> = batch
         .as_ref()
         .map(|b| b.events.iter().map(|be| be.event.id.to_hex()).collect())
@@ -5128,7 +5178,7 @@ async fn run_prompt_task_inner(
     // site below; every other exit path out of this function closes it too,
     // via its `Drop` — see `open_artifact_turn_gate`.
     let mut artifact_gate_guard = if matches!(source, PromptSource::Channel(_)) {
-        open_artifact_turn_gate(&ctx, artifact_turn.as_ref())
+        open_artifact_turn_gate(&ctx, artifact_turn.as_ref(), repository_turn.as_ref())
     } else {
         None
     };

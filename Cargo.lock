@@ -693,6 +693,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdd35008169921d80bc60d3d0ab416eecb028c4cd653352907921d95084790be"
 dependencies = [
  "hybrid-array",
+ "zeroize",
 ]
 
 [[package]]
@@ -2405,6 +2406,7 @@ dependencies = [
  "const-oid",
  "crypto-common 0.2.2",
  "ctutils",
+ "zeroize",
 ]
 
 [[package]]
@@ -4595,6 +4597,7 @@ dependencies = [
  "buzz-sdk",
  "chrono",
  "hex",
+ "hmac 0.13.0",
  "jsonschema",
  "nostr",
  "schemars",
@@ -4602,6 +4605,7 @@ dependencies = [
  "serde_json",
  "serde_json_canonicalizer",
  "sha2 0.11.0",
+ "subtle",
  "thiserror 2.0.18",
  "url",
  "uuid",

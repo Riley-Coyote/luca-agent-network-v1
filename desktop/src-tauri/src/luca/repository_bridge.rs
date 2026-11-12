@@ -68,6 +68,8 @@ struct RepositoryBrokerFrameV1 {
     conversation_id: OpaqueId,
     operation: RepositoryToolOperationV1,
     arguments: Value,
+    #[serde(default)]
+    host_turn: Option<luca_protocol::RuntimeTaskTurnProofV1>,
 }
 
 #[derive(Serialize)]
@@ -542,6 +544,45 @@ fn handle_frame(
         });
     }
     if frame.operation == RepositoryToolOperationV1::ProposeRuntimeTask {
+        // Only the harness-local exact-turn gate can mint this signature.
+        // A stale supplied proof is an error, never a fallback to whichever
+        // owner turn is currently active in the conversation.
+        let host_trigger = if let Some(proof) = &frame.host_turn {
+            let expected = luca_protocol::runtime_task_turn_signature(
+                master_capability,
+                &context.resident_pubkey,
+                context.session_epoch,
+                &context.binding_ref,
+                &frame.conversation_id,
+                proof,
+                &frame.arguments,
+            )?;
+            if !luca_protocol::runtime_task_turn_signature_matches(&expected, &proof.signature) {
+                return Err("Runtime task host turn proof is invalid.".into());
+            }
+            let store = super::managed_dispatch_store::global_dispatch_store(app)?;
+            let guard = store
+                .lock()
+                .map_err(|_| "Runtime task turn authority is unavailable.")?;
+            let dispatch = guard
+                .recheck_communication_turn(
+                    proof.trigger_event_id.as_str(),
+                    context.resident_pubkey.as_str(),
+                    frame.conversation_id.as_str(),
+                    context.session_epoch.get(),
+                    u64::try_from(Utc::now().timestamp())
+                        .map_err(|_| "Runtime task clock is invalid.")?,
+                )
+                .map_err(|_| "Runtime task host turn is stale or stopped.")?;
+            if dispatch.owner_pubkey != context.owner_pubkey.as_str()
+                || dispatch.descendant_depth != 0
+            {
+                return Err("Runtime task requires an ordinary owner turn.".into());
+            }
+            Some(proof.trigger_event_id.clone())
+        } else {
+            None
+        };
         let mut probe = caller
             .try_clone()
             .map_err(|_| "Runtime task caller is unavailable.".to_owned())?;
@@ -558,6 +599,7 @@ fn handle_frame(
                 conversation_id: frame.conversation_id.clone(),
                 active: Arc::clone(active),
             },
+            host_trigger,
             frame.arguments,
             || {
                 !active.load(Ordering::SeqCst)

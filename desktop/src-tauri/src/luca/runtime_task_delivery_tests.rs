@@ -17,6 +17,7 @@ fn timestamp(second: u8) -> CanonicalTimestamp {
 fn approval() -> RuntimeTaskDeliveryApprovalV1 {
     let relay = digest("44");
     RuntimeTaskDeliveryApprovalV1 {
+        private_home: false,
         task_id: OpaqueId::parse("11111111-1111-4111-8111-111111111111").unwrap(),
         owner_pubkey: hex("11"),
         resident_pubkey: hex("22"),
@@ -211,7 +212,13 @@ fn signed_coordinate(keys: &Keys, kind: u16, conversation: &str, tags: Vec<Tag>)
 fn bind_and_claim(
     store: &mut RuntimeTaskDeliveryStore,
 ) -> (RuntimeTaskSynthesisClaimV1, RuntimeTaskDeliveryScopeV1) {
-    let approval = approval();
+    bind_and_claim_approval(store, approval())
+}
+
+fn bind_and_claim_approval(
+    store: &mut RuntimeTaskDeliveryStore,
+    approval: RuntimeTaskDeliveryApprovalV1,
+) -> (RuntimeTaskSynthesisClaimV1, RuntimeTaskDeliveryScopeV1) {
     store.create_authority(approval.clone()).unwrap();
     let receipt = store
         .bind_succeeded_result(&approval.task_id, digest("66"), timestamp(2))
@@ -274,6 +281,300 @@ fn approval_is_idempotent_but_task_id_collision_is_denied() {
     assert_eq!(
         store.create_authority(collision),
         Err(RuntimeTaskDeliveryError::Denied)
+    );
+}
+
+#[test]
+fn private_home_flag_is_hash_bound_without_changing_legacy_bytes() {
+    let (_directory, mut store) = store();
+    let mut approved = approval();
+    assert!(serde_json::to_value(&approved)
+        .unwrap()
+        .get("private_home")
+        .is_none());
+    store.create_authority(approved.clone()).unwrap();
+    approved.private_home = true;
+    assert_eq!(
+        store.create_authority(approved),
+        Err(RuntimeTaskDeliveryError::Denied)
+    );
+}
+
+#[test]
+fn private_return_rejects_expanded_or_archived_home_but_group_membership_is_unchanged() {
+    let relay = Keys::generate();
+    let approved = approval();
+    for (third_member, archived, allowed) in [
+        (false, false, true),
+        (true, false, false),
+        (false, true, false),
+    ] {
+        let mut tags = vec![
+            Tag::parse(["t", "dm"]).unwrap(),
+            Tag::parse(["p", approved.owner_pubkey.as_str()]).unwrap(),
+            Tag::parse(["p", approved.resident_pubkey.as_str()]).unwrap(),
+        ];
+        if third_member {
+            tags.push(Tag::parse(["p", hex("99").as_str()]).unwrap());
+        }
+        if archived {
+            tags.push(Tag::parse(["archived", "true"]).unwrap());
+        }
+        let event = signed_coordinate(&relay, 39000, approved.conversation_id.as_str(), tags);
+        let events = [event];
+        assert_eq!(
+            verify_private_return_dm_from_events(
+                &relay.public_key().to_hex(),
+                &approved.conversation_id,
+                &approved.owner_pubkey,
+                &approved.resident_pubkey,
+                &events
+            )
+            .is_ok(),
+            allowed
+        );
+        // The general membership primitive still reports the real audience;
+        // no global two-member restriction has been imposed on groups.
+        let members = verified_conversation_members_from_events(
+            &relay.public_key().to_hex(),
+            &approved.conversation_id,
+            &events,
+        )
+        .unwrap();
+        assert_eq!(members.len(), if third_member { 3 } else { 2 });
+    }
+}
+
+#[test]
+fn private_home_classification_requires_positive_type_and_signed_current_audience() {
+    let relay = Keys::generate();
+    let attacker = Keys::generate();
+    let approved = approval();
+    let classify = |events: &[Event]| {
+        classify_private_return_home_from_events(
+            &relay.public_key().to_hex(),
+            &approved.conversation_id,
+            &approved.owner_pubkey,
+            &approved.resident_pubkey,
+            events,
+        )
+    };
+    let participants = || {
+        vec![
+            Tag::parse(["p", approved.owner_pubkey.as_str()]).unwrap(),
+            Tag::parse(["p", approved.resident_pubkey.as_str()]).unwrap(),
+        ]
+    };
+    let metadata = |kind: &str| {
+        signed_coordinate(
+            &relay,
+            39000,
+            approved.conversation_id.as_str(),
+            vec![Tag::parse(["t", kind]).unwrap()],
+        )
+    };
+    let members = signed_coordinate(
+        &relay,
+        39002,
+        approved.conversation_id.as_str(),
+        participants(),
+    );
+    let mut dm_tags = participants();
+    dm_tags.push(Tag::parse(["t", "dm"]).unwrap());
+    let dm = signed_coordinate(
+        &relay,
+        39000,
+        approved.conversation_id.as_str(),
+        dm_tags.clone(),
+    );
+    assert_eq!(
+        classify(&[dm.clone()]).unwrap(),
+        VerifiedReturnHomeV1::ExactPrivate
+    );
+    for kind in ["stream", "forum", "workflow"] {
+        assert_eq!(
+            classify(&[metadata(kind), members.clone()]).unwrap(),
+            VerifiedReturnHomeV1::OtherConversation
+        );
+    }
+    // Even authenticated extra DM members never become a group fallback.
+    dm_tags.push(Tag::parse(["p", hex("99").as_str()]).unwrap());
+    let expanded_dm = signed_coordinate(&relay, 39000, approved.conversation_id.as_str(), dm_tags);
+    assert!(classify(&[expanded_dm, members.clone()]).is_err());
+    assert!(classify(&[]).is_err());
+    assert!(classify(&[metadata("stream")]).is_err());
+    assert!(classify(&[metadata("unrecognized"), members.clone()]).is_err());
+    let missing_type = signed_coordinate(&relay, 39000, approved.conversation_id.as_str(), vec![]);
+    assert!(classify(&[missing_type, members.clone()]).is_err());
+    let forged_members = signed_coordinate(
+        &attacker,
+        39002,
+        approved.conversation_id.as_str(),
+        participants(),
+    );
+    assert!(classify(&[metadata("stream"), forged_members]).is_err());
+    let stale_coordinate = signed_coordinate(&relay, 39002, "another-home", participants());
+    assert!(classify(&[metadata("stream"), stale_coordinate]).is_err());
+    // Two competing signed metadata/member coordinates are not a current
+    // verified audience, even if one of the alternatives looks acceptable.
+    assert!(classify(&[dm.clone(), metadata("stream"), members.clone()]).is_err());
+    assert!(classify(&[metadata("stream"), members.clone(), members.clone()]).is_err());
+    let ambiguous_type = signed_coordinate(
+        &relay,
+        39000,
+        approved.conversation_id.as_str(),
+        vec![
+            Tag::parse(["t", "dm"]).unwrap(),
+            Tag::parse(["t", "stream"]).unwrap(),
+        ],
+    );
+    assert!(classify(&[ambiguous_type, members.clone()]).is_err());
+    let missing_actor = signed_coordinate(
+        &relay,
+        39002,
+        approved.conversation_id.as_str(),
+        vec![Tag::parse(["p", approved.owner_pubkey.as_str()]).unwrap()],
+    );
+    assert!(classify(&[metadata("stream"), missing_actor]).is_err());
+    let archived = signed_coordinate(
+        &relay,
+        39000,
+        approved.conversation_id.as_str(),
+        vec![
+            Tag::parse(["t", "stream"]).unwrap(),
+            Tag::parse(["archived", "true"]).unwrap(),
+        ],
+    );
+    assert!(classify(&[archived, members]).is_err());
+    // A real legacy relay hidden-DM is still positively private, not inferred
+    // as a group merely because its explicit type tag predates this client.
+    let mut legacy_tags = participants();
+    legacy_tags.push(Tag::parse(["hidden"]).unwrap());
+    let legacy = signed_coordinate(
+        &relay,
+        39000,
+        approved.conversation_id.as_str(),
+        legacy_tags,
+    );
+    assert_eq!(
+        classify(&[legacy]).unwrap(),
+        VerifiedReturnHomeV1::ExactPrivate
+    );
+}
+
+#[test]
+fn stop_pending_result_with_no_synthesis_attempt_survives_restart() {
+    let (directory, mut store) = store();
+    let approved = approval();
+    store.create_authority(approved.clone()).unwrap();
+    store
+        .bind_succeeded_result(&approved.task_id, digest("66"), timestamp(2))
+        .unwrap();
+    store.stop_task(&approved.task_id, timestamp(3)).unwrap();
+    let restarted =
+        RuntimeTaskDeliveryStore::load(directory.path().join("deliveries.json")).unwrap();
+    assert_eq!(
+        restarted.receipt_for_task(&approved.task_id).unwrap().state,
+        RuntimeTaskDeliveryStateV1::Cancelled
+    );
+    assert!(restarted
+        .pending_for_recovery(&approved.owner_pubkey, MAX_DELIVERIES)
+        .is_empty());
+}
+
+#[test]
+fn durable_stop_before_result_survives_restart_and_rejects_late_success() {
+    let (directory, mut store) = store();
+    let approved = approval();
+    store.create_authority(approved.clone()).unwrap();
+    assert_eq!(
+        store.stop_task(&approved.task_id, timestamp(2)).unwrap(),
+        RuntimeTaskDeliveryStateV1::Cancelled
+    );
+    store.stop_task(&approved.task_id, timestamp(3)).unwrap();
+    let mut restarted =
+        RuntimeTaskDeliveryStore::load(directory.path().join("deliveries.json")).unwrap();
+    assert_eq!(
+        restarted.create_authority(approved.clone()),
+        Err(RuntimeTaskDeliveryError::Cancelled)
+    );
+    assert_eq!(
+        restarted.bind_succeeded_result(&approved.task_id, digest("66"), timestamp(4)),
+        Err(RuntimeTaskDeliveryError::Cancelled)
+    );
+    // Immutable provenance stays verifiable; the result-binding boundary is
+    // independently fenced by the persisted Stop above.
+    restarted
+        .verify_completion_scope(&completion_scope(&approved))
+        .unwrap();
+}
+
+#[test]
+fn stop_after_saved_result_fences_claim_and_late_summary_without_resetting_attempts() {
+    let (directory, mut store) = store();
+    let (claim, scope) = bind_and_claim(&mut store);
+    store.stop_task(&claim.task_id, timestamp(4)).unwrap();
+    assert!(!store.has_synthesis_claim(&claim));
+    assert_eq!(
+        store.authorize_publication(&request(&claim), &scope),
+        Err(RuntimeTaskDeliveryError::Cancelled)
+    );
+    let mut restarted =
+        RuntimeTaskDeliveryStore::load(directory.path().join("deliveries.json")).unwrap();
+    assert_eq!(
+        restarted.claim_synthesis(&claim.delivery_id, &scope, 9_000, 5_000, timestamp(5)),
+        Err(RuntimeTaskDeliveryError::Cancelled)
+    );
+    assert_eq!(
+        restarted
+            .receipt_for_task(&claim.task_id)
+            .unwrap()
+            .synthesis_attempts,
+        1
+    );
+}
+
+#[test]
+fn stop_after_submission_preserves_acknowledgement_and_denies_resubmit() {
+    let (directory, mut store) = store();
+    let mut private = approval();
+    private.private_home = true;
+    let (claim, scope) = bind_and_claim_approval(&mut store, private);
+    let request = request(&claim);
+    let event = hex("77");
+    store
+        .reserve_publication(&request, &scope, timestamp(4))
+        .unwrap();
+    // A purported Submitted outbox cannot invent a private observation ID.
+    assert!(matches!(
+        store.authorize_reconciliation(&request, &event, true, &scope, timestamp(5)),
+        Err(RuntimeTaskDeliveryError::Denied)
+    ));
+    store
+        .begin_submission(&request, &event, &scope, timestamp(5))
+        .unwrap();
+    store
+        .authorize_reconciliation(&request, &event, true, &scope, timestamp(6))
+        .unwrap();
+    assert_eq!(
+        store.stop_task(&claim.task_id, timestamp(7)).unwrap(),
+        RuntimeTaskDeliveryStateV1::Submitted
+    );
+    let mut restarted =
+        RuntimeTaskDeliveryStore::load(directory.path().join("deliveries.json")).unwrap();
+    assert!(restarted.publication_stopped(&claim.delivery_id));
+    assert_eq!(
+        restarted
+            .authorize_reconciliation(&request, &event, true, &scope, timestamp(8))
+            .unwrap(),
+        RuntimeTaskDeliveryReconciliationV1::Cancelled
+    );
+    restarted
+        .mark_published(&claim.delivery_id, &event, timestamp(9))
+        .unwrap();
+    assert_eq!(
+        restarted.stop_task(&claim.task_id, timestamp(10)).unwrap(),
+        RuntimeTaskDeliveryStateV1::Published
     );
 }
 

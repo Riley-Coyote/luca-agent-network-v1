@@ -204,7 +204,7 @@ fn scrub_resident_environment(command: &mut Command) {
 }
 
 async fn bounded_control(command: Command) -> Result<(bool, String), String> {
-    bounded_control_input(command, None, CONTROL_TIMEOUT, None).await
+    bounded_control_input(command, None, CONTROL_TIMEOUT, None, None).await
 }
 
 async fn bounded_control_input(
@@ -212,6 +212,7 @@ async fn bounded_control_input(
     input: Option<Vec<u8>>,
     timeout: Duration,
     scope: Option<(&AppHandle, &RuntimeTaskProjectionV1)>,
+    permit: Option<&admission::Permit>,
 ) -> Result<(bool, String), String> {
     command
         .stdin(if input.is_some() {
@@ -225,9 +226,15 @@ async fn bounded_control_input(
     #[cfg(unix)]
     command.process_group(0);
     scrub_resident_environment(&mut command);
-    let mut child = command
-        .spawn()
-        .map_err(|_| "Native runtime control could not start.".to_owned())?;
+    let mut spawn = || {
+        command
+            .spawn()
+            .map_err(|_| "Native runtime control could not start.".to_owned())
+    };
+    let mut child = match permit {
+        Some(permit) => permit.with_effect(spawn),
+        None => spawn(),
+    }?;
     let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
         stop_control_child(&mut child).await;
         return Err("Native Codex control output is unavailable.".into());
@@ -491,7 +498,7 @@ pub(super) async fn dashboard_claude_snapshot(profile_root: PathBuf) -> Option<S
     let executable = dashboard_claude_executable(explicit.as_deref(), shim.as_deref())?;
     let mut probe = Command::new(executable);
     probe.current_dir(profile_root).args(["agents", "--json"]);
-    let (success, output) = bounded_control_input(probe, None, Duration::from_secs(2), None)
+    let (success, output) = bounded_control_input(probe, None, Duration::from_secs(2), None, None)
         .await
         .ok()?;
     (success && claude_agents_snapshot(&output).is_ok()).then_some(output)
@@ -552,10 +559,57 @@ fn claude_acknowledgement(output: &str, target: Uuid) -> Result<String, String> 
     Ok(ack.into())
 }
 
+/// Prepare the exact native message without sending it. Discovery and validation failures
+/// are known pre-dispatch failures: they must not create a permanently queued receipt.
+async fn prepare_native_message(
+    executable: &Path,
+    target: &RuntimeTaskExistingTargetV1,
+    projection: &RuntimeTaskProjectionV1,
+    prompt: &str,
+) -> Result<(Command, Option<Vec<u8>>, Duration), String> {
+    if target.runtime_family == "claude_code" {
+        let (host, adapter) = command_for("claude_code")?;
+        let mut probe = Command::new(executable);
+        probe
+            .current_dir(&target.canonical_working_folder)
+            .args(["agents", "--json"]);
+        let (success, output) = bounded_control(probe).await?;
+        if !success {
+            return Err("Native Claude availability is unverified. Nothing was sent.".into());
+        }
+        let (pid, name) = claude_live_target(&output, target)?;
+        let mut command = Command::new(host);
+        command
+            .current_dir(&target.canonical_working_folder)
+            .arg("runtime-task")
+            .arg("--agent-command")
+            .arg(adapter)
+            .args(["--agent-args", "", "--max-duration-secs", "180"])
+            .env("CLAUDE_CODE_EXECUTABLE", executable);
+        let encoded = serde_json::to_vec(&serde_json::json!({
+            "taskId":projection.task_id,"conversationId":projection.conversation_id,"prompt":prompt,
+            "workingFolder":projection.working_folder,"permissionMode":"normal","operation":"send_message",
+            "runtimeFamily":"claude_code","providerSessionId":target.provider_session_id.to_string(),"nativeCli":executable,
+            "nativePermissionMode":target.claude_permission_mode,"nativeTargetPid":pid,"nativeTargetName":name,
+        })).map_err(|_| "Native message input is invalid.")?;
+        Ok((command, Some(encoded), Duration::from_secs(210)))
+    } else {
+        let mut command = Command::new(executable);
+        command
+            .current_dir(&target.canonical_working_folder)
+            .args(["queue", "--thread"])
+            .arg(target.provider_session_id.to_string())
+            .arg("--message")
+            .arg(prompt);
+        Ok((command, None, CONTROL_TIMEOUT))
+    }
+}
+
 pub(super) async fn start_existing(
     app: AppHandle,
     input: StartRuntimeTaskInputV1,
     retry_of_task_id: Option<String>,
+    permit: Option<admission::Permit>,
 ) -> Result<RuntimeTaskProjectionV1, String> {
     let dispatch_owner = owner(&app)?;
     if retry_of_task_id.is_some() || input.permission_mode != "normal" {
@@ -592,8 +646,12 @@ pub(super) async fn start_existing(
     }
     let now = Utc::now().to_rfc3339();
     let mut projection = RuntimeTaskProjectionV1 {
+        actual_cost_usd: None,
+        budget_exceeded: None,
         options: Default::default(),
-        task_id: Uuid::new_v4().to_string(),
+        task_id: permit
+            .as_ref()
+            .map_or_else(|| Uuid::new_v4().to_string(), |p| p.root.task_id.clone()),
         owner_pubkey: dispatch_owner.as_str().to_owned(),
         origin_relay_ref: Some(delivery::current_origin(&app)?.0),
         conversation_id: input.conversation_id.clone(),
@@ -702,6 +760,32 @@ pub(super) async fn start_existing(
     } else {
         None
     };
+    let prepared_message = if input.operation == RuntimeTaskOperationV1::SendMessage {
+        let prepared =
+            prepare_native_message(&executable, &target, &projection, &input.prompt).await?;
+        // Discovery can take time. Recheck the exact target and private audience after it,
+        // before writing the reservation. Stop/Forget are still fenced at actual spawn.
+        revalidate_target(
+            &app,
+            &input.resident_pubkey,
+            &input.conversation_id,
+            &target,
+            input.operation,
+        )?;
+        if let Some(p) = permit.clone() {
+            let app = app.clone();
+            let projection = projection.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                p.verify_destination(&app, &projection)?;
+                p.check()
+            })
+            .await
+            .map_err(|_| "The native destination could not be verified.")??;
+        }
+        Some(prepared)
+    } else {
+        None
+    };
     // This is an in-app exclusion, not ownership over a native client's work.
     {
         let mut state = memory()
@@ -739,65 +823,26 @@ pub(super) async fn start_existing(
                 .insert(projection.task_id.clone(), projection.clone());
         }
     }
-    if input.operation == RuntimeTaskOperationV1::SendMessage {
+    if let Some((command, encoded, timeout)) = prepared_message {
         emit_projection_in_scope(&app, &projection);
-        let outcome = if target.runtime_family == "claude_code" {
-            let mut probe = Command::new(&executable);
-            probe
-                .current_dir(&target.canonical_working_folder)
-                .args(["agents", "--json"]);
-            let live = bounded_control(probe).await.and_then(|(success, output)| {
-                if !success {
-                    return Err("Native Claude availability is unverified.".into());
-                }
-                claude_live_target(&output, &target)
-            });
-            match live {
-                Ok((pid, name)) => {
-                    let (host, adapter) = command_for("claude_code")?;
-                    let mut command = Command::new(host);
-                    command
-                        .current_dir(&target.canonical_working_folder)
-                        .arg("runtime-task")
-                        .arg("--agent-command")
-                        .arg(adapter)
-                        .args(["--agent-args", "", "--max-duration-secs", "180"])
-                        .env("CLAUDE_CODE_EXECUTABLE", &executable);
-                    let encoded = serde_json::to_vec(&serde_json::json!({
-                        "taskId":projection.task_id,"conversationId":projection.conversation_id,"prompt":input.prompt,
-                        "workingFolder":projection.working_folder,"permissionMode":"normal","operation":"send_message",
-                        "runtimeFamily":"claude_code","providerSessionId":target.provider_session_id.to_string(),"nativeCli":executable,
-                        "nativePermissionMode":target.claude_permission_mode,"nativeTargetPid":pid,"nativeTargetName":name,
-                    })).map_err(|_| "Native message input is invalid.")?;
-                    bounded_control_input(
-                        command,
-                        Some(encoded),
-                        Duration::from_secs(210),
-                        Some((&app, &projection)),
-                    )
-                    .await
-                    .and_then(|(success, output)| {
-                        if !success {
-                            return Err("Native delivery was not acknowledged.".into());
-                        }
-                        claude_acknowledgement(&output, target.provider_session_id)
-                    })
-                }
-                Err(error) => Err(error),
+        let outcome = bounded_control_input(
+            command,
+            encoded,
+            timeout,
+            Some((&app, &projection)),
+            permit.as_ref(),
+        )
+        .await
+        .and_then(|(success, output)| {
+            if !success {
+                return Err("Native delivery was not acknowledged.".into());
             }
-        } else {
-            let mut command = Command::new(executable);
-            command
-                .current_dir(&target.canonical_working_folder)
-                .args(["queue", "--thread"])
-                .arg(target.provider_session_id.to_string())
-                .arg("--message")
-                .arg(&input.prompt);
-            bounded_control(command).await.and_then(|(success, output)| {
-            if !success { return Err("Native Codex did not acknowledge delivery; inspect the exact chat before resending.".into()); }
-            queue_acknowledgement(&output, target.provider_session_id)
-        })
-        };
+            if target.runtime_family == "claude_code" {
+                claude_acknowledgement(&output, target.provider_session_id)
+            } else {
+                queue_acknowledgement(&output, target.provider_session_id)
+            }
+        });
         let native_name = runtime_label(&target.runtime_family);
         match outcome {
             Ok(ack) => {
@@ -818,7 +863,21 @@ pub(super) async fn start_existing(
     let (process, encoded) = owned_dispatch.ok_or_else(|| {
         "The requested native operation was not prepared. Nothing ran.".to_owned()
     })?;
-    execution::launch_owned_task(app, projection, process, encoded, None, permission_lease)
+    tauri::async_runtime::spawn_blocking(move || {
+        execution::launch_owned_task(
+            app,
+            projection,
+            process,
+            encoded,
+            None,
+            permission_lease,
+            permit.is_some(),
+            None,
+            permit.as_ref(),
+        )
+    })
+    .await
+    .map_err(|_| "Task admission could not finish. Check its existing receipt.".to_owned())?
 }
 
 #[cfg(test)]

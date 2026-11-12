@@ -41,6 +41,9 @@ export type RuntimeTaskOptions = {
 };
 
 export type RuntimeTaskProjection = {
+  /** Provider-reported final evidence, not spending authority or a billing guarantee. */
+  actualCostUsd?: number | null;
+  budgetExceeded?: boolean | null;
   options?: RuntimeTaskOptions;
   taskId: string;
   conversationId: string;
@@ -77,6 +80,7 @@ export type RuntimeTaskResult = {
 };
 
 export type RuntimeTaskProposal = {
+  canRememberPrivateAsk?: boolean;
   options?: RuntimeTaskOptions;
   proposalId: string;
   conversationId: string;
@@ -184,11 +188,22 @@ export function listAllRuntimeTaskProposals(): Promise<RuntimeTaskProposal[]> {
 export function respondRuntimeTaskProposal(input: {
   proposalId: string;
   approved: boolean;
+  /** Only the native, exact private writing scope shown in this review. */
+  useClaudeApi?: boolean;
+  rememberAccess?: boolean;
   runtimeFamily?: "codex" | "claude_code";
   workingFolder?: string;
   permissionMode?: "normal" | "full_access";
 }): Promise<void> {
   return invokeTauri("respond_runtime_task_proposal", { input });
+}
+
+export function getRememberedRuntimeTaskAccess(): Promise<{ count: number }> {
+  return invokeTauri("get_remembered_runtime_task_access");
+}
+
+export function forgetRememberedRuntimeTaskAccess(): Promise<void> {
+  return invokeTauri("forget_remembered_runtime_task_access");
 }
 
 export function listenRuntimeTasks(

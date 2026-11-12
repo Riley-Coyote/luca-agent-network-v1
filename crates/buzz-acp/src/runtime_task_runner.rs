@@ -4,12 +4,14 @@
 //! engine. The desktop owns confirmation, receipts and cancellation. The ACP
 //! adapter owns execution and the user's existing provider profile.
 
+mod claude_api_ask;
 pub(crate) mod claude_peer;
 mod claude_saved;
 mod codex_cli;
 mod codex_events;
 mod native_isolation;
 mod options;
+mod policy;
 
 use std::{io::Read as _, time::Duration};
 
@@ -18,10 +20,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     acp::{AcpClient, StopReason},
-    config::{normalize_agent_args, PermissionMode, RuntimeTaskArgs},
+    config::{normalize_agent_args, RuntimeTaskArgs},
     managed_mcp_provider,
     observer::{ObserverContext, ObserverHandle},
-    pool::{agent_supports_mode, apply_permission_mode},
+    pool::agent_supports_mode,
     runtime_session_purpose::{RuntimeSessionPurposeStore, RuntimeSessionPurposeV1},
 };
 
@@ -63,6 +65,8 @@ struct RuntimeTaskInputV1 {
     native_target_name: Option<String>,
     #[serde(default)]
     native_codex_policy: Option<luca_protocol::NativeCodexPolicyV1>,
+    #[serde(default)]
+    claude_api_ask: Option<claude_api_ask::Input>,
 }
 
 #[derive(Serialize)]
@@ -87,6 +91,12 @@ struct RuntimeTaskOutputV1<'a> {
 pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
     let input = read_input()?;
     validate_input(&input)?;
+    if input.claude_api_ask.is_some() {
+        return claude_api_ask::run(&args, &input).await;
+    }
+    if std::env::var_os(claude_api_ask::BOOTSTRAP_KEY).is_some() {
+        anyhow::bail!("Claude API task binding is unavailable");
+    }
     if input.operation == RuntimeTaskOperation::SendMessage {
         return claude_peer::run(args, &input).await;
     }
@@ -121,9 +131,22 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
         )
     };
 
-    let mut client = AcpClient::spawn_managed(&args.agent.agent_command, &agent_args, &[], false)
-        .await
-        .context("runtime adapter could not start")?;
+    let task_policy = if claude_resume {
+        None
+    } else {
+        Some(policy::TaskPolicy::new(
+            &args.agent.agent_command,
+            &input.permission_mode,
+        )?)
+    };
+    let policy_env = task_policy
+        .as_ref()
+        .map(|policy| policy.environment())
+        .unwrap_or_default();
+    let mut client =
+        AcpClient::spawn_managed(&args.agent.agent_command, &agent_args, &policy_env, false)
+            .await
+            .context("runtime adapter could not start")?;
     client.set_observer(Some(observer), 0);
     // A runtime task is not a conversation dispatch; it has no receipt, so a
     // permission raised inside one can only ever be answered Once.
@@ -203,19 +226,10 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
         )
         .await?;
         emit(session_output(&session.session_id));
-        if input.permission_mode == "full_access" {
-            let wire = PermissionMode::BypassPermissions.as_wire_str();
-            if !agent_supports_mode(&session.raw, wire) {
-                return Err(crate::acp::AcpError::Protocol(
-                    "this adapter did not verify Full Access support".into(),
-                ));
-            }
-            apply_permission_mode(
-                &mut client,
-                &session.session_id,
-                &PermissionMode::BypassPermissions,
-            )
-            .await?;
+        if let Some(policy) = &task_policy {
+            policy
+                .bind(&mut client, &session.session_id, &session.raw)
+                .await?;
         }
         client.begin_final_message_capture();
         let stop = client
@@ -565,8 +579,7 @@ fn stop_reason(reason: &StopReason) -> &'static str {
 fn safe_error(error: &str) -> String {
     let lower = error.to_ascii_lowercase();
     if lower.contains("requested task model or effort") {
-        "The requested task model or effort could not be verified; no task prompt was sent."
-            .into()
+        "The requested task model or effort could not be verified; no task prompt was sent.".into()
     } else if lower.contains("already has an active controller") {
         "This Claude session is open in another controller. Send a follow-up there or close it before continuing; nothing was sent.".into()
     } else if lower.contains("availability") {

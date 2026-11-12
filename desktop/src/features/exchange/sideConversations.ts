@@ -1,4 +1,5 @@
 import { placeDayLabel } from "@/app/shell/placeRails/placeDays";
+import { runtimeTaskNativeHandoff } from "@/features/capabilities/lib/runtimeTaskPresentation";
 import type { ExchangePhase, ExchangeRecord } from "@/shared/api/types";
 import type {
   RuntimeTaskProjection,
@@ -195,7 +196,7 @@ export function taskSide(task: RuntimeTaskProjection): TaskSide {
     id: task.taskId,
     conversationId: task.conversationId,
     at: ms(task.completedAt) || ms(task.updatedAt) || ms(task.startedAt),
-    live: word === "working",
+    live: word === "working" && !runtimeTaskNativeHandoff(task),
     residentPubkey: task.residentPubkey.toLowerCase(),
     runtimeFamily: task.runtimeFamily,
     summary: task.summary,

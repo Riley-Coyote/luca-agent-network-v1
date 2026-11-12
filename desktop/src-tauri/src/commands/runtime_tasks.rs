@@ -123,3 +123,19 @@ pub fn respond_runtime_task_proposal(
 ) -> Result<(), String> {
     crate::luca::runtime_tasks::respond_runtime_task_proposal(app, input)
 }
+
+#[tauri::command]
+pub async fn get_remembered_runtime_task_access(
+    app: AppHandle,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::luca::runtime_tasks::remembered_access(&app)
+    })
+    .await
+    .map_err(|_| "Task access is unavailable.".to_owned())?
+}
+
+#[tauri::command]
+pub async fn forget_remembered_runtime_task_access(app: AppHandle) -> Result<(), String> {
+    crate::luca::runtime_tasks::forget_access(app).await
+}

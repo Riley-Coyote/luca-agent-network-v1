@@ -274,8 +274,8 @@ async fn consume(
     events.finish(status.success())
 }
 
-struct OwnedWorker {
-    child: tokio::process::Child,
+pub(super) struct OwnedWorker {
+    pub(super) child: tokio::process::Child,
     // wait() clears child.id(), but same-group helpers may still be alive.
     // Retain only the exact group created by this worker until cleanup.
     #[cfg(unix)]
@@ -283,7 +283,7 @@ struct OwnedWorker {
 }
 
 impl OwnedWorker {
-    fn spawn(mut command: Command) -> Result<Self, NativeFailure> {
+    pub(super) fn spawn(mut command: Command) -> Result<Self, NativeFailure> {
         let child = command.spawn().map_err(|_| NativeFailure::Spawn)?;
         #[cfg(unix)]
         let group = child.id();
@@ -302,7 +302,7 @@ impl OwnedWorker {
         let _ = self.child.start_kill();
     }
 
-    async fn stop(&mut self) {
+    pub(super) async fn stop(&mut self) {
         self.kill();
         let _ = tokio::time::timeout(Duration::from_secs(3), self.child.wait()).await;
     }

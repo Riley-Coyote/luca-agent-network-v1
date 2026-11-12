@@ -79,21 +79,77 @@ fn entry(account: &str, generation: &str) -> Result<keyring::Entry, String> {
 
 pub(crate) fn key(app: &AppHandle, owner: &str) -> Result<Option<Zeroizing<String>>, String> {
     let _guard = WRITE_LOCK.lock().map_err(|_| "Credential update is busy")?;
+    key_locked(app, owner)
+}
+
+fn key_locked(app: &AppHandle, owner: &str) -> Result<Option<Zeroizing<String>>, String> {
     let Some(connection) = connection(app, owner)? else {
         return Ok(None);
     };
+    key_for_generation(app, owner, &connection.generation).map(Some)
+}
+
+fn key_for_generation(
+    app: &AppHandle,
+    owner: &str,
+    generation: &str,
+) -> Result<Zeroizing<String>, String> {
     #[cfg(feature = "system-keyring")]
     {
         let (_, account) = location(app, owner)?;
-        entry(&account, &connection.generation)?.get_password()
-            .map(|key| Some(Zeroizing::new(key)))
+        entry(&account, generation)?.get_password()
+            .map(Zeroizing::new)
             .map_err(|_| "Claude API key is unavailable in Keychain. Reconnect it in Settings; subscription billing was not used.".into())
     }
     #[cfg(not(feature = "system-keyring"))]
     {
-        let _ = connection;
+        let _ = (app, owner, generation);
         Err("This build has no secure credential store".into())
     }
+}
+
+/// Resolve only a reviewed item before acquiring task/admission locks. This
+/// operation may prompt through Keychain; the returned value zeroizes on drop.
+pub(crate) fn prepare_pinned_key(
+    app: &AppHandle,
+    owner: &str,
+    generation: &str,
+) -> Result<Zeroizing<String>, String> {
+    let _guard = WRITE_LOCK.lock().map_err(|_| "Credential update is busy")?;
+    require_generation(app, owner, generation)?;
+    // Address the reviewed item directly. A second mutable connection read
+    // must never silently resolve a newer account under the same billing mode.
+    let key = key_for_generation(app, owner, generation)?;
+    require_generation(app, owner, generation)?;
+    Ok(key)
+}
+
+fn require_generation(app: &AppHandle, owner: &str, generation: &str) -> Result<(), String> {
+    if self::owner(app)? != owner
+        || connection(app, owner)?.is_none_or(|value| value.generation != generation)
+    {
+        return Err("Claude API account changed. Review the task again; nothing ran.".into());
+    }
+    Ok(())
+}
+
+/// Serialize one bounded synchronous effect with credential rotation. This
+/// never reads Keychain and fails busy instead of waiting behind its dialogs.
+pub(crate) fn with_current_generation<T>(
+    app: &AppHandle,
+    owner: &str,
+    generation: &str,
+    effect: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let _guard = try_rotation_guard()?;
+    require_generation(app, owner, generation)?;
+    effect()
+}
+
+fn try_rotation_guard() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    WRITE_LOCK
+        .try_lock()
+        .map_err(|_| "Credential update is busy; nothing ran".into())
 }
 
 pub(crate) fn save(app: &AppHandle, owner: &str, key: &str) -> Result<Connection, String> {
@@ -198,6 +254,13 @@ pub(crate) fn apply(cmd: &mut Command, key: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_effect_guard_fails_busy_instead_of_waiting_for_keychain() {
+        let held = WRITE_LOCK.lock().unwrap();
+        assert!(try_rotation_guard().is_err());
+        drop(held);
+        assert!(try_rotation_guard().is_ok());
+    }
     #[test]
     fn scope_is_owner_and_instance_specific() {
         assert_ne!(

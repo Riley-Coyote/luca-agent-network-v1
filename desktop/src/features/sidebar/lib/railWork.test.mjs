@@ -5,12 +5,107 @@ import {
   agentWorkRows,
   appTaskRows,
   resolveRailInboxSnapshot,
+  runtimeTaskRailVisible,
+  activeRuntimeRailRows,
 } from "./railWork.ts";
 
 const LUCA = "a".repeat(64);
 const ATLAS = "b".repeat(64);
 const WREN = "c".repeat(64);
 const OWNER = "d".repeat(64);
+
+test("runtime rail settles only acknowledged returns or native sends, not worker success", () => {
+  for (const deliveryState of [
+    undefined,
+    "awaiting_result",
+    "pending_synthesis",
+    "synthesizing",
+    "prepared",
+    "submitted",
+  ]) {
+    assert.equal(
+      runtimeTaskRailVisible({ state: "succeeded", deliveryState }, false),
+      true,
+      deliveryState,
+    );
+  }
+  for (const deliveryState of ["published", "cancelled"]) {
+    assert.equal(
+      runtimeTaskRailVisible({ state: "succeeded", deliveryState }, true),
+      false,
+    );
+  }
+  for (const state of ["queued", "active", "stopping"]) {
+    assert.equal(runtimeTaskRailVisible({ state }, false), true);
+    assert.equal(
+      runtimeTaskRailVisible({ state, controlOwner: "native_app" }, false),
+      true,
+    );
+  }
+  for (const state of ["awaiting_native", "succeeded"]) {
+    assert.equal(
+      runtimeTaskRailVisible({ state, controlOwner: "native_app" }, false),
+      false,
+    );
+  }
+});
+
+test("runtime rail follows the exact current issue, not a perpetual failure badge", () => {
+  for (const state of ["failed", "interrupted"]) {
+    for (const controlOwner of ["polyphonic", "native_app"]) {
+      assert.equal(runtimeTaskRailVisible({ state, controlOwner }, true), true);
+      assert.equal(
+        runtimeTaskRailVisible({ state, controlOwner }, false),
+        false,
+      );
+    }
+  }
+  for (const deliveryState of ["retryable", "blocked", "rejected"]) {
+    assert.equal(
+      runtimeTaskRailVisible({ state: "succeeded", deliveryState }, true),
+      true,
+    );
+    assert.equal(
+      runtimeTaskRailVisible({ state: "succeeded", deliveryState }, false),
+      false,
+    );
+  }
+});
+
+test("settlement filters presentation without mutating history; selected, pinned or focused IDs survive", () => {
+  const rows = ["delivered", "pending", "old-failure", "fresh-failure"].map(
+    (id) => ({
+      id: `task:${id}`,
+      label: id,
+      live: false,
+    }),
+  );
+  const tasks = new Map([
+    ["delivered", { state: "succeeded", deliveryState: "published" }],
+    ["pending", { state: "succeeded", deliveryState: "submitted" }],
+    ["old-failure", { state: "failed" }],
+    ["fresh-failure", { state: "failed" }],
+  ]);
+  const before = structuredClone(rows);
+  const issues = new Set(["fresh-failure"]);
+  assert.deepEqual(
+    activeRuntimeRailRows(rows, tasks, issues, new Set()).map((row) => row.id),
+    ["task:pending", "task:fresh-failure"],
+  );
+  assert.equal(
+    activeRuntimeRailRows(rows, tasks, issues, new Set(["task:delivered"]))[0]
+      .id,
+    "task:delivered",
+  );
+  assert.deepEqual(rows, before);
+  assert.equal(tasks.size, 4);
+  assert.equal(
+    activeRuntimeRailRows(rows, tasks, issues, new Set()).every(
+      (row) => row.live,
+    ),
+    true,
+  );
+});
 
 const names = new Map([
   [LUCA, "Luca"],

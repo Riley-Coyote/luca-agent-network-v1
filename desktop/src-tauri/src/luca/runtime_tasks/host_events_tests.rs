@@ -79,6 +79,111 @@ fn continuation_retains_exact_native_identity_and_stages_result_until_finish() {
 }
 
 #[test]
+fn final_budget_metadata_is_optional_validated_and_never_changes_complete_text() {
+    for (cost, over) in [(0.0, false), (0.25, false), (0.251, true), (f64::MAX, true)] {
+        let mut events = acknowledged();
+        assert_eq!(events.result_budget_metadata(), (None, None));
+        events.accept(&line("result", serde_json::json!({
+            "providerSessionId": SESSION, "result": "  COMPLETE\nTEXT\n", "stopReason": "end_turn",
+            "actualCostUsd": cost, "budgetExceeded": over,
+        }))).unwrap();
+        assert_eq!(events.result_budget_metadata(), (Some(cost), Some(over)));
+        assert_eq!(events.finish(true), Ok(Some("  COMPLETE\nTEXT\n".into())));
+    }
+    let mut legacy = acknowledged();
+    legacy
+        .accept(&result(Some(SESSION), "LEGACY", "end_turn"))
+        .unwrap();
+    assert_eq!(legacy.result_budget_metadata(), (None, None));
+    assert_eq!(legacy.finish(true), Ok(Some("LEGACY".into())));
+}
+
+#[test]
+fn malformed_budget_values_and_metadata_outside_result_poison_completion() {
+    for cost in [
+        "-0.001", "NaN", "Infinity", "1e400", "\"0.1\"", "true", "{}", "[]",
+    ] {
+        let mut events = acknowledged();
+        let frame = format!(
+            r#"{{"protocol":"{PROTOCOL}","kind":"result","providerSessionId":"{SESSION}","result":"not accepted","stopReason":"end_turn","actualCostUsd":{cost}}}"#
+        );
+        assert!(events.accept(&frame).is_err(), "{cost}");
+        assert_eq!(events.result_budget_metadata(), (None, None));
+        assert!(events.finish(true).is_err());
+    }
+    for value in [
+        serde_json::json!(0),
+        serde_json::json!("true"),
+        serde_json::json!([]),
+    ] {
+        let mut events = acknowledged();
+        assert!(events.accept(&line("result", serde_json::json!({
+            "providerSessionId": SESSION, "result": "not accepted", "stopReason": "end_turn",
+            "actualCostUsd": 0.1, "budgetExceeded": value,
+        }))).is_err());
+        assert!(events.finish(true).is_err());
+    }
+    for fields in [
+        serde_json::json!({"providerSessionId": SESSION, "actualCostUsd": 0.1}),
+        serde_json::json!({"providerSessionId": SESSION, "budgetExceeded": false}),
+    ] {
+        let mut events = HostEvents::new(None).unwrap();
+        assert!(events.accept(&line("session", fields)).is_err());
+        assert!(events.finish(true).is_err());
+    }
+}
+
+#[test]
+fn metadata_cannot_rescue_a_failed_stream_or_exit() {
+    for clean_exit in [false, true] {
+        let mut events = acknowledged();
+        events
+            .accept(&line(
+                "result",
+                serde_json::json!({
+                    "providerSessionId": SESSION, "result": "STAGED", "stopReason": "end_turn",
+                    "actualCostUsd": 0.1, "budgetExceeded": false,
+                }),
+            ))
+            .unwrap();
+        if clean_exit {
+            events.reject_stream();
+            assert_eq!(events.result_budget_metadata(), (None, None));
+        }
+        assert!(events.finish(clean_exit).is_err());
+    }
+}
+
+#[test]
+fn no_session_persistence_ask_ids_correlate_but_are_never_resumable() {
+    let mut events = HostEvents::ephemeral_ask().unwrap();
+    assert_eq!(
+        events.accept(&session(SESSION)),
+        Ok(HostEvent::Session(SESSION.into()))
+    );
+    assert_eq!(events.provider_session_id(), None);
+    events
+        .accept(&line(
+            "step",
+            serde_json::json!({"providerSessionId": SESSION, "label": "Writing"}),
+        ))
+        .unwrap();
+    assert_eq!(events.provider_session_id(), None);
+    events
+        .accept(&result(Some(SESSION), "EXACT ANSWER", "end_turn"))
+        .unwrap();
+    assert_eq!(events.provider_session_id(), None);
+    assert_eq!(events.finish(true), Ok(Some("EXACT ANSWER".into())));
+
+    let mut mismatched = HostEvents::ephemeral_ask().unwrap();
+    mismatched.accept(&session(SESSION)).unwrap();
+    assert!(mismatched
+        .accept(&result(Some(OTHER), "WRONG", "end_turn"))
+        .is_err());
+    assert!(mismatched.finish(true).is_err());
+}
+
+#[test]
 fn legacy_new_task_accepts_first_opaque_id_and_result_without_repeated_id() {
     let mut events = HostEvents::new(None).expect("legacy mode");
     assert_eq!(

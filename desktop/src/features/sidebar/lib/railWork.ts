@@ -11,6 +11,56 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 
 import type { RailSideRow } from "./railHomes";
 import type { AgentInboxPage } from "@/shared/api/agentInbox";
+import type { RuntimeTaskProjection } from "@/shared/api/tauriRuntimeTasks";
+import { runtimeTaskNativeHandoff } from "@/features/capabilities/lib/runtimeTaskPresentation";
+
+/** Presentation only: a saved result is not delivered until acknowledged. */
+export function runtimeTaskRailVisible(
+  task: RuntimeTaskProjection,
+  currentIssue: boolean,
+): boolean {
+  if (task.state === "failed" || task.state === "interrupted")
+    return currentIssue;
+  if (["queued", "active", "stopping"].includes(task.state)) return true;
+  if (runtimeTaskNativeHandoff(task)) return false;
+  if (task.state !== "succeeded") return false;
+  if (["published", "cancelled"].includes(task.deliveryState ?? ""))
+    return false;
+  if (["retryable", "blocked", "rejected"].includes(task.deliveryState ?? ""))
+    return currentIssue;
+  // Legacy success without delivery evidence stays reachable, not "delivered".
+  return true;
+}
+
+/** Filter the rail, never the source history. Protected identities stay put. */
+export function activeRuntimeRailRows(
+  rows: readonly RailSideRow[],
+  tasks: ReadonlyMap<string, RuntimeTaskProjection>,
+  currentIssueIds: ReadonlySet<string>,
+  protectedRowIds: ReadonlySet<string>,
+): RailSideRow[] {
+  const visible: RailSideRow[] = [];
+  for (const row of rows) {
+    const taskId = row.runtimeTaskId ?? row.id.slice("task:".length);
+    const task = tasks.get(taskId);
+    if (!task) {
+      if (protectedRowIds.has(row.id)) visible.push(row);
+      continue;
+    }
+    if (
+      !runtimeTaskRailVisible(
+        task,
+        currentIssueIds.size > 0 && currentIssueIds.has(taskId),
+      ) &&
+      (protectedRowIds.size === 0 || !protectedRowIds.has(row.id))
+    )
+      continue;
+    // Pending delivery/issues must not disappear behind the latest-three fold.
+    // This is reachability, not a claim that the provider is still working.
+    visible.push(row.live ? row : { ...row, live: true });
+  }
+  return visible;
+}
 
 /** IDs supplied by the authorized native inbox query for this exact scope. */
 export type RailCorrespondenceScope = {
@@ -176,6 +226,7 @@ export function appTaskRows(
     const family = taskFamily(item);
     if (!family) continue;
     const row = rowOf(item, item.summary);
+    row.runtimeTaskId = item.id;
     const rows = byApp.get(family);
     if (rows) rows.push(row);
     else byApp.set(family, [row]);

@@ -37,6 +37,7 @@ mod permission_rule;
 mod relay_auth;
 mod runtime_task_delivery;
 mod runtime_task_options;
+mod runtime_task_turn;
 mod task_history;
 mod work_plan;
 
@@ -126,5 +127,6 @@ pub use relay_auth::{
 };
 pub use runtime_task_delivery::*;
 pub use runtime_task_options::*;
+pub use runtime_task_turn::*;
 pub use task_history::{TaskHistoryGrantV1, TaskHistoryState, TASK_HISTORY_PROTOCOL};
 pub use work_plan::*;

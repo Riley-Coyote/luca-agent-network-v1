@@ -16,6 +16,9 @@ pub(super) fn launch_owned_task(
     encoded_input: Vec<u8>,
     retry_input: Option<StartRuntimeTaskInputV1>,
     permission_lease: Option<super::super::managed_permission::OwnedTaskPermissionLease>,
+    private_home: bool,
+    provider_pin: Option<super::provider_scope::ProviderScopeWitnessV1>,
+    permit: Option<&admission::Permit>,
 ) -> Result<RuntimeTaskProjectionV1, String> {
     if app
         .state::<crate::app_state::AppState>()
@@ -23,6 +26,15 @@ pub(super) fn launch_owned_task(
         .load(std::sync::atomic::Ordering::Acquire)
     {
         return Err("The app is shutting down. Nothing ran.".into());
+    }
+    // A Keychain prompt must not block Stop or unrelated tasks. The final
+    // generation check and spawn still share the same short authority fence.
+    let prepared = provider_pin
+        .as_ref()
+        .map(|pin| super::provider_scope::prepare_spawn(&app, pin))
+        .transpose()?;
+    if let Some(permit) = permit {
+        permit.verify_destination(&app, &projection)?;
     }
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let mut state = memory()
@@ -54,13 +66,35 @@ pub(super) fn launch_owned_task(
                 .into(),
         );
     }
-    delivery::approve(&app, &mut projection, &encoded_input)?;
+    if state
+        .projections
+        .get(&projection.task_id)
+        .is_some_and(|task| {
+            matches!(
+                task.state,
+                RuntimeTaskStateV1::Stopping | RuntimeTaskStateV1::Stopped
+            )
+        })
+    {
+        return Err("The owner stopped this task before launch. Nothing ran.".into());
+    }
+    delivery::approve(&app, &mut projection, &encoded_input, private_home)?;
     let dispatched = storage::persist_before_dispatch(
         || persist_projection(&app, &projection),
         || {
-            process
-                .spawn()
-                .map_err(|_| "The native runtime task host could not start.".to_owned())
+            let spawn = || match (&provider_pin, prepared) {
+                (Some(pin), Some(credential)) => {
+                    super::provider_scope::spawn_prepared(&app, &mut process, pin, credential)
+                }
+                (None, None) => process
+                    .spawn()
+                    .map_err(|_| "The native runtime task host could not start.".to_owned()),
+                _ => Err("The selected billing account could not be verified. Nothing ran.".into()),
+            };
+            match permit {
+                Some(permit) => permit.with_effect(spawn),
+                None => spawn(),
+            }
         },
     );
     let mut child = match dispatched {
@@ -102,6 +136,9 @@ pub(super) fn launch_owned_task(
     drop(state);
     emit_projection_in_scope(&app, &projection);
     let worker_projection = projection.clone();
+    let ephemeral_ask = provider_pin.is_some()
+        && projection.options.purpose == luca_protocol::RuntimeTaskPurposeV1::Ask
+        && projection.operation == RuntimeTaskOperationV1::NewTask;
     tauri::async_runtime::spawn(async move {
         run_owned_task(
             app,
@@ -113,6 +150,7 @@ pub(super) fn launch_owned_task(
             encoded_input,
             cancel_rx,
             permission_lease,
+            ephemeral_ask,
         )
         .await;
     });
@@ -151,6 +189,7 @@ async fn run_owned_task(
     encoded_input: Vec<u8>,
     mut cancel: watch::Receiver<bool>,
     _permission_lease: Option<super::super::managed_permission::OwnedTaskPermissionLease>,
+    ephemeral_ask: bool,
 ) {
     let stderr_task = stderr.map(|mut stderr| {
         tauri::async_runtime::spawn(async move {
@@ -173,7 +212,12 @@ async fn run_owned_task(
     let expected = (projection.operation == RuntimeTaskOperationV1::ContinueSession)
         .then_some(projection.provider_session_id.as_deref())
         .flatten();
-    let mut evidence = match host_events::HostEvents::new(expected) {
+    let evidence = if ephemeral_ask {
+        host_events::HostEvents::ephemeral_ask()
+    } else {
+        host_events::HostEvents::new(expected)
+    };
+    let mut evidence = match evidence {
         Ok(evidence) => evidence,
         Err(error) => {
             let cleaned = stop_owned_child(&child).await;
@@ -238,9 +282,10 @@ async fn run_owned_task(
                 match line {
                     Ok(Some(line)) => {
                         match evidence.accept(&line) {
-                            Ok(HostEvent::Session(id)) => {
-                                if projection.provider_session_id.as_deref() != Some(id.as_str()) {
-                                    projection.provider_session_id = Some(id);
+                            Ok(HostEvent::Session(_)) => {
+                                let id = evidence.provider_session_id().map(str::to_owned);
+                                if projection.provider_session_id != id {
+                                    projection.provider_session_id = id;
                                     projection.updated_at = Utc::now().to_rfc3339();
                                     if update_projection(&app, &projection).is_err() { failure = Some(evidence.reject_stream()); }
                                 }
@@ -315,6 +360,7 @@ async fn run_owned_task(
         }
     }
     // Drain trailing buffered stdout before finish; exit zero alone proves nothing.
+    let (actual_cost_usd, budget_exceeded) = evidence.result_budget_metadata();
     let outcome = match failure {
         Some(error) => Err(error),
         None if cancelled => Err("The owner stopped this task.".into()),
@@ -338,6 +384,9 @@ async fn run_owned_task(
                     false,
                 );
             } else {
+                // Final-frame telemetry is committed only with saved, verified text.
+                projection.actual_cost_usd = actual_cost_usd;
+                projection.budget_exceeded = budget_exceeded;
                 projection.state = RuntimeTaskStateV1::Succeeded;
                 projection.error = None;
                 finish_active_step(&mut projection, "done");

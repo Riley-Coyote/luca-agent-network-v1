@@ -62,6 +62,23 @@ struct Envelope {
     stop_reason: Option<String>,
     error: Option<String>,
     plan: Option<luca_protocol::WorkPlanV1>,
+    #[serde(default, deserialize_with = "deserialize_actual_cost")]
+    actual_cost_usd: Option<f64>,
+    budget_exceeded: Option<bool>,
+}
+
+/// Optional telemetry is numeric evidence only, never a spending permission.
+pub(super) fn deserialize_actual_cost<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let cost = Option::<f64>::deserialize(deserializer)?;
+    if cost.is_some_and(|value| !value.is_finite() || value < 0.0) {
+        return Err(serde::de::Error::custom(
+            "Invalid runtime task cost metadata.",
+        ));
+    }
+    Ok(cost)
 }
 
 /// One child stream's exact provider binding and staged completion evidence.
@@ -71,6 +88,9 @@ pub(super) struct HostEvents {
     session_acknowledged: bool,
     completed: bool,
     result: Option<String>,
+    actual_cost_usd: Option<f64>,
+    budget_exceeded: Option<bool>,
+    session_persistent: bool,
     failure: Option<&'static str>,
     bytes: usize,
     count: usize,
@@ -88,10 +108,20 @@ impl HostEvents {
             session_acknowledged: false,
             completed: false,
             result: None,
+            actual_cost_usd: None,
+            budget_exceeded: None,
+            session_persistent: true,
             failure: None,
             bytes: 0,
             count: 0,
         })
+    }
+
+    /// CLI Ask IDs correlate this stream only; the CLI did not save a session.
+    pub(super) fn ephemeral_ask() -> Result<Self, String> {
+        let mut evidence = Self::new(None)?;
+        evidence.session_persistent = false;
+        Ok(evidence)
     }
 
     /// Validate one complete JSONL line and permanently latch any rejected input.
@@ -112,7 +142,18 @@ impl HostEvents {
 
     /// Return the exact bound identity without guessing, trimming or replacement.
     pub(super) fn provider_session_id(&self) -> Option<&str> {
-        self.provider_session.as_deref()
+        self.session_persistent
+            .then_some(self.provider_session.as_deref())
+            .flatten()
+    }
+
+    /// Staged final metadata; callers commit it only after verified `finish`.
+    pub(super) fn result_budget_metadata(&self) -> (Option<f64>, Option<bool>) {
+        if self.completed && self.failure.is_none() {
+            (self.actual_cost_usd, self.budget_exceeded)
+        } else {
+            (None, None)
+        }
     }
 
     /// Verify terminal evidence after EOF and child reaping, not merely exit zero.
@@ -133,6 +174,8 @@ impl HostEvents {
     fn poison(&mut self, failure: &'static str) -> String {
         let failure = *self.failure.get_or_insert(failure);
         self.result = None;
+        self.actual_cost_usd = None;
+        self.budget_exceeded = None;
         failure.to_owned()
     }
 
@@ -180,6 +223,11 @@ impl HostEvents {
             return Err(INVALID_STREAM);
         }
         if envelope.plan.is_some() && !matches!(envelope.kind, Kind::Plan) {
+            return Err(INVALID_STREAM);
+        }
+        if (envelope.actual_cost_usd.is_some() || envelope.budget_exceeded.is_some())
+            && !matches!(envelope.kind, Kind::Result)
+        {
             return Err(INVALID_STREAM);
         }
         // A terminal marker cannot be followed by any further task event.
@@ -261,6 +309,8 @@ impl HostEvents {
                 }
                 self.completed = true;
                 self.result = Some(result);
+                self.actual_cost_usd = envelope.actual_cost_usd;
+                self.budget_exceeded = envelope.budget_exceeded;
                 Ok(HostEvent::Result)
             }
             Kind::Failed => {

@@ -57,6 +57,7 @@ export function useProposalDraft(
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
       .find((task) => Boolean(task.workingFolder))?.workingFolder ?? null;
   return {
+    canRememberPrivateAsk: proposal.canRememberPrivateAsk === true,
     options: proposal.options,
     conversationId: proposal.conversationId,
     residentPubkey: proposal.residentPubkey,
@@ -147,6 +148,8 @@ function RuntimeTaskProposalForm({
           runtimeFamily: details.runtimeFamily,
           workingFolder: details.workingFolder,
           permissionMode: details.permissionMode,
+          useClaudeApi: details.useClaudeApi,
+          rememberAccess: details.rememberAccess,
         })
       }
       onConfirmed={() => {}}
@@ -165,6 +168,23 @@ type ProposalCommon = {
   onOpen?: () => void;
   openTestId?: string;
 } & { [attribute: `data-${string}`]: string };
+
+/** Plain Run stays a one-shot native approval, even when API review is offered. */
+export function runtimeTaskProposalDefaultResponse(
+  proposal: RuntimeTaskProposal,
+  folder: string | null,
+  approved: boolean,
+): Parameters<typeof respondRuntimeTaskProposal>[0] {
+  return approved && folder
+    ? {
+        approved: true,
+        permissionMode: "normal",
+        proposalId: proposal.proposalId,
+        runtimeFamily: proposal.runtimeFamily,
+        workingFolder: folder,
+      }
+    : { approved: false, proposalId: proposal.proposalId };
+}
 
 /** Luca's proposal to run Codex or Claude Code, as one ask row: Run · Not
  *  now, its defaults in one faint line, and Change… opening the card under
@@ -212,15 +232,7 @@ export function ProposalAsk({
     setBusy(true);
     try {
       await respondRuntimeTaskProposal(
-        approved && folder
-          ? {
-              approved: true,
-              permissionMode: "normal",
-              proposalId: proposal.proposalId,
-              runtimeFamily: proposal.runtimeFamily,
-              workingFolder: folder,
-            }
-          : { approved: false, proposalId: proposal.proposalId },
+        runtimeTaskProposalDefaultResponse(proposal, folder, approved),
       );
     } catch (error) {
       toast.error(

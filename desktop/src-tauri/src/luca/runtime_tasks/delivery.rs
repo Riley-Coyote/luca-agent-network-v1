@@ -54,14 +54,13 @@ fn admission_remaining(
     if deadline_unix_ms <= millis()? || !admission_scope_is_current(app, claim)? {
         return Ok(None);
     }
-    let members = super::super::runtime_task_delivery::verified_conversation_members(
-        app,
-        &claim.conversation_id,
-    )?;
-    if !members.contains(&claim.owner_pubkey)
-        || !members.contains(&claim.resident_pubkey)
-        || !admission_scope_is_current(app, claim)?
-    {
+    let approval = store(app)?
+        .lock()
+        .map_err(|_| "Task return state is unavailable.")?
+        .approval_for_task(&claim.task_id)
+        .ok_or("Task return authority is unavailable.")?;
+    super::super::runtime_task_delivery::verify_return_home(app, &approval)?;
+    if !admission_scope_is_current(app, claim)? {
         return Ok(None);
     }
     let store = store(app)?;
@@ -159,6 +158,7 @@ pub(super) fn approve(
     app: &AppHandle,
     projection: &mut RuntimeTaskProjectionV1,
     encoded_input: &[u8],
+    private_home: bool,
 ) -> Result<(), String> {
     if projection.control_owner != RuntimeTaskControlOwnerV1::Polyphonic
         || projection.operation == RuntimeTaskOperationV1::SendMessage
@@ -177,6 +177,7 @@ pub(super) fn approve(
     })?;
     let (relay_ref, community) = current_origin(app)?;
     let approval = RuntimeTaskDeliveryApprovalV1 {
+        private_home,
         task_id: task_id(&projection.task_id)?,
         owner_pubkey: owner,
         resident_pubkey: resident,
@@ -218,17 +219,36 @@ pub(super) fn abandon(app: &AppHandle, id: &str) {
     super::refresh_runtime_task_delivery(app, id);
 }
 
+pub(super) fn stop(app: &AppHandle, id: &str) -> Result<RuntimeTaskDeliveryStateV1, String> {
+    store(app)?
+        .lock()
+        .map_err(|_| "Task return state is unavailable.".to_owned())?
+        .stop_task(&task_id(id)?, now()?)
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn ensure_stop_projection(app: &AppHandle, id: &str) -> Result<(), String> {
+    if memory()
+        .lock()
+        .map_err(|_| "Task state is unavailable.")?
+        .projections
+        .contains_key(id)
+    {
+        return Ok(());
+    }
+    let projection = exact_projection(app, id)?;
+    memory()
+        .lock()
+        .map_err(|_| "Task state is unavailable.")?
+        .projections
+        .entry(id.to_owned())
+        .or_insert(projection);
+    Ok(())
+}
+
 fn stored_success(app: &AppHandle, id: &str) -> Result<(RuntimeTaskProjectionV1, String), String> {
-    validate_opaque(id, 128, "task")?;
-    let bytes = storage::read_bounded(
-        &receipt_directory(app)?.join(format!("{id}.json")),
-        64 * 1024,
-    )
-    .map_err(|_| "The completed task receipt is unavailable.".to_owned())?;
-    let projection: RuntimeTaskProjectionV1 = serde_json::from_slice(&bytes)
-        .map_err(|_| "The completed task receipt is invalid.".to_owned())?;
-    if projection.task_id != id
-        || projection.state != RuntimeTaskStateV1::Succeeded
+    let projection = exact_projection(app, id)?;
+    if projection.state != RuntimeTaskStateV1::Succeeded
         || projection.control_owner != RuntimeTaskControlOwnerV1::Polyphonic
         || projection.operation == RuntimeTaskOperationV1::SendMessage
     {
@@ -237,6 +257,27 @@ fn stored_success(app: &AppHandle, id: &str) -> Result<(RuntimeTaskProjectionV1,
     let result = load_result(app, id)
         .ok_or_else(|| "The completed task result is unavailable.".to_owned())?;
     Ok((projection, result))
+}
+
+fn exact_projection(app: &AppHandle, id: &str) -> Result<RuntimeTaskProjectionV1, String> {
+    let bytes = storage::exact_receipt_bytes(&receipt_directory(app)?, id)
+        .map_err(|_| "The completed task receipt is unavailable.".to_owned())?;
+    let projection: RuntimeTaskProjectionV1 = serde_json::from_slice(&bytes)
+        .map_err(|_| "The completed task receipt is invalid.".to_owned())?;
+    if projection.task_id != id
+        || projection.owner_pubkey.is_empty()
+        || projection.origin_relay_ref.is_none()
+    {
+        return Err("The stored task has no verified scoped identity.".into());
+    }
+    ensure_current_scope(app, &projection)?;
+    let scope = completion_scope(&projection)?;
+    store(app)?
+        .lock()
+        .map_err(|_| "Task return state is unavailable.".to_owned())?
+        .verify_completion_scope(&scope)
+        .map_err(|error| error.to_string())?;
+    Ok(projection)
 }
 
 /// Called only after both the complete result and Succeeded receipt are saved.
@@ -513,22 +554,13 @@ fn run(app: AppHandle, id: String, manual: bool) -> Result<(), String> {
                 return Ok(());
             }
         };
-        let members = match super::super::runtime_task_delivery::verified_conversation_members(
-            &app,
-            &approved.conversation_id,
-        ) {
-            Ok(members) => members,
-            Err(_) => {
-                preflight_retryable(&app, &id)?;
-                return Ok(());
-            }
-        };
-        if !members.contains(&owner) || !members.contains(&approved.resident_pubkey) {
-            store(&app)?
-                .lock()
-                .map_err(|_| "Task return state is unavailable.".to_owned())?
-                .mark_preflight_blocked(&task_id(&id)?, millis()?, now()?)
-                .map_err(|error| error.to_string())?;
+        let approval = store(&app)?
+            .lock()
+            .map_err(|_| "Task return state is unavailable.")?
+            .approval_for_task(&approved.task_id)
+            .ok_or("Task return authority is unavailable.")?;
+        if super::super::runtime_task_delivery::verify_return_home(&app, &approval).is_err() {
+            preflight_retryable(&app, &id)?;
             return Ok(());
         }
         let (projection, result) = stored_success(&app, &id)?;
@@ -727,7 +759,6 @@ pub(super) fn retry(app: AppHandle, id: String) -> Result<RuntimeTaskProjectionV
 }
 
 pub(super) fn recover(app: &AppHandle) -> Result<usize, String> {
-    load_receipts(app)?;
     let owner = delegation::owner(app)?;
     let rows = store(app)?
         .lock()
@@ -757,15 +788,25 @@ fn recover_rows(
 }
 
 fn recover_row(app: &AppHandle, row: RuntimeTaskDeliveryReceiptV1) -> Result<bool, String> {
-    if store(app)?.lock().map_err(|_|"Task return state is unavailable.")?.operation_for_task(&row.task_id)
-        ==Some(RuntimeTaskDeliveryOperationV1::InitiativeReturn) {return Ok(false);}
+    if store(app)?
+        .lock()
+        .map_err(|_| "Task return state is unavailable.")?
+        .operation_for_task(&row.task_id)
+        == Some(RuntimeTaskDeliveryOperationV1::InitiativeReturn)
+    {
+        return Ok(false);
+    }
     if row.state == RuntimeTaskDeliveryStateV1::AwaitingResult {
-        let task_state = memory()
+        // The durable pending-return index is the lookup authority, not the
+        // latest-512 rail cache. Read exactly one bounded UUID receipt.
+        let projection = exact_projection(app, row.task_id.as_str())?;
+        let task_state = Some(projection.state);
+        memory()
             .lock()
             .map_err(|_| "Task state is unavailable.".to_owned())?
             .projections
-            .get(row.task_id.as_str())
-            .map(|task| task.state);
+            .entry(projection.task_id.clone())
+            .or_insert(projection);
         if task_state == Some(RuntimeTaskStateV1::Succeeded) {
             completed(app, row.task_id.as_str())?;
             return Ok(true);
