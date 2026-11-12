@@ -200,15 +200,25 @@ fn legacy_graceful_term_reaps_owned_adapter_before_failed_terminal_event() {
     if let Some(folder) = std::env::var_os(CHILD_FOLDER) {
         let folder = PathBuf::from(folder);
         let runtime = tokio::runtime::Runtime::new().expect("isolated legacy fixture runtime");
+        let input = read_input().expect("synthetic task input");
+        validate_input(&input).expect("valid synthetic task");
+        // This is a lifecycle test, not a provider resolver. The shell fixture
+        // stays explicitly synthetic and still has to acknowledge the real
+        // normal policy before it can receive a prompt.
+        let policy = policy::TaskPolicy::new("codex-acp", "normal").unwrap();
         runtime
-            .block_on(run(RuntimeTaskArgs {
-                agent: crate::config::AuthAgentArgs {
-                    agent_command: folder.join("adapter.sh").to_string_lossy().into_owned(),
-                    agent_args: Vec::new(),
+            .block_on(run_owned_acp(
+                RuntimeTaskArgs {
+                    agent: crate::config::AuthAgentArgs {
+                        agent_command: folder.join("adapter.sh").to_string_lossy().into_owned(),
+                        agent_args: Vec::new(),
+                    },
+                    idle_timeout_secs: 30,
+                    max_duration_secs: 60,
                 },
-                idle_timeout_secs: 30,
-                max_duration_secs: 60,
-            }))
+                input,
+                OwnedAcpRoute::New(policy),
+            ))
             .expect("owned host emits a failed terminal event after TERM");
         return;
     }
@@ -240,7 +250,10 @@ fn legacy_graceful_term_reaps_owned_adapter_before_failed_terminal_event() {
 IFS= read -r initialize || exit 2
 printf '%s\n' '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":2,"agentCapabilities":{}}}'
 IFS= read -r new_session || exit 3
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"synthetic-legacy-session"}}'
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"synthetic-legacy-session","modes":{"availableModes":[{"id":"read-only"}]}}}'
+IFS= read -r policy_request || exit 4
+case "$policy_request" in *'"method":"session/set_config_option"'*'"value":"read-only"'*) ;; *) exit 5 ;; esac
+printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"configOptions":[{"id":"mode","currentValue":"read-only"}]}}'
 IFS= read -r prompt || exit 4
 printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"synthetic-legacy-session","update":{"sessionUpdate":"plan"}}}'
 printf '%s' "$$" > "$POLYPHONIC_LEGACY_TERM_FIXTURE_FOLDER/adapter.pid"

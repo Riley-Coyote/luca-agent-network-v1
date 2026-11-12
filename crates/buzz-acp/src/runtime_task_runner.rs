@@ -109,6 +109,31 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
         // adopt a resident context or install managed MCP servers for resume.
         return codex_cli::run(&args, &input).await;
     }
+    let route = if claude_resume {
+        OwnedAcpRoute::ResumeClaude
+    } else {
+        OwnedAcpRoute::New(policy::TaskPolicy::new(
+            &args.agent.agent_command,
+            &input.permission_mode,
+        )?)
+    };
+    run_owned_acp(args, input, route).await
+}
+
+enum OwnedAcpRoute {
+    New(policy::TaskPolicy),
+    ResumeClaude,
+}
+
+async fn run_owned_acp(
+    args: RuntimeTaskArgs,
+    input: RuntimeTaskInputV1,
+    route: OwnedAcpRoute,
+) -> Result<()> {
+    let (claude_resume, task_policy) = match route {
+        OwnedAcpRoute::New(policy) => (false, Some(policy)),
+        OwnedAcpRoute::ResumeClaude => (true, None),
+    };
     let agent_args = normalize_agent_args(&args.agent.agent_command, args.agent.agent_args);
     // Install before creating the owned ACP child. A host's graceful TERM/INT
     // must enter cleanup instead of bypassing the client's Drop entirely.
@@ -131,14 +156,6 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
         )
     };
 
-    let task_policy = if claude_resume {
-        None
-    } else {
-        Some(policy::TaskPolicy::new(
-            &args.agent.agent_command,
-            &input.permission_mode,
-        )?)
-    };
     let policy_env = task_policy
         .as_ref()
         .map(|policy| policy.environment())
