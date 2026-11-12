@@ -13,6 +13,7 @@ import { PlaceQuietButton } from "@/app/shell/placeRails/PlaceAskRow";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { Button } from "@/shared/ui/button";
 import {
+  hasExactRuntimeTaskTarget,
   isExistingRuntimeTask,
   type RuntimeTaskTarget,
 } from "@/features/capabilities/lib/runtimeTaskPresentation";
@@ -130,9 +131,7 @@ export function RuntimeTaskConfirmationCard({
     apiSelected || existingSession
       ? (draft.targetWorkingFolder ?? "")
       : selectedFolder;
-  const exactTargetReady = Boolean(
-    draft.sourceId?.trim() && draft.sessionId?.trim() && workingFolder.trim(),
-  );
+  const exactTargetReady = hasExactRuntimeTaskTarget(draft);
   const [permissionMode, setPermissionMode] = React.useState<
     "normal" | "full_access"
   >("normal");
@@ -163,6 +162,7 @@ export function RuntimeTaskConfirmationCard({
       : availableTargets.some((runtime) => runtime.runtimeId === target);
 
   const confirm = () => {
+    if (isStarting || !targetReady || !workingFolder.trim()) return;
     setIsStarting(true);
     setError(null);
     void onConfirm({

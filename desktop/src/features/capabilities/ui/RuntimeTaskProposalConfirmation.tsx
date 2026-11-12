@@ -14,7 +14,10 @@ import {
   respondRuntimeTaskProposal,
   type RuntimeTaskProposal,
 } from "@/shared/api/tauriRuntimeTasks";
-import { isExistingRuntimeTask } from "../lib/runtimeTaskPresentation";
+import {
+  hasExactRuntimeTaskTarget,
+  isExistingRuntimeTask,
+} from "../lib/runtimeTaskPresentation";
 import { useRuntimeTasks } from "../useRuntimeTasks";
 import {
   RuntimeTaskConfirmationCard,
@@ -175,15 +178,25 @@ export function runtimeTaskProposalDefaultResponse(
   folder: string | null,
   approved: boolean,
 ): Parameters<typeof respondRuntimeTaskProposal>[0] {
-  return approved && folder
-    ? {
-        approved: true,
-        permissionMode: "normal",
-        proposalId: proposal.proposalId,
-        runtimeFamily: proposal.runtimeFamily,
-        workingFolder: folder,
-      }
-    : { approved: false, proposalId: proposal.proposalId };
+  if (!approved) return { approved: false, proposalId: proposal.proposalId };
+  if (
+    isExistingRuntimeTask(proposal.operation) &&
+    (!hasExactRuntimeTaskTarget(proposal) ||
+      folder !== proposal.targetWorkingFolder)
+  ) {
+    throw new Error(
+      "The exact native session is unavailable. Nothing was sent.",
+    );
+  }
+  if (!folder?.trim())
+    throw new Error("A working folder is needed. Nothing was started.");
+  return {
+    approved: true,
+    permissionMode: "normal",
+    proposalId: proposal.proposalId,
+    runtimeFamily: proposal.runtimeFamily,
+    workingFolder: folder,
+  };
 }
 
 /** Luca's proposal to run Codex or Claude Code, as one ask row: Run · Not
@@ -227,8 +240,11 @@ export function ProposalAsk({
         runtime.readiness === "ready" &&
         runtime.authentication === "ready",
     );
-  const canRun = Boolean(folder) && ready;
+  const canRun = existing
+    ? hasExactRuntimeTaskTarget(proposal)
+    : Boolean(folder?.trim()) && ready;
   const respond = async (approved: boolean) => {
+    if (approved && !canRun) return;
     setBusy(true);
     try {
       await respondRuntimeTaskProposal(

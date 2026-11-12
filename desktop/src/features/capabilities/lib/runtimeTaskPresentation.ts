@@ -12,6 +12,19 @@ export function isExistingRuntimeTask(
   return operation === "continue_session" || operation === "send_message";
 }
 
+/** A folder or a display label alone never identifies a native session. */
+export function hasExactRuntimeTaskTarget(target: {
+  sourceId?: string | null;
+  sessionId?: string | null;
+  targetWorkingFolder?: string | null;
+}): boolean {
+  return Boolean(
+    target.sourceId?.trim() &&
+      target.sessionId?.trim() &&
+      target.targetWorkingFolder?.trim(),
+  );
+}
+
 /** A native queue acknowledgement is not evidence that the work completed. */
 export function runtimeTaskNativeHandoff(
   task: Pick<RuntimeTaskProjection, "state" | "controlOwner">,

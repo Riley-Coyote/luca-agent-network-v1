@@ -970,6 +970,16 @@ async function raise(page: Page, request = proposal()) {
     );
   }, request);
   const card = page.getByTestId("runtime-task-confirmation");
+  // The shipping shell folds a new ask, then opens its existing detailed
+  // form through Change. The legacy surface presents the same form directly.
+  if (await page.locator("html[data-luca-frame]").count()) {
+    const held = page.getByTestId("pending-held");
+    const change = page.getByTestId("needs-you-proposal-change");
+    await expect(held.or(change).first()).toBeVisible();
+    if (await held.isVisible()) await held.click();
+    await expect(change).toBeVisible();
+    if (!(await card.isVisible())) await change.click();
+  }
   await expect(card).toBeVisible();
   return card;
 }
@@ -1208,9 +1218,12 @@ test("missing native refs never fall back to the prior task folder", async ({
       operation: "send_message",
       runtimeFamily: "codex",
       targetLabel: "Unresolved native target",
+      targetWorkingFolder: TARGET_FOLDER,
     }),
   );
   await expect(card.getByRole("alert")).toContainText("no work will be sent");
+  const compact = page.getByTestId("needs-you-proposal-run");
+  if (await compact.count()) await expect(compact).toBeDisabled();
   await expect(
     card.getByRole("button", { name: "Send", exact: true }),
   ).toBeDisabled();
@@ -1808,10 +1821,33 @@ test("a newer terminal event wins over a late accepted Stop command receipt", as
   await page.waitForFunction(
     () => window.__RUNTIME_TASK_CARD_TEST__?.completedStopCalls === 1,
   );
-  await expect(page.getByTestId("runtime-task-result-receipt")).toContainText(
-    "Stopped with Codex",
-  );
   await expect(page.locator(".luca-runtime-task-item")).toHaveCount(0);
+  if (await page.locator("html[data-luca-frame]").count()) {
+    // An acknowledged Stop settles quietly in the home, but the real receipt
+    // is still available in history. The late command must not revive it.
+    await expect(page.getByTestId("runtime-task-result-receipt")).toHaveCount(
+      0,
+    );
+    await expect(page.getByTestId("runtime-task-notice")).toHaveCount(0);
+    await page.evaluate((id) => {
+      window.location.hash = `#/apps/codex/tasks/${id}`;
+    }, task.taskId);
+    const history = page.getByTestId("app-task-card");
+    await expect(history).toContainText(task.summary);
+    await expect(history.getByText(/· stopped$/i)).toBeVisible();
+    expect(
+      await page.evaluate(
+        () =>
+          window.__RUNTIME_TASK_CARD_TEST__?.calls.filter(
+            (call) => call.command === "cancel_runtime_task",
+          ).length,
+      ),
+    ).toBe(1);
+  } else {
+    await expect(page.getByTestId("runtime-task-result-receipt")).toContainText(
+      "Stopped with Codex",
+    );
+  }
 });
 
 test("a subscribed event survives an older list backfill and a stale update", async ({

@@ -119,10 +119,12 @@ test("shared Needs-you and Activity Run never selects API or remembers access im
       proposalId: "proposal",
     },
   );
-  assert.deepEqual(runtimeTaskProposalDefaultResponse(proposal, null, true), {
-    approved: false,
-    proposalId: "proposal",
-  });
+  for (const folder of [null, "   "]) {
+    assert.throws(
+      () => runtimeTaskProposalDefaultResponse(proposal, folder, true),
+      /Nothing was started/,
+    );
+  }
 });
 
 test("ineligible proposals keep the existing native review without API controls", () => {
@@ -130,4 +132,46 @@ test("ineligible proposals keep the existing native review without API controls"
   assert.doesNotMatch(html, /connected Claude API account/);
   assert.match(html, /Working folder/);
   assert.match(html, /Permission mode/);
+});
+
+test("the compact review cannot send to a folder or label instead of the exact native session", () => {
+  const proposal = {
+    ...draft,
+    proposalId: "native",
+    operation: "send_message",
+    sourceId: "source",
+    sessionId: "session",
+    targetWorkingFolder: "/exact",
+  };
+  for (const changed of [
+    { sourceId: "" },
+    { sessionId: " " },
+    { targetWorkingFolder: null },
+  ]) {
+    assert.throws(
+      () =>
+        runtimeTaskProposalDefaultResponse(
+          { ...proposal, ...changed },
+          "/exact",
+          true,
+        ),
+      /Nothing was sent/,
+    );
+  }
+  assert.throws(
+    () => runtimeTaskProposalDefaultResponse(proposal, "/previous", true),
+    /Nothing was sent/,
+  );
+  assert.equal(
+    runtimeTaskProposalDefaultResponse(proposal, "/exact", true).approved,
+    true,
+  );
+  assert.equal(
+    runtimeTaskProposalDefaultResponse(
+      { ...proposal, sourceId: null },
+      null,
+      false,
+    ).approved,
+    false,
+  );
 });
