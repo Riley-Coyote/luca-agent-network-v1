@@ -1,0 +1,59 @@
+.luca-mnemos-view {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.luca-mnemos-form .luca-mind-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  justify-content: space-between;
+}
+.luca-mnemos-connection {
+  color: var(--mind-muted);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.luca-mnemos-connection summary {
+  cursor: pointer;
+  width: fit-content;
+  padding-block: 0.4rem;
+}
+.luca-mnemos-connection dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.25rem 0.8rem;
+  margin: 0.5rem 0;
+}
+.luca-mnemos-connection dd {
+  margin: 0;
+  color: var(--mind-ink);
+}
+.luca-mnemos-view > button {
+  justify-self: start;
+}
+.luca-mnemos-form {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+.luca-mnemos-form label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+.luca-mnemos-form input {
+  width: 100%;
+  min-width: 0;
+}
+.luca-mnemos-items li {
+  padding: 0.85rem 0;
+}
+.luca-mnemos-items p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-reading, Inter, sans-serif);
+  line-height: 1.55;
+}

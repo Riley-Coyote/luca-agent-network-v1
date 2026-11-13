@@ -185,7 +185,7 @@ try {
       'candidate signing mode does not match the explicit run option');
   } else if (action === 'manifest' || action === 'verify-manifest') {
     const [file, bundle, protocol, source, ...names] = args;
-    const files = ['Contents/Info.plist', 'Contents/Resources/companion-delegation-source.json', ...names.map(n => `Contents/MacOS/${n}`)];
+    const files = ['Contents/Info.plist', 'Contents/Resources/companion-delegation-source.json', 'Contents/Resources/mnemos/read-view.pyz', ...names.map(n => `Contents/MacOS/${n}`)];
     const m = { protocol, sourceRevision: source, bundlePath: bundle, files: files.map(name => ({ name, sha256: hash(path.join(bundle, name)) })) };
     if (action === 'manifest') write(file, m);
     else requireValue(JSON.stringify(read(file)) === JSON.stringify(m), 'signed candidate hashes changed');
@@ -323,8 +323,10 @@ verify_executable() {
 }
 
 verify_bundle() {
-    local name plist_json
+    local name plist_json reader
     [[ -d "$APP_BUNDLE" && ! -L "$APP_BUNDLE" ]] || fail "candidate bundle is missing or symlinked"
+    reader="$APP_BUNDLE/Contents/Resources/mnemos/read-view.pyz"
+    [[ -f "$reader" && ! -L "$reader" && "$(sha256 "$reader")" == "$(< "$REPO_ROOT/desktop/src-tauri/src/commands/mnemos_view/reader.sha256")" ]] || fail "candidate lacks the pinned Mnemos read view"
     plist_json=$(/usr/bin/plutil -convert json -o - "$PLIST")
     json plist "$plist_json" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" "$DATA_DIR" "$NATIVE_ROOT" "$KEYRING_SERVICE" "$APP_VERSION"
     json verify-receipt "$RECEIPT" "$PROTOCOL" "$SOURCE_REVISION" "$SOURCE_BASE" "$EXPECTED_BRANCH" "$BUNDLE_ID" "$PRODUCT_NAME" "$INSTANCE_ROOT" "$KEYRING_SERVICE" "$CONFIG_PATH" "$ENTITLEMENTS_PATH" "$(candidate_signing_mode)" "${SIDECARS[@]}"

@@ -1,0 +1,17 @@
+# Mnemos in a resident’s space
+
+In Rail Glass, open **Agents → a local resident → Mnemos**. This is a view of an existing Mnemos store, not the resident’s Polyphonic Notebook or a new memory tool.
+
+- **Connect a store** asks for the agent, person and project IDs from that store. The native chooser selects the existing file. Review its exact path, all three IDs and the receiving resident before granting read-only access. Neither a display name nor an existing model or observation grant supplies any of these values.
+- The overview shows counts for the six sections. Open one to read it, 50 items at a time. Memories lists active and dormant memories, not archived ones. The reader does not wake anyone, mark notes read, send a model request or search neighbouring stores. An idle store is unchanged; with an active writer SQLite may update a shared-memory read mark.
+- **Read-only connection → Disconnect** removes this view’s approval, not memory. The app binds it to the authenticated owner, managed local resident and selected file identity. A replaced file needs a new approval. No periodic polling, model tool registration or persisted memory text. Changing resident, hiding the view or losing window focus drops the displayed response; late reads are discarded.
+
+## Reader and verification
+
+The app packages Mnemos’s read protocol 1 at `fd07d9cdee9f6b53137ffc6d52d254e5e80d10eb`. The helper contains the upstream license and NOTICE, the pinned `ulid-py` dependency and its license. The only entry point calls `mnemos.host_view.answer`. The native host checks the bundled artifact’s SHA-256 before executing exactly those bytes and accepts only a bounded, matching-scope reply. No installation, shell lookup, editable checkout or ambient Python environment is used. On macOS a supported Python 3.12 or 3.13 installation must already exist in a path listed in `commands/mnemos_view/reader.rs`; if absent, the tab reports that it is unavailable.
+
+To reproduce the archive offline from a local checkout containing that commit and the matching wheel, use `python3 desktop/scripts/package-mnemos-reader.py <checkout> <wheel> <new-output.pyz>`. Compare the output with `desktop/src-tauri/src/commands/mnemos_view/reader.sha256`. The command never takes a database path.
+
+Use the upstream two-resident example for reader acceptance (all seven sections, pagination, untouched store, no neighbouring resident or person). For rendering, the shell lab experience `mnemos-view` uses production components and a synthetic bridge; its optional `memory` parameter exercises `missing`, `disconnected` and `failure`. These checks are not evidence of a new native build. Qualify the specific Rail Glass bundle and native picker separately, using a synthetic store, before a walkthrough. Never qualify using the MCP Verification bundle or the daily app.
+
+The focused production-app browser regressions are in `desktop/tests/e2e/luca/mnemos-view.spec.ts`. On November 12, the pinned macOS Python reader matched the upstream example in every section and on subsequent pages; the idle fixture was byte-identical afterwards. The browser checks passed for pagination, missing/replaced stores, denial of unapproved reads, keyboard access, hidden views and discarded late results. No real store, model turn or native-picker approval was involved. The candidate packager now checks the reader against its compiled pin and includes it in the bundle manifest.

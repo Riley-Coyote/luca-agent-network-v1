@@ -53,6 +53,7 @@
   "bundle": {
     "active": true,
     "resources": {
+      "helpers/mnemos-read-view.pyz": "mnemos/read-view.pyz",
       "../browser-awareness-extension/manifest.json": "browser-awareness-extension/manifest.json",
       "../browser-awareness-extension/service-worker.js": "browser-awareness-extension/service-worker.js",
       "../browser-awareness-extension/popup.html": "browser-awareness-extension/popup.html",

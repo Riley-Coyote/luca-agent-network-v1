@@ -55,6 +55,7 @@ mod media_transcode;
 #[cfg(feature = "mesh-llm")]
 pub(crate) mod mesh_llm;
 mod message_send;
+mod mnemos_view;
 mod messages;
 mod notifications;
 mod observer_archive;
@@ -120,6 +121,7 @@ pub use companion_follow::*;
 pub use companion_machine::*;
 pub use connected_brain::*;
 pub use continuity::*;
+pub use mnemos_view::*;
 pub(crate) use conversation_context::*;
 pub use dms::*;
 pub use engrams::*;

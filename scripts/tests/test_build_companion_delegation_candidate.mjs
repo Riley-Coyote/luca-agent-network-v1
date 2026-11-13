@@ -323,13 +323,18 @@ test("external manifest detects executable mutation after final receipt", () => 
   temporary((root) => {
     const bundle = join(root, "Fixture.app");
     mkdirSync(join(bundle, "Contents/MacOS"), { recursive: true });
-    mkdirSync(join(bundle, "Contents/Resources"));
+    mkdirSync(join(bundle, "Contents/Resources/mnemos"), {recursive: true});
     writeFileSync(join(bundle, "Contents/Info.plist"), "fixture-plist");
     writeFileSync(join(bundle, "Contents/Resources/companion-delegation-source.json"), "fixture-receipt");
+    const reader = join(bundle, "Contents/Resources/mnemos/read-view.pyz");
+    writeFileSync(reader, "fixture-reader");
     for (const name of ["buzz-desktop", ...sidecars]) writeFileSync(join(bundle, "Contents/MacOS", name), `fixture-${name}`);
     const args = [join(root, "signed.json"), bundle, "fixture-protocol", source, "buzz-desktop", ...sidecars];
     assert.equal(shell('json manifest "$@"', args).status, 0);
     assert.equal(shell('json verify-manifest "$@"', args).status, 0);
+    writeFileSync(reader, "changed");
+    assert.notEqual(shell('json verify-manifest "$@"', args).status, 0);
+    writeFileSync(reader, "fixture-reader");
     writeFileSync(join(bundle, "Contents/MacOS/buzz-relay"), "changed");
     assert.notEqual(shell('json verify-manifest "$@"', args).status, 0);
   });

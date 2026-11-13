@@ -149,6 +149,11 @@ fails closed instead of using subscription billing. Connection changes reconnect
 idle residents through the existing dispatch-aware stop authority; busy work is
 not interrupted, and a manual stop must cancel its pending reconnect.
 
+The Mnemos page is an owner-facing view of one explicitly connected store and
+exact agent/person/project scope. Its approval belongs to the owner and local
+resident. It is not the Notebook, a model tool, an observation grant or a write
+permission. No ambient lookup, polling, remote resident or provider call.
+
 **If you change how agent configuration is modeled, rendered, persisted,
 applied, or cleared — update this file in the same PR.** A rule that no longer
 matches the code is worse than no rule; a new pattern that isn't written down

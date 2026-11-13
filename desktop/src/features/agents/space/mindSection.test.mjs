@@ -123,3 +123,10 @@ test("WP-43: every old way in lands on its new home", () => {
   });
   assert.equal(mindPageOfLegacy({}), null);
 });
+test("Mnemos is a resident view, not a settings pane or Notebook alias", () => {
+  const page = parseMindPage("mnemos");
+  assert.deepEqual(page, { kind: "mnemos" });
+  assert.equal(mindPageWord(page), "mnemos");
+  assert.deepEqual(mindPageParent(page), { kind: "place" });
+  assert.equal(mindPageDepth(page), 1);
+});

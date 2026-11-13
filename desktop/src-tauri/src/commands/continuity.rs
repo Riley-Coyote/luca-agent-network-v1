@@ -973,6 +973,15 @@ fn resident_authority(
     state: &AppState,
     resident_pubkey: &str,
 ) -> Result<(Hex64, Hex64), String> {
+    let (owner, resident, _) = resident_authority_with_backend(app, state, resident_pubkey)?;
+    Ok((owner, resident))
+}
+
+pub(super) fn resident_authority_with_backend(
+    app: &AppHandle,
+    state: &AppState,
+    resident_pubkey: &str,
+) -> Result<(Hex64, Hex64, crate::managed_agents::BackendKind), String> {
     let resident = Hex64::parse(resident_pubkey.trim().to_ascii_lowercase())
         .map_err(|_| "invalid resident identity".to_owned())?;
     let owner = Hex64::parse(state.signing_keys()?.public_key().to_hex())
@@ -980,13 +989,11 @@ fn resident_authority(
     if resident == owner {
         return Err("owner identity is not a resident handoff namespace".into());
     }
-    let exists = load_managed_agents(app)?
-        .iter()
-        .any(|record| record.pubkey.eq_ignore_ascii_case(resident.as_str()));
-    if !exists {
-        return Err("resident is not managed by this Luca workspace".into());
-    }
-    Ok((owner, resident))
+    let record = load_managed_agents(app)?
+        .into_iter()
+        .find(|record| record.pubkey.eq_ignore_ascii_case(resident.as_str()))
+        .ok_or("resident is not managed by this Luca workspace")?;
+    Ok((owner, resident, record.backend))
 }
 
 fn inspector_projection(

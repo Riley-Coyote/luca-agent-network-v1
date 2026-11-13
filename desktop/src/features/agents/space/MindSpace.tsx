@@ -62,6 +62,8 @@ import {
   type MindPage,
 } from "./mindSection";
 import { MindSettingsPage } from "./MindSettings";
+import { MindMnemos } from "./MindMnemos";
+import { MindRow } from "./MindPageKit";
 import { setMindPageTitle } from "./mindPageTitle";
 import { arrivedByStep, useArrivalPlacement } from "./mindScroll";
 import { lastVisitOf, recordVisit } from "./mindVisits";
@@ -266,6 +268,18 @@ function MindFrame({
               notebook={page.notebook ?? null}
               onGo={go}
               since={since}
+              titleRef={titleRef}
+            />
+          ) : page.kind === "mnemos" ? (
+            <MindMnemos
+              key={managedAgent?.pubkey ?? "none"}
+              name={name}
+              onBack={back}
+              resident={
+                managedAgent?.backend.type === "local"
+                  ? managedAgent.pubkey
+                  : null
+              }
               titleRef={titleRef}
             />
           ) : page.kind === "made" || page.kind === "piece" ? (
@@ -526,6 +540,14 @@ function MindPlace({
           />
         </div>
       )}
+      {managedAgent?.backend.type === "local" ? (
+        <MindRow
+          label="Mnemos"
+          help="Read this resident’s memory."
+          onOpen={() => onGo({ kind: "mnemos" })}
+          testId="mind-open-mnemos"
+        />
+      ) : null}
     </div>
   );
 }

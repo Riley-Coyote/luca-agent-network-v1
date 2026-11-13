@@ -10,6 +10,7 @@
  *   settings/<pane>         one of Settings' panes
  *   settings/files/<path>   a file in their folder, from Files
  *   made                    everything they made
+ *   mnemos                  their explicitly connected, read-only memory
  *   made/<artifactId>       a piece, from Made
  *   piece/<artifactId>      a piece, from their page
  *   page/<kind>             a page they write, from Notebook
@@ -44,6 +45,7 @@ export type MindReadingKind = (typeof MIND_READING_KINDS)[number];
 
 export type MindPage =
   | { kind: "place"; notebook?: "open" | "pages" }
+  | { kind: "mnemos" }
   | { kind: "settings" }
   | { kind: "pane"; pane: MindPane }
   | { kind: "file"; relPath: string }
@@ -62,6 +64,7 @@ export function parseMindPage(value: unknown): MindPage {
   if (typeof value !== "string" || value.length === 0) return { kind: "place" };
   if (value === "notebook") return { kind: "place", notebook: "open" };
   if (value === "notebook/pages") return { kind: "place", notebook: "pages" };
+  if (value === "mnemos") return { kind: "mnemos" };
   if (value === "settings") return { kind: "settings" };
   if (value === "made") return { kind: "made" };
   const slash = value.indexOf("/");
@@ -94,6 +97,8 @@ export function mindPageWord(page: MindPage): string | null {
           : null;
     case "settings":
       return "settings";
+    case "mnemos":
+      return "mnemos";
     case "pane":
       return `settings/${page.pane}`;
     case "file":
@@ -113,6 +118,7 @@ export function mindPageParent(page: MindPage): MindPage | null {
     case "place":
       return null;
     case "settings":
+    case "mnemos":
     case "made":
     case "reading":
       return { kind: "place" };

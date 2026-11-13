@@ -43,6 +43,7 @@ import {
 } from "@/testing/conversationPolishStudy/fixtures";
 
 import { App } from "@/app/App";
+import { installMnemosViewFixture } from "@/testing/mnemosViewFixture";
 import { PERSONAL_HOME_TENANCY_ID } from "@/app/personalHomeTenancy";
 import { CommunitiesProvider } from "@/features/communities/useCommunities";
 import { CommunityOnboardingProvider } from "@/features/onboarding/communityOnboarding";
@@ -513,9 +514,18 @@ async function buildScene() {
       : LAB_ROOMS[LAB_OPEN_ROOM].id;
   window.localStorage.setItem("luca:last-conversation.v1", openRoomId);
   // Hash routing, so this works unchanged from a file:// URL.
-  window.location.hash = HARNESS_DASHBOARD_STUDY
-    ? "#/apps/claude"
-    : `#/channels/${openRoomId}`;
+  if (
+    new URLSearchParams(window.location.search).get("experience") ===
+    "mnemos-view"
+  ) {
+    // Hash history appends the outer lab query to the hash on a cold load.
+    // Keep that suffix on a fixture-only value, not on the real page word.
+    window.location.hash = `#/agents?profile=${LAB_RESIDENTS.luca.pubkey}&page=mnemos&lab=1`;
+  } else {
+    window.location.hash = HARNESS_DASHBOARD_STUDY
+      ? "#/apps/claude"
+      : `#/channels/${openRoomId}`;
+  }
 }
 
 /**
@@ -600,6 +610,10 @@ async function boot() {
   // The shell study draws its own sample conversations; it needs no scene.
   if (!SHELL_STUDY && (!CONVERSATION_POLISH_STUDY || CONVERSATION_CANVAS))
     await buildScene();
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("experience") === "mnemos-view") {
+    installMnemosViewFixture(LAB_RESIDENTS.luca.pubkey, params.get("memory"));
+  }
   renderApp();
 }
 
