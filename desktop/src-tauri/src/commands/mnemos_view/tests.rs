@@ -37,6 +37,28 @@ fn exact_scope_and_bounded_projection() {
         "person"
     );
     assert!(!v.to_string().contains("internal-id") && !v.to_string().contains("not for the view"));
+    for flag in [json!(false), json!(true), json!("false"), json!(null)] {
+        let mut value = orig.clone();
+        value["items"][0]["clipped"] = flag.clone();
+        match flag.as_bool() {
+            Some(mark) => assert_eq!(
+                serde_json::to_value(project(&value).unwrap()).unwrap()["items"][0]["clipped"],
+                mark
+            ),
+            None => assert!(project(&value).is_err()),
+        }
+    }
+    let mut wire = serde_json::to_vec(&orig).unwrap();
+    wire.resize(protocol::MAX_REPLY, b' ');
+    let check = |wire: &[u8]| protocol::project(wire, &scope(), "first", Section::Notes);
+    assert!(check(&wire).is_ok());
+    wire.push(b'\n');
+    assert!(check(&wire).is_ok());
+    wire.pop();
+    wire.push(b' ');
+    assert!(check(&wire).is_err());
+    wire.push(b'\n');
+    assert!(check(&wire).is_err());
     for key in ["agent_id", "person_id", "project_scope"] {
         let mut other = orig.clone();
         other["scope"][key] = json!("elsewhere");
@@ -80,6 +102,16 @@ fn cursor_does_not_cross_a_grant_or_section() {
     assert!(protocol::cursor_for("second", Section::Notes, &cursor).is_err());
     assert!(protocol::cursor_for("first", Section::Journal, &cursor).is_err());
     assert!(protocol::cursor_for("first", Section::Summary, "first:summary:x").is_err());
+    for (length, allowed) in [(0, false), (1, true), (1024, true), (1025, false)] {
+        let token = "a".repeat(length);
+        let mut reply = sample();
+        reply["next_cursor"] = json!(token);
+        assert_eq!(project(&reply).is_ok(), allowed);
+        assert_eq!(
+            protocol::cursor_for("first", Section::Notes, &format!("first:notes:{token}")).is_ok(),
+            allowed
+        );
+    }
 }
 #[test]
 fn refuse_noncanonical_ids() {
@@ -89,6 +121,22 @@ fn refuse_noncanonical_ids() {
         assert!(!s.valid());
     }
     assert!(scope().valid());
+    for (value, valid) in [
+        ("_".into(), true),
+        ("a--b_2".into(), true),
+        ("a".repeat(128), true),
+        ("a".repeat(129), false),
+        ("a\n".into(), false),
+    ] {
+        assert_eq!(
+            Scope {
+                person_id: value,
+                ..scope()
+            }
+            .valid(),
+            valid
+        );
+    }
 }
 #[test]
 fn a_managed_provider_is_not_a_local_memory_resident() {

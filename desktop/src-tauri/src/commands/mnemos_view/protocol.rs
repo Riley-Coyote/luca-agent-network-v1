@@ -96,7 +96,7 @@ pub enum Page {
 }
 fn valid_cursor(s: &str) -> bool {
     !s.is_empty()
-        && s.len() <= 2048
+        && s.len() <= 1024 // Same bound as the pinned reader's decoder.
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
@@ -117,7 +117,10 @@ pub(super) fn project(
     grant: &str,
     section: Section,
 ) -> Result<Page, String> {
-    if bytes.len() > MAX_REPLY + 1 {
+    // The CLI prints one newline after its bounded JSON document. Only that
+    // terminator, not an extra byte of payload, sits outside the wire limit.
+    let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    if bytes.len() > MAX_REPLY {
         return Err(INVALID.into());
     }
     let v: Value = serde_json::from_slice(bytes).map_err(|_| INVALID)?;
@@ -161,7 +164,10 @@ pub(super) fn project(
                 .to_owned();
             Ok::<_, String>(Item {
                 text,
-                clipped: row.get("clipped").and_then(Value::as_bool).unwrap_or(false),
+                clipped: match row.get("clipped") {
+                    None => false,
+                    Some(flag) => flag.as_bool().ok_or(INVALID)?,
+                },
                 author: match (section, row.get("author").and_then(Value::as_str)) {
                     (Section::Notes, Some("agent")) => Some("agent"),
                     (Section::Notes, Some("person")) => Some("person"),

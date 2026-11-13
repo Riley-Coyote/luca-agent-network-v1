@@ -12,23 +12,13 @@ import {
 import { MindGroup, MindPageHead, MindRow } from "./MindPageKit";
 import "./mind-mnemos.css";
 
-const labels: Record<MnemosSection, string> = {
-  memories: "Memories",
-  standing: "Standing memories",
-  journal: "Journal",
-  notes: "Notes",
-  handoffs: "Handoffs",
-  beliefs: "Beliefs",
-};
-const emptyScope: ViewScope = {
-  agent_id: "",
-  person_id: "",
-  project_scope: "",
-};
-const canConnect = (s: ViewScope) =>
-  Object.values(s).every(
-    (v) => v.length <= 128 && /^[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?$/.test(v),
-  );
+import {
+  emptyScope,
+  labels,
+  MnemosConnectForm,
+  MnemosReading,
+} from "./MnemosViewParts";
+
 function count(c: ViewCounts, s: MnemosSection) {
   return s === "memories"
     ? c.memories.active + c.memories.dormant
@@ -36,22 +26,48 @@ function count(c: ViewCounts, s: MnemosSection) {
       ? c.notes.all
       : c[s];
 }
-function explain(error: unknown) {
-  switch (String(error)) {
+type Issue = {
+  message: string;
+  restart?: true;
+  connection?: true;
+  review?: true;
+};
+function explain(error: unknown): Issue {
+  const code = error instanceof Error ? error.message : String(error);
+  switch (code) {
     case "store_changed":
-      return "The store moved or was replaced. Disconnect this view and choose the store again.";
+      return {
+        message:
+          "The store moved or was replaced. Reconnect it before reading again.",
+        review: true,
+      };
     case "store_unavailable":
-      return "This store could not be read. Check that it is available on this Mac.";
+      return {
+        message:
+          "This store couldn’t be read. Check that the file is available on this Mac.",
+      };
     case "binding_changed":
+      return {
+        message: "The connection changed. Open its current overview.",
+        restart: true,
+      };
     case "stale_page":
-      return "This connection changed. Refresh to open its current view.";
+      return {
+        message:
+          "This page is no longer available. Open the overview to start again.",
+        restart: true,
+      };
     case "reader_unavailable":
-      return "The compatible local reader isn’t available.";
+      return { message: "The compatible local reader isn’t available." };
     case "reader_timeout":
     case "reader_busy":
-      return "The reader is busy. Try again in a moment.";
+      return {
+        message: "The reader is busy. Try this page again in a moment.",
+      };
+    case "invalid_scope":
+      return { message: "Check the three IDs against your Mnemos store." };
     default:
-      return "This memory view couldn’t be opened.";
+      return { message: "This memory view couldn’t be opened." };
   }
 }
 function onVisibility(change: () => void) {
@@ -79,7 +95,8 @@ export function MindMnemos({
   titleRef: React.Ref<HTMLHeadingElement>;
   onBack: () => void;
 }) {
-  const owner = useIdentityQuery().data?.pubkey;
+  const identity = useIdentityQuery();
+  const owner = identity.data?.pubkey;
   return (
     <div data-testid="mind-mnemos">
       <MindPageHead
@@ -91,8 +108,16 @@ export function MindMnemos({
       />
       {resident && owner ? (
         <ResidentView key={`${owner}:${resident}`} resident={resident} />
+      ) : resident && identity.isPending ? (
+        <p className="luca-mind-quiet" role="status">
+          Opening memory…
+        </p>
       ) : (
-        <p className="luca-mind-quiet">This view needs a local resident.</p>
+        <p className="luca-mind-quiet">
+          {resident
+            ? "Your Polyphonic identity is needed to open this view."
+            : "This view needs a local resident."}
+        </p>
       )}
     </div>
   );
@@ -109,7 +134,41 @@ function ResidentView({ resident }: { resident: string }) {
   const [location, go] = React.useState<Location>(home);
   const { section, cursor } = location;
   const [page, setPage] = React.useState<MnemosPage | null>(null);
-  const [error, setError] = React.useState("");
+  const [error, setError] = React.useState<Issue | null>(null);
+  // Only an intentional navigation may place focus. A refresh after a window
+  // focus event must never steal it from another control.
+  const view = React.useRef<HTMLDivElement>(null);
+  const connectionDetails = React.useRef<HTMLDetailsElement>(null);
+  const pendingFocus = React.useRef<{
+    target: string;
+    from: Element | null;
+  } | null>(null);
+  const lastGrant = React.useRef<string | null>(null);
+  function requestFocus(target: string) {
+    pendingFocus.current = { target, from: document.activeElement };
+  }
+  function navigate(next: Location, target: string) {
+    requestFocus(target);
+    setPage(null);
+    setError(null);
+    go(next);
+  }
+  const focusPage = () => {
+    const pending = pendingFocus.current;
+    if (!pending || !visibleNow()) return;
+    const el = view.current?.querySelector<HTMLElement>(
+      `[data-mnemos-focus="${pending.target}"]`,
+    );
+    if (!el) return;
+    pendingFocus.current = null;
+    // A slow response must not take focus back after the user has moved on.
+    if (
+      document.activeElement === document.body ||
+      document.activeElement === pending.from
+    ) {
+      (el.closest("button") ?? el).focus();
+    }
+  };
   const [refresh, renew] = React.useReducer((n: number) => n + 1, 0);
   const [busy, setBusy] = React.useState(false);
   const [form, showForm] = React.useState(false);
@@ -128,15 +187,29 @@ function ResidentView({ resident }: { resident: string }) {
   React.useLayoutEffect(() => {
     const id = ++epoch.current;
     setPage(null);
-    setStatus(null);
-    if (!visible || operation.current) return;
-    setError("");
+    if (!visible || operation.current) {
+      setStatus(null);
+      if (!visible) pendingFocus.current = null;
+      return;
+    }
+    setError(null);
     const current = () =>
       present.current && id === epoch.current && visibleNow();
+    let statusConfirmed = false;
     (async () => {
       const s = await mnemosView.status(resident);
       if (!current()) return;
+      statusConfirmed = true;
+      const changed = lastGrant.current !== s.grant;
+      lastGrant.current = s.grant;
       setStatus(s);
+      if (changed && section) {
+        // Neither the cursor nor its enclosing section belongs to a new store.
+        if (pendingFocus.current)
+          pendingFocus.current.target = s.grant ? "overview" : "connect";
+        go(home);
+        return;
+      }
       if (!s.grant || !s.readerReady) return;
       const result = await mnemosView.read(
         resident,
@@ -146,28 +219,40 @@ function ResidentView({ resident }: { resident: string }) {
       );
       if (current()) setPage(result);
     })().catch((e) => {
-      if (current()) setError(explain(e));
+      if (current()) {
+        if (!statusConfirmed) setStatus(null);
+        if (pendingFocus.current) pendingFocus.current.target = "error";
+        setError(explain(e));
+      }
     });
     return () => {
       epoch.current++;
     };
   }, [resident, section, cursor, refresh, visible]);
+  React.useLayoutEffect(focusPage);
   const connection = async (kind: "connect" | "disconnect") => {
     if (operation.current || !visible) return;
     operation.current = true;
     epoch.current++;
     setBusy(true);
     setPage(null);
-    setError("");
-    let feedback = "";
+    setError(null);
+    requestFocus(kind === "connect" ? "overview" : "connect");
+    let feedback: Issue | null = null;
+    let focusAfter = kind === "connect" ? "overview" : "connect";
     try {
       if (kind === "connect") {
-        if (await mnemosView.connect(resident, scope)) {
+        const accepted = await mnemosView.connect(resident, scope);
+        if (!present.current) return;
+        if (accepted) {
           showForm(false);
           setScope(emptyScope);
+        } else {
+          focusAfter = "choose";
         }
       } else if (status?.grant) {
         await mnemosView.disconnect(resident, status.grant);
+        if (!present.current) return;
         go(home);
         setStatus(null);
       }
@@ -177,8 +262,14 @@ function ResidentView({ resident }: { resident: string }) {
       operation.current = false;
       if (present.current) {
         setBusy(false);
-        if (feedback) setError(feedback);
-        else renew();
+        const target = feedback ? "error" : focusAfter;
+        if (pendingFocus.current) pendingFocus.current.target = target;
+        // Returning from the native picker can remount the form with no
+        // focused element. Restore only this explicit action, never an idle refocus.
+        else pendingFocus.current = { target, from: document.body };
+        if (feedback) {
+          setError({ ...feedback, connection: true });
+        } else renew();
       }
     }
   };
@@ -189,23 +280,48 @@ function ResidentView({ resident }: { resident: string }) {
       </p>
     );
   return (
-    <div className="luca-mnemos-view">
+    <div className="luca-mnemos-view" ref={view}>
       {error ? (
-        <p className="luca-mind-error" role="alert">
-          {error}{" "}
+        <p
+          className="luca-mind-error"
+          role="alert"
+          tabIndex={-1}
+          data-mnemos-focus="error"
+        >
+          {error.message}{" "}
           <button
             className="luca-mind-inline"
             type="button"
             onClick={() => {
-              go(home);
+              if (error.review && connectionDetails.current) {
+                connectionDetails.current.open = true;
+                connectionDetails.current.querySelector("summary")?.focus();
+                return;
+              }
+              requestFocus(
+                error.restart || !section
+                  ? status?.grant
+                    ? "overview"
+                    : form
+                      ? "first-id"
+                      : "connect"
+                  : "reading",
+              );
+              if (error.restart) go(home);
               renew();
             }}
           >
-            Refresh
+            {error.review && status?.grant
+              ? "Review connection"
+              : error.restart
+                ? "Open overview"
+                : error.connection
+                  ? "Check connection"
+                  : "Try again"}
           </button>
         </p>
       ) : null}
-      {!status && !error ? (
+      {!status && !error && !busy ? (
         <p className="luca-mind-quiet" role="status">
           Opening memory…
         </p>
@@ -221,14 +337,18 @@ function ResidentView({ resident }: { resident: string }) {
               help={
                 status.readerReady
                   ? "Choose one existing store to read on this Mac."
-                  : "A compatible local Mnemos reader is needed before a store can be connected."
+                  : "This view needs the bundled reader and Python 3.12 or 3.13 on this Mac."
               }
               control={
                 status.readerReady ? (
                   <button
                     type="button"
                     className="luca-mind-inline"
-                    onClick={() => showForm(true)}
+                    data-mnemos-focus="connect"
+                    onClick={() => {
+                      requestFocus("first-id");
+                      showForm(true);
+                    }}
                   >
                     Connect a store
                   </button>
@@ -236,56 +356,17 @@ function ResidentView({ resident }: { resident: string }) {
               }
             />
           ) : (
-            <form
-              className="luca-mnemos-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (canConnect(scope)) void connection("connect");
+            <MnemosConnectForm
+              scope={scope}
+              busy={busy}
+              onChange={setScope}
+              onChoose={() => void connection("connect")}
+              onCancel={() => {
+                requestFocus("connect");
+                showForm(false);
+                setScope(emptyScope);
               }}
-            >
-              <p className="luca-mind-help">
-                Enter the three IDs used in this Mnemos store. You’ll choose the
-                file and review the connection next.
-              </p>
-              {(["agent_id", "person_id", "project_scope"] as const).map(
-                (key, i) => (
-                  <label key={key}>
-                    {["Agent ID", "Person ID", "Project scope"][i]}
-                    <input
-                      className="luca-mind-input"
-                      autoComplete="off"
-                      spellCheck={false}
-                      required
-                      maxLength={128}
-                      value={scope[key]}
-                      onChange={(e) =>
-                        setScope({ ...scope, [key]: e.target.value })
-                      }
-                    />
-                  </label>
-                ),
-              )}
-              <div className="luca-mind-actions">
-                <button
-                  type="submit"
-                  disabled={!canConnect(scope) || busy}
-                  className="luca-mind-inline"
-                >
-                  Choose store…
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  className="luca-mind-quietlink"
-                  onClick={() => {
-                    showForm(false);
-                    setScope(emptyScope);
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
+            />
           )}
         </MindGroup>
       ) : null}
@@ -297,88 +378,52 @@ function ResidentView({ resident }: { resident: string }) {
               this Mac.
             </p>
           ) : section ? (
-            <>
-              <button
-                type="button"
-                className="luca-mind-inline"
-                onClick={() => go(home)}
-              >
-                All sections
-              </button>
-              <h2 className="luca-mind-part-title">{labels[section]}</h2>
-              {page?.kind === "items" ? (
-                <>
-                  {page.items.length ? (
-                    <ol className="luca-mind-rows luca-mnemos-items">
-                      {page.items.map((item, index) => (
-                        // biome-ignore lint/suspicious/noArrayIndexKey: fixed, read-only window; rows have no controls or local state.
-                        <li key={index}>
-                          {item.author ? (
-                            <small className="luca-mind-help">
-                              {item.author === "agent"
-                                ? "From the resident"
-                                : "From the person"}
-                            </small>
-                          ) : null}
-                          <p>{item.text}</p>
-                          {item.clipped ? (
-                            <small className="luca-mind-help">Excerpt</small>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="luca-mind-quiet">
-                      Nothing in this section yet.
-                    </p>
-                  )}
-                  <div className="luca-mind-actions">
-                    {location.previous.length > 0 ? (
-                      <button
-                        type="button"
-                        className="luca-mind-inline"
-                        onClick={() =>
-                          go({
-                            ...location,
-                            cursor: location.previous.at(-1) ?? null,
-                            previous: location.previous.slice(0, -1),
-                          })
-                        }
-                      >
-                        Previous page
-                      </button>
-                    ) : null}
-                    {page.nextCursor ? (
-                      <button
-                        type="button"
-                        className="luca-mind-inline"
-                        onClick={() =>
-                          go({
-                            ...location,
-                            cursor: page.nextCursor,
-                            previous: [...location.previous, cursor],
-                          })
-                        }
-                      >
-                        Next page
-                      </button>
-                    ) : null}
-                  </div>
-                </>
-              ) : !error ? (
-                <p className="luca-mind-quiet" role="status">
-                  Reading…
-                </p>
-              ) : null}
-            </>
+            <MnemosReading
+              section={section}
+              page={page?.kind === "items" ? page : null}
+              number={location.previous.length + 1}
+              failed={Boolean(error)}
+              onBack={() => navigate(home, section)}
+              onPrevious={() =>
+                navigate(
+                  {
+                    section,
+                    cursor: location.previous.at(-1) ?? null,
+                    previous: location.previous.slice(0, -1),
+                  },
+                  "reading",
+                )
+              }
+              onNext={(next) =>
+                navigate(
+                  {
+                    section,
+                    cursor: next,
+                    previous: [...location.previous, cursor],
+                  },
+                  "reading",
+                )
+              }
+            />
           ) : page?.kind === "summary" ? (
-            <MindGroup title="Memory sections">
+            <MindGroup
+              title={
+                <span tabIndex={-1} data-mnemos-focus="overview">
+                  Memory sections
+                </span>
+              }
+            >
               {mnemosSections.map((s) => (
                 <MindRow
                   key={s}
-                  label={labels[s]}
+                  label={<span data-mnemos-focus={s}>{labels[s]}</span>}
                   value={count(page.counts, s)}
-                  onOpen={() => go({ section: s, cursor: null, previous: [] })}
+                  onOpen={() =>
+                    navigate(
+                      { section: s, cursor: null, previous: [] },
+                      "reading",
+                    )
+                  }
                 />
               ))}
             </MindGroup>
@@ -387,25 +432,40 @@ function ResidentView({ resident }: { resident: string }) {
               Reading…
             </p>
           ) : null}
-          <details className="luca-mnemos-connection">
-            <summary>Read-only connection</summary>
-            <dl>
-              <dt>Agent</dt>
-              <dd>{status.scope?.agent_id}</dd>
-              <dt>Person</dt>
-              <dd>{status.scope?.person_id}</dd>
-              <dt>Project</dt>
-              <dd>{status.scope?.project_scope}</dd>
-            </dl>
-            <button
-              type="button"
-              className="luca-mind-inline"
-              disabled={busy}
-              onClick={() => void connection("disconnect")}
-            >
-              Disconnect
-            </button>
-          </details>
+          <div className="luca-mnemos-tools">
+            <details className="luca-mnemos-connection" ref={connectionDetails}>
+              <summary>Read-only connection</summary>
+              <dl>
+                <dt>Agent</dt>
+                <dd>{status.scope?.agent_id}</dd>
+                <dt>Person</dt>
+                <dd>{status.scope?.person_id}</dd>
+                <dt>Project</dt>
+                <dd>{status.scope?.project_scope}</dd>
+              </dl>
+              <button
+                type="button"
+                className="luca-mind-inline"
+                disabled={busy}
+                onClick={() => void connection("disconnect")}
+              >
+                Disconnect
+              </button>
+            </details>
+            {status.readerReady && !error ? (
+              <button
+                type="button"
+                className="luca-mind-quietlink luca-mnemos-refresh"
+                disabled={!page || busy}
+                onClick={() => {
+                  requestFocus(section ? "reading" : "overview");
+                  renew();
+                }}
+              >
+                Refresh
+              </button>
+            ) : null}
+          </div>
         </>
       ) : null}
     </div>
