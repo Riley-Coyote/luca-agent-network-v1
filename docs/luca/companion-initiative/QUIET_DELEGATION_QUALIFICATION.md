@@ -2,7 +2,13 @@
 
 2026-11-12 · `claude/native-rail-glass` · implementation `158129a012de` + `613bc74dbd6c` · reviewed spec `7972030e8`.
 
-**Not yet a qualified native candidate.** The last verified installed candidate was built from `62f145485`, not this implementation. No provider request, account switch, new grant, daily-app replacement, or publication was performed for this record. This is a checkpoint for the [Q0–Q4 acceptance criteria](DELEGATION_AND_LUCA_BRANCHES_BUILD_SPEC.md), not approval to ship.
+**Native checkpoint, not approval to ship.** The earlier automated evidence below predates the isolated native trials. The [Q0–Q4 acceptance criteria](DELEGATION_AND_LUCA_BRANCHES_BUILD_SPEC.md) still include cases beyond these trials.
+
+## Native follow-up · Nov 12, 2026
+
+Tested the unsigned `6b71724de59a` candidate in a separate synthetic owner/profile. The final focused suites passed (160 workspace and 246 desktop cases). With Riley's explicit Claude Max authorization, a single four-line writing delegation ran on `claude-opus-5-5`. From Send: first review observed by 44.8 s, review approved at 62.5 s, model task ran for 7.01 s, one return was published by 82 s and reflected in the receipt by 88 s. The attributed poem was first observed in Luca's original conversation at 98.47 s; this was sampled, not an exact paint timestamp. No duplicate reply, destination chooser or drawer. This is one observed run, not a controlled latency comparison.
+
+In a separate longer writing trial, the task's Stop was clicked **after** a concrete Claude Code session was active. Stopped/cancelled persisted 1.16 s later. Quit and relaunch preserved the same stopped session with no result, publication, synthesis attempt or extra task. The completed poem remained in the original chat. Both reviews were one-shot; neither trial tested remembered subscription approval, the API route or Codex. No daily profile or publication was involved.
 
 ## What is implemented
 
