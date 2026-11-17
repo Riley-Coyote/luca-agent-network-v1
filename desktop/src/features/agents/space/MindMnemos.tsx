@@ -1,6 +1,9 @@
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { managedAgentsQueryKey } from "@/features/agents/hooks";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import {
+  type MindChoice,
   mnemosSections,
   mnemosView,
   type MnemosPage,
@@ -9,6 +12,12 @@ import {
   type ViewScope,
   type ViewStatus,
 } from "@/shared/api/mnemosView";
+import { listManagedAgents } from "@/shared/api/tauri";
+import {
+  startManagedAgent,
+  stopManagedAgent,
+  tryStopManagedAgentForAutoRestart,
+} from "@/shared/api/tauriManagedAgents";
 import { MindGroup, MindPageHead, MindRow } from "./MindPageKit";
 import "./mind-mnemos.css";
 
@@ -66,6 +75,8 @@ function explain(error: unknown): Issue {
       };
     case "invalid_scope":
       return { message: "Check the three IDs against your Mnemos store." };
+    case "mnemos_unavailable":
+      return { message: "Mnemos isn’t installed on this Mac anymore." };
     default:
       return { message: "This memory view couldn’t be opened." };
   }
@@ -83,6 +94,35 @@ function onVisibility(change: () => void) {
 const visibleNow = () =>
   document.visibilityState === "visible" && document.hasFocus();
 const hidden = () => false;
+
+/** A mind's name as its agent id reads: "claude-code" is Claude Code. */
+export function mindName(agentId: string) {
+  return agentId
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+/** "2,431 memories · newest Nov 17", from what the app found in a store. */
+export function describeMind(mind: MindChoice) {
+  const count = `${mind.memories.toLocaleString()} ${mind.memories === 1 ? "memory" : "memories"}`;
+  if (!mind.newest) return count;
+  const day = new Date(`${mind.newest}T12:00:00`);
+  return Number.isNaN(day.getTime())
+    ? count
+    : `${count} · newest ${day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
+/** A running resident starts again so it wakes with (or without) the linked
+ *  memory. It never interrupts work: busy, it is left for the owner to restart. */
+async function restartIntoMemory(pubkey: string) {
+  const agent = (await listManagedAgents()).find((a) => a.pubkey === pubkey);
+  if (agent?.status !== "running") return "stopped" as const;
+  if (!(await tryStopManagedAgentForAutoRestart(pubkey)))
+    return "busy" as const;
+  await startManagedAgent(pubkey);
+  return "restarted" as const;
+}
 
 export function MindMnemos({
   resident,
@@ -107,7 +147,11 @@ export function MindMnemos({
         titleRef={titleRef}
       />
       {resident && owner ? (
-        <ResidentView key={`${owner}:${resident}`} resident={resident} />
+        <ResidentView
+          key={`${owner}:${resident}`}
+          resident={resident}
+          name={name}
+        />
       ) : resident && identity.isPending ? (
         <p className="luca-mind-quiet" role="status">
           Opening memory…
@@ -128,9 +172,13 @@ type Location = {
   previous: (string | null)[];
 };
 const home: Location = { section: null, cursor: null, previous: [] };
-function ResidentView({ resident }: { resident: string }) {
+function ResidentView({ resident, name }: { resident: string; name: string }) {
   const visible = React.useSyncExternalStore(onVisibility, visibleNow, hidden);
+  const queryClient = useQueryClient();
   const [status, setStatus] = React.useState<ViewStatus | null>(null);
+  const [minds, setMinds] = React.useState<MindChoice[] | null>(null);
+  // A running resident that was busy when its memory changed.
+  const [waiting, setWaiting] = React.useState(false);
   const [location, go] = React.useState<Location>(home);
   const { section, cursor } = location;
   const [page, setPage] = React.useState<MnemosPage | null>(null);
@@ -210,7 +258,13 @@ function ResidentView({ resident }: { resident: string }) {
         go(home);
         return;
       }
-      if (!s.grant || !s.readerReady) return;
+      if (!s.grant) {
+        if (!s.mnemosReady) return;
+        const found = await mnemosView.minds(resident);
+        if (current()) setMinds(found);
+        return;
+      }
+      if (!s.readerReady) return;
       const result = await mnemosView.read(
         resident,
         s.grant,
@@ -230,18 +284,34 @@ function ResidentView({ resident }: { resident: string }) {
     };
   }, [resident, section, cursor, refresh, visible]);
   React.useLayoutEffect(focusPage);
-  const connection = async (kind: "connect" | "disconnect") => {
+  const connection = async (
+    kind: "connect" | "disconnect" | { link: MindChoice },
+  ) => {
     if (operation.current || !visible) return;
     operation.current = true;
     epoch.current++;
     setBusy(true);
     setPage(null);
     setError(null);
-    requestFocus(kind === "connect" ? "overview" : "connect");
+    const opening = kind !== "disconnect";
+    requestFocus(opening ? "overview" : "connect");
     let feedback: Issue | null = null;
-    let focusAfter = kind === "connect" ? "overview" : "connect";
+    let focusAfter = opening ? "overview" : "connect";
+    // The resident's memory changes only with a link: a view never touches it.
+    let memoryChanged = false;
     try {
-      if (kind === "connect") {
+      if (typeof kind === "object") {
+        const accepted = await mnemosView.link(resident, kind.link.id);
+        if (!present.current) return;
+        if (accepted) {
+          setMinds(null);
+          memoryChanged = true;
+        } else
+          focusAfter =
+            minds?.[0]?.id === kind.link.id
+              ? "connect"
+              : `mind-${kind.link.id}`;
+      } else if (kind === "connect") {
         const accepted = await mnemosView.connect(resident, scope);
         if (!present.current) return;
         if (accepted) {
@@ -253,8 +323,18 @@ function ResidentView({ resident }: { resident: string }) {
       } else if (status?.grant) {
         await mnemosView.disconnect(resident, status.grant);
         if (!present.current) return;
+        memoryChanged = status.linked;
         go(home);
         setStatus(null);
+      }
+      if (memoryChanged) {
+        // The link is saved either way; a restart that can't happen now is
+        // left to the owner, never reported as a failed link.
+        const outcome = await restartIntoMemory(resident).catch(
+          () => "busy" as const,
+        );
+        if (present.current) setWaiting(outcome === "busy");
+        void queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
       }
     } catch (e) {
       feedback = explain(e);
@@ -271,6 +351,20 @@ function ResidentView({ resident }: { resident: string }) {
           setError({ ...feedback, connection: true });
         } else renew();
       }
+    }
+  };
+  const restartNow = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await stopManagedAgent(resident);
+      await startManagedAgent(resident);
+      if (present.current) setWaiting(false);
+    } catch (e) {
+      if (present.current) setError(explain(e));
+    } finally {
+      if (present.current) setBusy(false);
+      void queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
     }
   };
   if (!visible)
@@ -326,56 +420,114 @@ function ResidentView({ resident }: { resident: string }) {
           Opening memory…
         </p>
       ) : null}
-      {status && !status.grant ? (
+      {waiting ? (
+        <p className="luca-mind-help" role="status">
+          {name} is in the middle of something. It changes memory the next time
+          it starts.{" "}
+          <button
+            type="button"
+            className="luca-mind-inline"
+            disabled={busy}
+            onClick={() => void restartNow()}
+          >
+            Restart now
+          </button>
+        </p>
+      ) : null}
+      {status && !status.grant && !form ? (
         <MindGroup
-          title="Memory connection"
-          footnote="Viewing memory does not wake the resident, mark notes read or share anything with a model."
+          title={`Give ${name} a memory`}
+          footnote={`${name} remembers with the memory you choose, the same one your other apps reach through Mnemos, like Claude Code. While it’s linked, Polyphonic’s own notes for ${name} stay off.`}
         >
-          {!form ? (
+          {!status.mnemosReady ? (
             <MindRow
-              label="No store connected"
-              help={
-                status.readerReady
-                  ? "Choose one existing store to read on this Mac."
-                  : "This view needs the bundled reader and Python 3.12 or 3.13 on this Mac."
-              }
-              control={
-                status.readerReady ? (
+              label="Mnemos isn’t on this Mac"
+              help={`Install Mnemos to give ${name} a memory it keeps across your apps.`}
+            />
+          ) : minds === null ? (
+            <MindRow label="Looking for your memories…" />
+          ) : minds.length === 0 ? (
+            <MindRow
+              label="No memories yet"
+              help="Mnemos is installed, but it doesn’t keep a memory on this Mac yet."
+            />
+          ) : (
+            minds.map((mind, index) => (
+              <MindRow
+                key={mind.id}
+                label={mind.name}
+                help={describeMind(mind)}
+                control={
                   <button
                     type="button"
                     className="luca-mind-inline"
-                    data-mnemos-focus="connect"
-                    onClick={() => {
-                      requestFocus("first-id");
-                      showForm(true);
-                    }}
+                    disabled={busy}
+                    aria-label={`Use ${mind.name} as ${name}’s memory`}
+                    data-mnemos-focus={
+                      index === 0 ? "connect" : `mind-${mind.id}`
+                    }
+                    onClick={() => void connection({ link: mind })}
                   >
-                    Connect a store
+                    Use
                   </button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <MnemosConnectForm
-              scope={scope}
-              busy={busy}
-              onChange={setScope}
-              onChoose={() => void connection("connect")}
-              onCancel={() => {
-                requestFocus("connect");
-                showForm(false);
-                setScope(emptyScope);
-              }}
-            />
+                }
+              />
+            ))
           )}
+        </MindGroup>
+      ) : null}
+      {status && !status.grant && status.readerReady && !form ? (
+        <button
+          type="button"
+          className="luca-mind-quietlink luca-mnemos-viewonly"
+          // The first mind takes "connect" once the list arrives; while it is
+          // still loading, this button must not take that focus from it.
+          data-mnemos-focus={
+            status.mnemosReady && minds?.length !== 0 ? "view-only" : "connect"
+          }
+          disabled={busy}
+          onClick={() => {
+            requestFocus("first-id");
+            showForm(true);
+          }}
+        >
+          Only view a memory
+        </button>
+      ) : null}
+      {status && !status.grant && form ? (
+        <MindGroup
+          title="View a memory"
+          footnote="Viewing memory does not wake the resident, mark notes read or share anything with a model."
+        >
+          <MnemosConnectForm
+            scope={scope}
+            busy={busy}
+            onChange={setScope}
+            onChoose={() => void connection("connect")}
+            onCancel={() => {
+              requestFocus("connect");
+              showForm(false);
+              setScope(emptyScope);
+            }}
+          />
+        </MindGroup>
+      ) : null}
+      {status?.grant && status.linked ? (
+        <MindGroup title="Memory">
+          <MindRow
+            label={mindName(status.scope?.agent_id ?? "")}
+            help={`${name} remembers with this memory, here and in your other apps.`}
+            value="Linked"
+          />
         </MindGroup>
       ) : null}
       {status?.grant ? (
         <>
           {!status.readerReady ? (
             <p className="luca-mind-quiet">
-              Your connection is saved. The compatible reader isn’t available on
-              this Mac.
+              {status.linked
+                ? "Reading it here needs Python 3.12 or 3.13 on this Mac."
+                : "Your connection is saved. The compatible reader isn’t available on this Mac."}
             </p>
           ) : section ? (
             <MnemosReading
@@ -434,7 +586,9 @@ function ResidentView({ resident }: { resident: string }) {
           ) : null}
           <div className="luca-mnemos-tools">
             <details className="luca-mnemos-connection" ref={connectionDetails}>
-              <summary>Read-only connection</summary>
+              <summary>
+                {status.linked ? "Linked memory" : "Read-only connection"}
+              </summary>
               <dl>
                 <dt>Agent</dt>
                 <dd>{status.scope?.agent_id}</dd>
@@ -449,7 +603,7 @@ function ResidentView({ resident }: { resident: string }) {
                 disabled={busy}
                 onClick={() => void connection("disconnect")}
               >
-                Disconnect
+                {status.linked ? "Unlink" : "Disconnect"}
               </button>
             </details>
             {status.readerReady && !error ? (

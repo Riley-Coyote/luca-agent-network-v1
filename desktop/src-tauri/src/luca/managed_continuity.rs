@@ -435,12 +435,22 @@ fn serve(
                 deadline,
             },
         );
-        let capsule = load_capsule_context(
-            &state,
-            &request.owner_pubkey,
-            &request.resident_pubkey,
-            remaining.clamp(1, MAX_CAPSULE_LOAD_MILLIS),
-        );
+        // A resident linked to a Mnemos mind wakes as that mind, from its own
+        // memory: Polyphonic's capsule orientation would be a second identity.
+        let capsule = if crate::commands::mnemos_linked(
+            &app,
+            request.owner_pubkey.as_str(),
+            request.resident_pubkey.as_str(),
+        ) {
+            linked_mind_capsule()
+        } else {
+            load_capsule_context(
+                &state,
+                &request.owner_pubkey,
+                &request.resident_pubkey,
+                remaining.clamp(1, MAX_CAPSULE_LOAD_MILLIS),
+            )
+        };
         let delivery_trigger = intent.trigger_event_id.clone();
         let delivery_resident = intent.resident_pubkey.clone();
         let delivery_conversation = intent.conversation_id.clone();
@@ -648,16 +658,26 @@ fn write_session_context_result(
                 ) {
                     quick_chat_context = Some(context);
                 }
-                first_meeting_context = super::first_meeting::for_dispatch(
+                // A linked Mnemos mind already knows the owner: no first-meeting
+                // brief introduces them to each other again.
+                first_meeting_context = if crate::commands::mnemos_linked(
                     app,
-                    &authority.owner_pubkey,
+                    authority.owner_pubkey.as_str(),
                     intent.resident_pubkey.as_str(),
-                    intent.conversation_id.as_str(),
-                    intent.trigger_event_id.as_str(),
-                    binding_ref,
-                    provider_egress,
-                    intent.deadline_unix_ms.get(),
-                );
+                ) {
+                    None
+                } else {
+                    super::first_meeting::for_dispatch(
+                        app,
+                        &authority.owner_pubkey,
+                        intent.resident_pubkey.as_str(),
+                        intent.conversation_id.as_str(),
+                        intent.trigger_event_id.as_str(),
+                        binding_ref,
+                        provider_egress,
+                        intent.deadline_unix_ms.get(),
+                    )
+                };
                 match authority.context_binding {
                     None => unavailable(ManagedSessionContextStatusV1::Empty),
                     Some(snapshot) => {
@@ -1191,18 +1211,31 @@ struct CapsuleContextV1 {
     relationship_orientation: Vec<luca_protocol::ContinuityWakeItemV1>,
 }
 
+/// A capsule layer that carries only its status.
+fn capsule_layer_status(status: ContinuityLayerStatusV1) -> ContinuityLayerMaterial {
+    ContinuityLayerMaterial::status(status, None).unwrap_or_else(|_| {
+        ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Invalid, None)
+            .expect("fixed invalid layer status")
+    })
+}
+
+/// The capsule layer for a resident linked to a Mnemos mind: present, and
+/// empty by design.
+fn linked_mind_capsule() -> CapsuleContextV1 {
+    CapsuleContextV1 {
+        layer: capsule_layer_status(ContinuityLayerStatusV1::Empty),
+        identity_orientation: Vec::new(),
+        relationship_orientation: Vec::new(),
+    }
+}
+
 fn load_capsule_context(
     state: &AppState,
     expected_owner: &Hex64,
     expected_resident: &Hex64,
     timeout_millis: u64,
 ) -> CapsuleContextV1 {
-    let fallback = |status| {
-        ContinuityLayerMaterial::status(status, None).unwrap_or_else(|_| {
-            ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Invalid, None)
-                .expect("fixed invalid layer status")
-        })
-    };
+    let fallback = capsule_layer_status;
     let handle =
         match crate::managed_agents::managed_capsule_broker_handle(expected_resident.as_str()) {
             Ok(handle)

@@ -16,6 +16,7 @@ mod local_cognition;
 pub mod luca_final_publisher;
 mod managed_mcp_provider;
 mod managed_presentation;
+mod mnemos_link;
 mod observer;
 mod pool;
 mod public_work_plan;
@@ -1503,6 +1504,16 @@ async fn tokio_main() -> Result<()> {
 
     tracing::info!("buzz-acp starting: {}", config.summary());
 
+    // Read the resident's inherited tools before any agent process exists. A
+    // resident linked to a Mnemos mind remembers there alone: Claude Code's own
+    // per-folder memory would be a second store beside it.
+    let (mcp_servers, mnemos_link) = build_managed_tools(&config);
+    if mnemos_link.is_some() {
+        config
+            .persona_env_vars
+            .push(("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into()));
+    }
+
     // Capture the replay boundary before the runtime is spawned or initialized.
     // Native runtimes can take several seconds to become ACP-ready; messages
     // sent during that window must be included in the first relay subscription.
@@ -1943,7 +1954,8 @@ async fn tokio_main() -> Result<()> {
         None => None,
     };
     let ctx = Arc::new(PromptContext {
-        mcp_servers: build_mcp_servers(&config),
+        mcp_servers,
+        mnemos_link,
         direct_buzz_mcp: build_direct_buzz_mcp_server(&config),
         repository_mcp: config.repository_mcp.clone(),
         communications_mcp: config.communications_mcp.clone(),
@@ -5878,19 +5890,37 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
     Ok(())
 }
 
+/// The MCP servers alone, as the tests read them; the runner itself takes
+/// them with the linked memory from `build_managed_tools`.
+#[cfg(test)]
 fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
+    build_managed_tools(config).0
+}
+
+/// A managed resident's MCP servers and, when the owner linked one, the Mnemos
+/// mind it remembers with. Both come from the one inherited bootstrap frame,
+/// which can be read once per process.
+fn build_managed_tools(config: &Config) -> (Vec<McpServer>, Option<mnemos_link::MnemosLink>) {
     if config.identity.is_managed() {
-        let mut servers = managed_mcp_provider::read_inherited_servers().unwrap_or_else(|error| {
+        let inherited = managed_mcp_provider::read_inherited().unwrap_or_else(|error| {
             tracing::warn!(target: "luca::mcp", code = error.code(), "managed MCP connections unavailable; continuing without tools");
-            vec![]
+            managed_mcp_provider::Inherited::default()
         });
+        let mut servers = inherited.servers;
         if let Some(browser) = browser_isolation::designated_server(&config.agent_command) {
             if !servers.iter().any(|server| server.name == browser.name) {
                 servers.push(browser);
             }
         }
-        return servers;
+        if inherited.memory.is_some() {
+            tracing::info!(target: "luca::mcp", "resident remembers with a linked Mnemos mind");
+        }
+        return (servers, inherited.memory);
     }
+    (legacy_mcp_servers(config), None)
+}
+
+fn legacy_mcp_servers(config: &Config) -> Vec<McpServer> {
     if config.mcp_command.is_empty() {
         return vec![];
     }
@@ -6969,6 +6999,7 @@ mod error_outcome_emission_tests {
         let keys = Keys::generate();
         Arc::new(PromptContext {
             mcp_servers: vec![],
+            mnemos_link: None,
             direct_buzz_mcp: None,
             repository_mcp: None,
             communications_mcp: None,

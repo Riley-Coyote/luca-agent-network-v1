@@ -19,6 +19,7 @@ import {
   getThreadReference,
 } from "@/features/messages/lib/threading";
 import { getEventById } from "@/shared/api/tauri";
+import { mnemosView } from "@/shared/api/mnemosView";
 import {
   correctResidentHandoff,
   forgetResidentHandoff,
@@ -188,6 +189,28 @@ export function ResidentHandoffPanel({
   React.useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Linked to a Mnemos mind, the resident remembers there and this notebook
+  // stays off (one memory): its switch can't turn it back on until unlinked.
+  const [linkedMemory, setLinkedMemory] = React.useState(false);
+  React.useEffect(() => {
+    let live = true;
+    mnemosView
+      .status(residentPubkey)
+      .then((status) => {
+        if (live) setLinkedMemory(status.linked);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [residentPubkey]);
+  const linkedNote = linkedMemory ? (
+    <span className="luca-mind-help" data-testid="notebook-linked-memory">
+      Off while this agent remembers with its Mnemos memory. Unlink it in the
+      Mnemos tab to use these notes again.
+    </span>
+  ) : null;
 
   React.useEffect(() => {
     const state = data?.job?.state;
@@ -381,6 +404,7 @@ export function ResidentHandoffPanel({
               loaded for a later turn; that turn&apos;s context receipt says
               what Polyphonic delivered.
             </span>
+            {linkedNote}
             <span className="luca-mind-meta">
               <ContinuityStatusLine data={data} />
             </span>
@@ -388,7 +412,7 @@ export function ResidentHandoffPanel({
           <Switch
             aria-label="Enable handoff continuity"
             checked={data?.enabled ?? false}
-            disabled={busy || !data}
+            disabled={busy || !data || linkedMemory}
             onCheckedChange={(enabled) => {
               void apply(
                 () => setResidentContinuityEnabled(residentPubkey, enabled),
@@ -418,11 +442,12 @@ export function ResidentHandoffPanel({
               loaded for a later turn. Check that turn&apos;s context receipt
               for what Polyphonic delivered.
             </p>
+            {linkedNote}
           </div>
           <Switch
             aria-label="Enable handoff continuity"
             checked={data?.enabled ?? false}
-            disabled={busy || !data}
+            disabled={busy || !data || linkedMemory}
             onCheckedChange={(enabled) => {
               void apply(
                 () => setResidentContinuityEnabled(residentPubkey, enabled),

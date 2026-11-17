@@ -1336,6 +1336,8 @@ pub fn run() {
             retry_resident_handoff,
             list_resident_notebook_items,
             mnemos_view_status,
+            mnemos_minds,
+            link_mnemos_mind,
             connect_mnemos_view,
             disconnect_mnemos_view,
             read_mnemos_view,

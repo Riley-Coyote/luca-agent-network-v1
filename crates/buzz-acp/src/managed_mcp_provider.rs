@@ -60,6 +60,15 @@ struct ServerSpec {
     environment: Vec<EnvironmentBinding>,
 }
 
+/// The Mnemos mind the owner linked this resident to (see `mnemos_link`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MemorySpec {
+    command: String,
+    db_path: String,
+    agent_id: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Bootstrap {
@@ -68,10 +77,25 @@ struct Bootstrap {
     session_epoch: u64,
     #[serde(default)]
     servers: Vec<ServerSpec>,
+    #[serde(default)]
+    memory: Option<MemorySpec>,
+}
+
+/// Everything a managed resident inherits for its tools: its MCP servers and,
+/// when the owner linked one, the Mnemos mind it remembers with.
+#[derive(Default)]
+pub(crate) struct Inherited {
+    pub(crate) servers: Vec<McpServer>,
+    pub(crate) memory: Option<crate::mnemos_link::MnemosLink>,
+}
+
+/// The inherited MCP servers alone, for a process that runs no conversation.
+pub(crate) fn read_inherited_servers() -> Result<Vec<McpServer>, ManagedMcpBootstrapError> {
+    read_inherited().map(|inherited| inherited.servers)
 }
 
 #[cfg(unix)]
-pub(crate) fn read_inherited_servers() -> Result<Vec<McpServer>, ManagedMcpBootstrapError> {
+pub(crate) fn read_inherited() -> Result<Inherited, ManagedMcpBootstrapError> {
     use nix::fcntl::{fcntl, FcntlArg, FdFlag};
     use std::os::fd::{AsRawFd, RawFd};
 
@@ -104,11 +128,17 @@ pub(crate) fn read_inherited_servers() -> Result<Vec<McpServer>, ManagedMcpBoots
     let bootstrap: Bootstrap =
         serde_json::from_slice(&bytes).map_err(|_| ManagedMcpBootstrapError::InvalidFrame)?;
     validate_binding(&bootstrap)?;
-    bootstrap.servers.into_iter().map(validate_server).collect()
+    let memory = bootstrap.memory.map(validate_memory).transpose()?;
+    let servers = bootstrap
+        .servers
+        .into_iter()
+        .map(validate_server)
+        .collect::<Result<_, _>>()?;
+    Ok(Inherited { servers, memory })
 }
 
 #[cfg(not(unix))]
-pub(crate) fn read_inherited_servers() -> Result<Vec<McpServer>, ManagedMcpBootstrapError> {
+pub(crate) fn read_inherited() -> Result<Inherited, ManagedMcpBootstrapError> {
     Err(ManagedMcpBootstrapError::Missing)
 }
 
@@ -159,6 +189,30 @@ fn validate_server(server: ServerSpec) -> Result<McpServer, ManagedMcpBootstrapE
     })
 }
 
+fn validate_memory(
+    memory: MemorySpec,
+) -> Result<crate::mnemos_link::MnemosLink, ManagedMcpBootstrapError> {
+    let absolute =
+        |value: &str| valid_text(value, false) && std::path::Path::new(value).is_absolute();
+    let agent = &memory.agent_id;
+    if !absolute(&memory.command)
+        || !absolute(&memory.db_path)
+        || agent.is_empty()
+        || agent.len() > 128
+        || agent.starts_with('-')
+        || !agent.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
+        })
+    {
+        return Err(ManagedMcpBootstrapError::InvalidFrame);
+    }
+    Ok(crate::mnemos_link::MnemosLink::new(
+        memory.command.into(),
+        memory.db_path.into(),
+        memory.agent_id,
+    ))
+}
+
 fn valid_identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -193,6 +247,39 @@ mod tests {
         assert!(!valid_text("node\n--inspect", false));
         assert!(!valid_env_name("1TOKEN"));
         assert!(valid_env_name("MCP_TOKEN"));
+    }
+
+    #[test]
+    fn a_linked_memory_travels_with_the_servers() {
+        let frame = br#"{"protocol":"luca.managed.mcp-bootstrap.v1","residentPubkey":"aa","sessionEpoch":1,"servers":[],"memory":{"command":"/Users/pat/.local/bin/mnemos","dbPath":"/Users/pat/.mnemos/wren.db","agentId":"wren"}}"#;
+        let bootstrap: Bootstrap = serde_json::from_slice(frame).unwrap();
+        assert!(validate_memory(bootstrap.memory.unwrap()).is_ok());
+        let unlinked = br#"{"protocol":"luca.managed.mcp-bootstrap.v1","residentPubkey":"aa","sessionEpoch":1,"servers":[]}"#;
+        assert!(serde_json::from_slice::<Bootstrap>(unlinked)
+            .unwrap()
+            .memory
+            .is_none());
+    }
+
+    #[test]
+    fn a_memory_link_names_absolute_paths_and_a_mnemos_agent() {
+        for (command, db_path, agent_id) in [
+            ("mnemos", "/a.db", "wren"),
+            ("/bin/mnemos", "a.db", "wren"),
+            ("/bin/mnemos", "/a.db", "Wren"),
+            ("/bin/mnemos", "/a.db", "-wren"),
+            ("/bin/mnemos", "/a.db", ""),
+            ("/bin/mnemos", "/a\n.db", "wren"),
+        ] {
+            assert!(validate_memory(MemorySpec {
+                command: command.into(),
+                db_path: db_path.into(),
+                agent_id: agent_id.into(),
+            })
+            .is_err());
+        }
+        let extra = br#"{"command":"/bin/m","dbPath":"/a.db","agentId":"w","more":1}"#;
+        assert!(serde_json::from_slice::<MemorySpec>(extra).is_err());
     }
 
     #[test]

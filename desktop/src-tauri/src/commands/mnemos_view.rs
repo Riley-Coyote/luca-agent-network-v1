@@ -1,4 +1,8 @@
-//! Owner-only, foreground view. No MCP registration, memory mutation or resident turn.
+//! A resident's Mnemos memory. Connected for viewing, it is an owner-only,
+//! foreground view: no MCP registration, memory mutation or resident turn.
+//! Linked (`link`), the resident remembers with it, the same way the person's
+//! other apps do.
+mod link;
 mod protocol;
 mod reader;
 #[cfg(test)]
@@ -32,6 +36,10 @@ struct Binding {
     device: u64,
     #[cfg(unix)]
     inode: u64,
+    /// The resident remembers with this store (a link), rather than the owner
+    /// only viewing it. Records saved before links existed are views.
+    #[serde(default)]
+    linked: bool,
 }
 impl Binding {
     fn selected(
@@ -57,6 +65,7 @@ impl Binding {
             device: meta.dev(),
             #[cfg(unix)]
             inode: meta.ino(),
+            linked: false,
         })
     }
     fn same_file(&self) -> bool {
@@ -88,6 +97,10 @@ pub struct Status {
     grant: Option<String>,
     scope: Option<Scope>,
     reader_ready: bool,
+    /// The resident remembers with the connected store.
+    linked: bool,
+    /// The person's own `mnemos` command is installed where its installers put it.
+    mnemos_ready: bool,
 }
 
 fn main_window(win: &Window) -> Result<(), String> {
@@ -165,6 +178,40 @@ fn require_grant(app: &AppHandle, k: &(String, String), grant: &str) -> Result<B
         .ok_or_else(|| CHANGED.into())
 }
 
+/// A mind a resident remembers with, ready to run: the person's own `mnemos`
+/// command and the exact store and agent the owner linked.
+pub(crate) struct LinkedMnemosMind {
+    pub(crate) command: PathBuf,
+    pub(crate) db: PathBuf,
+    pub(crate) agent_id: String,
+}
+
+/// Whether the owner linked this resident to a Mnemos mind. While linked,
+/// Polyphonic's own notebook for the resident stays off, even if the mind's
+/// store or command is missing for now: one memory, never a quiet second one.
+pub(crate) fn mnemos_linked(app: &AppHandle, owner_pubkey: &str, resident_pubkey: &str) -> bool {
+    let k = (owner_pubkey.to_owned(), resident_pubkey.to_owned());
+    matches!(binding(app, &k), Ok(Some(b)) if b.linked)
+}
+
+/// The mind this resident remembers with, when it is linked and its store and
+/// the person's `mnemos` command are both still there.
+pub(crate) fn linked_mnemos_mind(
+    app: &AppHandle,
+    resident_pubkey: &str,
+) -> Option<LinkedMnemosMind> {
+    let k = key(app, resident_pubkey).ok()?;
+    let b = binding(app, &k).ok()??;
+    if !b.linked || !b.same_file() {
+        return None;
+    }
+    Some(LinkedMnemosMind {
+        command: link::command(&dirs::home_dir()?)?,
+        db: b.file,
+        agent_id: b.scope.agent_id,
+    })
+}
+
 #[tauri::command]
 pub async fn mnemos_view_status(
     window: Window,
@@ -176,9 +223,93 @@ pub async fn mnemos_view_status(
     let b = binding(&app, &k)?;
     Ok(Status {
         grant: b.as_ref().map(|b| b.grant.clone()),
+        linked: b.as_ref().is_some_and(|b| b.linked),
         scope: b.map(|b| b.scope),
         reader_ready: reader::available(&app),
+        mnemos_ready: dirs::home_dir().is_some_and(|home| link::command(&home).is_some()),
     })
+}
+
+/// The minds the person keeps in Mnemos on this Mac, for the link picker.
+#[tauri::command]
+pub async fn mnemos_minds(
+    window: Window,
+    app: AppHandle,
+    resident_pubkey: String,
+) -> Result<Vec<link::MindChoice>, String> {
+    main_window(&window)?;
+    key(&app, &resident_pubkey)?;
+    let home = dirs::home_dir().ok_or(UNAVAILABLE)?;
+    tokio::task::spawn_blocking(move || link::minds(&home).iter().map(link::Mind::choice).collect())
+        .await
+        .map_err(|_| UNAVAILABLE.into())
+}
+
+/// Link the resident to one of the person's minds, after the owner confirms
+/// it in a native dialog. A view-only connection is replaced; an existing link
+/// must be unlinked first.
+#[tauri::command]
+pub async fn link_mnemos_mind(
+    window: Window,
+    app: AppHandle,
+    resident_pubkey: String,
+    mind: String,
+) -> Result<bool, String> {
+    main_window(&window)?;
+    let home = dirs::home_dir().ok_or(UNAVAILABLE)?;
+    if link::command(&home).is_none() {
+        return Err("mnemos_unavailable".into());
+    }
+    let k = key(&app, &resident_pubkey)?;
+    let before = binding(&app, &k)?;
+    if before.as_ref().is_some_and(|b| b.linked) {
+        return Err(CHANGED.into());
+    }
+    let lookup = home.clone();
+    let found = tokio::task::spawn_blocking(move || {
+        link::minds(&lookup)
+            .into_iter()
+            .find(|found| found.scope.agent_id == mind)
+    })
+    .await
+    .map_err(|_| UNAVAILABLE)?
+    .ok_or("store_unavailable")?;
+    let mut b = Binding::selected(k.0.clone(), k.1.clone(), found.scope.clone(), &found.file)?;
+    b.linked = true;
+    let name = crate::managed_agents::load_managed_agents(&app)
+        .map_err(|_| UNAVAILABLE)?
+        .into_iter()
+        .find(|r| r.pubkey.eq_ignore_ascii_case(&k.1))
+        .ok_or("resident_unavailable")?
+        .name;
+    let mind_name = found.name();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(format!(
+            "{name} will remember with “{mind_name}”, your Mnemos memory on this Mac. It’s the same memory your other apps reach through Mnemos, like Claude Code.\n\n{name} can read it and add to it, and wakes up with it in each new conversation. While it’s linked, Polyphonic’s own notes for {name} stay off, so there’s one memory.\n\nYou can unlink at any time. Nothing is deleted.\n\n{}",
+            link::display(&home, &b.file)
+        ))
+        .parent(&window)
+        .title(format!("Give {name} this memory?"))
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Link memory".into(),
+            "Cancel".into(),
+        ))
+        .show(move |allowed| {
+            let _ = tx.send(allowed);
+        });
+    if !rx.await.map_err(|_| UNAVAILABLE)? {
+        return Ok(false);
+    }
+    let _guard = COMMIT.lock().map_err(|_| UNAVAILABLE)?;
+    if key(&app, &resident_pubkey)? != k || binding(&app, &k)? != before || !b.same_file() {
+        return Err(CHANGED.into());
+    }
+    let path = record(&app, &k)?;
+    fs::create_dir_all(path.parent().ok_or(UNAVAILABLE)?).map_err(|_| UNAVAILABLE)?;
+    atomic_write_json_restricted(&path, &serde_json::to_vec(&b).map_err(|_| UNAVAILABLE)?)
+        .map_err(|_| UNAVAILABLE)?;
+    Ok(true)
 }
 
 #[tauri::command]

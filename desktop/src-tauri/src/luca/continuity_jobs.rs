@@ -192,6 +192,12 @@ pub(crate) fn continuity_mode(
     owner_pubkey: &luca_protocol::Hex64,
     resident_pubkey: &luca_protocol::Hex64,
 ) -> Result<ResidentContinuityModeV1, String> {
+    // A resident linked to a Mnemos mind remembers there. Polyphonic's own
+    // notebook (notes, recall and handoffs) stays off while it's linked, so
+    // there is one memory. The saved choice is kept for when it's unlinked.
+    if crate::commands::mnemos_linked(app, owner_pubkey.as_str(), resident_pubkey.as_str()) {
+        return Ok(ResidentContinuityModeV1::Disabled);
+    }
     let connection = open_store(&job_store_path(app)?)?;
     mode_from_store(&connection, owner_pubkey, resident_pubkey)
 }

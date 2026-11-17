@@ -18,6 +18,18 @@ export type ViewStatus = {
   grant: string | null;
   scope: ViewScope | null;
   readerReady: boolean;
+  /** The resident remembers with the connected store, not only shown it. */
+  linked: boolean;
+  /** The person's own `mnemos` command is installed on this Mac. */
+  mnemosReady: boolean;
+};
+/** One of the person's Mnemos minds on this Mac, offered for linking. */
+export type MindChoice = {
+  id: string;
+  name: string;
+  memories: number;
+  /** The day of its newest memory, YYYY-MM-DD. */
+  newest: string | null;
 };
 export type ViewItem = {
   text: string;
@@ -40,6 +52,10 @@ export const mnemosView = {
     invoke<ViewStatus>("mnemos_view_status", { residentPubkey }),
   connect: (residentPubkey: string, scope: ViewScope) =>
     invoke<boolean>("connect_mnemos_view", { residentPubkey, scope }),
+  minds: (residentPubkey: string) =>
+    invoke<MindChoice[]>("mnemos_minds", { residentPubkey }),
+  link: (residentPubkey: string, mind: string) =>
+    invoke<boolean>("link_mnemos_mind", { residentPubkey, mind }),
   disconnect: (residentPubkey: string, grant: string) =>
     invoke<void>("disconnect_mnemos_view", { residentPubkey, grant }),
   read: (

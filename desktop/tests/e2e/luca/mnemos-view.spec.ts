@@ -18,12 +18,20 @@ type Probe = {
     holdPicker?: boolean;
     longEntry?: boolean;
     rotate?: () => void;
+    cancelLink?: boolean;
+    busyResident?: boolean;
     reads: { section: unknown; cursor: unknown; grant: unknown }[];
   };
 };
 async function openView(
   page: Page,
-  mode: "connected" | "missing" | "disconnected" | "damaged",
+  mode:
+    | "connected"
+    | "missing"
+    | "disconnected"
+    | "damaged"
+    | "linkable"
+    | "no-mnemos",
 ) {
   await page.addInitScript(
     ({ subject, key, state }) => {
@@ -34,7 +42,9 @@ async function openView(
       win.memoryProbe = probe;
       let delegate: Call | undefined;
       let grant =
-        state !== "disconnected" && state !== "missing" ? "exact-grant" : null;
+        state === "connected" || state === "damaged" ? "exact-grant" : null;
+      let linked = false;
+      let mind = "wren";
       probe.rotate = () => {
         grant = "new-grant";
       };
@@ -52,22 +62,68 @@ async function openView(
             args?: Record<string, unknown>,
             opts?: unknown,
           ) => {
-            if (!cmd.includes("mnemos_view"))
-              return delegate?.(cmd, args, opts);
+            // Restarting the resident into its memory: never interrupt work.
+            if (
+              cmd === "try_stop_managed_agent_for_auto_restart" ||
+              cmd === "stop_managed_agent" ||
+              cmd === "start_managed_agent"
+            ) {
+              if (args?.pubkey !== subject) throw Error("unexpected restart");
+              probe.calls.push(`${cmd}:`);
+              if (
+                cmd === "try_stop_managed_agent_for_auto_restart" &&
+                probe.busyResident
+              )
+                return null;
+              const agents = (await delegate?.("list_managed_agents")) as {
+                pubkey: string;
+              }[];
+              return agents.find((agent) => agent.pubkey === subject);
+            }
+            if (!cmd.includes("mnemos")) return delegate?.(cmd, args, opts);
             if (args?.residentPubkey !== subject)
               throw Error("unexpected scope");
             probe.calls.push(`${cmd}:${args.section ?? ""}`);
-            const scope = {
-              agent_id: "wren",
-              person_id: "pat-example",
-              project_scope: "lighthouse",
-            };
+            const scope = linked
+              ? { agent_id: mind, person_id: "user", project_scope: "global" }
+              : {
+                  agent_id: "wren",
+                  person_id: "pat-example",
+                  project_scope: "lighthouse",
+                };
             if (cmd === "mnemos_view_status")
               return {
                 grant,
                 scope: grant ? scope : null,
                 readerReady: state !== "missing",
+                linked,
+                mnemosReady: state === "linkable",
               };
+            if (cmd === "mnemos_minds") {
+              if (state !== "linkable") throw Error("no Mnemos to list");
+              return [
+                {
+                  id: "wren",
+                  name: "Wren",
+                  memories: 2431,
+                  newest: "2026-11-16",
+                },
+                {
+                  id: "field-notes",
+                  name: "Field Notes",
+                  memories: 1,
+                  newest: null,
+                },
+              ];
+            }
+            if (cmd === "link_mnemos_mind") {
+              if (grant) throw Error("already connected");
+              if (probe.cancelLink) return false;
+              mind = String(args.mind);
+              linked = true;
+              grant = "linked-grant";
+              return true;
+            }
             if (cmd === "connect_mnemos_view") {
               if (state === "missing" || grant)
                 throw Error("unexpected connection");
@@ -84,6 +140,7 @@ async function openView(
             if (!grant || args.grant !== grant) throw Error("unapproved read");
             if (cmd === "disconnect_mnemos_view") {
               grant = null;
+              linked = false;
               return;
             }
             if (state === "damaged") throw "store_changed";
@@ -199,8 +256,16 @@ test("the resident can read pages, discard late hidden results, and disconnect w
   await page.keyboard.press("Enter");
   await view.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(
-    view.getByRole("button", { name: "Connect a store" }),
+    view.getByRole("button", { name: "Only view a memory" }),
   ).toBeVisible();
+  // A view is not the resident's memory: nothing restarts it.
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as Probe).memoryProbe.calls.some((c) =>
+        c.includes("managed_agent"),
+      ),
+    ),
+  ).toBe(false);
 });
 for (const state of ["missing", "disconnected", "damaged"] as const) {
   test(`memory view handles ${state} without broadening access`, async ({
@@ -224,9 +289,9 @@ for (const state of ["missing", "disconnected", "damaged"] as const) {
       ).toBeVisible();
       expect(await calls()).toEqual(before);
     } else {
-      await expect(view.getByText("No store connected")).toBeVisible();
+      await expect(view.getByText("Mnemos isn’t on this Mac")).toBeVisible();
       await expect(
-        view.getByRole("button", { name: "Connect a store" }),
+        view.getByRole("button", { name: "Only view a memory" }),
       ).toHaveCount(state === "missing" ? 0 : 1);
       expect(
         await page.evaluate(() =>
@@ -296,7 +361,7 @@ test("setup identifies a bad ID and preserves valid entries when the picker is c
   page,
 }) => {
   const view = await openView(page, "disconnected");
-  await view.getByRole("button", { name: "Connect a store" }).click();
+  await view.getByRole("button", { name: "Only view a memory" }).click();
   const agent = view.getByRole("textbox", { name: "Agent ID" });
   await expect(agent).toBeFocused();
   await agent.fill("Wren");
@@ -349,8 +414,102 @@ test("setup identifies a bad ID and preserves valid entries when the picker is c
   await view.locator("summary").click();
   await view.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(
-    view.getByRole("button", { name: "Connect a store" }),
+    view.getByRole("button", { name: "Only view a memory" }),
   ).toBeFocused();
+});
+
+const restarts = (page: Page) =>
+  page.evaluate(() =>
+    (window as unknown as Probe).memoryProbe.calls.filter((c) =>
+      c.includes("managed_agent"),
+    ),
+  );
+
+test("the owner gives a resident one of their minds, and it restarts into it", async ({
+  page,
+}) => {
+  const view = await openView(page, "linkable");
+  const minds = view.getByRole("region", { name: "Give Luca a memory" });
+  await expect(minds.getByText("Wren", { exact: true })).toBeVisible();
+  await expect(
+    minds.getByText(/^2,431 memories · newest \w+ \d+$/),
+  ).toBeVisible();
+  await expect(minds.getByText("1 memory", { exact: true })).toBeVisible();
+  await expect(view.getByText(/same one your other apps reach/)).toBeVisible();
+  await view.getByRole("button", { name: "Use Wren as Luca’s memory" }).click();
+  const memory = view.getByRole("region", { name: "Memory", exact: true });
+  await expect(memory.getByText("Linked", { exact: true })).toBeVisible();
+  await expect(
+    memory.getByText(
+      "Luca remembers with this memory, here and in your other apps.",
+    ),
+  ).toBeVisible();
+  await expect(view.getByRole("button", { name: "Memories 2" })).toBeVisible();
+  expect(await restarts(page)).toEqual([
+    "try_stop_managed_agent_for_auto_restart:",
+    "start_managed_agent:",
+  ]);
+  await view.locator("summary").click();
+  await expect(view.locator("summary")).toHaveText("Linked memory");
+  await view.getByRole("button", { name: "Unlink", exact: true }).click();
+  await expect(
+    view.getByRole("button", { name: "Use Wren as Luca’s memory" }),
+  ).toBeFocused();
+  expect(await restarts(page)).toHaveLength(4);
+});
+
+test("a cancelled link changes nothing and a busy resident is never interrupted", async ({
+  page,
+}) => {
+  const view = await openView(page, "linkable");
+  await page.evaluate(() => {
+    (window as unknown as Probe).memoryProbe.cancelLink = true;
+  });
+  const fieldNotes = view.getByRole("button", {
+    name: "Use Field Notes as Luca’s memory",
+  });
+  await fieldNotes.click();
+  await expect(fieldNotes).toBeFocused();
+  expect(await restarts(page)).toEqual([]);
+  await page.evaluate(() => {
+    const probe = (window as unknown as Probe).memoryProbe;
+    probe.cancelLink = false;
+    probe.busyResident = true;
+  });
+  await fieldNotes.click();
+  await expect(view.getByText("Field Notes", { exact: true })).toBeVisible();
+  await expect(
+    view.getByText(/Luca is in the middle of something/),
+  ).toBeVisible();
+  expect(await restarts(page)).toEqual([
+    "try_stop_managed_agent_for_auto_restart:",
+  ]);
+  await page.evaluate(() => {
+    (window as unknown as Probe).memoryProbe.busyResident = false;
+  });
+  await view.getByRole("button", { name: "Restart now" }).click();
+  await expect(view.getByText(/in the middle of something/)).toHaveCount(0);
+  expect((await restarts(page)).slice(-2)).toEqual([
+    "stop_managed_agent:",
+    "start_managed_agent:",
+  ]);
+});
+
+test("without Mnemos on the Mac the tab says so plainly", async ({ page }) => {
+  const view = await openView(page, "no-mnemos");
+  await expect(view.getByText("Mnemos isn’t on this Mac")).toBeVisible();
+  await expect(
+    view.getByText(
+      "Install Mnemos to give Luca a memory it keeps across your apps.",
+    ),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as Probe).memoryProbe.calls.some((c) =>
+        c.startsWith("mnemos_minds"),
+      ),
+    ),
+  ).toBe(false);
 });
 
 test("empty sections stay navigable and a late response does not take focus back", async ({
@@ -413,7 +572,7 @@ test("disconnect discards an in-flight read without returning its text", async (
   await view.locator("summary").click();
   await view.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(
-    view.getByRole("button", { name: "Connect a store" }),
+    view.getByRole("button", { name: "Only view a memory" }),
   ).toBeVisible();
   await page.evaluate(() =>
     (window as unknown as Probe).memoryProbe.release?.(),

@@ -602,6 +602,9 @@ impl PromptOutcome {
 /// into every task.
 pub struct PromptContext {
     pub mcp_servers: Vec<McpServer>,
+    /// The Mnemos mind the owner linked this resident to, if any: its wake
+    /// and cue reach owner turns (`mnemos_link`).
+    pub(crate) mnemos_link: Option<crate::mnemos_link::MnemosLink>,
     pub(crate) direct_buzz_mcp: Option<McpServer>,
     pub(crate) repository_mcp: Option<crate::repository_mcp::RepositoryMcpConfig>,
     pub(crate) communications_mcp: Option<crate::communications_mcp::CommunicationsMcpConfig>,
@@ -2816,6 +2819,112 @@ async fn managed_continuity_prompt_blocks(
     Some(crate::continuity_provider::continuity_prompt_blocks(result))
 }
 
+/// What a linked Mnemos mind brings to one owner turn, running beside the
+/// turn's other context fetches: the session's wake, the first time this
+/// process sees the session, and the cue for the owner's message.
+/// Dropped unfinished (the turn ended early), it stops both hooks, and the
+/// session keeps its wake for the next turn.
+struct MnemosTurn {
+    ctx: Arc<PromptContext>,
+    session: String,
+    wake: Option<JoinHandle<Option<String>>>,
+    cue: Option<JoinHandle<Option<String>>>,
+}
+
+impl MnemosTurn {
+    async fn finish(mut self) -> (Option<String>, Option<String>) {
+        let wake = match self.wake.take() {
+            Some(wake) => {
+                let wake = wake.await.ok().flatten();
+                if let Some(link) = self.ctx.mnemos_link.as_ref() {
+                    link.mark_woken(&self.session);
+                }
+                wake
+            }
+            None => None,
+        };
+        let cue = match self.cue.take() {
+            Some(cue) => cue.await.ok().flatten(),
+            None => None,
+        };
+        (wake, cue)
+    }
+}
+
+impl Drop for MnemosTurn {
+    fn drop(&mut self) {
+        for hook in [self.wake.as_ref(), self.cue.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            hook.abort();
+        }
+    }
+}
+
+/// Start the linked mind's wake and cue for an owner's channel turn. Sibling,
+/// heartbeat and private work get neither, the same eligibility as the
+/// desktop continuity read.
+fn start_mnemos_turn(
+    ctx: &Arc<PromptContext>,
+    source: &PromptSource,
+    batch: &FlushBatch,
+    session_id: &str,
+    model: Option<String>,
+    cwd: String,
+) -> Option<MnemosTurn> {
+    let link = ctx.mnemos_link.as_ref()?;
+    if !matches!(source, PromptSource::Channel(_)) {
+        return None;
+    }
+    let managed = ctx.managed_final_publisher.as_ref()?;
+    let trigger = last_eligible_managed_trigger(batch, &managed.owner_pubkey)?;
+    let wake = link.needs_wake(session_id).then(|| {
+        let ctx = Arc::clone(ctx);
+        let session = session_id.to_owned();
+        let owner = managed.owner_pubkey.as_str().to_owned();
+        tokio::spawn(async move {
+            let person = owner_display_name(&ctx.rest_client, &owner).await;
+            ctx.mnemos_link
+                .as_ref()?
+                .wake(&session, &cwd, model.as_deref(), person.as_deref())
+                .await
+        })
+    });
+    let cue = {
+        let ctx = Arc::clone(ctx);
+        let session = session_id.to_owned();
+        let prompt = trigger.content.clone();
+        tokio::spawn(async move { ctx.mnemos_link.as_ref()?.cue(&prompt, &session).await })
+    };
+    Some(MnemosTurn {
+        ctx: Arc::clone(ctx),
+        session: session_id.to_owned(),
+        wake,
+        cue: Some(cue),
+    })
+}
+
+/// The owner's profile name, so a wake can say who the mind is with. One
+/// short read; without it the wake simply says "the person I'm with".
+async fn owner_display_name(rest: &RestClient, owner_hex: &str) -> Option<String> {
+    let owner = nostr::PublicKey::from_hex(owner_hex).ok()?;
+    let filter = nostr::Filter::new()
+        .kind(nostr::Kind::Metadata)
+        .authors(vec![owner]);
+    let json = timeout(
+        Duration::from_millis(1500),
+        rest.query(std::slice::from_ref(&filter)),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    parse_kind0_profile_lookup(json)?
+        .remove(&owner_hex.to_ascii_lowercase())?
+        .display_name
+        .filter(|name| !name.trim().is_empty())
+}
+
 /// sha256 hex digest of `value` — the same digest shape
 /// `RuntimeSessionEntry` stores in `delivered_ids`/`context_hashes` (see
 /// `runtime_session_map::valid_digest`), computed here for an event id or a
@@ -4898,6 +5007,21 @@ async fn run_prompt_task_inner(
         );
         vec![text]
     } else if let Some(ref b) = batch {
+        // A resident linked to a Mnemos mind wakes from it once per session
+        // and gets the memories that may bear on each owner message, as the
+        // person's other apps do from Mnemos's hooks. Both start now, beside
+        // this turn's other context fetches, and join the continuity blocks.
+        let mnemos_turn = start_mnemos_turn(
+            &ctx,
+            &source,
+            b,
+            &session_id,
+            agent.desired_model.clone(),
+            resolved_managed_context
+                .as_ref()
+                .and_then(|context| context.cwd.clone())
+                .unwrap_or_else(|| ctx.cwd.clone()),
+        );
         // Build prompt from batch with context enrichment.
         // Try startup cache first; lazy-fetch via REST for dynamic channels.
         let channel_info = match ctx.channel_info.get(&b.channel_id) {
@@ -4984,6 +5108,15 @@ async fn run_prompt_task_inner(
                 })
                 .collect();
 
+        let (mnemos_wake, mnemos_cue) = match mnemos_turn {
+            Some(turn) => turn.finish().await,
+            None => (None, None),
+        };
+        // The mind's own memory comes before every other continuity block.
+        if let Some(wake) = mnemos_wake {
+            continuity_context.insert(0, wake);
+        }
+
         if gap_marker {
             continuity_context.push(GAP_MARKER.to_owned());
         }
@@ -5030,6 +5163,11 @@ async fn run_prompt_task_inner(
                 // Outbound observer/session-map paths remain body-free/hashes.
                 continuity_context.push(awareness.text.clone());
             }
+        }
+
+        // The memories that may bear on this message sit closest to it.
+        if let Some(cue) = mnemos_cue {
+            continuity_context.push(cue);
         }
 
         let profile_lookup =
@@ -10718,6 +10856,7 @@ while read -r _; do :; done
         use crate::relay::RestClient;
         PromptContext {
             mcp_servers: vec![],
+            mnemos_link: None,
             direct_buzz_mcp: None,
             repository_mcp: None,
             communications_mcp: None,
