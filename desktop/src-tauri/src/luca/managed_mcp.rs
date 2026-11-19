@@ -13,6 +13,8 @@ use serde::Serialize;
 use tauri::AppHandle;
 use zeroize::Zeroizing;
 
+use crate::commands::MNEMOS_SERVER;
+
 const MANAGED_MCP_BOOTSTRAP_PROTOCOL: &str = "luca.managed.mcp-bootstrap.v1";
 const MANAGED_MCP_MAX_FRAME_BYTES: usize = 64 * 1024;
 
@@ -53,9 +55,6 @@ struct ManagedMcpBootstrapV1 {
     #[serde(skip_serializing_if = "Option::is_none")]
     memory: Option<ManagedMemoryLinkV1>,
 }
-
-/// The server name Mnemos's own setup gives its tools in every app.
-const MNEMOS_SERVER: &str = "mnemos";
 
 /// Child-side descriptor for the one-shot bootstrap frame.
 pub(crate) struct ManagedMcpChildFd(OwnedFd);

@@ -43,6 +43,26 @@ const MAX_REMEMBERED_TURNS: usize = 256;
 /// always the owner's decision.
 const COMMUNICATIONS_FAMILY: &str = "luca-communications";
 
+/// The tools of a linked Mnemos mind that never raise a card: reading the
+/// memory and adding to it, which is what the owner agreed to when they
+/// linked it ("can read it and add to it").
+///
+/// Three are left out on purpose and still ask: `mnemos_correct` and
+/// `mnemos_maintain`, which change or archive what is already there (Mnemos
+/// marks both destructive), and `mnemos_page`, which serves the memory as a
+/// local page. A tool a later Mnemos adds is absent until it is listed here.
+const LINKED_MEMORY_TOOLS: &[&str] = &[
+    "mnemos_context",
+    "mnemos_recall",
+    "mnemos_capture",
+    "mnemos_handoff",
+    "mnemos_journal",
+    "mnemos_note",
+    "mnemos_reflect",
+    "mnemos_introduce",
+    "mnemos_health",
+];
+
 /// Which project a request belongs to.
 ///
 /// `Source` is a folder the owner connected to their Brain; `WorkingRoot` is
@@ -117,6 +137,9 @@ pub(crate) struct PermissionSubject {
     /// A tool whose side effect already goes through the desktop authority
     /// broker, which owns its own confirmation.
     pub is_broker_guarded: bool,
+    /// Reading or adding to the Mnemos mind the owner linked this resident
+    /// to. The link is the owner's answer, so these never ask again.
+    pub is_linked_memory: bool,
     /// Whether the request's path lies inside the project's root. False
     /// whenever there is no path or no project.
     pub inside_project: bool,
@@ -139,6 +162,9 @@ impl PermissionSubject {
 pub(crate) enum AllowReason {
     PreAllowed,
     BrokerGuarded,
+    /// The resident is reading or adding to the Mnemos mind its owner linked
+    /// it to; see `LINKED_MEMORY_TOOLS`. Audited like every automatic allow.
+    LinkedMemory,
     /// A read-only path request outside the secrets list. Reads are free
     /// everywhere except that short list; see `is_free_read_path`.
     FreeRead,
@@ -222,6 +248,21 @@ fn inventory_contains(inventory: &[(&str, &str)], family: &str, tool: &str) -> b
     inventory.iter().any(|(candidate_family, candidate_tool)| {
         *candidate_family == family && *candidate_tool == tool
     })
+}
+
+/// Whether this request is one of the tools a linked Mnemos mind lets through.
+///
+/// The server must be named exactly as the link names it (no install suffix),
+/// the tool must be on the list, and nothing the runtime reports as a deletion
+/// passes. It says nothing about whether this resident is linked: [`subject`]
+/// asks that separately.
+fn asks_linked_memory(request: &ManagedPermissionRequestV1) -> bool {
+    request.mcp_server.as_deref() == Some(crate::commands::MNEMOS_SERVER)
+        && request
+            .mcp_tool
+            .as_deref()
+            .is_some_and(|tool| LINKED_MEMORY_TOOLS.contains(&tool))
+        && !is_destructive(request)
 }
 
 /// A deletion, or a command word that is never remembered whatever the owner
@@ -523,6 +564,10 @@ pub(crate) fn subject(
     });
     let is_destructive = is_destructive(request);
     let is_door = is_door(request, identity.as_ref());
+    // Only a mind that is linked right now, with its store and command still
+    // there, answers: an unlinked resident's `mnemos` server asks as before.
+    let is_linked_memory = asks_linked_memory(request)
+        && crate::commands::linked_mnemos_mind(app, request.resident_pubkey.as_str()).is_some();
     let matchers = derive_matchers(request, identity.as_ref());
     let matcher_names: Vec<String> = matchers
         .iter()
@@ -562,6 +607,7 @@ pub(crate) fn subject(
         is_secret_read,
         is_pre_allowed,
         is_broker_guarded,
+        is_linked_memory,
         inside_project,
     }
 }
@@ -803,7 +849,8 @@ fn rule_answers(
 /// The whole decision, as a pure function of what is remembered.
 ///
 /// Order is the contract: an explicit deny beats everything; Polyphonic's own
-/// reads never ask; a broker-guarded tool has its own gate; a free read is
+/// reads never ask; a broker-guarded tool has its own gate; a linked memory's
+/// reads and additions were answered by the link; a free read is
 /// allowed anywhere; a destructive or unmatchable door always asks; then this
 /// turn's answers and the owner's durable rules together; then a card, which
 /// picks the widest scope "Always" could still write.
@@ -833,6 +880,9 @@ pub(crate) fn decide_with(
     }
     if subject.is_broker_guarded {
         return Verdict::Allow(AllowReason::BrokerGuarded);
+    }
+    if subject.is_linked_memory {
+        return Verdict::Allow(AllowReason::LinkedMemory);
     }
     if subject.is_free_read {
         return Verdict::Allow(AllowReason::FreeRead);

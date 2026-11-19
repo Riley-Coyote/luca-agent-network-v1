@@ -178,6 +178,10 @@ fn require_grant(app: &AppHandle, k: &(String, String), grant: &str) -> Result<B
         .ok_or_else(|| CHANGED.into())
 }
 
+/// The server name Mnemos's own setup gives its tools in every app. A linked
+/// resident's mind is served under exactly this name.
+pub(crate) const MNEMOS_SERVER: &str = "mnemos";
+
 /// A mind a resident remembers with, ready to run: the person's own `mnemos`
 /// command and the exact store and agent the owner linked.
 pub(crate) struct LinkedMnemosMind {

@@ -98,8 +98,19 @@ fn subject_for(
         is_secret_read,
         is_pre_allowed,
         is_broker_guarded,
+        // No `AppHandle`, so no link to look up: a test that wants a linked
+        // resident says so with `linked_subject_for`.
+        is_linked_memory: false,
         inside_project,
     }
+}
+
+/// The subject of a request from a resident whose owner linked it to a Mnemos
+/// mind: what [`subject`] builds once `linked_mnemos_mind` finds the link.
+fn linked_subject_for(request: &ManagedPermissionRequestV1) -> PermissionSubject {
+    let mut subject = subject_for(request, None);
+    subject.is_linked_memory = asks_linked_memory(request);
+    subject
 }
 
 fn mcp_request(server: &str, tool: &str) -> ManagedPermissionRequestV1 {
@@ -227,6 +238,88 @@ fn broker_guarded_tools_never_raise_a_runtime_card() {
             "{family} {tool} is gated by the broker's own confirmation"
         );
     }
+}
+
+#[test]
+fn a_linked_memory_reads_and_adds_without_a_card() {
+    for tool in LINKED_MEMORY_TOOLS {
+        let request = mcp_request("mnemos", tool);
+        let subject = linked_subject_for(&request);
+        assert!(subject.is_linked_memory, "{tool}");
+        assert_eq!(
+            decide_with(&[], &[], &subject, false),
+            Verdict::Allow(AllowReason::LinkedMemory),
+            "{tool} was answered when the owner linked the memory"
+        );
+    }
+}
+
+#[test]
+fn a_resident_with_no_link_still_asks_for_its_mnemos_tools() {
+    let request = mcp_request("mnemos", "mnemos_recall");
+    let subject = subject_for(&request, None);
+    assert!(!subject.is_linked_memory);
+    assert!(ask(&decide_with(&[], &[], &subject, false)).once);
+}
+
+#[test]
+fn a_link_answers_only_reading_and_adding() {
+    // Changing or archiving what is there, serving it as a page, and a tool
+    // this app has never heard of all still ask.
+    for tool in [
+        "mnemos_correct",
+        "mnemos_maintain",
+        "mnemos_page",
+        "mnemos_forget",
+    ] {
+        let request = mcp_request("mnemos", tool);
+        let subject = linked_subject_for(&request);
+        assert!(!subject.is_linked_memory, "{tool}");
+        assert!(
+            matches!(decide_with(&[], &[], &subject, false), Verdict::Ask { .. }),
+            "{tool} must still raise a card"
+        );
+    }
+    // So does any server that is not named exactly as the link names it.
+    for server in [
+        "mnemos-0123abcdef45",
+        "Mnemos",
+        "mnemos2",
+        "luca-repositories",
+    ] {
+        let request = mcp_request(server, "mnemos_recall");
+        assert!(!linked_subject_for(&request).is_linked_memory, "{server}");
+    }
+    // And anything the runtime reports as a deletion, whatever it is called.
+    let mut deleting = mcp_request("mnemos", "mnemos_capture");
+    deleting.tool_kind = Some("delete".into());
+    let subject = linked_subject_for(&deleting);
+    assert!(!subject.is_linked_memory);
+    assert!(matches!(
+        decide_with(&[], &[], &subject, false),
+        Verdict::Ask { .. }
+    ));
+}
+
+#[test]
+fn a_deny_rule_still_stops_a_linked_memory_tool() {
+    let request = mcp_request("mnemos", "mnemos_capture");
+    let mut subject = linked_subject_for(&request);
+    subject.project = Some(project("source-a", "/tmp/luca"));
+    assert!(subject.is_linked_memory);
+    let rules = [rule(
+        "deny-capture",
+        here(),
+        PermissionMatcherV1::McpTool {
+            server_family: "mnemos".into(),
+            tool: "mnemos_capture".into(),
+        },
+        PermissionEffectV1::Deny,
+    )];
+    assert!(matches!(
+        decide_with(&rules, &[], &subject, false),
+        Verdict::Deny { .. }
+    ));
 }
 
 #[test]

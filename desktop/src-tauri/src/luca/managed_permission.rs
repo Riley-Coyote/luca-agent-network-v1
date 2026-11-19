@@ -457,6 +457,9 @@ fn automatic_audit_line(subject: &PermissionSubject, verdict: &Verdict) -> Optio
         Verdict::Allow(AllowReason::BrokerGuarded) => {
             audit_allowed(subject, format!("Handled by Polyphonic: {name}"))
         }
+        Verdict::Allow(AllowReason::LinkedMemory) => {
+            audit_allowed(subject, format!("Allowed by its memory link: {name}"))
+        }
         Verdict::Allow(AllowReason::FreeRead) => {
             audit_allowed(subject, format!("Allowed on its own: read {name}"))
         }
@@ -1802,6 +1805,7 @@ mod tests {
             is_secret_read: false,
             is_pre_allowed: false,
             is_broker_guarded: false,
+            is_linked_memory: false,
             inside_project: true,
             display_name: "git status".into(),
         }
@@ -2581,6 +2585,10 @@ mod tests {
             (
                 Verdict::Allow(AllowReason::BrokerGuarded),
                 "Handled by Polyphonic: git status",
+            ),
+            (
+                Verdict::Allow(AllowReason::LinkedMemory),
+                "Allowed by its memory link: git status",
             ),
             (
                 Verdict::Allow(AllowReason::TurnRule),
