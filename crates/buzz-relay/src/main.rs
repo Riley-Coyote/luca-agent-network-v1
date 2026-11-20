@@ -1211,7 +1211,7 @@ async fn run_single_node(config: Config, tracer_init: telemetry::TracerInit) -> 
     let state_for_fanout = Arc::clone(&state);
     let mut events = state.pubsub.subscribe_local();
     tokio::spawn(async move {
-        while let Ok(event) = events.recv().await {
+        while let Some(event) = recv_single_node_fanout_event(&mut events).await {
             buzz_relay::handlers::event::fan_out_pubsub_event(&state_for_fanout, event).await;
         }
     });
@@ -1229,6 +1229,22 @@ async fn run_single_node(config: Config, tracer_init: telemetry::TracerInit) -> 
         let _ = tp.shutdown();
     }
     Ok(())
+}
+
+/// The next event for the single-node fan-out. A receiver that fell behind
+/// skips what it missed and keeps delivering; only a closed channel ends it.
+async fn recv_single_node_fanout_event<T: Clone>(
+    events: &mut tokio::sync::broadcast::Receiver<T>,
+) -> Option<T> {
+    loop {
+        match events.recv().await {
+            Ok(event) => return Some(event),
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                warn!(skipped, "Single-node fan-out lagged; skipped events");
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+        }
+    }
 }
 
 /// ```
@@ -1908,6 +1924,14 @@ mod tests {
         sender.send(2_u8).expect("second event causes lag");
 
         assert_eq!(recv_single_node_fanout_event(&mut receiver).await, Some(2));
+    }
+
+    #[tokio::test]
+    async fn single_node_fanout_ends_when_the_channel_closes() {
+        let (sender, mut receiver) = tokio::sync::broadcast::channel::<u8>(1);
+        drop(sender);
+
+        assert_eq!(recv_single_node_fanout_event(&mut receiver).await, None);
     }
 
     #[tokio::test(start_paused = true)]
