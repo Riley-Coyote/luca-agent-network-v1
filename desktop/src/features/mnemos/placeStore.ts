@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { codeOf, mnemosPlace, type PlaceMinds } from "./api";
+import { clearMnemosDrafts } from "./drafts";
 
 /**
  * What the Mnemos place's rail and card both need to know: the minds on this
@@ -77,5 +78,6 @@ export function setRoomCounts(mind: string, counts: RoomCounts) {
 /** Forget everything (a community switch). */
 export function resetMnemosPlace() {
   loading = null;
+  clearMnemosDrafts();
   set(empty);
 }

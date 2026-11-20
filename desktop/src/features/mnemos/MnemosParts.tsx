@@ -175,7 +175,21 @@ export function RoomFrame({
       ref={root}
     >
       <div className="luca-mnemos-room-grid">
-        <div className="luca-mnemos-list">{list}</div>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: it only listens; each row is its own button. */}
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: a row's Enter arrives as its click. */}
+        <div
+          className="luca-mnemos-list"
+          onClick={(event) => {
+            // The row already open, opened again: what it opened takes focus,
+            // as a newly opened one does.
+            const row = (event.target as Element).closest(
+              "li[aria-current='true']",
+            );
+            if (row && isOpen) openedRef.current?.focus();
+          }}
+        >
+          {list}
+        </div>
         <div
           className="luca-mnemos-opened"
           data-testid={`${testId}-opened`}

@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { Button } from "@/shared/ui/button";
 import type { WriteFailure } from "./adapt";
+import { forgetDraft, keepDraft, readDraft } from "./drafts";
 import { fieldState } from "./notebook";
 
 /** What a field says when a write didn't happen, by why. The words stay in
@@ -16,8 +17,22 @@ export function failureWords(
       line: "Mnemos was busy with this memory, so nothing was saved.",
       again: true,
     };
+  // A write that timed out was looked for before this is said.
+  if (failure.kind === "unanswered")
+    return {
+      line: "Mnemos didn’t answer, and nothing was saved. Your words are still here.",
+      again: true,
+    };
+  if (failure.kind === "unchecked")
+    return {
+      line: "Mnemos didn’t answer, and Polyphonic couldn’t tell whether it was saved. Look before you send it again.",
+      again: false,
+    };
   return { line: fallback, again: true };
 }
+
+/** What is sent: the words without the spaces and new lines after them. */
+export const sendable = (text: string) => text.replace(/\s+$/u, "");
 
 /** A write's failure, whatever was thrown. */
 const asFailure = (error: unknown): WriteFailure =>
@@ -32,11 +47,14 @@ const asFailure = (error: unknown): WriteFailure =>
  * A write goes once: the button is off while it is in flight, and nothing
  * sends it again by itself. When it doesn't happen, the field says why in
  * one line (the engine's own sentence where it gave one) and keeps every
- * word typed.
+ * word typed. Enter sends and Shift+Enter starts a new line, as in the app's
+ * own message box. Unsent words are kept for the app session (`drafts.ts`)
+ * under `draft`.
  */
 export function WriteField({
   autoFocus,
   cancelLabel,
+  draft,
   failLine = "It couldn’t be sent just now. Your words are still here.",
   hint,
   initial = "",
@@ -53,6 +71,9 @@ export function WriteField({
   autoFocus?: boolean;
   /** With `onCancel`: a second button that leaves without writing. */
   cancelLabel?: string;
+  /** Where the unsent words are kept (`draftKey`): the mind, and what
+   *  they answer. */
+  draft?: string;
   /** The line for a write that failed for no reason Mnemos gave. */
   failLine?: string;
   hint?: string;
@@ -75,7 +96,9 @@ export function WriteField({
   testId: string;
 }) {
   const id = React.useId();
-  const [text, setText] = React.useState(initial);
+  const [text, setText] = React.useState(
+    () => (draft ? readDraft(draft) : undefined) ?? initial,
+  );
   const [sending, setSending] = React.useState(false);
   const [failure, setFailure] = React.useState<WriteFailure | null>(null);
   const inFlight = React.useRef(false);
@@ -107,7 +130,8 @@ export function WriteField({
     setSending(true);
     setFailure(null);
     try {
-      await onSend(text);
+      await onSend(sendable(text));
+      if (draft) forgetDraft(draft);
       if (mounted.current) setText("");
     } catch (error) {
       if (mounted.current) setFailure(asFailure(error));
@@ -177,9 +201,18 @@ export function WriteField({
           className="luca-mnemos-write-text text-base"
           data-testid={`${testId}-text`}
           id={id}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            const next = event.target.value;
+            setText(next);
+            if (draft) keepDraft(draft, next === initial ? "" : next);
+          }}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.altKey &&
+              !event.nativeEvent.isComposing
+            ) {
               event.preventDefault();
               void send();
             } else if (event.key === "Escape" && onCancel && !sending) {

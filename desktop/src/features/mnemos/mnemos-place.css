@@ -9,6 +9,24 @@
   max-width: 1040px;
 }
 
+/* One rule for every piece of a mind's text, in lists and opened alike: it
+ * wraps anywhere it must, and never makes what holds it wider. A section
+ * added later is inside the place, so it can't forget it. */
+.luca-mnemos-place {
+  overflow-wrap: anywhere;
+}
+
+.luca-mnemos-place
+  :where(
+    .luca-mnemos-list,
+    .luca-mnemos-opened,
+    .luca-mnemos-push,
+    article,
+    li
+  ) {
+  min-width: 0;
+}
+
 .luca-mnemos-line {
   align-items: center;
   color: hsl(var(--mn-ink-muted));
@@ -73,7 +91,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .luca-mnemos-room[data-open] .luca-mnemos-push {
-    animation: luca-mnemos-fade 120ms ease-out both;
+    animation: none;
   }
 }
 
@@ -85,15 +103,6 @@
   to {
     opacity: 1;
     transform: none;
-  }
-}
-
-@keyframes luca-mnemos-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
   }
 }
 
@@ -151,7 +160,6 @@
   gap: 0.8em;
   line-height: 1.6;
   max-width: 68ch;
-  overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
@@ -340,7 +348,6 @@
   -webkit-line-clamp: 4;
   line-height: 1.5;
   overflow: hidden;
-  overflow-wrap: anywhere;
 }
 
 .luca-mnemos-lately .luca-mnemos-clamp {

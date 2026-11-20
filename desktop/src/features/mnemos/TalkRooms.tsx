@@ -27,6 +27,7 @@ import {
 } from "./notebook";
 import { setRoomCounts } from "./placeStore";
 import { DIDNT_ANSWER, type RoomProps, useAddressItem } from "./roomKit";
+import { draftKey, readDraft } from "./drafts";
 import { WriteField } from "./WriteField";
 
 /** How many entries the Journal lists (the notebook's whole journal, to the
@@ -193,7 +194,11 @@ export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
               <PlaceListRow
                 aria-current={leaving ? "true" : undefined}
                 onOpen={leave}
-                summary="It wakes with it, once, in its next session."
+                summary={
+                  readDraft(draftKey(mind.id, "note"))
+                    ? "Your note isn’t sent yet."
+                    : "It wakes with it, once, in its next session."
+                }
                 testId="mnemos-leave-row"
                 title={`Leave ${mind.name} a note`}
               />
@@ -244,6 +249,7 @@ export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
               you’d say it.
             </p>
             <WriteField
+              draft={draftKey(mind.id, "note")}
               hideLabel
               label={`Leave ${mind.name} a note`}
               onSend={async (text) => {
@@ -259,6 +265,7 @@ export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
           </article>
         ) : thread ? (
           <ThreadOpened
+            mindId={mind.id}
             mindName={mind.name}
             onAnswer={async (noteId, text) =>
               sent.add(await writes.reply(noteId, text))
@@ -297,10 +304,12 @@ export function wokenWords(note: Pick<BookNote, "delivered">): string {
 }
 
 function ThreadOpened({
+  mindId,
   mindName,
   onAnswer,
   thread,
 }: {
+  mindId: string;
   mindName: string;
   onAnswer: (noteId: string, text: string) => Promise<void>;
   thread: Thread;
@@ -336,6 +345,7 @@ function ThreadOpened({
       </ol>
       {answers ? (
         <WriteField
+          draft={draftKey(mindId, `reply:${answers.id}`)}
           key={thread.id}
           label="Your answer, in your own words"
           onSend={(text) => onAnswer(answers.id, text)}

@@ -1,7 +1,8 @@
 import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 
 import { isMnemosRoom } from "@/app/shell/placeRails/placePicks";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 const MnemosScreen = React.lazy(async () => {
   const module = await import("@/features/mnemos/MnemosScreen");
@@ -42,6 +43,10 @@ export const Route = createFileRoute("/mnemos")({
 });
 
 function MnemosRouteComponent() {
+  // The place is the new look's. In the classic look its address goes home,
+  // as an address for a surface that isn't there does (`/inbox`), out of
+  // history.
+  if (!useShellFrameEnabled()) return <Navigate replace to="/" />;
   return (
     <React.Suspense fallback={null}>
       <MnemosScreen />

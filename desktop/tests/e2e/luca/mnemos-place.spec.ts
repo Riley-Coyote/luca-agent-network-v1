@@ -24,7 +24,9 @@ const ORI = "b".repeat(64);
 /** The engine's own sentence for a reply in one of the agent's hours. */
 const QUIET_REPLY =
   "Nothing saved: A reply is the person's own words, and no one is in the room during one of the agent's hours.";
-type WriteMode = "quiet" | "busy" | "fail" | null;
+/** `silent`: Mnemos doesn't answer and saves nothing; `save-silent`: it
+ *  saves, then doesn't answer. Either way the process ends (a timeout). */
+type WriteMode = "quiet" | "busy" | "fail" | "silent" | "save-silent" | null;
 type Mode = "dark" | "light";
 type Fault =
   | "missing"
@@ -73,11 +75,14 @@ async function boot(
     mode = "dark",
     fault = null,
     decline = false,
+    classic = false,
   }: {
     hash?: string;
     mode?: Mode;
     fault?: Fault | null;
     decline?: boolean;
+    /** The classic look: the new look's frame off. */
+    classic?: boolean;
   } = {},
 ) {
   const errors: string[] = [];
@@ -97,6 +102,7 @@ async function boot(
         __TAURI_INTERNALS__?: { invoke?: Call };
         mnemosProbe: Probe;
         mnemosDeliver?: () => void;
+        mnemosText?: (text: string) => void;
       };
       const bridge = win.__TAURI_INTERNALS__ ?? {};
       win.__TAURI_INTERNALS__ = bridge;
@@ -276,6 +282,15 @@ async function boot(
           },
         ],
       };
+      // The same words everywhere a mind's text shows (the checker's
+      // awkward strings).
+      win.mnemosText = (text: string) => {
+        wren[123].words = text;
+        journal[0].text = text;
+        notes[0].text = text;
+        reader.beliefs[0].text = text;
+        reader.handoffs[0].text = text;
+      };
       const seen = new Set<string>();
       const minds = [
         {
@@ -322,68 +337,84 @@ async function boot(
           const write = args.write as Record<string, string>;
           if (probe.writeDelay)
             await new Promise((done) => setTimeout(done, probe.writeDelay));
-          if (probe.writeMode === "busy") return fail("mnemos_busy");
-          if (probe.writeMode === "fail") return fail("mnemos_failed");
-          const at = new Date().toISOString();
-          const named = write.note_id ?? write.memory_id;
-          if (named !== undefined && !seen.has(named))
-            return fail("unknown_item");
-          if (write.command === "reply" || write.command === "note") {
-            if (probe.writeMode === "quiet")
-              return fail(
-                `mnemos_refused:Nothing saved: A ${write.command} is the person's own words, and no one is in the room during one of the agent's hours.`,
-              );
-            const answered = notes.find((n) => n.id === write.note_id);
-            if (write.command === "reply" && answered?.author !== "agent")
-              return fail(
-                "mnemos_refused:A reply answers one of the agent's notes.",
-              );
-            if (answered && !answered.read_at) answered.read_at = at;
-            const note = {
-              id: `wren-n${notes.length + 1}`,
-              kind: write.command,
-              text: write.text,
-              author: "person",
-              model: null,
-              in_reply_to: write.note_id ?? null,
-              created_at: at,
-              read_at: null,
-              delivered_at: null,
-            };
-            notes.push(note);
-            seen.add(note.id);
-            return { kind: "note", note };
+          if (probe.writeMode === "silent") {
+            probe.open = null;
+            return fail("mnemos_timeout");
           }
-          const list = memories[mind] ?? [];
-          const old = list.find((m) => m.id === write.memory_id);
-          if (!old || old.state === "archived") return fail("unknown_item");
-          if (write.command === "correct") {
-            old.state = "archived";
-            const fresh = {
-              ...old,
-              id: `${old.id}-c`,
-              words: write.text,
-              kept: at,
-              state: "active",
-              alive: 1,
-              corrected: at,
-              impact: "",
-              author: "person",
-            };
-            list.push(fresh);
-            seen.add(fresh.id);
-            return {
-              kind: "corrected",
-              id: fresh.id,
-              replaces: old.id,
-              corrected: at,
-            };
+          const outcome = await (async () => {
+            if (probe.writeMode === "busy") return fail("mnemos_busy");
+            if (probe.writeMode === "fail") return fail("mnemos_failed");
+            const at = new Date().toISOString();
+            const named = write.note_id ?? write.memory_id;
+            if (named !== undefined && !seen.has(named))
+              return fail("unknown_item");
+            if (write.command === "reply" || write.command === "note") {
+              if (probe.writeMode === "quiet")
+                return fail(
+                  `mnemos_refused:Nothing saved: A ${write.command} is the person's own words, and no one is in the room during one of the agent's hours.`,
+                );
+              const answered = notes.find((n) => n.id === write.note_id);
+              if (write.command === "reply" && answered?.author !== "agent")
+                return fail(
+                  "mnemos_refused:A reply answers one of the agent's notes.",
+                );
+              if (answered && !answered.read_at) answered.read_at = at;
+              const note = {
+                id: `wren-n${notes.length + 1}`,
+                kind: write.command,
+                text: write.text,
+                author: "person",
+                model: null,
+                in_reply_to: write.note_id ?? null,
+                created_at: at,
+                read_at: null,
+                delivered_at: null,
+              };
+              notes.push(note);
+              seen.add(note.id);
+              return { kind: "note", note };
+            }
+            const list = memories[mind] ?? [];
+            const old = list.find((m) => m.id === write.memory_id);
+            if (!old || old.state === "archived") return fail("unknown_item");
+            if (write.command === "correct") {
+              old.state = "archived";
+              const fresh = {
+                ...old,
+                id: `${old.id}-c`,
+                words: write.text,
+                kept: at,
+                state: "active",
+                alive: 1,
+                corrected: at,
+                impact: "",
+                author: "person",
+              };
+              list.push(fresh);
+              seen.add(fresh.id);
+              return {
+                kind: "corrected",
+                id: fresh.id,
+                replaces: old.id,
+                corrected: at,
+              };
+            }
+            if (write.command === "forget") {
+              old.state = "archived";
+              return { kind: "forgotten", id: old.id, forgotten: at };
+            }
+            return fail("invalid_request");
+          })().then(
+            (answer) => ({ answer }),
+            (code: unknown) => ({ code }),
+          );
+          if (probe.writeMode === "save-silent") {
+            probe.open = null;
+            return fail("mnemos_timeout");
           }
-          if (write.command === "forget") {
-            old.state = "archived";
-            return { kind: "forgotten", id: old.id, forgotten: at };
-          }
-          return fail("invalid_request");
+          return "code" in outcome
+            ? Promise.reject(outcome.code)
+            : outcome.answer;
         }
         if (cmd === "open_mnemos_mind") {
           const mind = String(args.mind);
@@ -584,21 +615,21 @@ async function boot(
     ],
   });
   await page.addInitScript(
-    ({ key, light }) => {
+    ({ key, light, classic }) => {
       let overrides: Record<string, boolean> = {};
       try {
         overrides = JSON.parse(localStorage.getItem(key) ?? "{}");
       } catch {
         overrides = {};
       }
-      overrides["shell-frame"] = true;
+      overrides["shell-frame"] = !classic;
       localStorage.setItem(key, JSON.stringify(overrides));
       if (light) {
         localStorage.setItem("buzz-theme", "paper");
         localStorage.setItem("buzz-follow-system", "false");
       }
     },
-    { key: FEATURE_OVERRIDES_STORAGE_KEY, light: mode === "light" },
+    { key: FEATURE_OVERRIDES_STORAGE_KEY, light: mode === "light", classic },
   );
   await expect(async () => {
     await page.goto(`/#${hash}`);
@@ -1811,6 +1842,8 @@ test("(48-0b, 0c, 0d) one line that grows, Send beside it; one link style; label
   expect(label).toEqual(listLabel);
   expect(label.size).not.toBe("16px");
 
+  // Cleared, so no unsent words follow it to At a glance.
+  await text.fill("");
   // (c) One link style: the head's.
   await rail(page).getByTestId("place-row-glance").locator("button").click();
   const head = await page
@@ -1879,5 +1912,337 @@ test("(48-0e) the agent page in the new look: the relationship and the notebook"
   const probe = await probeOf(page);
   expect(probe.calls.filter((c) => c.cmd === "read_mnemos_view")).toEqual([]);
   await shot48(page, "10-agent-page-new-look-dark");
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+/* ── WP-48: the independent check of 636c3414c, its fixes ────────────── */
+
+const setProbe = (page: Page, next: Partial<Probe>) =>
+  page.evaluate((next) => {
+    Object.assign(
+      (window as unknown as { mnemosProbe: Probe }).mnemosProbe,
+      next,
+    );
+  }, next);
+
+/** Every memories page the place asked for (not the counts alone). */
+async function memoryPages(page: Page) {
+  return (await probeOf(page)).calls.filter(
+    (c) =>
+      c.cmd === "read_mnemos_place" &&
+      (c.args?.request as { command: string; limit?: number }).command ===
+        "memories" &&
+      Number((c.args?.request as { limit?: number }).limit) > 0,
+  ).length;
+}
+
+test("(check 1) a mind's unbroken words wrap everywhere and never widen what holds them", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=journal" });
+  const unbroken = "U".repeat(300);
+  await page.evaluate((text) => {
+    (window as unknown as { mnemosText: (text: string) => void }).mnemosText(
+      text,
+    );
+  }, unbroken);
+  const found: Record<string, unknown> = {};
+  for (const room of [
+    "memories",
+    "journal",
+    "notes",
+    "beliefs",
+    "carrying",
+    "glance",
+  ]) {
+    await rail(page).getByTestId(`place-row-${room}`).click();
+    await expect(page).toHaveURL(new RegExp(`room=${room}`));
+    // The note with these words is in its own thread.
+    if (room === "notes")
+      await page.getByTestId("mnemos-thread-wren-n1").click();
+    await expect(card(page)).toContainText("UUUUUUUUUUUUUUUUUUUU");
+    if (room !== "glance")
+      await expect(
+        page.getByTestId(`mnemos-${room}-opened`).locator("article"),
+      ).toContainText("UUUUUUUUUU");
+    const measured = await page.evaluate(() => {
+      const place = document.querySelector("[data-testid='mnemos-place']");
+      if (!place) return null;
+      const edge = place.getBoundingClientRect().right;
+      const over = [...place.querySelectorAll("*")]
+        .filter((el) => el.getBoundingClientRect().right > edge + 1)
+        .map((el) => el.getAttribute("data-testid") ?? el.tagName);
+      const panes = [
+        ...place.querySelectorAll(".luca-mnemos-list, .luca-mnemos-opened"),
+      ].map((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+      return {
+        over,
+        panes,
+        pageX:
+          document.documentElement.scrollWidth >
+          document.documentElement.clientWidth,
+      };
+    });
+    found[room] = measured;
+    expect(measured?.over, room).toEqual([]);
+    for (const pane of measured?.panes ?? [])
+      expect(pane.sw, room).toBeLessThanOrEqual(pane.cw + 1);
+    expect(measured?.pageX, room).toBe(false);
+  }
+  measure48("check1_unbroken", found);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(check 2) while a search is out, nothing is opened beside it; then its first result opens", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=memories" });
+  await expect(page).toHaveURL(/item=wren-m123/);
+  await expect(page.getByTestId("mnemos-correct-open")).toBeVisible();
+  await setProbe(page, { searchDelay: 1500 });
+  await page.getByTestId("mnemos-search").fill("tide");
+  await page.getByTestId("mnemos-search").press("Enter");
+  await expect(page.getByTestId("mnemos-searching")).toHaveText("Searching…");
+  await expect(page.getByTestId("mnemos-search-working")).toHaveText(
+    "Searching…",
+  );
+  await expect(page.getByTestId("mnemos-memory-opened")).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-correct-open")).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-let-go-open")).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-search-results")).toBeVisible();
+  await expect(page).toHaveURL(/item=wren-m116/);
+  await expect(page.getByTestId("mnemos-memory-opened")).toContainText(
+    "tide tables",
+  );
+  await expect(page.getByTestId("mnemos-search-working")).toHaveCount(0);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(check 3) Show older memories reads one new page per click", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=memories" });
+  await expect(
+    page.getByTestId("mnemos-memories-list").locator("li"),
+  ).toHaveCount(50);
+  const counts = [await memoryPages(page)];
+  await page.getByTestId("mnemos-more").click();
+  await expect(
+    page.getByTestId("mnemos-memories-list").locator("li"),
+  ).toHaveCount(100);
+  counts.push(await memoryPages(page));
+  await page.getByTestId("mnemos-more").click();
+  await expect(
+    page.getByTestId("mnemos-memories-list").locator("li"),
+  ).toHaveCount(124);
+  counts.push(await memoryPages(page));
+  await expect(page.getByTestId("mnemos-more")).toHaveCount(0);
+  expect(counts[1] - counts[0]).toBe(1);
+  expect(counts[2] - counts[1]).toBe(1);
+  measure48("check3_pages", { counts });
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(check 4) a write that times out is looked for before anything is said", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=notes" });
+  // Saved, then silent: it is found, and shown as sent.
+  await setWrites(page, { writeMode: "save-silent" });
+  await page.getByTestId("mnemos-answer-text").fill(ANSWER);
+  await page.getByTestId("mnemos-answer-send").click();
+  await expect(
+    page.getByTestId("mnemos-thread-opened").locator("li"),
+  ).toHaveCount(2);
+  await expect(page.getByTestId("mnemos-answer-said")).toHaveCount(0);
+  const calls = (await probeOf(page)).calls.map((c) => c.cmd);
+  const wrote = calls.indexOf("write_mnemos_place");
+  expect(calls.slice(wrote + 1)).toContain("open_mnemos_mind");
+  expect(calls.slice(wrote + 1)).toContain("read_mnemos_place");
+  expect(await writesSent(page)).toHaveLength(1);
+
+  // Silent without saving: nothing found, said plainly, words kept.
+  await setWrites(page, { writeMode: "silent" });
+  await page.getByTestId("mnemos-leave-row").click();
+  await page.getByTestId("mnemos-leave-note-text").fill("A note that waits.");
+  await page.getByTestId("mnemos-leave-note-send").click();
+  const said = page.getByTestId("mnemos-leave-note-said");
+  await expect(said).toContainText(
+    "Mnemos didn’t answer, and nothing was saved. Your words are still here.",
+  );
+  await expect(page.getByTestId("mnemos-leave-note-text")).toHaveValue(
+    "A note that waits.",
+  );
+  expect(await writesSent(page)).toHaveLength(2);
+  await setWrites(page, { writeMode: null });
+  await said.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByTestId("mnemos-thread-opened")).toContainText(
+    "A note that waits.",
+  );
+  expect(await writesSent(page)).toHaveLength(3);
+
+  // A correction the same way.
+  await rail(page).getByTestId("place-row-memories").click();
+  await expect(page).toHaveURL(/item=wren-m123/);
+  await setWrites(page, { writeMode: "silent" });
+  await page.getByTestId("mnemos-correct-open").click();
+  await page.getByTestId("mnemos-correct-text").fill("Fixed words, unsaved.");
+  await page.getByTestId("mnemos-correct-send").click();
+  await expect(page.getByTestId("mnemos-correct-said")).toContainText(
+    "nothing was saved",
+  );
+  await setWrites(page, { writeMode: "save-silent" });
+  await page
+    .getByTestId("mnemos-correct-said")
+    .getByRole("button", { name: "Try again" })
+    .click();
+  await expect(page).toHaveURL(/item=wren-m123-c/);
+  await expect(page.getByTestId("mnemos-memory-opened")).toContainText(
+    "Fixed words, unsaved.",
+  );
+  expect(await writesSent(page)).toHaveLength(5);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(check 5) the owner's unsent words stay for the app session, and only in memory", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=notes" });
+  const kept = "Half an answer, not sent yet.";
+  await page.getByTestId("mnemos-answer-text").fill(kept);
+  await rail(page).getByTestId("place-row-journal").click();
+  await rail(page).getByTestId("place-row-notes").click();
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveValue(kept);
+  // Another thread opened, then this one again.
+  await page.getByTestId("mnemos-thread-wren-n4").click();
+  await page.getByTestId("mnemos-thread-wren-n1").click();
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveValue(kept);
+  // Hidden and shown.
+  await setVisible(page, false);
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveCount(0);
+  await setVisible(page, true);
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveValue(kept);
+  // Left, and back.
+  await page.getByTestId("open-brain-setup").click();
+  await expect(page).toHaveURL(/#\/brain/);
+  await page.getByTestId("open-mnemos-place").click();
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveValue(kept);
+  // The same words at a glance, where the same note is answered.
+  await rail(page).getByTestId("place-row-glance").click();
+  await expect(page.getByTestId("mnemos-glance-answer-text")).toHaveValue(kept);
+  // A correction, kept and opened again where it was left.
+  await rail(page).getByTestId("place-row-memories").click();
+  await page.getByTestId("mnemos-correct-open").click();
+  await page
+    .getByTestId("mnemos-correct-text")
+    .fill("A correction, half done.");
+  await rail(page).getByTestId("place-row-journal").click();
+  await rail(page).getByTestId("place-row-memories").click();
+  await expect(page.getByTestId("mnemos-correct-text")).toHaveValue(
+    "A correction, half done.",
+  );
+  // Never in storage.
+  const stored = await page.evaluate(() =>
+    JSON.stringify({ ...localStorage, ...sessionStorage }),
+  );
+  expect(stored).not.toContain("Half an answer");
+  expect(stored).not.toContain("half done");
+  // Cancel clears it; sent, it goes.
+  await page.getByTestId("mnemos-correct-cancel").click();
+  await rail(page).getByTestId("place-row-journal").click();
+  await rail(page).getByTestId("place-row-memories").click();
+  await expect(page.getByTestId("mnemos-correct-text")).toHaveCount(0);
+  await rail(page).getByTestId("place-row-notes").click();
+  await page.getByTestId("mnemos-answer-send").click();
+  await expect(
+    page.getByTestId("mnemos-thread-opened").locator("li"),
+  ).toHaveCount(2);
+  await rail(page).getByTestId("place-row-glance").click();
+  await rail(page).getByTestId("place-row-notes").click();
+  await page.getByTestId("mnemos-thread-wren-n4").click();
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveValue("");
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(check 6) Enter sends and Shift+Enter starts a line, as in the message box; trailing space is trimmed", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=notes" });
+  const text = page.getByTestId("mnemos-answer-text");
+  await text.click();
+  await page.keyboard.type("Keep them.");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("Both folders.   ");
+  await page.keyboard.press("Shift+Enter");
+  expect(await writesSent(page)).toHaveLength(0);
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByTestId("mnemos-thread-opened").locator("li"),
+  ).toHaveCount(2);
+  const sent = await writesSent(page);
+  expect(sent.map((s) => s.write.text)).toEqual(["Keep them.\nBoth folders."]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(check 7) a bad address falls back and then says what is shown, in place", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/" });
+  const before = await page.evaluate(() => history.length);
+  await page.evaluate(() => {
+    location.hash = "#/mnemos?room=bogus";
+  });
+  await expect(page).toHaveURL(/room=glance/);
+  await expect(page).not.toHaveURL(/bogus/);
+  await page.evaluate(() => {
+    location.hash = "#/mnemos?room=memories&mind=does-not-exist";
+  });
+  await expect(page).toHaveURL(/mind=wren/);
+  await expect(page).not.toHaveURL(/does-not-exist/);
+  await expect(card(page)).toContainText("Wren");
+  // Each fix replaced its entry: two steps in, two back.
+  expect(await page.evaluate(() => history.length)).toBe(before + 2);
+  await page.goBack();
+  await expect(page).toHaveURL(/room=glance/);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(check 8) in the classic look, the place's address goes home", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?room=notes",
+    classic: true,
+  });
+  await expect(page).not.toHaveURL(/mnemos/);
+  await expect(page.getByTestId("mnemos-place")).toHaveCount(0);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(check 9) nothing in the place moves under reduced motion", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 960, height: 900 });
+  const errors = await boot(page, { hash: "/mnemos?room=journal" });
+  await page.getByTestId("mnemos-entry-wren-j1").click();
+  // At once: a 120 ms fade would still be running.
+  const running = await page.evaluate(() => {
+    const place = document.querySelector("[data-testid='mnemos-place']");
+    return document
+      .getAnimations()
+      .filter((a) => {
+        const target = (a.effect as KeyframeEffect | null)?.target;
+        return a.playState === "running" && target && place?.contains(target);
+      })
+      .map((a) => {
+        const target = (a.effect as KeyframeEffect | null)?.target;
+        return `${(a as CSSAnimation).animationName ?? "a transition"} on ${target?.className ?? "?"}`;
+      });
+  });
+  expect(running).toEqual([]);
+  await expect(page.getByTestId("mnemos-journal-opened")).toBeVisible();
+  // Narrow, so the push is what would have run.
+  await expect(page.getByTestId("mnemos-journal-list")).toBeHidden();
   expect(consoleClean(errors)).toEqual([]);
 });

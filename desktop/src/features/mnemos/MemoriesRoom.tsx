@@ -30,6 +30,7 @@ import {
 import { loadMinds, setRoomCounts } from "./placeStore";
 import { DIDNT_ANSWER, type RoomProps, useAddressItem } from "./roomKit";
 import { useReaderSection } from "./useReader";
+import { draftKey, forgetDraft, readDraft } from "./drafts";
 import { failureWords, WriteField } from "./WriteField";
 
 const PAGE = 50;
@@ -52,7 +53,8 @@ export function MemoriesRoom(props: RoomProps) {
   const [chip, setChip] = React.useState<Chip>("all");
   const [query, setQuery] = React.useState("");
   const [asked, setAsked] = React.useState<string | null>(null);
-  const [pages, setPages] = React.useState(1);
+  /** Pages read so far, from the newest end. */
+  const pages = React.useRef(1);
   const [shown, setShown] = React.useState<BookMemory[]>([]);
   const [more, setMore] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
@@ -75,8 +77,16 @@ export function MemoriesRoom(props: RoomProps) {
     }
   }, [item]);
 
-  // The list: its numbers first, then pages from the newest end.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `n` is Try again, asking once more.
+  /** How many the list holds, as last read, for the next older page. */
+  const total = React.useRef(0);
+  const state = chip === "dormant" ? "dormant" : undefined;
+  const take = (list: BookMemory[]) => {
+    for (const m of list) seen.current.set(m.id, { memory: m, whole: true });
+  };
+  // The list: its numbers first, then the pages read so far from the
+  // newest end (one at first; after a write, the same ones again, since a
+  // write moves where each page starts).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `n` is Try again (or a write), asking once more.
   React.useEffect(() => {
     if (chip === "standing") return;
     let current = true;
@@ -88,21 +98,19 @@ export function MemoriesRoom(props: RoomProps) {
         lastFacts.current = facts;
         setRoomCounts(mind.id, { memories: active + dormant });
       }
-      const total = chip === "dormant" ? dormant : active + dormant;
+      const count = chip === "dormant" ? dormant : active + dormant;
       const list: BookMemory[] = [];
-      for (let page = 0; page < pages; page++) {
-        const slice = newestFirstPage(total, page, PAGE);
+      for (let page = 0; page < pages.current; page++) {
+        const slice = newestFirstPage(count, page, PAGE);
         if (!slice) break;
-        const got = await book.memories({
-          ...slice,
-          state: chip === "dormant" ? "dormant" : undefined,
-        });
+        const got = await book.memories({ ...slice, state });
         list.push(...newestFirst(got.memories));
       }
       if (!current) return;
-      for (const m of list) seen.current.set(m.id, { memory: m, whole: true });
+      total.current = count;
+      take(list);
       setShown(list);
-      setMore(newestFirstPage(total, pages, PAGE) !== null);
+      setMore(newestFirstPage(count, pages.current, PAGE) !== null);
       setLoaded(true);
     })().catch(() => {
       if (current) {
@@ -113,7 +121,33 @@ export function MemoriesRoom(props: RoomProps) {
     return () => {
       current = false;
     };
-  }, [book, chip, mind.id, pages, n]);
+  }, [book, chip, mind.id, n]);
+
+  // Older memories: one new page each time; the pages already read stay.
+  const [moreFailed, setMoreFailed] = React.useState(false);
+  const [moreBusy, setMoreBusy] = React.useState(false);
+  const showOlder = async () => {
+    const slice = newestFirstPage(total.current, pages.current, PAGE);
+    if (!slice || moreBusy) return;
+    setMoreBusy(true);
+    setMoreFailed(false);
+    try {
+      const got = newestFirst(
+        (await book.memories({ ...slice, state })).memories,
+      );
+      pages.current += 1;
+      take(got);
+      setShown((before) => {
+        const have = new Set(before.map((m) => m.id));
+        return [...before, ...got.filter((m) => !have.has(m.id))];
+      });
+      setMore(newestFirstPage(total.current, pages.current, PAGE) !== null);
+    } catch {
+      setMoreFailed(true);
+    } finally {
+      setMoreBusy(false);
+    }
+  };
 
   const search = useLoad(
     () => (asked ? book.search(asked) : Promise.resolve(null)),
@@ -124,6 +158,8 @@ export function MemoriesRoom(props: RoomProps) {
       seen.current.set(r.memory.id, { memory: r.memory, whole: false });
   }
 
+  // While a search is out, nothing is opened beside it: no memory, no
+  // acts, until its results come and the first of them opens.
   const searching =
     asked !== null && search.value === null && search.failed === null;
   const standing = useReaderSection(reader, "standing", standingOf);
@@ -137,7 +173,8 @@ export function MemoriesRoom(props: RoomProps) {
       : chip === "standing" || loaded,
     openItem,
   );
-  const memory = opened ? (seen.current.get(opened) ?? null) : null;
+  const memory =
+    opened && !searching ? (seen.current.get(opened) ?? null) : null;
   const standingItem =
     chip === "standing" && asked === null && standingOpen !== null
       ? (standing.items?.[standingOpen] ?? null)
@@ -145,7 +182,7 @@ export function MemoriesRoom(props: RoomProps) {
 
   const pickChip = (next: Chip) => {
     setChip(next);
-    setPages(1);
+    pages.current = 1;
     setShown([]);
     setLoaded(false);
     setStandingOpen(null);
@@ -160,6 +197,8 @@ export function MemoriesRoom(props: RoomProps) {
         onSubmit={(event) => {
           event.preventDefault();
           const words = query.trim();
+          if (words && words !== asked && item !== null)
+            openItem(null, { replace: true });
           setAsked(words ? words : null);
         }}
       >
@@ -202,7 +241,9 @@ export function MemoriesRoom(props: RoomProps) {
           ))}
         </fieldset>
       ) : null}
-      {asked !== null ? (
+      {searching ? (
+        <PlaceLine testId="mnemos-search-working">Searching…</PlaceLine>
+      ) : asked !== null ? (
         <SearchResults
           failed={search.failed !== null}
           onOpen={openItem}
@@ -245,11 +286,19 @@ export function MemoriesRoom(props: RoomProps) {
               />
             ))}
           </PlaceList>
-          {more ? (
+          {moreFailed ? (
+            <PlaceLine
+              action={{ label: "Try again", run: () => void showOlder() }}
+            >
+              {DIDNT_ANSWER}
+            </PlaceLine>
+          ) : more ? (
             <button
+              aria-busy={moreBusy || undefined}
               className="luca-mnemos-more text-sm"
               data-testid="mnemos-more"
-              onClick={() => setPages((x) => x + 1)}
+              disabled={moreBusy}
+              onClick={() => void showOlder()}
               type="button"
             >
               Show older memories
@@ -299,6 +348,7 @@ export function MemoriesRoom(props: RoomProps) {
           </article>
         ) : memory ? (
           <MemoryOpened
+            draft={draftKey(mind.id, `correct:${memory.memory.id}`)}
             key={memory.memory.id}
             mindName={mind.name}
             onCorrect={async (text) => {
@@ -364,18 +414,23 @@ const wholeOf = (m: BookFound["memory"]): BookMemory => ({
 });
 
 function MemoryOpened({
+  draft,
   mindName,
   onCorrect,
   onLetGo,
   seen,
 }: {
+  /** Where an unsent correction is kept: one left here opens again. */
+  draft: string;
   mindName: string;
   onCorrect: (text: string) => Promise<void>;
   onLetGo: () => Promise<void>;
   seen: Seen;
 }) {
   const { memory } = seen;
-  const [mode, setMode] = React.useState<"read" | "correct" | "asking">("read");
+  const [mode, setMode] = React.useState<"read" | "correct" | "asking">(() =>
+    readDraft(draft) === undefined ? "read" : "correct",
+  );
   const back = React.useRef<"correct" | "letgo" | null>(null);
   const correctButton = React.useRef<HTMLButtonElement>(null);
   const letGoButton = React.useRef<HTMLButtonElement>(null);
@@ -396,13 +451,17 @@ function MemoryOpened({
         <WriteField
           autoFocus
           cancelLabel="Cancel"
+          draft={draft}
           failLine="It couldn’t be changed. Your words are still here."
           hint={`Its own words stay in its history. ${mindName} wakes knowing you corrected it, once.`}
           initial={memory.content}
           label="Correct it, in your words"
           layout="stacked"
           needsChange
-          onCancel={() => leave("correct")}
+          onCancel={() => {
+            forgetDraft(draft);
+            leave("correct");
+          }}
           onSend={onCorrect}
           sendLabel="Save correction"
           sendingLabel="Saving…"

@@ -117,6 +117,10 @@ export type WriteFailure =
   | { kind: "said"; said: string }
   /** Someone else is writing to the store just now. */
   | { kind: "busy" }
+  /** Mnemos didn't answer in time, and a look found nothing saved. */
+  | { kind: "unanswered" }
+  /** Mnemos didn't answer in time, and the look couldn't be made. */
+  | { kind: "unchecked" }
   | { kind: "failed"; code: string };
 
 /** A write's error, as the place's command gives it. */
@@ -190,15 +194,67 @@ export function bookOf(ask: Ask) {
 
 export type Book = ReturnType<typeof bookOf>;
 
-/** The person's four writes, in the notebook's shapes. Each is sent once;
- *  a failure throws a `WriteFailure`. */
-export function writesOf(send: Send) {
-  const once = async (write: PlaceWrite) => {
+/** The most memories a look after a timeout reads at once. */
+const LOOK_PAGE = 100;
+
+/** Whether a write timed out: Mnemos may have saved it or not. */
+const timedOut = (failure: WriteFailure) =>
+  failure.kind === "failed" && failure.code === "mnemos_timeout";
+
+/** Every memory it can reach, a page at a time (a look after a timeout). */
+async function everyMemory(book: Book): Promise<BookMemory[]> {
+  const facts = await book.facts();
+  const total = facts.states.active + facts.states.dormant;
+  const all: BookMemory[] = [];
+  for (let offset = 0; offset < total; offset += LOOK_PAGE) {
+    const got = await book.memories({ limit: LOOK_PAGE, offset });
+    all.push(...got.memories);
+    if (got.memories.length < LOOK_PAGE) break;
+  }
+  return all;
+}
+
+const same = (a: string, b: string) => a.trim() === b.trim();
+
+/** The person's writes, in the notebook's shapes. Each is sent once; a
+ *  failure throws a `WriteFailure`. A write that timed out may have been
+ *  saved: before anything is said, `ask` looks for it. Found, it is the
+ *  answer; not found, nothing was saved (`unanswered`); the look failing
+ *  says so (`unchecked`). Nothing is sent again by itself. */
+export function writesOf(send: Send, ask: Ask) {
+  const book = bookOf(ask);
+  const once = async <T>(
+    write: PlaceWrite,
+    look: () => Promise<T | null>,
+  ): Promise<WireWritten | { looked: T }> => {
     try {
       return await send(write);
     } catch (error) {
-      throw writeFailure(error);
+      const failure = writeFailure(error);
+      if (!timedOut(failure)) throw failure;
     }
+    let found: T | null;
+    try {
+      found = await look();
+    } catch {
+      throw { kind: "unchecked" } satisfies WriteFailure;
+    }
+    if (found === null) throw { kind: "unanswered" } satisfies WriteFailure;
+    return { looked: found };
+  };
+  /** The person's note with these words, answering `replyTo`, written
+   *  since `since`. */
+  const noteLook = (text: string, replyTo: string, since: number) => async () =>
+    (await book.notes()).find(
+      (n) =>
+        n.author === "person" &&
+        n.replyTo === replyTo &&
+        same(n.text, text) &&
+        time(n.at) >= since - 60_000,
+    ) ?? null;
+  const asNote = (written: WireWritten | { looked: BookNote }): BookNote => {
+    if ("looked" in written) return written.looked;
+    return noted(written);
   };
   const noted = (written: WireWritten): BookNote => {
     if (written.kind !== "note")
@@ -208,19 +264,46 @@ export function writesOf(send: Send) {
   return {
     /** Answer one of the mind's notes. */
     async reply(noteId: string, text: string): Promise<BookNote> {
-      return noted(await once({ command: "reply", note_id: noteId, text }));
+      const since = Date.now();
+      return asNote(
+        await once(
+          { command: "reply", note_id: noteId, text },
+          noteLook(text, noteId, since),
+        ),
+      );
     },
     /** Leave the mind a note of the person's own. */
     async note(text: string): Promise<BookNote> {
-      return noted(await once({ command: "note", text }));
+      const since = Date.now();
+      return asNote(
+        await once({ command: "note", text }, noteLook(text, "", since)),
+      );
     },
     /** Correct a memory in the person's words. */
     async correct(memoryId: string, text: string): Promise<BookCorrected> {
-      const written = await once({
-        command: "correct",
-        memory_id: memoryId,
-        text,
-      });
+      const written = await once(
+        { command: "correct", memory_id: memoryId, text },
+        async () => {
+          // Saved, the new version is the person's, in these words, and the
+          // old one is gone from what it can reach.
+          const all = await everyMemory(book);
+          if (all.some((m) => m.id === memoryId)) return null;
+          const fresh = all.find(
+            (m) =>
+              m.author === "person" &&
+              m.id !== memoryId &&
+              same(m.content, text),
+          );
+          return fresh
+            ? {
+                id: fresh.id,
+                replaces: memoryId,
+                corrected: fresh.corrected ?? null,
+              }
+            : null;
+        },
+      );
+      if ("looked" in written) return written.looked;
       if (written.kind !== "corrected")
         throw { kind: "failed", code: "invalid_reply" } satisfies WriteFailure;
       return {
@@ -231,7 +314,15 @@ export function writesOf(send: Send) {
     },
     /** Let a memory go: archived, never deleted. */
     async forget(memoryId: string): Promise<void> {
-      const written = await once({ command: "forget", memory_id: memoryId });
+      const written = await once(
+        { command: "forget", memory_id: memoryId },
+        // Let go, it is no longer among what it can reach.
+        async () =>
+          (await everyMemory(book)).some((m) => m.id === memoryId)
+            ? null
+            : true,
+      );
+      if ("looked" in written) return;
       if (written.kind !== "forgotten")
         throw { kind: "failed", code: "invalid_reply" } satisfies WriteFailure;
     },

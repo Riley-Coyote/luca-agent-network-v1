@@ -21,6 +21,7 @@ import { heldAt } from "./ReaderRooms";
 import { DIDNT_ANSWER, type RoomProps } from "./roomKit";
 import { useSentNotes, wokenWords } from "./TalkRooms";
 import { useReaderSection } from "./useReader";
+import { draftKey } from "./drafts";
 import { WriteField } from "./WriteField";
 
 /** Days the strip shows: the last six months. */
@@ -102,6 +103,7 @@ export function GlanceRoom({ book, mind, goTo, reader, writes }: RoomProps) {
               <>
                 <p className="luca-mnemos-clamp text-base">{ask.last.text}</p>
                 <WriteField
+                  draft={draftKey(mind.id, `reply:${ask.last.id}`)}
                   key={ask.last.id}
                   label="Your answer, in your own words"
                   onSend={async (text) => {

@@ -12,6 +12,8 @@ import {
   useKeepPickInAddress,
   usePlacePick,
 } from "@/app/shell/placeRails/usePlaceRails";
+import { useRouterState } from "@tanstack/react-router";
+
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { bookOf, writesOf } from "./adapt";
@@ -53,6 +55,22 @@ export function MnemosScreen() {
   const { pick } = usePlacePick("mnemos");
   const room: MnemosRoomId = isMnemosRoom(pick) ? pick : "glance";
   const { facts, mind } = useMindInView();
+  // An address that names a room or a mind that isn't here falls back, and
+  // then says what is really shown, in place, so Back still works.
+  const named = useRouterState({
+    select: (state) =>
+      state.location.pathname === "/mnemos" ? state.location.searchStr : null,
+  });
+  React.useEffect(() => {
+    if (named === null) return;
+    // The address's own words (one the route didn't keep isn't in `values`).
+    const raw = new URLSearchParams(named);
+    const patch: Record<string, string> = {};
+    if (raw.has("room") && values.room !== room) patch.room = room;
+    if (raw.has("mind") && mind && values.mind !== mind.id)
+      patch.mind = mind.id;
+    if (Object.keys(patch).length) applyPatch(patch, { replace: true });
+  }, [applyPatch, mind, named, room, values.mind, values.room]);
 
   const openItem = React.useCallback(
     (id: string | null, options?: { replace?: boolean }) =>
@@ -126,7 +144,7 @@ function MindCard({
 }) {
   const { phase, ask, send, retry, visible } = useMnemosSession(mind.id);
   const book = React.useMemo(() => bookOf(ask), [ask]);
-  const writes = React.useMemo(() => writesOf(send), [send]);
+  const writes = React.useMemo(() => writesOf(send, ask), [send, ask]);
   const reader = useReader(mind);
   useRoomCounts(book, reader, mind.id, phase.kind === "open" && visible);
   const Room = ROOMS[room];

@@ -29,6 +29,11 @@ import {
   withNote,
 } from "./notebook.ts";
 
+/** An `ask` no write should need: only a timeout looks. */
+const noAsk = async () => {
+  throw new Error("nothing should be read");
+};
+
 const note = (id, at, author, text, replyTo = "", read = null) => ({
   id,
   at,
@@ -383,7 +388,7 @@ test("the four writes: one send each, in the notebook's shapes, failures by kind
         corrected: "2026-11-20T10:00:00Z",
       };
     return { kind: "forgotten", id: write.memory_id, forgotten: null };
-  });
+  }, noAsk);
   assert.equal((await writes.reply("q", "Keep them.")).replyTo, "q");
   assert.equal((await writes.note("Morning.")).author, "person");
   assert.deepEqual(await writes.correct("m1", "Better words."), {
@@ -405,7 +410,7 @@ test("the four writes: one send each, in the notebook's shapes, failures by kind
   const refusing = writesOf(async () => {
     tries++;
     throw `mnemos_refused:${quiet}`;
-  });
+  }, noAsk);
   await assert.rejects(
     () => refusing.reply("q", "Hello"),
     (failure) => failure.kind === "said" && failure.said === quiet,
@@ -416,4 +421,96 @@ test("the four writes: one send each, in the notebook's shapes, failures by kind
     kind: "failed",
     code: "not_shown",
   });
+});
+
+test("a write that timed out is looked for before anything is said", async () => {
+  const notes = [];
+  const memories = [
+    {
+      id: "m1",
+      words: "Old words.",
+      kept: null,
+      state: "active",
+      alive: 1,
+      corrected: null,
+      impact: "",
+      author: "agent",
+    },
+  ];
+  let sends = 0;
+  const ask = async (request) => {
+    if (request.command === "notes") return { kind: "notes", notes };
+    if (request.command === "memories")
+      return {
+        kind: "memories",
+        memories: request.limit
+          ? memories.slice(request.offset, request.offset + request.limit)
+          : [],
+        counts: { active: memories.length, dormant: 0, archived: 0 },
+      };
+    throw new Error("unexpected");
+  };
+  // Saved, then silent: the look finds it, and it is shown as sent.
+  const saving = writesOf(async (write) => {
+    sends++;
+    notes.push({
+      id: "n9",
+      kind: "reply",
+      text: write.text,
+      author: "person",
+      model: null,
+      in_reply_to: write.note_id,
+      created_at: new Date().toISOString(),
+      read_at: null,
+    });
+    throw "mnemos_timeout";
+  }, ask);
+  const found = await saving.reply("q", "Keep them.");
+  assert.equal(found.id, "n9");
+  assert.equal(sends, 1);
+  // Silent without saving: nothing found, and it says nothing was saved.
+  const silent = writesOf(async () => {
+    sends++;
+    throw "mnemos_timeout";
+  }, ask);
+  await assert.rejects(
+    () => silent.note("Morning."),
+    (f) => f.kind === "unanswered",
+  );
+  await assert.rejects(
+    () => silent.correct("m1", "New words."),
+    (f) => f.kind === "unanswered",
+  );
+  await assert.rejects(
+    () => silent.forget("m1"),
+    (f) => f.kind === "unanswered",
+  );
+  assert.equal(sends, 4, "nothing sent again by itself");
+  // A correction saved before the silence is found by its new words.
+  const correcting = writesOf(async () => {
+    memories.splice(0, 1, {
+      id: "m1-c",
+      words: "New words.",
+      kept: null,
+      state: "active",
+      alive: 1,
+      corrected: "2026-11-20T10:00:00Z",
+      impact: "",
+      author: "person",
+    });
+    throw "mnemos_timeout";
+  }, ask);
+  assert.deepEqual(await correcting.correct("m1", "New words."), {
+    id: "m1-c",
+    replaces: "m1",
+    corrected: "2026-11-20T10:00:00Z",
+  });
+  // A look that can't be made says so.
+  const blind = writesOf(async () => {
+    throw "mnemos_timeout";
+  }, noAsk);
+  await assert.rejects(
+    () => blind.note("Morning."),
+    (f) => f.kind === "unchecked",
+  );
 });
