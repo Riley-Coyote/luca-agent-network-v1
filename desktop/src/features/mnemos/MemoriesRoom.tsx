@@ -37,6 +37,7 @@ import {
   visitOf,
 } from "./memoryArrange";
 import { MemoryDetail } from "./MemoryDetail";
+import { MemoryDrawing } from "./mind/MemoryDrawing";
 import { loadMinds, setNotebookMemories, setRoomCounts } from "./placeStore";
 import {
   DIDNT_ANSWER,
@@ -480,6 +481,7 @@ export function MemoriesRoom(props: RoomProps) {
                   )
                 : null
             }
+            drawn={notebook !== null && memory.whole}
             key={memory.memory.id}
             mindModel={notebook?.life.identity.model}
             mindName={mind.name}
@@ -526,6 +528,17 @@ export function MemoriesRoom(props: RoomProps) {
               void loadMinds(true);
             }}
             seen={memory}
+            toMind={
+              // Only a memory the picture holds: in the notebook as read,
+              // not let go.
+              notebook &&
+              memory.whole &&
+              memory.memory.state !== "archived" &&
+              !gone.current.has(memory.memory.id) &&
+              notebook.memories.memories.some((m) => m.id === memory.memory.id)
+                ? () => goTo("mind", memory.memory.id)
+                : null
+            }
           />
         ) : null
       }
@@ -550,17 +563,23 @@ const wholeOf = (m: BookFound["memory"]): BookMemory => ({
 function MemoryOpened({
   detail,
   draft,
+  drawn,
   mindModel,
   mindName,
   onCorrect,
   onLetGo,
   seen,
+  toMind,
 }: {
   /** What the notebook says about it besides, on a Mnemos that gives it:
    *  its readings, and what it is related to. */
   detail: ((part: "readings" | "related") => React.ReactNode) | null;
   /** Where an unsent correction is kept: one left here opens again. */
   draft: string;
+  /** Its own drawing above its words (a newer Mnemos's whole memory). */
+  drawn: boolean;
+  /** "See it in the mind", for a memory the mind's picture holds. */
+  toMind: (() => void) | null;
   /** The model that signs this mind's memories, where the notebook says. */
   mindModel?: string;
   mindName: string;
@@ -588,6 +607,11 @@ function MemoryOpened({
 
   return (
     <article aria-label="A memory" data-testid="mnemos-memory-opened">
+      {drawn && seen.whole ? (
+        <div className="luca-mnemos-memory-drawing">
+          <MemoryDrawing memory={seen.memory} />
+        </div>
+      ) : null}
       {mode === "correct" ? (
         <WriteField
           autoFocus
@@ -631,6 +655,18 @@ function MemoryOpened({
                 signedBy(seen.memory, { name: mindName, model: mindModel }),
               ]
             : [`Kept ${longDay(memory.born)}`]
+        }
+        after={
+          toMind ? (
+            <button
+              className="luca-mnemos-link"
+              data-testid="mnemos-memory-to-mind"
+              onClick={toMind}
+              type="button"
+            >
+              See it in the mind
+            </button>
+          ) : null
         }
         testId="mnemos-memory-line"
       />

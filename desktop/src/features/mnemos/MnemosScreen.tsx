@@ -27,7 +27,7 @@ import { MemoriesRoom } from "./MemoriesRoom";
 import { MindRoom } from "./mind/MindRoom";
 import { DIDNT_ANSWER, type NotebookView, type RoomProps } from "./roomKit";
 import { PlaceLine } from "./MnemosParts";
-import { linkedWords, stateLine } from "./notebook";
+import { linkedWords, stateLine, threads } from "./notebook";
 import { bookOfNotebook, readerOfNotebook } from "./notebookLoad";
 import { letGoMindWordsDrafts } from "./drafts";
 import { possessive } from "./notebookWords";
@@ -39,7 +39,11 @@ import { SettingsRoom } from "./SettingsRoom";
 import { SharedRoom } from "./SharedRoom";
 import { JOURNAL_LAST, JournalRoom, NotesRoom } from "./TalkRooms";
 import { useMindInView } from "./useMindInView";
-import { type SessionPhase, useMnemosSession } from "./useMnemosSession";
+import {
+  type SessionPhase,
+  useMnemosSession,
+  useWindowVisible,
+} from "./useMnemosSession";
 import { useEngine, useNotebook, usePictures } from "./useNotebook";
 import { type Reader, useReader } from "./useReader";
 
@@ -69,8 +73,12 @@ const ROOMS: Record<MnemosRoomId, (props: RoomProps) => React.ReactNode> = {
  */
 export function MnemosScreen() {
   const { applyPatch, values } = useHistorySearchState(SEARCH_KEYS);
-  // Leaving the place lets go of the mind's words, and of every draft made
-  // of them.
+  // The one hook for drafts that hold a mind's words (`drafts.ts`): the
+  // place left, or the window hidden, they go with the words.
+  const windowShown = useWindowVisible();
+  React.useEffect(() => {
+    if (!windowShown) letGoMindWordsDrafts();
+  }, [windowShown]);
   React.useEffect(() => letGoMindWordsDrafts, []);
   useKeepPickInAddress("mnemos", applyPatch);
   const { pick } = usePlacePick("mnemos");
@@ -201,10 +209,6 @@ function MindCard({
     [life, memories, newer, oldReader],
   );
   const writes = React.useMemo(() => writesOf(send, ask), [send, ask]);
-  // Hidden, the room and its words go: drafts made of the mind's words too.
-  React.useEffect(() => {
-    if (!visible) letGoMindWordsDrafts();
-  }, [visible]);
   useRoomCounts(
     book,
     reader,
@@ -216,6 +220,15 @@ function MindCard({
   const Room = ROOMS[room];
   // A newer Mnemos's rooms wait for the notebook's first reading.
   const waiting = engine.kind === "asking" || (newer && !notebook);
+  // The mind's picture is kept while the mind is open (WP-50, Decided 5;
+  // WP-51, Decided 1): mounted the first time The mind is shown, paused
+  // while another section is, and gone when the window hides or nothing is
+  // shown (the place left or the mind switched unmount the card itself).
+  const live = phase.kind === "open" && !waiting && visible;
+  const mindShown = live && settled && room === "mind";
+  const [mindKept, setMindKept] = React.useState(mindShown);
+  if (mindShown && !mindKept) setMindKept(true);
+  if (!live && mindKept) setMindKept(false);
   return (
     <>
       <PlacePageHead
@@ -229,20 +242,38 @@ function MindCard({
         read.failed && !notebook ? (
           <PlaceLine testId="mnemos-notebook-failed">{DIDNT_ANSWER}</PlaceLine>
         ) : null
-      ) : !settled ? null : visible ? (
+      ) : visible ? (
         // The words live only here, while the window is on screen: hidden,
         // the room goes and its words with it; shown again, it reads again.
-        <Room
-          book={book}
-          goTo={goTo}
-          item={item}
-          key={room}
-          mind={mind}
-          notebook={notebook}
-          openItem={openItem}
-          reader={reader}
-          writes={writes}
-        />
+        <>
+          {settled && room !== "mind" ? (
+            <Room
+              book={book}
+              goTo={goTo}
+              item={item}
+              key={room}
+              mind={mind}
+              notebook={notebook}
+              openItem={openItem}
+              reader={reader}
+              writes={writes}
+            />
+          ) : null}
+          {mindKept ? (
+            <MindRoom
+              book={book}
+              goTo={goTo}
+              item={item}
+              key="mind"
+              mind={mind}
+              notebook={notebook}
+              openItem={openItem}
+              reader={reader}
+              shown={mindShown}
+              writes={writes}
+            />
+          ) : null}
+        </>
       ) : null}
     </>
   );
@@ -307,9 +338,11 @@ function useNotebookCounts(
       beliefs: c.beliefs,
       questions: c.questions,
       journal: c.journal,
-      notes: c.notes === undefined ? undefined : c.notes + (c.replies ?? 0),
       carrying: c.carrying,
       hours: c.hours,
+      // Notes counts threads, as its section lists them; the summary counts
+      // every note and reply, so the number waits for the notebook.
+      ...(life ? { notes: threads(life.notes).length } : {}),
     });
   }, [life, mind, summary]);
 }
@@ -327,7 +360,7 @@ function useRoomCounts(book: Book, reader: Reader, mind: string, on: boolean) {
         memories: facts.states.active + facts.states.dormant,
       });
       const notes = await book.notes();
-      if (current) setRoomCounts(mind, { notes: notes.length });
+      if (current) setRoomCounts(mind, { notes: threads(notes).length });
       const journal = await book.journal(JOURNAL_LAST);
       if (current && journal.length < JOURNAL_LAST)
         setRoomCounts(mind, { journal: journal.length });

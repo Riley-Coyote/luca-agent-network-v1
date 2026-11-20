@@ -162,9 +162,10 @@ export function NotesRoom({
     [notes.value, sent.onto],
   );
   const all = React.useMemo(() => threads(list ?? []), [list]);
+  // The rail counts what this section lists: the threads, not every note.
   React.useEffect(() => {
-    if (list) setRoomCounts(mind.id, { notes: list.length });
-  }, [list, mind.id]);
+    if (list) setRoomCounts(mind.id, { notes: all.length });
+  }, [all, list, mind.id]);
   const waiting = all.filter((t) => t.waits);
   const rest = all.filter((t) => !t.waits);
   // The address names a thread, or one note in it (a line in the Log): the

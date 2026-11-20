@@ -61,9 +61,12 @@ export function longDay(
 /** The rest of an opened thing, said in one quiet line the way the notebook
  *  says it: "Kept Friday, November 20 · it can reach · never corrected". */
 export function QuietLine({
+  after,
   parts,
   testId,
 }: {
+  /** A quiet way on, said at the line's end after its parts. */
+  after?: React.ReactNode;
   parts: (string | null | undefined | false)[];
   testId?: string;
 }) {
@@ -72,6 +75,7 @@ export function QuietLine({
   return (
     <p className="luca-mnemos-quietline text-xs" data-testid={testId}>
       {said.join(" · ")}
+      {after ? <> · {after}</> : null}
     </p>
   );
 }

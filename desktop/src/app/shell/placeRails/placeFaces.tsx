@@ -121,6 +121,7 @@ export type RailFaceKind = "agent" | "app" | "icon";
  *  WP-33 gave them (memory a bookmark, journal a pen), line drawings else. */
 const MNEMOS_ROOM_FACES: Record<string, typeof User> = {
   glance: LayoutGrid,
+  mind: Waypoints,
   log: ScrollText,
   memories: Bookmark,
   shared: UsersRound,

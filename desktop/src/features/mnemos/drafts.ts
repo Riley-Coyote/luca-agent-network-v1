@@ -6,10 +6,11 @@
  * kept for as long as the app runs, so a section change, another item
  * opened, a hidden window or leaving the place never loses them.
  *
- * A draft that holds the mind's own words (an unsent "Correct it" starts
- * from the memory's words) follows those words: the place lets go of them
- * when it is left or the window hides, and the draft goes with them. Its key
- * is made with `mindWordsDraftKey`; `letGoMindWordsDrafts` drops them all.
+ * A draft that holds a mind's words (an unsent "Correct it" starts from a
+ * memory's words, or a shared row's) follows those words: the place lets go
+ * of them when it is left or the window hides, and the draft goes with
+ * them. Its key is made with `mindWordsDraftKey`; `letGoMindWordsDrafts`
+ * drops them all, called from one place (`MnemosScreen`).
  *
  * Every draft goes when sent, when the owner clears the field, and with the
  * community (`resetMnemosPlace`, from `resetCommunityState`).

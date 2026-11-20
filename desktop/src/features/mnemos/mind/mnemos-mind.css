@@ -144,6 +144,13 @@
   line-height: 1.55;
 }
 
+/* Between its words and its quiet line, the place's usual step (the
+ * quiet line's own 18 under words in Memories), in the panel only: the
+ * panel's 12 of gap, and 6 more. */
+.luca-mnemos-mind-picked > .luca-mnemos-quietline {
+  margin-top: 6px;
+}
+
 .luca-mnemos-mind-ways {
   color: hsl(var(--mn-ink-muted));
   display: flex;

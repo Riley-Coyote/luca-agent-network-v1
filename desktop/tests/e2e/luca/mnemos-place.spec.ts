@@ -24,6 +24,7 @@ import {
 const SHOTS = process.env.WP45_SHOTS ?? "test-results/wp45";
 const SHOTS47 = process.env.WP47_SHOTS ?? "test-results/wp47";
 const SHOTS48 = process.env.WP48_SHOTS ?? "test-results/wp48";
+const SHOTS51 = process.env.WP51_SHOTS ?? "test-results/wp51";
 const LUCA = "a".repeat(64);
 /** A resident of the owner's that remembers with nothing yet. */
 const ORI = "b".repeat(64);
@@ -994,13 +995,15 @@ test("(a, b, g) the tile after Brain; the rail; At a glance with real numbers", 
   // Mnemos (0.6.7) feeds some of them, and the rest say so when opened.
   expect(rooms).toEqual([
     "At a glance",
+    "The mind",
     "Log",
     "Memories124",
     "Shared",
     "Beliefs3",
     "Questions",
     "Journal3",
-    "Notes4",
+    // Its threads, as Notes lists them: four notes, one a reply.
+    "Notes3",
     "Carrying forward2",
     "Hours",
     "Settings",
@@ -1411,8 +1414,9 @@ test("(k) keyboard only: rooms, a search, a memory opened", async ({
   const errors = await boot(page);
   await expect(page.getByTestId("mnemos-count")).toHaveText("124");
   // Into the rail's head, then down its rows with the arrow keys: past
-  // At a glance and the Log to Memories.
+  // At a glance, The mind and the Log to Memories.
   await page.getByTestId("mnemos-rail-mind-button").focus();
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
@@ -1640,7 +1644,8 @@ test("(47) answer a note: one write, the right ids, the thread at once, a double
   await expect(
     page.getByTestId("mnemos-notes-waiting").locator("li"),
   ).toHaveCount(1);
-  await expect(rail(page).getByTestId("place-row-notes")).toHaveText("Notes5");
+  // An answer joins its thread: the rail, counting threads, stays.
+  await expect(rail(page).getByTestId("place-row-notes")).toHaveText("Notes3");
   await shot47(page, "02-answer-sent-dark");
 
   // Once it has woken with it, the line says when.
@@ -1714,7 +1719,8 @@ test("(47) leave a note, in the light", async ({ page }) => {
   expect(await writesSent(page)).toEqual([
     { mind: "wren", write: { command: "note", text: words } },
   ]);
-  await expect(rail(page).getByTestId("place-row-notes")).toHaveText("Notes5");
+  // A note of its own starts a thread: one more.
+  await expect(rail(page).getByTestId("place-row-notes")).toHaveText("Notes4");
   expect(consoleClean(errors)).toEqual([]);
 });
 
@@ -2583,13 +2589,15 @@ test("(48-1) a newer Mnemos and a 0.6.7 one side by side", async ({ page }) => {
     .evaluateAll((els) => els.map((el) => el.textContent?.trim()));
   expect(rows).toEqual([
     "At a glance",
+    "The mind",
     "Log",
     "Memories12",
     "Shared2",
     "Beliefs2",
     "Questions3",
     "Journal3",
-    "Notes3",
+    // Its threads: three notes, one a reply.
+    "Notes2",
     "Carrying forward2",
     "Hours3",
     "Settings",
@@ -3461,3 +3469,365 @@ test("(48-r2) a memory's tags use the row's whole width; no separator ends a lin
   await shot48(page, "13-memory-tags-dark");
   expect(consoleClean(errors)).toEqual([]);
 });
+
+/* ── WP-51: the place, joined ──────────────────────────────────────── */
+
+/** A whole-window picture for WP-51, its hash. */
+async function shot51(page: Page, name: string) {
+  await waitForAnimations(page);
+  await page.waitForTimeout(400);
+  mkdirSync(SHOTS51, { recursive: true });
+  const path = `${SHOTS51}/${name}.png`;
+  await page.screenshot({ path });
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function measure51(key: string, value: unknown) {
+  mkdirSync(`${SHOTS51}/measures`, { recursive: true });
+  writeFileSync(
+    `${SHOTS51}/measures/${key}.json`,
+    JSON.stringify(value, null, 2),
+  );
+}
+
+for (const mode of ["dark", "light"] as const)
+  test(`(51) an opened memory: its own drawing above its words, and the way to the mind (${mode})`, async ({
+    page,
+  }) => {
+    const errors = await boot(page, {
+      hash: "/mnemos?mind=kestrel&room=memories&item=kes-m01",
+      mode,
+      newer: true,
+    });
+    const opened = page.getByTestId("mnemos-memory-opened");
+    const drawing = opened.getByTestId("mnemos-memory-drawing");
+    await expect(drawing).toHaveAttribute("role", "img");
+    await expect(drawing).toHaveAttribute("aria-label", /\S/);
+    // Small, at the left, above the words; drawn in their ink.
+    const place = await opened.evaluate((el) => {
+      const d = el
+        .querySelector("[data-testid='mnemos-memory-drawing']")
+        ?.getBoundingClientRect();
+      const w = el.querySelector(".luca-mnemos-words");
+      const words = w?.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      const ink = (x: Element | null | undefined) =>
+        x ? getComputedStyle(x).color : "";
+      return {
+        size: d ? [Math.round(d.width), Math.round(d.height)] : null,
+        left: d ? Math.round(d.left - box.left) : -1,
+        above: d && words ? words.top - d.bottom : -1,
+        sameInk:
+          ink(
+            el.querySelector("[data-testid='mnemos-memory-drawing']")
+              ?.parentElement,
+          ) === ink(w),
+      };
+    });
+    expect(place.size).toEqual([56, 56]);
+    expect(place.left).toBeLessThanOrEqual(1);
+    expect(place.above).toBeGreaterThan(0);
+    expect(place.sameInk).toBe(true);
+    await expect
+      .poll(async () =>
+        opened.evaluate((el) => {
+          const c = el.querySelector(
+            "[data-testid='mnemos-memory-drawing']",
+          ) as HTMLCanvasElement | null;
+          const ctx = c?.getContext("2d");
+          if (!c || !ctx || !c.width) return 0;
+          const px = ctx.getImageData(0, 0, c.width, c.height).data;
+          let n = 0;
+          for (let i = 3; i < px.length; i += 4) if ((px[i] ?? 0) > 0) n++;
+          return n;
+        }),
+      )
+      .toBeGreaterThan(50);
+    // "See it in the mind" sits with its quiet line.
+    const link = page.getByTestId("mnemos-memory-to-mind");
+    await expect(link).toHaveText("See it in the mind");
+    await expect(page.getByTestId("mnemos-memory-line")).toContainText(
+      "See it in the mind",
+    );
+    await page.waitForTimeout(900);
+    const hash = await shot51(
+      page,
+      mode === "dark"
+        ? "01-memory-with-drawing"
+        : "06-memory-with-drawing-light",
+    );
+    measure51(`drawing-${mode}`, { ...place, hash });
+    if (mode === "dark") {
+      await link.click();
+      await expect(page).toHaveURL(/room=mind&item=kes-m01/);
+    }
+    expect(consoleClean(errors)).toEqual([]);
+  });
+
+test("(51) on today's Mnemos: no drawing, no way to the mind", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=memories" });
+  await expect(page.getByTestId("mnemos-memory-opened")).toBeVisible();
+  await expect(page.getByTestId("mnemos-memory-drawing")).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-memory-to-mind")).toHaveCount(0);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(51) The mind's own mark in the rail", async ({ page }) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=glance",
+    newer: true,
+  });
+  const face = (id: string) =>
+    rail(page)
+      .getByTestId(`place-row-${id}`)
+      .locator(".luca-rail-face svg")
+      .getAttribute("class");
+  await expect(rail(page).getByTestId("place-row-mind")).toBeVisible();
+  expect(await face("mind")).toContain("lucide-waypoints");
+  expect(await face("glance")).not.toContain("lucide-waypoints");
+  await shot51(page, "03-rail-with-mind-icon");
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(51) today's board: Lately ends each line on a whole word", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  const errors = await boot(page);
+  const lately = page.getByTestId("mnemos-plate-lately");
+  await expect(lately.locator("li")).toHaveCount(5);
+  const facts = await lately.evaluate((plate) =>
+    [...plate.querySelectorAll<HTMLElement>(".luca-mnemos-clamp")].map((el) => {
+      const s = getComputedStyle(el);
+      const text = el.firstChild;
+      // A word across two lines draws as two boxes.
+      let split = 0;
+      if (text?.nodeType === Node.TEXT_NODE) {
+        const words = (text.textContent ?? "").matchAll(/\S+/g);
+        for (const w of words) {
+          const r = document.createRange();
+          r.setStart(text, w.index ?? 0);
+          r.setEnd(text, (w.index ?? 0) + w[0].length);
+          const lines = new Set(
+            [...r.getClientRects()].map((x) => Math.round(x.top)),
+          );
+          if (lines.size > 1) split++;
+        }
+      }
+      return {
+        text: el.textContent,
+        ellipsis: s.textOverflow === "ellipsis",
+        clamp: s.webkitLineClamp,
+        clipped: el.scrollHeight > el.clientHeight + 1,
+        split,
+        lines: Math.round(el.getBoundingClientRect().height / 19.5),
+      };
+    }),
+  );
+  for (const f of facts) {
+    expect(f.ellipsis, f.text ?? "").toBe(false);
+    expect(f.clamp, f.text ?? "").toBe("none");
+    expect(f.clipped, f.text ?? "").toBe(false);
+    expect(f.split, f.text ?? "").toBe(0);
+  }
+  expect(facts.some((f) => f.lines > 1)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await shot51(page, "04-old-board-lately");
+  measure51("old-board-lately", facts);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(51) an hour by its address: from the Log and from a memory, that hour opens", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=log",
+    newer: true,
+  });
+  await expect(page.getByTestId("mnemos-log-day")).toBeVisible();
+  // The day of its practice hour (kes-h3, four days ago), from the Log.
+  const day = await page.evaluate(() => {
+    const at = new Date(Date.now() - 4 * 86_400_000 - 2 * 3_600_000);
+    const two = (n: number) => String(n).padStart(2, "0");
+    return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())}`;
+  });
+  await page.goto(`/#/mnemos?mind=kestrel&room=log&item=%23${day}`);
+  await page.getByTestId("mnemos-log-event-hour-kes-h3").click();
+  await expect(page).toHaveURL(/room=hours&item=kes-h3/);
+  const opened = page.getByTestId("mnemos-hour-opened");
+  await expect(opened).toContainText("practice, on a copy of its memory");
+  await expect(page.getByTestId("mnemos-hours-row-kes-h3")).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  // From a memory on its trail.
+  await page.goto("/#/mnemos?mind=kestrel&room=memories&item=kes-m03");
+  await page
+    .getByTestId("mnemos-memory-hours")
+    .getByRole("button", { name: /Our hour/ })
+    .click();
+  await expect(page).toHaveURL(/room=hours&item=kes-h3/);
+  await expect(opened).toContainText("practice, on a copy of its memory");
+  // And an older one by its address alone.
+  await page.goto("/#/mnemos?mind=kestrel&room=hours&item=kes-h2");
+  await expect(opened).toContainText("ran as Sonnet 5");
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+/** What a section shows of what its rail row counts, read off the page. */
+async function shownCount(page: Page, room: string) {
+  return page.evaluate((room) => {
+    const card = document.querySelector("[data-testid='mnemos-place']");
+    if (!card) return null;
+    const rows = (sel: string) => card.querySelectorAll(sel).length;
+    const number = (sel: string) => {
+      const t = card.querySelector(sel)?.textContent ?? "";
+      const m = t.replace(/,/g, "").match(/\d+/);
+      return m ? Number(m[0]) : null;
+    };
+    switch (room) {
+      case "memories":
+        return (
+          number("[data-testid='mnemos-memories-count']") ??
+          number("[data-testid='place-page-state']")
+        );
+      case "shared":
+        return rows("[data-testid='mnemos-shared-list'] .luca-place-row");
+      case "beliefs":
+        return rows(
+          "[data-testid='mnemos-beliefs'] .luca-mnemos-list .luca-place-row",
+        );
+      case "questions":
+        // The rail counts what it still asks; the answered sit apart,
+        // under their own label.
+        return rows(
+          "[data-testid='mnemos-questions-list']:not([aria-label='Answered']) .luca-place-row",
+        );
+      case "journal":
+        return rows("[data-testid='mnemos-journal-list'] .luca-place-row");
+      case "notes":
+        // A thread is a row, and the rail counts threads.
+        return rows("[data-testid^='mnemos-notes-'] .luca-place-row");
+      case "carrying":
+        return rows(
+          "[data-testid='mnemos-carrying'] .luca-mnemos-list .luca-place-row",
+        );
+      case "hours":
+        return rows("[data-testid='mnemos-hours-list'] .luca-place-row");
+      default:
+        return null;
+    }
+  }, room);
+}
+
+/** Every section in the rail's order, by the keyboard alone: Down to its
+ *  row, Enter, Tab into it, Enter on the first thing there, Escape, back,
+ *  and Shift+Tab to its row again. Each count in the rail is read against
+ *  what its section shows. */
+async function keyboardWalk(page: Page, rooms: string[]) {
+  const walked: Record<string, unknown>[] = [];
+  const focusIn = (sel: string) =>
+    page.evaluate((sel) => !!document.activeElement?.closest(sel), sel);
+  await page.getByTestId("mnemos-rail-mind-button").focus();
+  for (const room of rooms) {
+    await page.keyboard.press("ArrowDown");
+    expect(await focusIn(`[data-testid='place-row-${room}']`), room).toBe(true);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(new RegExp(`room=${room}(&|$)`));
+    await page.waitForTimeout(400);
+    const railText =
+      (await rail(page).getByTestId(`place-row-${room}`).textContent()) ?? "";
+    const railCount = railText.match(/\d[\d,]*$/)?.[0]?.replace(/,/g, "");
+    const shown = await shownCount(page, room);
+    // Into the section.
+    let reached: string | null = null;
+    for (let i = 0; i < 30; i++) {
+      await page.keyboard.press("Tab");
+      reached = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (
+          !el?.closest("[data-testid='mnemos-place']") ||
+          el.closest("[data-testid='place-page-head']")
+        )
+          return null;
+        return (
+          el.getAttribute("data-testid") ??
+          el.closest("[data-testid]")?.getAttribute("data-testid") ??
+          el.tagName
+        );
+      });
+      if (reached) break;
+    }
+    const url = page.url();
+    const steps = () => page.evaluate(() => history.length);
+    const before = await steps();
+    let went: string | null = null;
+    if (reached) {
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(300);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+      // Where Enter went somewhere new, back returns to the section.
+      if ((await steps()) > before) {
+        went = page.url();
+        await page.keyboard.press("Meta+BracketLeft");
+        await expect.poll(() => page.url(), { message: room }).toBe(url);
+      }
+    }
+    // Shift+Tab back to the section's row.
+    let home = false;
+    for (let i = 0; i < 80 && !home; i++) {
+      await page.keyboard.press("Shift+Tab");
+      home = await focusIn(`[data-testid='place-row-${room}']`);
+    }
+    expect(home, `${room}: back to its row`).toBe(true);
+    walked.push({
+      room,
+      reached,
+      went,
+      railCount: railCount ?? null,
+      shown,
+    });
+  }
+  return walked;
+}
+
+const ROOMS_IN_ORDER = [
+  "glance",
+  "mind",
+  "log",
+  "memories",
+  "shared",
+  "beliefs",
+  "questions",
+  "journal",
+  "notes",
+  "carrying",
+  "hours",
+  "settings",
+];
+
+for (const which of ["newer", "today"] as const)
+  test(`(51) the whole place by the keyboard alone, in the rail's order (${which === "newer" ? "a newer Mnemos" : "Mnemos 0.6.7"})`, async ({
+    page,
+  }) => {
+    const errors = await boot(
+      page,
+      which === "newer"
+        ? { hash: "/mnemos?mind=kestrel&room=glance", newer: true }
+        : { hash: "/mnemos?mind=wren&room=glance" },
+    );
+    await expect(
+      page.getByTestId(which === "newer" ? "mnemos-board" : "mnemos-glance"),
+    ).toBeVisible();
+    const walked = await keyboardWalk(page, ROOMS_IN_ORDER);
+    measure51(`keyboard-walk-${which}`, walked);
+    for (const w of walked)
+      if (w.railCount !== null)
+        expect(String(w.shown), `${w.room}: rail and section`).toBe(
+          w.railCount,
+        );
+    expect(consoleClean(errors)).toEqual([]);
+  });

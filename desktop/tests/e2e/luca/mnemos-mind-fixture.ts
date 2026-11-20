@@ -210,5 +210,31 @@ export function heronNotebook(now: number, count: number) {
     beliefs: [],
     handoffs: [],
   };
-  return { life, memories, version: "hv1", recalled: [] as string[] };
+  return {
+    life,
+    memories,
+    version: "hv1",
+    recalled: [] as [string, string][],
+  };
+}
+
+/**
+ * What Heron's memory logs of recall, in the engine's shape (`export.py`
+ * `recalled`: `[id, when]`, oldest first): twice, several memories came
+ * back together (within the engine's five seconds), and once one came back
+ * alone, which the page's recall track doesn't mark.
+ */
+export function heronRecalls(now: number): [string, string][] {
+  const hour = 3_600_000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const first = now - 30 * hour;
+  const second = now - 6 * hour;
+  return [
+    ["her-m0001", iso(first)],
+    ["her-m0002", iso(first + 1_000)],
+    ["her-m0003", iso(first + 2_500)],
+    ["her-m0020", iso(now - 12 * hour)],
+    ["her-m0010", iso(second)],
+    ["her-m0011", iso(second + 3_000)],
+  ];
 }

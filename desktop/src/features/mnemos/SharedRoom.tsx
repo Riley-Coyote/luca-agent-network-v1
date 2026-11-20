@@ -11,7 +11,7 @@ import { Button } from "@/shared/ui/button";
 import type { WriteFailure } from "./adapt";
 import type { BookSharedRow } from "./book";
 import { sendShared } from "./boardWrites";
-import { draftKey, readDraft } from "./drafts";
+import { draftKey, mindWordsDraftKey, readDraft } from "./drafts";
 import {
   longDay,
   NeedsNewer,
@@ -23,7 +23,6 @@ import {
 import { firstLine, modelName } from "./notebook";
 import { type RoomProps, useAddressItem } from "./roomKit";
 import { confirmOnce } from "./settingsHours";
-import { correctionDraft } from "./sharedDrafts";
 import { failureWords, WriteField } from "./WriteField";
 
 /** The shared notebook's own words (Mnemos `shared/words.js` `SHARED`). */
@@ -261,7 +260,7 @@ function RowOpened({
       {mode === "correct" ? (
         <WriteField
           cancelLabel="Cancel"
-          draft={correctionDraft(draftKey(mind, `shared:correct:${row.id}`))}
+          draft={mindWordsDraftKey(mind, `shared:correct:${row.id}`)}
           failLine={SHARED.failed}
           hint={SHARED.correction}
           initial={row.content}

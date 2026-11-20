@@ -6,7 +6,6 @@ import "./mnemos-board.css";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { linkedWords, railLine } from "./notebook";
 import { useRailState } from "./railState";
-import { useDropCorrectionsOnLeave } from "./sharedDrafts";
 import { useMindInView } from "./useMindInView";
 
 /**
@@ -24,8 +23,6 @@ export function MnemosRailMind() {
   const { goAgent } = useAppNavigation();
   // A newer Mnemos's state, in the notebook's own words (WP-49, Decided 2).
   const state = useRailState(mind?.id ?? null);
-  // Unsent corrections of shared rows go when the place does (WP-49).
-  useDropCorrectionsOnLeave();
   const [open, setOpen] = React.useState(false);
   const listId = React.useId();
   const head = React.useRef<HTMLButtonElement>(null);

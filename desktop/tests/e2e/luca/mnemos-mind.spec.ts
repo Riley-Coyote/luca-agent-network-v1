@@ -13,7 +13,11 @@ import {
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
-import { HERON_HELLO, heronNotebook } from "./mnemos-mind-fixture";
+import {
+  HERON_HELLO,
+  heronNotebook,
+  heronRecalls,
+} from "./mnemos-mind-fixture";
 
 /**
  * WP-50, The mind (polyphonic-beta14-finish.md): Mnemos's own picture of a
@@ -26,6 +30,7 @@ import { HERON_HELLO, heronNotebook } from "./mnemos-mind-fixture";
  */
 
 const SHOTS = process.env.WP50_SHOTS ?? "test-results/wp50";
+const SHOTS51 = process.env.WP51_SHOTS ?? "test-results/wp51";
 const LUCA = "a".repeat(64);
 type Mode = "dark" | "light";
 
@@ -65,7 +70,18 @@ async function boot(
     mode = "dark",
     count = 360,
     older = false,
-  }: { hash?: string; mode?: Mode; count?: number; older?: boolean } = {},
+    recalls = false,
+    second = false,
+  }: {
+    hash?: string;
+    mode?: Mode;
+    count?: number;
+    older?: boolean;
+    /** The engine's log of recall, with times several came back together. */
+    recalls?: boolean;
+    /** A second mind on this Mac, Egret, to switch to. */
+    second?: boolean;
+  } = {},
 ) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
@@ -73,7 +89,7 @@ async function boot(
     if (message.type() === "error") errors.push(message.text());
   });
   await page.addInitScript(
-    ({ luca, notebook, hello, older }) => {
+    ({ luca, notebook, hello, older, second }) => {
       // The app's window only: the mind's own frame is the page's, not ours.
       if (window !== window.top) return;
       type Call = (
@@ -138,6 +154,17 @@ async function boot(
                 newest: new Date().toISOString().slice(0, 10),
                 linked: [{ pubkey: luca, name: "Luca" }],
               },
+              ...(second
+                ? [
+                    {
+                      id: "egret",
+                      name: "Egret",
+                      memories: notebook.memories.length,
+                      newest: new Date().toISOString().slice(0, 10),
+                      linked: [],
+                    },
+                  ]
+                : []),
             ],
             withoutMemory: [],
           };
@@ -199,7 +226,7 @@ async function boot(
                 version: notebook.version,
                 made: new Date().toISOString(),
                 memories: slice,
-                ...(offset === 0 ? { recalled: [] } : {}),
+                ...(offset === 0 ? { recalled: notebook.recalled } : {}),
               },
               page: {
                 offset,
@@ -259,9 +286,14 @@ async function boot(
     },
     {
       luca: LUCA,
-      notebook: heronNotebook(Date.now(), count),
+      notebook: (() => {
+        const made = heronNotebook(Date.now(), count);
+        if (recalls) made.recalled = heronRecalls(Date.now());
+        return made;
+      })(),
       hello: HERON_HELLO,
       older,
+      second,
     },
   );
   await installMockBridge(page, {
@@ -737,9 +769,9 @@ test.describe("The mind, on the Mac's graphics card", () => {
         { timeout: 10_000, intervals: [100] },
       )
       .toBe(true);
-    // Another section: nothing is drawn or asked any more. Where the place
-    // keeps the room mounted (MnemosScreen, at the join), the frame stays,
-    // paused; where it unmounts the room, the frame is gone.
+    // Another section: nothing is drawn or asked any more. The place keeps
+    // the room mounted while its mind is open (WP-51, Decided 1): the frame
+    // stays, paused.
     const framesOf = () =>
       frame.evaluate(
         () =>
@@ -749,38 +781,34 @@ test.describe("The mind, on the Mac's graphics card", () => {
     const size = await sizeOf();
     await railRow(page, "Log").click();
     await expect(page.getByTestId("mnemos-log")).toBeVisible();
-    const kept = (await page.getByTestId("mnemos-mind-frame").count()) > 0;
+    await expect(page.getByTestId("mnemos-mind-frame")).toHaveCount(1);
+    const kept = true;
     const off = (await probeOf(page)).pulses;
-    const framesOff = kept ? await framesOf() : 0;
+    const framesOff = await framesOf();
     await page.waitForTimeout(5000);
     const whileOff = (await probeOf(page)).pulses - off;
     expect(whileOff).toBe(0);
-    if (kept) {
-      await expect(page.getByTestId("mnemos-mind-frame")).toHaveAttribute(
-        "data-shown",
-        "false",
-      );
-      expect(await framesOf()).toBe(framesOff);
-      // Kept at its own size: nothing to redraw or resize on return.
-      expect(await sizeOf()).toEqual(size);
-    } else expect(mindFrame(page)).toBeNull();
-    // Back: resumed as it was where it was kept, else built again.
-    const startedBefore = kept
-      ? await page
-          .getByTestId("mnemos-mind-frame")
-          .getAttribute("data-first-picture-ms")
-      : null;
+    await expect(page.getByTestId("mnemos-mind-frame")).toHaveAttribute(
+      "data-shown",
+      "false",
+    );
+    expect(await framesOf()).toBe(framesOff);
+    // Kept at its own size: nothing to redraw or resize on return.
+    expect(await sizeOf()).toEqual(size);
+    // Back: resumed as it was, the same frame, not built again.
+    const startedBefore = await page
+      .getByTestId("mnemos-mind-frame")
+      .getAttribute("data-first-picture-ms");
     await railRow(page, "The mind").click();
     await drawn(page);
+    expect(frame.isDetached()).toBe(false);
     const again = await page
       .getByTestId("mnemos-mind-frame")
       .getAttribute("data-first-picture-ms");
-    if (kept) {
-      expect(again).toBe(startedBefore);
-      await expect
-        .poll(async () => (await probeOf(page)).pulses, { timeout: 5000 })
-        .toBeGreaterThan(off);
-    }
+    expect(again).toBe(startedBefore);
+    await expect
+      .poll(async () => (await probeOf(page)).pulses, { timeout: 5000 })
+      .toBeGreaterThan(off);
     // The window hidden: under the place's rule for words the frame is
     // destroyed, not hidden, at once (the place lets its words go the
     // moment the window hides; the two minutes are the engine's process).
@@ -860,7 +888,7 @@ test.describe("The mind, on the Mac's graphics card", () => {
       count: 3000,
       hash: "/mnemos?room=glance",
     });
-    await expect(page.getByTestId("mnemos-glance")).toBeVisible({
+    await expect(page.getByTestId("mnemos-board")).toBeVisible({
       timeout: 60_000,
     });
     const heap = () =>
@@ -949,12 +977,12 @@ test.describe("The mind, on the Mac's graphics card", () => {
     // Nothing of the mind is left in the app's storage: listed before the
     // visit, and after it (on the same section), every kind, the same.
     await railRow(page, "At a glance").click();
-    await expect(page.getByTestId("mnemos-glance")).toBeVisible();
+    await expect(page.getByTestId("mnemos-board")).toBeVisible();
     await page.waitForTimeout(1000);
     const storedAfter = await storageOf(page);
     expect(storedAfter).toEqual(storedBefore);
     const afterGone = await heap();
-    // Shown again with nothing kept: made afresh where the room was let go.
+    // Shown again: the picture kept while the mind is open, resumed.
     await railRow(page, "The mind").click();
     await drawn(page);
     const again = Number(
@@ -980,6 +1008,175 @@ test.describe("The mind, on the Mac's graphics card", () => {
       jsHeapMbAfterGone: Math.round(afterGone / 1e5) / 10,
       built,
     });
+  });
+});
+
+/** A whole-window picture for WP-51, its hash. */
+async function shot51(page: Page, name: string) {
+  await waitForAnimations(page);
+  await page.waitForTimeout(400);
+  mkdirSync(SHOTS51, { recursive: true });
+  const path = `${SHOTS51}/${name}.png`;
+  await page.screenshot({ path });
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+/** The engine's own pick, in the frame: whether it is this memory. */
+const pickedInFrame = (frame: Frame, id: string) =>
+  frame.evaluate((id) => {
+    const api = (
+      window as unknown as {
+        __mind: { selected: number; byId: (id: string) => number };
+      }
+    ).__mind;
+    return api.selected === api.byId(id);
+  }, id);
+
+test.describe("The place, joined (WP-51)", () => {
+  test("kept while its mind is open; gone when the place is left or another mind is shown", async ({
+    page,
+  }) => {
+    const errors = await boot(page, { hash: "/mnemos?room=log", second: true });
+    await expect(page.getByTestId("mnemos-log")).toBeVisible();
+    // Not made until The mind is first shown.
+    await expect(page.getByTestId("mnemos-mind-frame")).toHaveCount(0);
+    await railRow(page, "The mind").click();
+    const first = await drawn(page);
+    const started = await page
+      .getByTestId("mnemos-mind-frame")
+      .getAttribute("data-first-picture-ms");
+    // Another section: kept, paused, the same frame.
+    await page.getByTestId("place-row-memories").click();
+    await expect(page.getByTestId("mnemos-memories")).toBeVisible();
+    await expect(page.getByTestId("mnemos-mind-frame")).toHaveAttribute(
+      "data-shown",
+      "false",
+    );
+    expect(first.isDetached()).toBe(false);
+    await railRow(page, "The mind").click();
+    await drawn(page);
+    expect(first.isDetached()).toBe(false);
+    expect(
+      await page
+        .getByTestId("mnemos-mind-frame")
+        .getAttribute("data-first-picture-ms"),
+    ).toBe(started);
+    // The place left: gone; back in another section, not made again.
+    await page.getByTestId("place-row-memories").click();
+    await page.getByTestId("open-brain-setup").click();
+    await expect(page).toHaveURL(/#\/brain/);
+    await expect.poll(() => first.isDetached()).toBe(true);
+    await page.getByTestId("open-mnemos-place").click();
+    await expect(page.getByTestId("mnemos-memories")).toBeVisible();
+    await expect(page.getByTestId("mnemos-mind-frame")).toHaveCount(0);
+    // Another mind: its own picture; the first one's is gone.
+    await railRow(page, "The mind").click();
+    const heron = await drawn(page);
+    await page.getByTestId("mnemos-rail-mind-button").click();
+    await page.getByTestId("mnemos-mind-egret").click();
+    await expect.poll(() => heron.isDetached()).toBe(true);
+    await expect(page.getByTestId("mnemos-rail-mind-button")).toContainText(
+      "Egret",
+    );
+    expect(errors).toEqual([]);
+  });
+
+  test("from a memory to the mind: See it in the mind lands on the pick", async ({
+    page,
+  }) => {
+    const errors = await boot(page, {
+      hash: "/mnemos?room=memories&item=her-m0042",
+    });
+    const opened = page.getByTestId("mnemos-memory-opened");
+    await expect(opened.getByTestId("mnemos-memory-drawing")).toBeVisible();
+    const link = opened.getByTestId("mnemos-memory-to-mind");
+    await expect(link).toHaveText("See it in the mind");
+    // With its quiet line, not among the acts.
+    expect(
+      await link.evaluate((el) => ({
+        line: !!el.closest("[data-testid='mnemos-memory-line']"),
+        acts: !!el.closest(".luca-mnemos-acts"),
+      })),
+    ).toEqual({ line: true, acts: false });
+    // The place's step between a memory's words and its quiet line.
+    const step = (root: string, words: string) =>
+      page.evaluate(
+        ({ root, words }) => {
+          const el = document.querySelector(root);
+          const w = el?.querySelector(words)?.getBoundingClientRect();
+          const l = el
+            ?.querySelector(".luca-mnemos-quietline")
+            ?.getBoundingClientRect();
+          return w && l ? Math.round(l.top - w.bottom) : -1;
+        },
+        { root, words },
+      );
+    const inMemories = await step(
+      "[data-testid='mnemos-memory-opened']",
+      ".luca-mnemos-words",
+    );
+    await link.click();
+    await expect(page).toHaveURL(/room=mind&item=her-m0042/);
+    const frame = await drawn(page);
+    const picked = page.getByTestId("mnemos-mind-picked");
+    await expect(picked).toContainText("(note 43)");
+    await expect
+      .poll(() => pickedInFrame(frame, "her-m0042"), { timeout: 10_000 })
+      .toBe(true);
+    const inPanel = await step(
+      "[data-testid='mnemos-mind-picked']",
+      ".luca-mnemos-mind-words",
+    );
+    expect(inMemories).toBeGreaterThan(0);
+    expect(Math.abs(inPanel - inMemories)).toBeLessThanOrEqual(1);
+    await page.waitForTimeout(1800);
+    const landed = await shot51(page, "02-mind-from-memory");
+    // The whole mind, then another memory pressed: its panel.
+    await page.getByTestId("mnemos-mind-whole").click();
+    await expect(picked).toHaveCount(0);
+    await page.waitForTimeout(1500);
+    await press(page, frame, "her-m0347");
+    await expect(picked).toBeVisible();
+    await expect(picked).not.toContainText("(note 43)");
+    await expect(picked).toBeFocused();
+    await page.waitForTimeout(1800);
+    const panel = await shot51(page, "05-mind-picked-panel");
+    expect(panel).not.toBe(landed);
+    expect(errors).toEqual([]);
+    measure("wp51-from-memory", { inMemories, inPanel, landed, panel });
+  });
+
+  test("recall reaches the picture: the engine's log, and its track", async ({
+    page,
+  }) => {
+    const errors = await boot(page, { recalls: true });
+    const frame = await drawn(page);
+    const track = () =>
+      frame.evaluate(() => {
+        const r = document.getElementById("recall");
+        return {
+          shown:
+            !!r &&
+            !r.hidden &&
+            getComputedStyle(r).display !== "none" &&
+            r.getBoundingClientRect().height > 0,
+          ticks: document.querySelectorAll("#r-ticks i").length,
+          cap: document.getElementById("r-cap")?.textContent?.trim() ?? "",
+        };
+      });
+    await expect
+      .poll(async () => (await track()).shown, {
+        timeout: 20_000,
+      })
+      .toBe(true);
+    // Two times several came back together; the one alone isn't marked.
+    expect(await track()).toEqual({
+      shown: true,
+      ticks: 2,
+      cap: "2 times · choose one to see it again",
+    });
+    measure("wp51-recall", await track());
+    expect(errors).toEqual([]);
   });
 });
 

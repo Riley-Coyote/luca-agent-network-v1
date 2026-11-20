@@ -36,13 +36,12 @@ export function WaitingPlate({
     thread: string;
     note: BookNote;
   } | null>(null);
-  const waiting = React.useMemo(
-    () => waitingOnYou(threads(noteList ?? [])),
-    [noteList],
-  );
+  const all = React.useMemo(() => threads(noteList ?? []), [noteList]);
+  const waiting = React.useMemo(() => waitingOnYou(all), [all]);
+  // The rail counts threads, as Notes lists them.
   React.useEffect(() => {
-    if (noteList) setRoomCounts(mind.id, { notes: noteList.length });
-  }, [mind.id, noteList]);
+    if (noteList) setRoomCounts(mind.id, { notes: all.length });
+  }, [all, mind.id, noteList]);
   const [step, setStep] = React.useState(0);
   const ask = waiting[Math.min(step, waiting.length - 1)] ?? null;
   return (

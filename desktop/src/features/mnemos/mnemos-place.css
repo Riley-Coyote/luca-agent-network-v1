@@ -163,6 +163,15 @@
   white-space: pre-line;
 }
 
+/* A memory's own drawing (the mind's herbarium), small, at the left above
+ * its words, in the ink of the words. */
+.luca-mnemos-memory-drawing {
+  color: hsl(var(--mn-ink));
+  height: 56px;
+  margin-bottom: 14px;
+  width: 56px;
+}
+
 .luca-mnemos-title {
   color: hsl(var(--mn-ink));
   font-weight: 600;
@@ -383,8 +392,14 @@
   overflow: hidden;
 }
 
+/* Lately, on today's Mnemos: each memory's first line whole, wrapping
+ * under itself; a line ends on a whole word (only a word longer than the
+ * line breaks), never cut in the middle. */
 .luca-mnemos-lately .luca-mnemos-clamp {
-  -webkit-line-clamp: 1;
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  overflow-wrap: anywhere;
 }
 
 .luca-mnemos-plate-foot {

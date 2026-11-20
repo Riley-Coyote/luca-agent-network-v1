@@ -478,6 +478,14 @@ test("a draft made of the mind's words goes with them; the owner's own stay", ()
   keepDraft(reply, "Yes, lead with it.");
   keepDraft(correct, "Pat reads the tide chart first, then the weather.");
   keepDraft(other, "Edited words.");
+  // Shared's two fields keep the one rule: a correction holds another's
+  // words and goes; an addition is the owner's own and stays.
+  const sharedCorrect = mindWordsDraftKey("kestrel", "shared:correct:kes-s1");
+  const sharedAdd = draftKey("kestrel", "shared:add");
+  keepDraft(sharedCorrect, "We keep the harbour log in ink now.");
+  keepDraft(sharedAdd, "My own words, not sent yet.");
+  assert.equal(holdsMindWords(sharedCorrect), true);
+  assert.equal(holdsMindWords(sharedAdd), false);
   assert.equal(holdsMindWords(correct), true);
   assert.equal(holdsMindWords(note), false);
   assert.notEqual(correct, draftKey("kestrel", "correct:kes-m01"));
@@ -485,11 +493,14 @@ test("a draft made of the mind's words goes with them; the owner's own stay", ()
   letGoMindWordsDrafts();
   assert.equal(readDraft(correct), undefined);
   assert.equal(readDraft(other), undefined);
+  assert.equal(readDraft(sharedCorrect), undefined);
   // The owner's own words are kept exactly as before.
   assert.equal(readDraft(note), "Calm days too, please.");
   assert.equal(readDraft(reply), "Yes, lead with it.");
+  assert.equal(readDraft(sharedAdd), "My own words, not sent yet.");
   forgetDraft(note);
   forgetDraft(reply);
+  forgetDraft(sharedAdd);
 });
 
 test("a name as its owner's: an s takes only the apostrophe", () => {

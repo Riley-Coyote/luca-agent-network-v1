@@ -179,16 +179,20 @@ export function lightOf(host: HTMLElement): MindLight {
 const START_MS = 60_000;
 
 /** The look the place gives the page: its own chrome hidden (the lab's
- *  list), its reading room laid out but never seen (opening a memory its
- *  own way draws that memory finely, where the room leaves space), the
- *  app's type for the one control left, and an edge that melts into the
- *  card. */
+ *  list), but for its recall track at the foot (WP-51, Decided 6: the
+ *  times recall gathered several memories at once, from the log the place
+ *  hands it; the page shows it only when there are some); its reading room
+ *  laid out but never seen (opening a memory its own way draws that memory
+ *  finely, where the room leaves space), the app's type for the controls
+ *  left, and an edge that melts into the card. */
 function dress(doc: Document, light: MindLight) {
   const style = doc.createElement("style");
   style.dataset.polyphonic = "mind";
   style.textContent = `html,body{background:${light.floorCss};overflow:hidden}
 :root{--floor:${light.floorCss};--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;--display:var(--sans);--own:var(--sans);--house:var(--sans)}
 .hero > .ui:not(.recenter),#regions,#full,.paper,#loading,.aside{display:none !important}
+.hero > .ui.foot{display:block !important}
+.hero > .ui.foot > :not(#recall){display:none !important}
 #room{visibility:hidden !important;pointer-events:none !important}
 .hero::before{content:"";position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 28px 26px ${light.floorCss}}
 .recenter{background:none;-webkit-backdrop-filter:none;backdrop-filter:none;font-family:var(--sans)}`;
