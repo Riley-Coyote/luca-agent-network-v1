@@ -1,8 +1,9 @@
-//! The Mnemos place: the person's own notebook of a mind, inside the app,
-//! reading only. Every word comes from the person's installed
-//! `mnemos interface`, for one mind at a time (`session`); a mind is shown
-//! only once the owner said so, or because one of their residents already
-//! remembers with it (`grant`). Nothing here writes to a memory.
+//! The Mnemos place: the person's own notebook of a mind, inside the app.
+//! Every word comes from the person's installed `mnemos interface`, for one
+//! mind at a time (`session`); a mind is shown only once the owner said so,
+//! or because one of their residents already remembers with it (`grant`).
+//! The person can write exactly four things there, as themselves: answer a
+//! note, leave one, correct a memory, let one go (`wire::Write`).
 mod grant;
 mod session;
 #[cfg(test)]
@@ -16,12 +17,14 @@ use session::{place, Fail, MindKey, Spawn};
 use std::{path::Path, time::Duration};
 use tauri::{AppHandle, Manager, Window};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-pub use wire::{Reply, Request};
+pub use wire::{Reply, Request, Write, Written};
 
 /// How long a search may take: the first one waits for the meaning model.
 const SEARCH_LIMIT: Duration = Duration::from_secs(25);
 /// How long any other reading may take.
 const READ_LIMIT: Duration = Duration::from_secs(12);
+/// How long a write may take: a correction waits for the meaning model.
+const WRITE_LIMIT: Duration = Duration::from_secs(30);
 /// How long the window may stay hidden before the process ends.
 const HIDDEN_LIMIT: Duration = Duration::from_secs(120);
 const UNAVAILABLE: &str = "view_unavailable";
@@ -53,6 +56,8 @@ pub struct PlaceMind {
 pub struct PlaceMinds {
     mnemos_ready: bool,
     minds: Vec<PlaceMind>,
+    /// The owner's residents on this Mac that remember with no memory yet.
+    without_memory: Vec<LinkedResident>,
 }
 
 fn main_window(win: &Window) -> Result<(), String> {
@@ -70,6 +75,20 @@ fn owner(app: &AppHandle) -> Result<String, String> {
         .public_key()
         .to_hex()
         .to_ascii_lowercase())
+}
+
+/// The owner's residents on this Mac that remember with no memory yet.
+fn without_memory(app: &AppHandle) -> Vec<LinkedResident> {
+    crate::managed_agents::load_managed_agents(app)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| matches!(r.backend, BackendKind::Local))
+        .filter(|r| super::linked_mnemos_mind(app, &r.pubkey).is_none())
+        .map(|r| LinkedResident {
+            pubkey: r.pubkey.to_ascii_lowercase(),
+            name: r.name,
+        })
+        .collect()
 }
 
 /// The owner's residents that remember with the store at `file`.
@@ -115,6 +134,7 @@ pub async fn mnemos_place_minds(window: Window, app: AppHandle) -> Result<PlaceM
     Ok(PlaceMinds {
         mnemos_ready: ready,
         minds,
+        without_memory: without_memory(&app),
     })
 }
 
@@ -217,6 +237,37 @@ pub async fn read_mnemos_place(
         .ask(&mind, &request, limit)
         .await
         .map_err(|fail: Fail| fail.code().to_owned())
+}
+
+/// One of the person's own writes to the open mind, sent once: answer a
+/// note, leave one, correct a memory, let one go. The owner's act alone:
+/// the main window, a mind they said to show (or one of their residents
+/// remembers with), and only ids the engine gave this mind this session.
+/// A refusal of the engine's own (a quiet hour, a note too long) comes back
+/// in its words, after `mnemos_refused:`.
+#[tauri::command]
+pub async fn write_mnemos_place(
+    window: Window,
+    app: AppHandle,
+    mind: String,
+    write: Write,
+) -> Result<Written, String> {
+    main_window(&window)?;
+    let key = place()
+        .open_key(&mind)
+        .await
+        .ok_or_else(|| Fail::NotOpen.code().to_owned())?;
+    if linked_to(&app, &key.file).is_empty() {
+        let owner = owner(&app)?;
+        let base = app.buzz_path().app_data_dir().map_err(|_| UNAVAILABLE)?;
+        if grant::answer(&base, &owner, &key) != grant::Answer::Shown {
+            return Err("not_shown".into());
+        }
+    }
+    place()
+        .ask(&mind, &write, WRITE_LIMIT)
+        .await
+        .map_err(|fail| fail.told())
 }
 
 /// Whether the page may open the item `id` names (an address can name any):

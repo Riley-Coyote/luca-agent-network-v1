@@ -1,7 +1,7 @@
 use super::{
     grant::{self, Answer},
     session::{self, Fail, MindKey, Place, Spawn},
-    wire::{self, Reply, Request},
+    wire::{self, Exchange, Reply, Request, Write, Written},
 };
 use serde_json::json;
 use std::{
@@ -33,12 +33,24 @@ while IFS= read -r line; do
       printf '{{"id":%s,"result":{{"query":"q","results":[{{"id":"engram_A","words":"A made-up memory","kept":null,"closeness":1.0,"found":"meaning"}}]}}}}\n' "$id" ;;
     journal) if [ "$MODE" = huge ]; then printf '{{"id":%s,"result":"' "$id"; head -c 4200000 /dev/zero | tr '\0' x; printf '"}}\n'; else printf '{{"id":%s,"result":[]}}\n' "$id"; fi ;;
     notes) printf '{{"id":%s,"result":[{{"id":"note_1","kind":"question","text":"Shall I?","author":"agent","model":null,"in_reply_to":null,"created_at":"2026-11-01T10:00:00+00:00","read_at":null}}]}}\n' "$id" ;;
+    reply|note)
+      printf '%s\n' "$line" >> '{writes}'
+      if [ "$MODE" = quiet ]; then printf '{{"id":%s,"error":"Nothing saved: A reply is the person\x27s own words, and no one is in the room during one of the agent\x27s hours."}}\n' "$id"
+      else printf '{{"id":%s,"result":{{"id":"note_2","kind":null,"text":"Yes, keep them.","author":"person","model":null,"in_reply_to":"note_1","created_at":"2026-11-01T11:00:00+00:00","read_at":null,"delivered_at":null}}}}\n' "$id"; fi ;;
+    correct)
+      printf '%s\n' "$line" >> '{writes}'
+      if [ "$MODE" = busy ]; then printf '{{"id":%s,"error":"Mnemos couldn\x27t do that (OperationalError: database is locked)."}}\n' "$id"
+      else printf '{{"id":%s,"result":{{"id":"engram_B","replaces":"engram_A","corrected":"2026-11-01T12:00:00+00:00"}}}}\n' "$id"; fi ;;
+    forget)
+      printf '%s\n' "$line" >> '{writes}'
+      printf '{{"id":%s,"result":{{"id":"engram_A","state":"archived","forgotten":"2026-11-01T12:00:00+00:00"}}}}\n' "$id" ;;
     *) printf '{{"id":%s,"error":"There is no command here"}}\n' "$id" ;;
   esac
 done
 "#,
         log = dir.join("argv.log").display(),
         env = dir.join("env.txt").display(),
+        writes = dir.join("writes.log").display(),
     );
     std::fs::write(&path, script).unwrap();
     use std::os::unix::fs::PermissionsExt;
@@ -327,7 +339,7 @@ async fn only_ids_the_engine_returned_are_admitted() {
 }
 
 #[test]
-fn no_write_command_can_be_sent() {
+fn no_write_command_can_be_sent_as_a_read() {
     for request in [
         json!({"command": "correct", "memory_id": "engram_A", "text": "new words"}),
         json!({"command": "forget", "memory_id": "engram_A"}),
@@ -521,5 +533,368 @@ async fn the_real_interface_reads_a_store_this_test_made() {
         place.ask("wren", &Request::Notes {}, limit).await,
         Ok(Reply::Notes { .. })
     ));
+    place.end().await;
+}
+
+fn written(rig: &Rig) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(rig.dir.path().join("writes.log"))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn the_person_can_write_exactly_four_things() {
+    for write in [
+        json!({"command": "reply", "note_id": "note_1", "text": "yes"}),
+        json!({"command": "note", "text": "hello"}),
+        json!({"command": "correct", "memory_id": "engram_A", "text": "new words"}),
+        json!({"command": "forget", "memory_id": "engram_A"}),
+    ] {
+        assert!(
+            serde_json::from_value::<Write>(write.clone()).is_ok(),
+            "{write}"
+        );
+    }
+    for other in [
+        json!({"command": "read", "note_ids": ["note_1"]}),
+        json!({"command": "remember", "content": "x"}),
+        json!({"command": "memories", "limit": 5, "offset": 0}),
+        json!({"command": "notes"}),
+        json!({"command": "reply", "note_id": "note_1", "text": "yes", "as": "agent"}),
+        json!({"command": "forget", "memory_id": "engram_A", "delete": true}),
+        json!({"command": "note", "text": "hi", "author": "agent"}),
+    ] {
+        assert!(
+            serde_json::from_value::<Write>(other.clone()).is_err(),
+            "{other}"
+        );
+    }
+    // The limits: no empty words, nothing past Mnemos's own length, ids
+    // that are ids.
+    let long = "x".repeat(wire::MAX_TEXT + 1);
+    for write in [
+        Write::Note { text: "  ".into() },
+        Write::Note { text: long.clone() },
+        Write::Reply {
+            note_id: "note\n1".into(),
+            text: "yes".into(),
+        },
+        Write::Correct {
+            memory_id: "engram_A".into(),
+            text: long,
+        },
+        Write::Forget {
+            memory_id: String::new(),
+        },
+    ] {
+        assert!(write.check().is_err(), "{write:?}");
+    }
+    assert!(Write::Note {
+        text: "x".repeat(wire::MAX_TEXT)
+    }
+    .check()
+    .is_ok());
+    // On the wire, each is its own command and carries only its own fields.
+    let line: serde_json::Value = serde_json::from_str(
+        &Write::Correct {
+            memory_id: "engram_A".into(),
+            text: "new".into(),
+        }
+        .line(4),
+    )
+    .unwrap();
+    assert_eq!(
+        line,
+        json!({"id": 4, "command": "correct", "memory_id": "engram_A", "text": "new"})
+    );
+}
+
+#[tokio::test]
+async fn a_write_names_only_ids_the_engine_gave_and_is_sent_once() {
+    let rig = rig();
+    rig.start("plain").await;
+    let limit = Duration::from_secs(5);
+    let answer = Write::Reply {
+        note_id: "note_1".into(),
+        text: "Yes, keep them.".into(),
+    };
+    // Before the notes were read, note_1 isn't one the engine gave.
+    assert_eq!(
+        rig.place.ask("wren", &answer, limit).await.unwrap_err(),
+        Fail::UnknownItem
+    );
+    assert!(written(&rig).is_empty(), "nothing was sent");
+    rig.place
+        .ask("wren", &Request::Notes {}, limit)
+        .await
+        .unwrap();
+    let Written::Note { note } = rig.place.ask("wren", &answer, limit).await.unwrap() else {
+        panic!("not a note");
+    };
+    assert_eq!(note.author, "person");
+    assert_eq!(written(&rig).len(), 1, "sent once");
+    // The new note is now one the engine gave.
+    assert!(rig.place.admit("wren", "note_2").await);
+
+    // A correction names a memory it gave; its new version is known after.
+    let fix = Write::Correct {
+        memory_id: "engram_A".into(),
+        text: "Corrected words.".into(),
+    };
+    assert_eq!(
+        rig.place.ask("wren", &fix, limit).await.unwrap_err(),
+        Fail::UnknownItem
+    );
+    rig.place.ask("wren", &memories(), limit).await.unwrap();
+    assert!(matches!(
+        rig.place.ask("wren", &fix, limit).await.unwrap(),
+        Written::Corrected { ref id, .. } if id == "engram_B"
+    ));
+    assert!(rig.place.admit("wren", "engram_B").await);
+    assert!(matches!(
+        rig.place
+            .ask(
+                "wren",
+                &Write::Forget {
+                    memory_id: "engram_A".into()
+                },
+                limit
+            )
+            .await
+            .unwrap(),
+        Written::Forgotten { .. }
+    ));
+    let sent: Vec<String> = written(&rig)
+        .iter()
+        .map(|w| w["command"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(sent, ["reply", "correct", "forget"]);
+    // Every write went to the one process started with all four flags.
+    let log = std::fs::read_to_string(rig.dir.path().join("argv.log")).unwrap();
+    assert!(log
+        .lines()
+        .all(|l| l.contains("--person-id pat-example") && l.contains("--agent-id wren")));
+}
+
+#[tokio::test]
+async fn a_quiet_hour_comes_back_in_the_engines_own_words() {
+    let rig = rig();
+    rig.start("quiet").await;
+    let limit = Duration::from_secs(5);
+    let fail = rig
+        .place
+        .ask(
+            "wren",
+            &Write::Note {
+                text: "Good morning.".into(),
+            },
+            limit,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(fail.code(), "mnemos_refused");
+    assert_eq!(
+        fail.told(),
+        "mnemos_refused:Nothing saved: A reply is the person's own words, and no one is in the room during one of the agent's hours."
+    );
+    // A refusal keeps the process: the next request is answered.
+    assert!(rig.place.ask("wren", &memories(), limit).await.is_ok());
+    // A read's refusal never carries the engine's words.
+    let said = br#"{"id":1,"error":"Something about engram_A's words."}"#;
+    assert!(matches!(
+        wire::parse(said, 1, &memories()),
+        Err(wire::Refusal::Refused(None))
+    ));
+}
+
+#[tokio::test]
+async fn a_busy_store_says_so_and_keeps_the_process() {
+    let rig = rig();
+    rig.start("busy").await;
+    let limit = Duration::from_secs(5);
+    rig.place.ask("wren", &memories(), limit).await.unwrap();
+    let pid = rig.place.pid().unwrap();
+    let fail = rig
+        .place
+        .ask(
+            "wren",
+            &Write::Correct {
+                memory_id: "engram_A".into(),
+                text: "Corrected words.".into(),
+            },
+            limit,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(fail, Fail::Busy);
+    assert_eq!(fail.told(), "mnemos_busy");
+    assert_eq!(rig.place.pid(), Some(pid), "the same process");
+    // Never sent again by itself.
+    assert_eq!(written(&rig).len(), 1);
+}
+
+/// The person's real installed `mnemos interface` writes, against a store
+/// this test makes and fills in a temporary folder: answer, note, correct,
+/// let go, each read back and each the person's, though the app here was
+/// started as an agent would be (`CLAUDECODE`, `AI_AGENT`).
+#[tokio::test]
+async fn the_real_interface_writes_as_the_person_under_an_agents_environment() {
+    let real_home = dirs::home_dir().unwrap();
+    let Some(program) = super::link::command(&real_home) else {
+        eprintln!("skipped: Mnemos isn't installed on this machine");
+        return;
+    };
+    let home = tempfile::tempdir().unwrap();
+    let db = home.path().join("made-up.db");
+    let flags = [
+        "--db-path",
+        db.to_str().unwrap(),
+        "--agent-id",
+        "wren",
+        "--person-id",
+        "pat-example",
+        "--project-scope",
+        "lighthouse",
+    ];
+    let kept = std::process::Command::new(&program)
+        .env_clear()
+        .env("HOME", home.path())
+        .env("PATH", session::PATH)
+        .arg("remember")
+        .args(flags)
+        .arg("The ferry runs late in fog, a made-up memory.")
+        .output()
+        .unwrap();
+    assert!(kept.status.success(), "remember failed");
+    // One note of the mind's own to answer, put straight into this test's
+    // own store (Mnemos keeps the agent's notes for its own tools).
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute(
+            "INSERT INTO notes (id, agent_id, person_id, project_scope, kind, text, author, \
+             model_id, in_reply_to, session_id, hour_id, created_at) \
+             VALUES ('note_agent', 'wren', 'pat-example', 'lighthouse', 'question', \
+             'Shall I keep the old tables?', 'agent', '', '', '', '', '2026-11-01T10:00:00+00:00')",
+            [],
+        )
+        .unwrap();
+    }
+    let key = MindKey::of("wren", &db).unwrap();
+    let place: &'static Place = Box::leak(Box::new(Place::new()));
+    let spec = Spawn {
+        home: home.path().to_owned(),
+        db: key.file.clone(),
+        agent: "wren".into(),
+        person: "pat-example".into(),
+        project: "lighthouse".into(),
+    };
+    let mut base = Command::new(&program);
+    base.env("CLAUDECODE", "1").env("AI_AGENT", "claude-code");
+    place
+        .start(session::command(base, &spec), key)
+        .await
+        .unwrap();
+    let limit = Duration::from_secs(90);
+
+    let Reply::Notes { notes } = place.ask("wren", &Request::Notes {}, limit).await.unwrap() else {
+        panic!("not notes");
+    };
+    assert_eq!(notes.len(), 1);
+    let Written::Note { note } = place
+        .ask(
+            "wren",
+            &Write::Reply {
+                note_id: "note_agent".into(),
+                text: "Keep them, a made-up answer.".into(),
+            },
+            limit,
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("not a note");
+    };
+    assert_eq!(note.author, "person");
+    assert_eq!(note.in_reply_to.as_deref(), Some("note_agent"));
+    let Written::Note { note } = place
+        .ask(
+            "wren",
+            &Write::Note {
+                text: "Good morning, a made-up note.".into(),
+            },
+            limit,
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("not a note");
+    };
+    assert_eq!(note.author, "person");
+    let Reply::Notes { notes } = place.ask("wren", &Request::Notes {}, limit).await.unwrap() else {
+        panic!("not notes");
+    };
+    assert_eq!(notes.len(), 3);
+    assert!(notes
+        .iter()
+        .filter(|n| n.id != "note_agent")
+        .all(|n| n.author == "person"));
+    assert!(
+        notes
+            .iter()
+            .find(|n| n.id == "note_agent")
+            .and_then(|n| n.read_at.as_ref())
+            .is_some(),
+        "answering a note reads it"
+    );
+
+    let Reply::Memories { memories: list, .. } =
+        place.ask("wren", &memories(), limit).await.unwrap()
+    else {
+        panic!("not memories");
+    };
+    let old = list[0].id.clone();
+    let Written::Corrected { id: new, .. } = place
+        .ask(
+            "wren",
+            &Write::Correct {
+                memory_id: old.clone(),
+                text: "The ferry runs late in fog and in wind, made-up.".into(),
+            },
+            limit,
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("not corrected");
+    };
+    let Reply::Memories {
+        memories: list,
+        counts,
+    } = place.ask("wren", &memories(), limit).await.unwrap()
+    else {
+        panic!("not memories");
+    };
+    let fixed = list.iter().find(|m| m.id == new).expect("the new version");
+    assert!(fixed.words.contains("and in wind"));
+    assert_eq!(fixed.author, "person", "the person's, under an agent's env");
+    assert!(fixed.corrected.is_some());
+    assert!(list.iter().all(|m| m.id != old));
+    assert_eq!(counts.active, 1);
+
+    assert!(matches!(
+        place
+            .ask("wren", &Write::Forget { memory_id: new.clone() }, limit)
+            .await
+            .unwrap(),
+        Written::Forgotten { ref id, .. } if *id == new
+    ));
+    let Reply::Memories { counts, .. } = place.ask("wren", &memories(), limit).await.unwrap()
+    else {
+        panic!("not memories");
+    };
+    assert_eq!(counts.active, 0);
+    assert!(counts.archived >= 1, "let go is archived, not deleted");
     place.end().await;
 }

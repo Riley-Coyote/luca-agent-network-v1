@@ -4,7 +4,7 @@
 //! at a time, a timeout on each, a size limit on each answer, and nothing it
 //! says is ever logged. One mind at a time; it ends when the place is left,
 //! when the window has been hidden for a while, and when the app exits.
-use super::wire::{self, Refusal, Reply, Request};
+use super::wire::{self, Answered, Exchange, Refusal};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
@@ -64,7 +64,7 @@ impl MindKey {
 }
 
 /// Why a request got no answer. Each says one thing to the page.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Fail {
     /// No mind is open, or another one is.
     NotOpen,
@@ -80,12 +80,16 @@ pub(crate) enum Fail {
     Failed,
     /// Mnemos answered something that isn't the answer promised.
     Invalid,
-    /// Mnemos refused the request in its own words.
-    Refused,
+    /// Someone else is writing to the store just now.
+    Busy,
+    /// The page named an id the engine didn't give this mind this session.
+    UnknownItem,
+    /// Mnemos refused the request; for a write, in its own words.
+    Refused(Option<String>),
 }
 
 impl Fail {
-    pub(crate) fn code(self) -> &'static str {
+    pub(crate) fn code(&self) -> &'static str {
         match self {
             Self::NotOpen => "not_open",
             Self::Changed => "mind_changed",
@@ -94,12 +98,27 @@ impl Fail {
             Self::TooLarge => "reply_too_large",
             Self::Failed => "mnemos_failed",
             Self::Invalid => "invalid_reply",
-            Self::Refused => "mnemos_refused",
+            Self::Busy => "mnemos_busy",
+            Self::UnknownItem => "unknown_item",
+            Self::Refused(_) => "mnemos_refused",
         }
     }
+
+    /// What the page is told: the code, and for a write's refusal the
+    /// engine's own sentence after it ("mnemos_refused:<sentence>").
+    pub(crate) fn told(&self) -> String {
+        match self {
+            Self::Refused(Some(said)) => format!("{}:{said}", self.code()),
+            _ => self.code().to_owned(),
+        }
+    }
+
     /// Whether the process can't be trusted for another request.
-    fn ends_session(self) -> bool {
-        !matches!(self, Self::Refused | Self::NotOpen)
+    fn ends_session(&self) -> bool {
+        !matches!(
+            self,
+            Self::Refused(_) | Self::NotOpen | Self::Busy | Self::UnknownItem
+        )
     }
 }
 
@@ -195,20 +214,39 @@ impl Place {
         Ok(())
     }
 
+    /// The open mind's key, if `agent`'s mind is the one open.
+    pub(crate) async fn open_key(&self, agent: &str) -> Option<MindKey> {
+        self.session
+            .lock()
+            .await
+            .as_ref()
+            .filter(|s| s.mind.agent == agent)
+            .map(|s| s.mind.clone())
+    }
+
     /// Ask the open process one thing, for `agent`'s mind, waiting at most
-    /// `limit`. A second request waits for the first. A failure that leaves
-    /// the process in doubt ends it.
-    pub(crate) async fn ask(
+    /// `limit`: a reading request, or one of the person's writes, sent once
+    /// and never again by itself. A second request waits for the first. Any
+    /// id it names must be one the engine gave this mind in this session. A
+    /// failure that leaves the process in doubt ends it.
+    pub(crate) async fn ask<E: Exchange>(
         &self,
         agent: &str,
-        request: &Request,
+        exchange: &E,
         limit: Duration,
-    ) -> Result<Reply, Fail> {
-        request.check().map_err(|_| Fail::Invalid)?;
+    ) -> Result<E::Answer, Fail> {
+        exchange.check().map_err(|_| Fail::Invalid)?;
         let mut guard = self.session.lock().await;
         let Some(session) = guard.as_mut().filter(|s| s.mind.agent == agent) else {
             return Err(Fail::NotOpen);
         };
+        if exchange
+            .names()
+            .iter()
+            .any(|id| !session.seen.contains(*id))
+        {
+            return Err(Fail::UnknownItem);
+        }
         if !session.mind.same_file() {
             *guard = None;
             drop(guard);
@@ -217,7 +255,7 @@ impl Place {
         }
         let id = session.next;
         session.next += 1;
-        let outcome = tokio::time::timeout(limit, exchange(session, request, id)).await;
+        let outcome = tokio::time::timeout(limit, talk(session, exchange, id)).await;
         let outcome = match outcome {
             Ok(Ok(reply)) => Ok(reply),
             Ok(Err(Fail::Failed)) => Err(self.why_stopped().await),
@@ -225,11 +263,11 @@ impl Place {
             Err(_) => Err(Fail::Timeout),
         };
         match outcome {
-            Ok(reply) => {
+            Ok(answer) => {
                 session
                     .seen
-                    .extend(reply.ids().into_iter().map(str::to_owned));
-                Ok(reply)
+                    .extend(answer.ids().into_iter().map(str::to_owned));
+                Ok(answer)
             }
             Err(fail) => {
                 if fail.ends_session() {
@@ -327,10 +365,14 @@ impl Place {
 }
 
 /// Write one request and read its one answer line, at most `MAX_LINE`.
-async fn exchange(session: &mut Session, request: &Request, id: u64) -> Result<Reply, Fail> {
+async fn talk<E: Exchange>(
+    session: &mut Session,
+    exchange: &E,
+    id: u64,
+) -> Result<E::Answer, Fail> {
     session
         .stdin
-        .write_all(request.line(id).as_bytes())
+        .write_all(exchange.line(id).as_bytes())
         .await
         .map_err(|_| Fail::Failed)?;
     session.stdin.flush().await.map_err(|_| Fail::Failed)?;
@@ -350,9 +392,10 @@ async fn exchange(session: &mut Session, request: &Request, id: u64) -> Result<R
             Fail::Failed
         });
     }
-    wire::parse(&line[..line.len() - 1], id, request).map_err(|refusal| match refusal {
+    wire::parse(&line[..line.len() - 1], id, exchange).map_err(|refusal| match refusal {
         Refusal::Invalid => Fail::Invalid,
         Refusal::Unknown => Fail::TooOld,
-        Refusal::Refused => Fail::Refused,
+        Refusal::Busy => Fail::Busy,
+        Refusal::Refused(said) => Fail::Refused(said),
     })
 }

@@ -1,7 +1,9 @@
 //! What the place may ask of the person's `mnemos interface`, and what it
-//! takes back. Only the four reading commands exist here: no write command
-//! is a type, so none can be built, sent or deserialized from the webview.
-//! Replies are parsed into these shapes and nothing else reaches the page.
+//! takes back: the four reading requests (`Request`), and the person's four
+//! writes (`Write`: answer a note, leave one, correct a memory, let one go),
+//! each its own type and its own Tauri command. Nothing else is a type, so
+//! nothing else can be built, sent or deserialized from the webview. Answers
+//! are parsed into these shapes and nothing else reaches the page.
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -17,6 +19,38 @@ pub(crate) const MAX_JOURNAL: u32 = 500;
 pub(crate) const MAX_QUERY: usize = 400;
 /// Results a search asks for (the notebook's own number).
 pub(crate) const SEARCH_RESULTS: u32 = 24;
+/// The longest note, answer or correction the person can send, in
+/// characters (Mnemos's own `MAX_REPLY_CHARS`).
+pub(crate) const MAX_TEXT: usize = 16_384;
+/// The longest refusal of the engine's own the page is shown.
+const MAX_SAID: usize = 300;
+
+/// One exchange with the interface: a reading request, or one of the
+/// person's writes. A fifth reading command is one more variant of
+/// `Request` and one more arm of its `answer`.
+pub(crate) trait Exchange {
+    /// What a good answer becomes.
+    type Answer: Answered;
+    /// Whether the engine's own words for a refusal may reach the page
+    /// (a write's: a quiet hour, a note too long). A read's never do.
+    const SAYS_WHY: bool;
+    /// Refuse what is outside the place's limits.
+    fn check(&self) -> Result<(), &'static str>;
+    /// The one JSON line the interface reads for this exchange.
+    fn line(&self, id: u64) -> String;
+    /// The `result` of a good answer, in its promised shape.
+    fn answer(&self, result: Value) -> Result<Self::Answer, Refusal>;
+    /// The ids this exchange names, each one the engine must have given
+    /// for this mind in this session.
+    fn names(&self) -> Vec<&str> {
+        Vec::new()
+    }
+}
+
+/// An answer that carries ids, kept for the session's record of them.
+pub(crate) trait Answered {
+    fn ids(&self) -> Vec<&str>;
+}
 
 /// Which memories a page lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -47,9 +81,11 @@ pub enum Request {
     Notes {},
 }
 
-impl Request {
-    /// Refuse a request outside the place's limits.
-    pub(crate) fn check(&self) -> Result<(), &'static str> {
+impl Exchange for Request {
+    type Answer = Reply;
+    const SAYS_WHY: bool = false;
+
+    fn check(&self) -> Result<(), &'static str> {
         let fine = match self {
             Self::Memories { limit, offset, .. } => *limit <= MAX_PAGE && *offset <= 10_000_000,
             Self::Search { query } => {
@@ -65,18 +101,7 @@ impl Request {
         }
     }
 
-    /// The command's name on the wire.
-    pub(crate) fn command(&self) -> &'static str {
-        match self {
-            Self::Memories { .. } => "memories",
-            Self::Search { .. } => "search",
-            Self::Journal { .. } => "journal",
-            Self::Notes {} => "notes",
-        }
-    }
-
-    /// The one JSON line the interface reads for this request.
-    pub(crate) fn line(&self, id: u64) -> String {
+    fn line(&self, id: u64) -> String {
         let mut body = json!({"id": id, "command": self.command()});
         match self {
             Self::Memories {
@@ -98,6 +123,219 @@ impl Request {
             Self::Notes {} => body["unread"] = json!(false),
         }
         format!("{body}\n")
+    }
+
+    fn answer(&self, result: Value) -> Result<Reply, Refusal> {
+        let reply = match self {
+            Self::Memories { .. } => {
+                #[derive(Deserialize)]
+                struct Page {
+                    memories: Vec<Memory>,
+                    counts: Counts,
+                }
+                let page: Page = serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
+                Reply::Memories {
+                    memories: page.memories,
+                    counts: page.counts,
+                }
+            }
+            Self::Search { .. } => {
+                #[derive(Deserialize)]
+                struct Results {
+                    results: Vec<Found>,
+                }
+                let found: Results =
+                    serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
+                if found
+                    .results
+                    .iter()
+                    .any(|r| !matches!(r.found.as_str(), "meaning" | "words" | "link"))
+                {
+                    return Err(Refusal::Invalid);
+                }
+                Reply::Search {
+                    results: found.results,
+                }
+            }
+            Self::Journal { .. } => Reply::Journal {
+                entries: serde_json::from_value(result).map_err(|_| Refusal::Invalid)?,
+            },
+            Self::Notes {} => {
+                let notes: Vec<Note> =
+                    serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
+                if !notes.iter().all(Note::by_someone_known) {
+                    return Err(Refusal::Invalid);
+                }
+                Reply::Notes { notes }
+            }
+        };
+        Ok(reply)
+    }
+}
+
+impl Request {
+    /// The command's name on the wire.
+    pub(crate) fn command(&self) -> &'static str {
+        match self {
+            Self::Memories { .. } => "memories",
+            Self::Search { .. } => "search",
+            Self::Journal { .. } => "journal",
+            Self::Notes {} => "notes",
+        }
+    }
+}
+
+/// One of the person's own writes, as the webview sends it: exactly these
+/// four, and anything else is refused. Each is the person's: the interface
+/// is started with the app's environment cleared, so Mnemos signs it as
+/// theirs.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(tag = "command", rename_all = "lowercase", deny_unknown_fields)]
+pub enum Write {
+    /// Answer one of the mind's notes.
+    Reply { note_id: String, text: String },
+    /// Leave the mind a note of the person's own.
+    Note { text: String },
+    /// Correct a memory in the person's words; the old version is archived.
+    Correct { memory_id: String, text: String },
+    /// Let a memory go: archived, never deleted.
+    Forget { memory_id: String },
+}
+
+impl Write {
+    fn command(&self) -> &'static str {
+        match self {
+            Self::Reply { .. } => "reply",
+            Self::Note { .. } => "note",
+            Self::Correct { .. } => "correct",
+            Self::Forget { .. } => "forget",
+        }
+    }
+}
+
+fn words_fit(text: &str) -> bool {
+    !text.trim().is_empty() && text.chars().count() <= MAX_TEXT
+}
+
+impl Exchange for Write {
+    type Answer = Written;
+    const SAYS_WHY: bool = true;
+
+    fn check(&self) -> Result<(), &'static str> {
+        let fine = match self {
+            Self::Reply { note_id, text } => valid_id(note_id) && words_fit(text),
+            Self::Note { text } => words_fit(text),
+            Self::Correct { memory_id, text } => valid_id(memory_id) && words_fit(text),
+            Self::Forget { memory_id } => valid_id(memory_id),
+        };
+        if fine {
+            Ok(())
+        } else {
+            Err("invalid_request")
+        }
+    }
+
+    fn line(&self, id: u64) -> String {
+        let mut body = json!({"id": id, "command": self.command()});
+        match self {
+            Self::Reply { note_id, text } => {
+                body["note_id"] = json!(note_id);
+                body["text"] = json!(text);
+            }
+            Self::Note { text } => body["text"] = json!(text),
+            Self::Correct { memory_id, text } => {
+                body["memory_id"] = json!(memory_id);
+                body["text"] = json!(text);
+            }
+            Self::Forget { memory_id } => body["memory_id"] = json!(memory_id),
+        }
+        format!("{body}\n")
+    }
+
+    fn answer(&self, result: Value) -> Result<Written, Refusal> {
+        let written = match self {
+            Self::Reply { .. } | Self::Note { .. } => {
+                let note: Note = serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
+                if note.author != "person" {
+                    return Err(Refusal::Invalid);
+                }
+                Written::Note { note }
+            }
+            Self::Correct { memory_id, .. } => {
+                #[derive(Deserialize)]
+                struct Corrected {
+                    id: String,
+                    replaces: String,
+                    corrected: Option<String>,
+                }
+                let done: Corrected =
+                    serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
+                if done.replaces != *memory_id {
+                    return Err(Refusal::Invalid);
+                }
+                Written::Corrected {
+                    id: done.id,
+                    replaces: done.replaces,
+                    corrected: done.corrected,
+                }
+            }
+            Self::Forget { memory_id } => {
+                #[derive(Deserialize)]
+                struct Forgotten {
+                    id: String,
+                    forgotten: Option<String>,
+                }
+                let done: Forgotten =
+                    serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
+                if done.id != *memory_id {
+                    return Err(Refusal::Invalid);
+                }
+                Written::Forgotten {
+                    id: done.id,
+                    forgotten: done.forgotten,
+                }
+            }
+        };
+        Ok(written)
+    }
+
+    fn names(&self) -> Vec<&str> {
+        match self {
+            Self::Reply { note_id, .. } => vec![note_id.as_str()],
+            Self::Note { .. } => Vec::new(),
+            Self::Correct { memory_id, .. } | Self::Forget { memory_id } => {
+                vec![memory_id.as_str()]
+            }
+        }
+    }
+}
+
+/// What one of the person's writes gave back.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Written {
+    /// The answer or note, as it is now kept.
+    Note { note: Note },
+    /// The memory's new version, and the one it replaced.
+    Corrected {
+        id: String,
+        replaces: String,
+        corrected: Option<String>,
+    },
+    /// The memory let go: archived, not deleted.
+    Forgotten {
+        id: String,
+        forgotten: Option<String>,
+    },
+}
+
+impl Answered for Written {
+    fn ids(&self) -> Vec<&str> {
+        match self {
+            Self::Note { note } => note.ids(),
+            Self::Corrected { id, .. } => vec![id.as_str()],
+            Self::Forgotten { .. } => Vec::new(),
+        }
     }
 }
 
@@ -159,6 +397,18 @@ pub struct Note {
     pub delivered_at: Option<String>,
 }
 
+impl Note {
+    fn by_someone_known(&self) -> bool {
+        matches!(self.author.as_str(), "agent" | "person")
+    }
+
+    fn ids(&self) -> Vec<&str> {
+        std::iter::once(self.id.as_str())
+            .chain(self.in_reply_to.as_deref())
+            .collect()
+    }
+}
+
 /// What a reading request gives back to the page.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -178,17 +428,13 @@ pub enum Reply {
     },
 }
 
-impl Reply {
-    /// Every id this reply carries, for the session's record of them.
-    pub(crate) fn ids(&self) -> Vec<&str> {
+impl Answered for Reply {
+    fn ids(&self) -> Vec<&str> {
         match self {
             Self::Memories { memories, .. } => memories.iter().map(|m| m.id.as_str()).collect(),
             Self::Search { results } => results.iter().map(|m| m.id.as_str()).collect(),
             Self::Journal { entries } => entries.iter().map(|e| e.id.as_str()).collect(),
-            Self::Notes { notes } => notes
-                .iter()
-                .flat_map(|n| std::iter::once(n.id.as_str()).chain(n.in_reply_to.as_deref()))
-                .collect(),
+            Self::Notes { notes } => notes.iter().flat_map(Note::ids).collect(),
         }
     }
 }
@@ -200,8 +446,24 @@ pub(crate) enum Refusal {
     Invalid,
     /// The engine said no; it doesn't know this command (too old).
     Unknown,
-    /// The engine said no, in its own words (never shown or logged).
-    Refused,
+    /// The store is busy: someone else is writing to it.
+    Busy,
+    /// The engine said no. Its own sentence comes back only for a write
+    /// (`Exchange::SAYS_WHY`), cut short and plain; it is never logged.
+    Refused(Option<String>),
+}
+
+/// The engine's own refusal, as the page may show it: one plain line, short,
+/// with no control characters.
+fn plain(said: &str) -> String {
+    let line: String = said
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    line.chars().take(MAX_SAID).collect()
 }
 
 /// An opaque id, as the place accepts one: short text with no control
@@ -210,9 +472,8 @@ pub(crate) fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= MAX_ID && !id.chars().any(char::is_control)
 }
 
-/// The answer line for request `id`, parsed into the reply its command
-/// promises.
-pub(crate) fn parse(line: &[u8], id: u64, request: &Request) -> Result<Reply, Refusal> {
+/// The answer line for exchange `id`, parsed into the answer it promises.
+pub(crate) fn parse<E: Exchange>(line: &[u8], id: u64, exchange: &E) -> Result<E::Answer, Refusal> {
     let v: Value = serde_json::from_slice(line).map_err(|_| Refusal::Invalid)?;
     if v.get("id").and_then(Value::as_u64) != Some(id) {
         return Err(Refusal::Invalid);
@@ -221,57 +482,16 @@ pub(crate) fn parse(line: &[u8], id: u64, request: &Request) -> Result<Reply, Re
         let said = error.as_str().unwrap_or_default();
         return Err(if said.starts_with("There is no command") {
             Refusal::Unknown
+        } else if said.contains("database is locked") {
+            Refusal::Busy
         } else {
-            Refusal::Refused
+            Refusal::Refused(E::SAYS_WHY.then(|| plain(said)))
         });
     }
     let result = v.get("result").cloned().ok_or(Refusal::Invalid)?;
-    let reply = match request {
-        Request::Memories { .. } => {
-            #[derive(Deserialize)]
-            struct Page {
-                memories: Vec<Memory>,
-                counts: Counts,
-            }
-            let page: Page = serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
-            Reply::Memories {
-                memories: page.memories,
-                counts: page.counts,
-            }
-        }
-        Request::Search { .. } => {
-            #[derive(Deserialize)]
-            struct Results {
-                results: Vec<Found>,
-            }
-            let found: Results = serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
-            if found
-                .results
-                .iter()
-                .any(|r| !matches!(r.found.as_str(), "meaning" | "words" | "link"))
-            {
-                return Err(Refusal::Invalid);
-            }
-            Reply::Search {
-                results: found.results,
-            }
-        }
-        Request::Journal { .. } => Reply::Journal {
-            entries: serde_json::from_value(result).map_err(|_| Refusal::Invalid)?,
-        },
-        Request::Notes {} => {
-            let notes: Vec<Note> = serde_json::from_value(result).map_err(|_| Refusal::Invalid)?;
-            if notes
-                .iter()
-                .any(|n| !matches!(n.author.as_str(), "agent" | "person"))
-            {
-                return Err(Refusal::Invalid);
-            }
-            Reply::Notes { notes }
-        }
-    };
-    if reply.ids().iter().any(|id| !valid_id(id)) {
+    let answer = exchange.answer(result)?;
+    if answer.ids().iter().any(|id| !valid_id(id)) {
         return Err(Refusal::Invalid);
     }
-    Ok(reply)
+    Ok(answer)
 }
