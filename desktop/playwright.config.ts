@@ -72,6 +72,7 @@ export default defineConfig({
         "**/shell-pages.spec.ts",
         "**/shell-rail-wp34.spec.ts",
         "**/shell-project-rooms.spec.ts",
+        "**/shell-project-proposal.spec.ts",
         "**/shell-app-task.spec.ts",
         "**/shell-harness-dashboard.spec.ts",
         "**/shell-walkthrough.spec.ts",

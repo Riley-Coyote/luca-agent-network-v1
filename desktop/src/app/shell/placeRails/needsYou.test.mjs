@@ -27,6 +27,17 @@ test("needsYou_countsEveryKind_andSaysNothingAtZero", () => {
     }),
     4,
   );
+  // A resident's ask to start a project is waiting on you too (WP-44).
+  assert.equal(
+    needsYouCount({
+      permissions: 1,
+      questions: 0,
+      proposals: 1,
+      projects: 2,
+      pausedExchanges: 0,
+    }),
+    4,
+  );
   assert.equal(needsYouNote(0), undefined);
   assert.equal(needsYouNote(4), "4");
   assert.equal(needsYouNote(140), "99+");

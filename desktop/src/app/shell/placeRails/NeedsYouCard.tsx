@@ -28,6 +28,7 @@ import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { ProposalAsk } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useRoomProjects } from "@/features/channels/lib/roomProjects";
+import { ProjectProposalAsk } from "@/features/projects/ui/ProjectProposalAsk";
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
   applyExchangeSnapshot,
@@ -42,6 +43,7 @@ import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { PendingManagedInput } from "@/shared/api/managedInputs";
 import { resolveExchange } from "@/shared/api/exchanges";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import type { ProjectProposalV1 } from "@/shared/api/tauriProjectProposals";
 import type { RuntimeTaskProposal } from "@/shared/api/tauriRuntimeTasks";
 import type { PendingManagedPermission } from "@/shared/api/types";
 import { EXCHANGE_BUCKET_CEILING } from "@/shared/constants/kinds";
@@ -60,6 +62,7 @@ type Item =
   | (NeedsYouEntry<PendingManagedPermission> & { kind: "permission" })
   | (NeedsYouEntry<PendingManagedInput> & { kind: "question" })
   | (NeedsYouEntry<RuntimeTaskProposal> & { kind: "proposal" })
+  | (NeedsYouEntry<ProjectProposalV1> & { kind: "project" })
   | (NeedsYouEntry<ExchangeEntry> & { kind: "exchange" });
 
 function ms(iso: string) {
@@ -112,6 +115,16 @@ export function NeedsYouCard() {
           conversationId: proposal.conversationId,
           key: `proposal:${proposal.proposalId}`,
           kind: "proposal",
+          value: proposal,
+        }),
+      ),
+      ...needs.projects.map(
+        (proposal): Item => ({
+          askedBy: normalizePubkey(proposal.residentPubkey),
+          at: ms(proposal.createdAt),
+          conversationId: proposal.conversationId,
+          key: `project:${proposal.requestId}`,
+          kind: "project",
           value: proposal,
         }),
       ),
@@ -250,6 +263,15 @@ function NeedsYouItem({
         proposal={item.value}
         summary={where(`${who} asks`)}
         who={who}
+      />
+    );
+  if (item.kind === "project")
+    return (
+      <ProjectProposalAsk
+        common={common}
+        nameOf={nameOf}
+        proposal={item.value}
+        summary={where(`${who} asks`)}
       />
     );
   const names = namesAsList(item.value.record.members.map(nameOf));
