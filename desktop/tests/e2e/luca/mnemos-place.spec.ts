@@ -16,7 +16,14 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
  */
 
 const SHOTS = process.env.WP45_SHOTS ?? "test-results/wp45";
+const SHOTS47 = process.env.WP47_SHOTS ?? "test-results/wp47";
 const LUCA = "a".repeat(64);
+/** A resident of the owner's that remembers with nothing yet. */
+const ORI = "b".repeat(64);
+/** The engine's own sentence for a reply in one of the agent's hours. */
+const QUIET_REPLY =
+  "Nothing saved: A reply is the person's own words, and no one is in the room during one of the agent's hours.";
+type WriteMode = "quiet" | "busy" | "fail" | null;
 type Mode = "dark" | "light";
 type Fault =
   | "missing"
@@ -32,6 +39,12 @@ type Probe = {
   decline: boolean;
   fault: Fault | null;
   open: string | null;
+  /** How the next writes go: refused in a quiet hour, busy, or failed. */
+  writeMode: WriteMode;
+  /** How long a write is held in flight, in ms. */
+  writeDelay: number;
+  /** Whether Luca still remembers with Wren (the agent page's link). */
+  linked: boolean;
 };
 
 test.use({
@@ -71,7 +84,7 @@ async function boot(
   });
   // Before the test bridge, so every Mnemos command is this spec's.
   await page.addInitScript(
-    ({ luca, fault, decline }) => {
+    ({ luca, ori, fault, decline }) => {
       type Call = (
         cmd: string,
         args?: Record<string, unknown>,
@@ -80,10 +93,20 @@ async function boot(
       const win = window as unknown as {
         __TAURI_INTERNALS__?: { invoke?: Call };
         mnemosProbe: Probe;
+        mnemosDeliver?: () => void;
       };
       const bridge = win.__TAURI_INTERNALS__ ?? {};
       win.__TAURI_INTERNALS__ = bridge;
-      const probe: Probe = { calls: [], asked: [], decline, fault, open: null };
+      const probe: Probe = {
+        calls: [],
+        asked: [],
+        decline,
+        fault,
+        open: null,
+        writeMode: null,
+        writeDelay: 0,
+        linked: true,
+      };
       win.mnemosProbe = probe;
       const now = Date.now();
       const day = 86_400_000;
@@ -197,6 +220,12 @@ async function boot(
           delivered_at: iso(now - 4 * day),
         },
       ];
+      // The mind wakes: every note of the person's reaches it.
+      win.mnemosDeliver = () => {
+        for (const n of notes)
+          if (n.author === "person" && !n.delivered_at)
+            n.delivered_at = new Date().toISOString();
+      };
       const reader = {
         standing: [
           {
@@ -265,10 +294,92 @@ async function boot(
       const fail = (code: string) => Promise.reject(code);
       const place = async (cmd: string, args: Record<string, unknown> = {}) => {
         if (cmd === "mnemos_place_minds") {
+          const withoutMemory = [{ pubkey: ori, name: "Ori" }];
           if (probe.fault === "missing")
-            return { mnemosReady: false, minds: [] };
-          if (probe.fault === "none") return { mnemosReady: true, minds: [] };
-          return { mnemosReady: true, minds };
+            return { mnemosReady: false, minds: [], withoutMemory: [] };
+          if (probe.fault === "none")
+            return { mnemosReady: true, minds: [], withoutMemory };
+          for (const m of minds)
+            m.memories = (memories[m.id] ?? []).filter(
+              (x) => x.state !== "archived",
+            ).length;
+          return {
+            mnemosReady: true,
+            minds: minds.map((m) => ({
+              ...m,
+              linked: m.id === "wren" && !probe.linked ? [] : m.linked,
+            })),
+            withoutMemory,
+          };
+        }
+        if (cmd === "write_mnemos_place") {
+          const mind = String(args.mind);
+          if (probe.open !== mind) return fail("not_open");
+          const write = args.write as Record<string, string>;
+          if (probe.writeDelay)
+            await new Promise((done) => setTimeout(done, probe.writeDelay));
+          if (probe.writeMode === "busy") return fail("mnemos_busy");
+          if (probe.writeMode === "fail") return fail("mnemos_failed");
+          const at = new Date().toISOString();
+          const named = write.note_id ?? write.memory_id;
+          if (named !== undefined && !seen.has(named))
+            return fail("unknown_item");
+          if (write.command === "reply" || write.command === "note") {
+            if (probe.writeMode === "quiet")
+              return fail(
+                `mnemos_refused:Nothing saved: A ${write.command} is the person's own words, and no one is in the room during one of the agent's hours.`,
+              );
+            const answered = notes.find((n) => n.id === write.note_id);
+            if (write.command === "reply" && answered?.author !== "agent")
+              return fail(
+                "mnemos_refused:A reply answers one of the agent's notes.",
+              );
+            if (answered && !answered.read_at) answered.read_at = at;
+            const note = {
+              id: `wren-n${notes.length + 1}`,
+              kind: write.command,
+              text: write.text,
+              author: "person",
+              model: null,
+              in_reply_to: write.note_id ?? null,
+              created_at: at,
+              read_at: null,
+              delivered_at: null,
+            };
+            notes.push(note);
+            seen.add(note.id);
+            return { kind: "note", note };
+          }
+          const list = memories[mind] ?? [];
+          const old = list.find((m) => m.id === write.memory_id);
+          if (!old || old.state === "archived") return fail("unknown_item");
+          if (write.command === "correct") {
+            old.state = "archived";
+            const fresh = {
+              ...old,
+              id: `${old.id}-c`,
+              words: write.text,
+              kept: at,
+              state: "active",
+              alive: 1,
+              corrected: at,
+              impact: "",
+              author: "person",
+            };
+            list.push(fresh);
+            seen.add(fresh.id);
+            return {
+              kind: "corrected",
+              id: fresh.id,
+              replaces: old.id,
+              corrected: at,
+            };
+          }
+          if (write.command === "forget") {
+            old.state = "archived";
+            return { kind: "forgotten", id: old.id, forgotten: at };
+          }
+          return fail("invalid_request");
         }
         if (cmd === "open_mnemos_mind") {
           const mind = String(args.mind);
@@ -310,7 +421,9 @@ async function boot(
             const counts = {
               active: list.filter((m) => m.state === "active").length,
               dormant: list.filter((m) => m.state === "dormant").length,
-              archived: mind === "wren" ? 3 : 0,
+              archived:
+                (mind === "wren" ? 3 : 0) +
+                list.filter((m) => m.state === "archived").length,
             };
             return { kind: "memories", memories: page, counts };
           }
@@ -354,6 +467,14 @@ async function boot(
         }
         if (cmd === "mnemos_place_shown") return null;
         if (cmd === "mnemos_view_status") {
+          if (args.residentPubkey === ori || !probe.linked)
+            return {
+              grant: null,
+              scope: null,
+              readerReady: true,
+              linked: false,
+              mnemosReady: true,
+            };
           if (args.residentPubkey !== luca) return fail("unknown resident");
           return {
             grant: "wren-grant",
@@ -366,6 +487,19 @@ async function boot(
             linked: true,
             mnemosReady: true,
           };
+        }
+        if (cmd === "mnemos_minds")
+          return minds.map((m) => ({
+            id: m.id,
+            name: m.name,
+            memories: m.memories,
+            newest: m.newest,
+          }));
+        if (cmd === "disconnect_mnemos_view") {
+          if (args.residentPubkey !== luca || args.grant !== "wren-grant")
+            return fail("unexpected unlink");
+          probe.linked = false;
+          return null;
         }
         if (cmd === "read_mnemos_view") {
           const section = String(args.section);
@@ -401,6 +535,17 @@ async function boot(
             args?: Record<string, unknown>,
             opts?: unknown,
           ) => {
+            // Restarting a resident into its memory, or out of it.
+            if (
+              cmd === "try_stop_managed_agent_for_auto_restart" ||
+              cmd === "start_managed_agent"
+            ) {
+              probe.calls.push({ cmd });
+              const agents = (await delegate?.("list_managed_agents")) as {
+                pubkey: string;
+              }[];
+              return agents.find((agent) => agent.pubkey === args?.pubkey);
+            }
             if (!cmd.includes("mnemos")) return delegate?.(cmd, args, opts);
             probe.calls.push({
               cmd,
@@ -410,7 +555,7 @@ async function boot(
           },
       });
     },
-    { luca: LUCA, fault, decline },
+    { luca: LUCA, ori: ORI, fault, decline },
   );
   await installMockBridge(page, {
     managedAgents: [
@@ -420,6 +565,15 @@ async function boot(
         pubkey: LUCA,
         personaId: "builtin:fizz",
         status: "running",
+        backend: { type: "local" },
+      },
+      {
+        channelNames: ["agents"],
+        name: "Ori",
+        pubkey: ORI,
+        personaId: "builtin:fizz",
+        status: "running",
+        backend: { type: "local" },
       },
     ],
   });
@@ -715,8 +869,10 @@ test("(f) Journal and Notes; Waiting first; nothing is written or marked read", 
   await expect(page.getByTestId("mnemos-thread-opened")).toContainText(
     "old tide tables",
   );
-  // Reading only: no answer box here.
-  await expect(card(page).locator("textarea")).toHaveCount(0);
+  // Reading sends nothing: the fields are there, and nothing was written.
+  expect(
+    (await probeOf(page)).calls.filter((c) => c.cmd === "write_mnemos_place"),
+  ).toEqual([]);
   await shot(page, "05-notes-dark");
   // Opening notes marked nothing read: the dot is still there.
   await expect(page.getByTestId("mnemos-unread-wren-n1")).toBeVisible();
@@ -1073,4 +1229,472 @@ test("measure: type sizes and contrast, both themes", async ({ page }) => {
   expect(dark.words.size).toBe("16px");
   expect(dark.row.size).toBe("14px");
   expect(dark.words.contrast).toBeGreaterThanOrEqual(7);
+});
+
+/* ── WP-47: the person's own words ─────────────────────────────────── */
+
+async function shot47(page: Page, name: string) {
+  await waitForAnimations(page);
+  await page.waitForTimeout(250);
+  mkdirSync(SHOTS47, { recursive: true });
+  const path = `${SHOTS47}/${name}.png`;
+  await page.screenshot({ path });
+  const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
+  const all = (() => {
+    try {
+      return JSON.parse(readFileSync(`${SHOTS47}/hashes.json`, "utf8"));
+    } catch {
+      return {};
+    }
+  })();
+  all[name] = hash;
+  writeFileSync(`${SHOTS47}/hashes.json`, JSON.stringify(all, null, 2));
+  return hash;
+}
+
+function measure47(key: string, value: unknown) {
+  mkdirSync(`${SHOTS47}/measures`, { recursive: true });
+  writeFileSync(
+    `${SHOTS47}/measures/${key}.json`,
+    JSON.stringify(value, null, 2),
+  );
+}
+
+/** Every write the place sent, as sent. */
+async function writesSent(page: Page) {
+  return (await probeOf(page)).calls
+    .filter((c) => c.cmd === "write_mnemos_place")
+    .map((c) => c.args as { mind: string; write: Record<string, string> });
+}
+
+async function setWrites(
+  page: Page,
+  next: { writeMode?: WriteMode; writeDelay?: number },
+) {
+  await page.evaluate((next) => {
+    Object.assign(
+      (window as unknown as { mnemosProbe: Probe }).mnemosProbe,
+      next,
+    );
+  }, next);
+}
+
+/** The four writes, and only those, every one owned by the person. */
+function onlyTheFour(sent: { write: Record<string, string> }[]) {
+  for (const { write } of sent)
+    expect(["reply", "note", "correct", "forget"]).toContain(write.command);
+}
+
+const ANSWER = "Keep them. The blue folder has room for both.";
+
+test("(47) answer a note: one write, the right ids, the thread at once, a double click sends once", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=notes" });
+  // Wide: the newest waiting thread opens by itself.
+  const thread = page.getByTestId("mnemos-thread-opened");
+  await expect(thread).toContainText("old tide tables");
+  const field = page.getByTestId("mnemos-answer");
+  await expect(field).toContainText("Your answer, in your own words");
+  await page.getByTestId("mnemos-answer-text").fill(ANSWER);
+  await shot47(page, "01-answer-dark");
+
+  // Held in flight: the second click finds the button off.
+  await setWrites(page, { writeDelay: 700 });
+  await page.getByTestId("mnemos-answer-send").dblclick();
+  await expect(page.getByTestId("mnemos-answer-send")).toBeDisabled();
+  await expect(thread.locator("li")).toHaveCount(2);
+  await expect(thread.locator("li").nth(1)).toContainText(ANSWER);
+  await expect(thread.locator("li").nth(1)).toContainText("You");
+  await expect(thread.getByTestId("mnemos-note-woken")).toContainText(
+    "it wakes with this, once, in its next session",
+  );
+  // Answered, the thread waits on the mind: no field until it writes.
+  await expect(page.getByTestId("mnemos-answer")).toHaveCount(0);
+  await page.waitForTimeout(900);
+  const sent = await writesSent(page);
+  expect(sent).toEqual([
+    {
+      mind: "wren",
+      write: { command: "reply", note_id: "wren-n1", text: ANSWER },
+    },
+  ]);
+  // The question it answers is read now, and no longer waits.
+  await expect(page.getByTestId("mnemos-unread-wren-n1")).toHaveCount(0);
+  await expect(
+    page.getByTestId("mnemos-notes-waiting").locator("li"),
+  ).toHaveCount(1);
+  await expect(rail(page).getByTestId("place-row-notes")).toHaveText("Notes5");
+  await shot47(page, "02-answer-sent-dark");
+
+  // Once it has woken with it, the line says when.
+  await page.evaluate(() =>
+    (window as unknown as { mnemosDeliver: () => void }).mnemosDeliver(),
+  );
+  await rail(page).getByTestId("place-row-journal").locator("button").click();
+  await rail(page).getByTestId("place-row-notes").locator("button").click();
+  await page.getByTestId("mnemos-thread-wren-n1").locator("button").click();
+  await expect(thread.getByTestId("mnemos-note-woken")).toContainText(
+    /it has woken with this, today at/,
+  );
+  measure47("answer", { sent });
+  onlyTheFour(sent);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) answer from At a glance", async ({ page }) => {
+  const errors = await boot(page);
+  const plate = page.getByTestId("mnemos-plate-waiting");
+  await expect(plate).toContainText("old tide tables");
+  await expect(page.getByTestId("mnemos-answer-in-notes")).toHaveCount(0);
+  await plate.getByTestId("mnemos-glance-answer-text").fill(ANSWER);
+  await plate.getByTestId("mnemos-glance-answer-send").click();
+  await expect(page.getByTestId("mnemos-glance-sent")).toHaveText(
+    "Your answer is in Notes; it wakes with this, once, in its next session. Open it",
+  );
+  // The next one waiting comes forward.
+  await expect(plate).toContainText("Do you want the weather");
+  await expect(plate).not.toContainText("1 of 2");
+  await shot47(page, "07-glance-answer-dark");
+  const sent = await writesSent(page);
+  expect(sent).toEqual([
+    {
+      mind: "wren",
+      write: { command: "reply", note_id: "wren-n1", text: ANSWER },
+    },
+  ]);
+  await page.getByTestId("mnemos-glance-sent").getByRole("button").click();
+  await expect(page).toHaveURL(/room=notes/);
+  await expect(page.getByTestId("mnemos-thread-opened")).toContainText(ANSWER);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) leave a note, in the light", async ({ page }) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?room=notes",
+    mode: "light",
+  });
+  const leave = page.getByTestId("mnemos-leave-note");
+  await expect(leave).toContainText("Leave Wren a note");
+  await expect(leave).toContainText(
+    "It wakes with it, once, in its next session.",
+  );
+  const words =
+    "The new lamp arrives Thursday. Leave the old one lit till then.";
+  await page.getByTestId("mnemos-leave-note-text").fill(words);
+  await shot47(page, "03-leave-note-light");
+  await page.getByTestId("mnemos-leave-note-send").click();
+  await expect(page).toHaveURL(/item=wren-n5/);
+  const thread = page.getByTestId("mnemos-thread-opened");
+  await expect(thread.locator("li")).toHaveCount(1);
+  await expect(thread).toContainText(words);
+  await expect(thread.getByTestId("mnemos-note-woken")).toContainText(
+    "it wakes with this, once, in its next session",
+  );
+  // A thread of only your words has nothing of its to answer.
+  await expect(page.getByTestId("mnemos-answer")).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-leave-note-text")).toHaveValue("");
+  expect(await writesSent(page)).toEqual([
+    { mind: "wren", write: { command: "note", text: words } },
+  ]);
+  await expect(rail(page).getByTestId("place-row-notes")).toHaveText("Notes5");
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) a quiet hour says so in the engine's words, and keeps the text", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=notes" });
+  await setWrites(page, { writeMode: "quiet" });
+  await page.getByTestId("mnemos-answer-text").fill(ANSWER);
+  await page.getByTestId("mnemos-answer-send").click();
+  await expect(page.getByTestId("mnemos-answer-said")).toHaveText(QUIET_REPLY);
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveValue(ANSWER);
+  // No way to send it again unasked, and nothing sent it again.
+  await page.waitForTimeout(800);
+  expect(await writesSent(page)).toHaveLength(1);
+  await expect(
+    page.getByTestId("mnemos-answer-said").getByRole("button"),
+  ).toHaveCount(0);
+  await shot47(page, "04-quiet-hour-dark");
+  await page.getByTestId("mnemos-leave-note-text").fill("Morning.");
+  await page.getByTestId("mnemos-leave-note-send").click();
+  await expect(page.getByTestId("mnemos-leave-note-said")).toHaveText(
+    "Nothing saved: A note is the person's own words, and no one is in the room during one of the agent's hours.",
+  );
+  await expect(page.getByTestId("mnemos-leave-note-text")).toHaveValue(
+    "Morning.",
+  );
+  await expect(
+    page.getByTestId("mnemos-thread-opened").locator("li"),
+  ).toHaveCount(1);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) the limit: a count only near it, and too long can't be sent", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=notes" });
+  const text = page.getByTestId("mnemos-answer-text");
+  await text.fill("Short.");
+  await expect(page.getByTestId("mnemos-answer-count")).toHaveCount(0);
+  await text.fill("x".repeat(15_000));
+  await expect(page.getByTestId("mnemos-answer-count")).toHaveText(
+    "1,384 left",
+  );
+  await expect(page.getByTestId("mnemos-answer-send")).toBeEnabled();
+  await text.fill("x".repeat(16_385));
+  await expect(page.getByTestId("mnemos-answer-count")).toHaveText("1 over");
+  await expect(page.getByTestId("mnemos-answer-send")).toBeDisabled();
+  await text.press("ControlOrMeta+Enter");
+  await page.waitForTimeout(400);
+  expect(await writesSent(page)).toEqual([]);
+  // Nothing at all can't be sent either.
+  await text.fill("   ");
+  await expect(page.getByTestId("mnemos-answer-send")).toBeDisabled();
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) a write that fails says so and keeps the text; Try again is the person's", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=notes" });
+  await setWrites(page, { writeMode: "busy" });
+  await page.getByTestId("mnemos-answer-text").fill(ANSWER);
+  await page.getByTestId("mnemos-answer-send").click();
+  const said = page.getByTestId("mnemos-answer-said");
+  await expect(said).toContainText(
+    "Mnemos was busy with this memory, so nothing was saved.",
+  );
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveValue(ANSWER);
+  await page.waitForTimeout(800);
+  expect(await writesSent(page)).toHaveLength(1);
+  // The card is still the room: nothing ended.
+  await expect(page.getByTestId("mnemos-thread-opened")).toBeVisible();
+
+  await setWrites(page, { writeMode: "fail" });
+  await said.getByRole("button", { name: "Try again" }).click();
+  await expect(said).toContainText(
+    "It couldn’t be sent just now. Your words are still here.",
+  );
+  await expect(page.getByTestId("mnemos-answer-text")).toHaveValue(ANSWER);
+
+  await setWrites(page, { writeMode: null });
+  await said.getByRole("button", { name: "Try again" }).click();
+  await expect(
+    page.getByTestId("mnemos-thread-opened").locator("li"),
+  ).toHaveCount(2);
+  await expect(page.getByTestId("mnemos-answer-said")).toHaveCount(0);
+  const sent = await writesSent(page);
+  expect(sent).toHaveLength(3);
+  measure47("busy_line", {
+    busy: "Mnemos was busy with this memory, so nothing was saved.",
+    sent: sent.length,
+  });
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) correct it: prefilled, Save, its new words, corrected today; Cancel changes nothing", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=memories" });
+  const opened = page.getByTestId("mnemos-memory-opened");
+  await expect(page).toHaveURL(/item=wren-m123/);
+  const before = "When the fog horn sounds twice, the ferry is running late.";
+  await expect(opened).toContainText(before);
+
+  // Cancel changes nothing, and focus goes back.
+  await page.getByTestId("mnemos-correct-open").click();
+  const field = page.getByTestId("mnemos-correct-text");
+  await expect(field).toHaveValue(/^When the fog horn sounds twice/);
+  await expect(field).toBeFocused();
+  await expect(page.getByTestId("mnemos-correct")).toContainText(
+    "Its own words stay in its history. Wren wakes knowing you corrected it, once.",
+  );
+  await expect(page.getByTestId("mnemos-correct-send")).toBeDisabled();
+  await field.fill("Something else entirely.");
+  await page.getByTestId("mnemos-correct-cancel").click();
+  await expect(opened).toContainText(before);
+  await expect(page.getByTestId("mnemos-correct-open")).toBeFocused();
+  expect(await writesSent(page)).toEqual([]);
+
+  const after =
+    "When the fog horn sounds twice, the ferry is running late, unless the harbour master has called it off.";
+  await page.getByTestId("mnemos-correct-open").click();
+  await field.fill(after);
+  await shot47(page, "05-correct-dark");
+  await page.getByTestId("mnemos-correct-send").click();
+  await expect(page).toHaveURL(/item=wren-m123-c/);
+  await expect(opened).toContainText("unless the harbour master");
+  await expect(page.getByTestId("mnemos-memory-line")).toContainText(
+    "corrected today",
+  );
+  await expect(page.getByTestId("mnemos-memory-line")).toContainText(
+    "in your words",
+  );
+  await expect(page.getByTestId("mnemos-correct")).toHaveCount(0);
+  const rows = page.getByTestId("mnemos-memories-list").locator("li");
+  await expect(rows.first()).toHaveAttribute("data-memory", "wren-m123-c");
+  await expect(page.getByTestId("mnemos-memory-wren-m123")).toHaveCount(0);
+  const sent = await writesSent(page);
+  expect(sent).toEqual([
+    {
+      mind: "wren",
+      write: { command: "correct", memory_id: "wren-m123", text: after },
+    },
+  ]);
+  measure47("correct", { sent });
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) let it go: it asks; no keeps it; yes takes it out and the counts change", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=memories" });
+  await expect(page).toHaveURL(/item=wren-m123/);
+  await expect(rail(page).getByTestId("place-row-memories")).toHaveText(
+    "Memories124",
+  );
+  await page.getByTestId("mnemos-let-go-open").click();
+  const ask = page.getByRole("alertdialog", { name: "Let this memory go?" });
+  await expect(ask).toContainText(
+    "It won't come back by its words, its meaning or its id. It's kept in the archive, not deleted, and Wren will know, once, that you let a memory go, though not what it said.",
+  );
+  await expect(page.getByTestId("mnemos-let-go-keep")).toBeFocused();
+  await shot47(page, "06-let-go-asks-dark");
+
+  // No: Keep it, and Escape, leave it as it was.
+  await page.getByTestId("mnemos-let-go-keep").click();
+  await expect(ask).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-let-go-open")).toBeFocused();
+  await page.getByTestId("mnemos-let-go-open").click();
+  await page.keyboard.press("Escape");
+  await expect(ask).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-memory-wren-m123")).toBeVisible();
+  expect(await writesSent(page)).toEqual([]);
+
+  // Yes.
+  await page.getByTestId("mnemos-let-go-open").click();
+  await page.getByTestId("mnemos-let-go-yes").click();
+  await expect(page.getByTestId("mnemos-memory-wren-m123")).toHaveCount(0);
+  await expect(rail(page).getByTestId("place-row-memories")).toHaveText(
+    "Memories123",
+  );
+  await expect(page.getByTestId("place-page-state")).toHaveText(
+    "123 memories it can reach · newest today · Luca remembers with this",
+  );
+  // Wide, the card is never left empty: the newest opens by itself.
+  await expect(page).toHaveURL(/item=wren-m122/);
+  expect(await writesSent(page)).toEqual([
+    { mind: "wren", write: { command: "forget", memory_id: "wren-m123" } },
+  ]);
+  await rail(page).getByTestId("place-row-glance").locator("button").click();
+  await expect(page.getByTestId("mnemos-count")).toHaveText("123");
+  await expect(page.getByTestId("mnemos-plate-memory")).toContainText(
+    "6 of them gone quiet · 4 let go",
+  );
+  measure47("let_go", { memories_after: 123, let_go_after: 4 });
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) one way in: the agent page opens the notebook, the head goes back, unlink still works", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: `/agents?profile=${LUCA}&page=mnemos`,
+  });
+  const row = page.getByTestId("mind-open-notebook");
+  await expect(row).toContainText("Open Luca’s notebook");
+  await shot47(page, "08-agent-page-open-notebook-dark");
+  await row.click();
+  await expect(page).toHaveURL(/#\/mnemos\?.*mind=wren/);
+  await expect(page).toHaveURL(/room=glance/);
+  await expect(card(page).getByRole("heading", { name: "Wren" })).toBeVisible();
+
+  // The head's "Luca remembers with this" opens Luca's own page.
+  await page.getByTestId(`mnemos-head-resident-${LUCA}`).click();
+  await expect(page).toHaveURL(new RegExp(`#/agents\\?.*profile=${LUCA}`));
+
+  // Unlinking is still the agent page's, and still works.
+  await page.goto(`/#/agents?profile=${LUCA}&page=mnemos`);
+  const view = page.getByTestId("mind-mnemos");
+  await view.locator("summary").click();
+  await view.getByRole("button", { name: "Unlink", exact: true }).click();
+  await expect(
+    view.getByRole("button", { name: "Use Wren as Luca’s memory" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("mind-open-notebook")).toHaveCount(0);
+  const probe = await probeOf(page);
+  expect(probe.calls.some((c) => c.cmd === "disconnect_mnemos_view")).toBe(
+    true,
+  );
+  expect(await writesSent(page)).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) residents with no memory yet: listed quietly, with the offer", async ({
+  page,
+}) => {
+  const errors = await boot(page);
+  await page.getByTestId("mnemos-rail-mind-button").click();
+  const none = page.getByTestId("mnemos-minds-no-memory");
+  await expect(none).toContainText("No memory yet");
+  await expect(page.getByTestId(`mnemos-offer-${ORI}`)).toHaveText(
+    "OriGive Ori a memory",
+  );
+  await shot47(page, "09-minds-no-memory-yet-dark");
+  await page.getByTestId(`mnemos-offer-${ORI}`).click();
+  await expect(page).toHaveURL(new RegExp(`profile=${ORI}`));
+  await expect(page).toHaveURL(/page=mnemos/);
+  await expect(
+    page.getByRole("region", { name: "Give Ori a memory" }),
+  ).toBeVisible();
+  // An offer only: nothing linked, nothing written.
+  const probe = await probeOf(page);
+  expect(probe.calls.some((c) => c.cmd === "link_mnemos_mind")).toBe(false);
+  expect(await writesSent(page)).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(47) keyboard only: answer a note, correct a memory", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?room=notes" });
+  const tabTo = async (testId: string) => {
+    for (let i = 0; i < 80; i++) {
+      const at = await page.evaluate(
+        () => document.activeElement?.getAttribute("data-testid") ?? "",
+      );
+      if (at === testId) return;
+      await page.keyboard.press("Tab");
+    }
+    throw new Error(`Tab never reached ${testId}`);
+  };
+  await expect(page.getByTestId("mnemos-thread-opened")).toBeVisible();
+  await tabTo("mnemos-answer-text");
+  await page.keyboard.type("Keep them.");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(
+    page.getByTestId("mnemos-thread-opened").locator("li"),
+  ).toHaveCount(2);
+
+  await page.goto("/#/mnemos?room=memories");
+  await expect(page).toHaveURL(/item=wren-m123/);
+  await tabTo("mnemos-correct-open");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("mnemos-correct-text")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("mnemos-correct-open")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("The fog horn twice means the ferry is late.");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(page).toHaveURL(/item=wren-m123-c/);
+  await expect(page.getByTestId("mnemos-memory-opened")).toContainText(
+    "The fog horn twice means the ferry is late.",
+  );
+  const sent = await writesSent(page);
+  expect(sent.map((s) => s.write.command)).toEqual(["reply", "correct"]);
+  onlyTheFour(sent);
+  expect(consoleClean(errors)).toEqual([]);
 });

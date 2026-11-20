@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { managedAgentsQueryKey } from "@/features/agents/hooks";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import {
@@ -519,6 +520,9 @@ function ResidentView({ resident, name }: { resident: string; name: string }) {
             help={`${name} remembers with this memory, here and in your other apps.`}
             value="Linked"
           />
+          {status.scope?.agent_id ? (
+            <OpenNotebookRow mind={status.scope.agent_id} name={name} />
+          ) : null}
         </MindGroup>
       ) : null}
       {status?.grant ? (
@@ -623,5 +627,24 @@ function ResidentView({ resident, name }: { resident: string; name: string }) {
         </>
       ) : null}
     </div>
+  );
+}
+
+/** The one way into the Mnemos place from a resident's page (WP-47,
+ *  Decided 8): its notebook, opened at the mind it remembers with. */
+function OpenNotebookRow({ mind, name }: { mind: string; name: string }) {
+  const navigate = useNavigate();
+  return (
+    <MindRow
+      label={`Open ${name}’s notebook`}
+      help="Its memories, journal and notes, where you can answer and correct them."
+      onOpen={() =>
+        void navigate({
+          to: "/mnemos",
+          search: { mind, room: "glance" },
+        } as never)
+      }
+      testId="mind-open-notebook"
+    />
   );
 }
