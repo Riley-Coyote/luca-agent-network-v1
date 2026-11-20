@@ -384,6 +384,22 @@ const frameFacts = (frame: Frame) =>
 
 /** Presses the cell of one memory, where the engine draws it. */
 async function press(page: Page, frame: Frame, id: string) {
+  const at = await cellAt(page, frame, id);
+  await page.mouse.click(at.x, at.y);
+}
+
+/** A row of the place's rail, by its name. */
+const railRow = (page: Page, name: string) =>
+  page.locator(`[data-shell-rail] button[aria-label="${name}"]`).first();
+
+const itemInAddress = (page: Page) =>
+  new URLSearchParams(page.url().split("?")[1] ?? "").get("item");
+
+const frameLog = (page: Page) =>
+  page.getByTestId("mnemos-mind-frame").getAttribute("data-feed");
+
+/** Where the engine draws one memory, in the page's own coordinates. */
+async function cellAt(page: Page, frame: Frame, id: string) {
   const at = await frame.evaluate((id) => {
     const api = (
       window as unknown as {
@@ -396,21 +412,45 @@ async function press(page: Page, frame: Frame, id: string) {
     const i = api.byId(id);
     return i === undefined ? null : api.where(i);
   }, id);
-  if (!at) throw new Error(`no cell for ${id}`);
   const box = await page.getByTestId("mnemos-mind-frame").boundingBox();
-  if (!box) throw new Error("no frame box");
-  await page.mouse.click(box.x + at.x, box.y + at.y);
+  if (!at || !box) throw new Error(`no cell for ${id}`);
+  return { x: box.x + at.x, y: box.y + at.y };
 }
 
-/** A row of the place's rail, by its name. */
-const railRow = (page: Page, name: string) =>
-  page.locator(`[data-shell-rail] button[aria-label="${name}"]`).first();
-
-const itemInAddress = (page: Page) =>
-  new URLSearchParams(page.url().split("?")[1] ?? "").get("item");
-
-const frameLog = (page: Page) =>
-  page.getByTestId("mnemos-mind-frame").getAttribute("data-feed");
+/** Everything the app's origin keeps, of every kind, with its size. */
+async function storageOf(page: Page) {
+  const client = await page.context().newCDPSession(page);
+  const origin = new URL(page.url()).origin;
+  const usage = (await client.send("Storage.getUsageAndQuota", {
+    origin,
+  })) as {
+    usage: number;
+    usageBreakdown: { storageType: string; usage: number }[];
+  };
+  await client.detach();
+  const kept = await page.evaluate(async () => {
+    const sizes = (store: Storage) =>
+      Object.keys(store)
+        .sort()
+        .map((key) => [key, (store.getItem(key) ?? "").length] as const);
+    return {
+      localStorage: sizes(localStorage),
+      sessionStorage: sizes(sessionStorage),
+      indexedDB: (await indexedDB.databases()).map((d) => d.name).sort(),
+      caches: (await caches.keys()).sort(),
+      cookies: document.cookie.length,
+    };
+  });
+  return {
+    ...kept,
+    usage: usage.usage,
+    byKind: Object.fromEntries(
+      usage.usageBreakdown
+        .filter((b) => b.usage > 0)
+        .map((b) => [b.storageType, b.usage]),
+    ),
+  };
+}
 
 test.describe("The mind, on the Mac's graphics card", () => {
   for (const mode of ["dark", "light"] as const)
@@ -426,11 +466,14 @@ test.describe("The mind, on the Mac's graphics card", () => {
       const frame = await drawn(page);
       await page.waitForTimeout(2500);
       const facts = await frameFacts(frame);
-      // The head's count is the engine's own line.
-      await expect(page.getByTestId("mnemos-mind-count")).toHaveText(
-        facts.counts,
-      );
+      // One quiet line, the engine's own count, and no second title.
+      const line = page.getByTestId("mnemos-mind-count");
+      await expect(line).toHaveText(facts.counts);
       expect(facts.counts).toMatch(/memories awake/);
+      await expect(
+        page.getByTestId("mnemos-mind").getByRole("heading"),
+      ).toHaveCount(0);
+      await expect(page.getByTestId("mnemos-mind-drawing")).toHaveCount(0);
       // Only the picture: nothing of the page's own shows but the way back
       // to its middle, which shows only once you've moved.
       expect(facts.shown.filter((s) => !s.startsWith("ui recenter"))).toEqual(
@@ -446,6 +489,19 @@ test.describe("The mind, on the Mac's graphics card", () => {
         }));
       expect(ink.ink).toBe(mode === "light");
       const hash = await shot(page, `0${mode === "dark" ? 1 : 2}-mind-${mode}`);
+      // Hovering names a memory, by its first line; leaving, the count.
+      const cell = await cellAt(page, frame, "her-m0347");
+      await page.mouse.move(cell.x - 40, cell.y - 40);
+      await page.mouse.move(cell.x, cell.y, { steps: 4 });
+      await expect(line).toHaveAttribute("data-named", "");
+      const named = (await line.textContent()) ?? "";
+      expect(named).toMatch(/\(note \d+\)/);
+      expect(named).not.toContain("\n");
+      const box = await page.getByTestId("mnemos-mind-frame").boundingBox();
+      if (!box) throw new Error("no frame box");
+      await page.mouse.move(box.x + box.width / 2, box.y - 60, { steps: 4 });
+      await expect(line).toHaveText(facts.counts);
+      await expect(line).not.toHaveAttribute("data-named", "");
       const log = await frameLog(page);
       const leaked = requests.filter(
         (r) =>
@@ -469,6 +525,7 @@ test.describe("The mind, on the Mac's graphics card", () => {
         light: ink,
         feed: log,
         fedInTime,
+        named,
         requests,
         errors,
         hash,
@@ -501,6 +558,45 @@ test.describe("The mind, on the Mac's graphics card", () => {
       expect(alt).toMatch(/^(A lesson|An experience), /);
       // The person's press puts them in the panel.
       await expect(picked).toBeFocused();
+      // In the place's geometry: at the top of the picture, under the quiet
+      // line, its right edge on the content's; the place's plate, no bright
+      // outline; its two ways on are the place's quiet links.
+      const geometry = await picked.evaluate((el) => {
+        const stage = el.parentElement as HTMLElement;
+        const line = document.querySelector(
+          "[data-testid='mnemos-mind-count']",
+        ) as HTMLElement;
+        const p = el.getBoundingClientRect();
+        const s = stage.getBoundingClientRect();
+        const l = line.getBoundingClientRect();
+        const link = document.querySelector(
+          "[data-testid='mnemos-mind-open-it']",
+        ) as HTMLElement;
+        const ls = getComputedStyle(link);
+        return {
+          topFromStage: p.top - s.top,
+          belowLine: p.top - l.bottom,
+          rightFromContent: l.right - p.right,
+          shadow: getComputedStyle(el).boxShadow,
+          plate: el.classList.contains("luca-mnemos-plate"),
+          links: [
+            ...document.querySelectorAll(
+              "[data-testid='mnemos-mind-picked'] button",
+            ),
+          ].map((b) => b.className),
+          underline: ls.textDecorationLine,
+          background: ls.backgroundColor,
+        };
+      });
+      expect(geometry.topFromStage).toBe(0);
+      expect(geometry.belowLine).toBeGreaterThanOrEqual(0);
+      expect(geometry.belowLine).toBeLessThanOrEqual(12);
+      expect(Math.abs(geometry.rightFromContent)).toBeLessThanOrEqual(1);
+      expect(geometry.plate).toBe(true);
+      expect(geometry.shadow.match(/rgb/g)?.length ?? 0).toBeLessThanOrEqual(1);
+      expect(geometry.links).toEqual(["luca-mnemos-link", "luca-mnemos-link"]);
+      expect(geometry.underline).toBe("underline");
+      expect(geometry.background).toBe("rgba(0, 0, 0, 0)");
       await page.waitForTimeout(1800);
       const hash = await shot(
         page,
@@ -556,7 +652,7 @@ test.describe("The mind, on the Mac's graphics card", () => {
       );
       expect(itemInAddress(page)).toBe(chosen);
       expect(errors).toEqual([]);
-      measure(`pick-${mode}`, { chosen, alt, hash, close });
+      measure(`pick-${mode}`, { chosen, alt, hash, close, geometry });
     });
 
   test("the address holds a pick, and lands on it", async ({ page }) => {
@@ -641,20 +737,50 @@ test.describe("The mind, on the Mac's graphics card", () => {
         { timeout: 10_000, intervals: [100] },
       )
       .toBe(true);
-    // Another section: the frame is gone, and nothing is asked any more.
+    // Another section: nothing is drawn or asked any more. Where the place
+    // keeps the room mounted (MnemosScreen, at the join), the frame stays,
+    // paused; where it unmounts the room, the frame is gone.
+    const framesOf = () =>
+      frame.evaluate(
+        () =>
+          (window as unknown as { __mind: { frames: number } }).__mind.frames,
+      );
+    const sizeOf = () => frame.evaluate(() => [innerWidth, innerHeight]);
+    const size = await sizeOf();
     await railRow(page, "Log").click();
-    await expect(page.getByTestId("mnemos-mind-frame")).toHaveCount(0);
-    expect(mindFrame(page)).toBeNull();
+    await expect(page.getByTestId("mnemos-log")).toBeVisible();
+    const kept = (await page.getByTestId("mnemos-mind-frame").count()) > 0;
     const off = (await probeOf(page)).pulses;
+    const framesOff = kept ? await framesOf() : 0;
     await page.waitForTimeout(5000);
     const whileOff = (await probeOf(page)).pulses - off;
     expect(whileOff).toBe(0);
-    // Back: built again.
+    if (kept) {
+      await expect(page.getByTestId("mnemos-mind-frame")).toHaveAttribute(
+        "data-shown",
+        "false",
+      );
+      expect(await framesOf()).toBe(framesOff);
+      // Kept at its own size: nothing to redraw or resize on return.
+      expect(await sizeOf()).toEqual(size);
+    } else expect(mindFrame(page)).toBeNull();
+    // Back: resumed as it was where it was kept, else built again.
+    const startedBefore = kept
+      ? await page
+          .getByTestId("mnemos-mind-frame")
+          .getAttribute("data-first-picture-ms")
+      : null;
     await railRow(page, "The mind").click();
     await drawn(page);
     const again = await page
       .getByTestId("mnemos-mind-frame")
       .getAttribute("data-first-picture-ms");
+    if (kept) {
+      expect(again).toBe(startedBefore);
+      await expect
+        .poll(async () => (await probeOf(page)).pulses, { timeout: 5000 })
+        .toBeGreaterThan(off);
+    }
     // The window hidden: under the place's rule for words the frame is
     // destroyed, not hidden, at once (the place lets its words go the
     // moment the window hides; the two minutes are the engine's process).
@@ -679,6 +805,7 @@ test.describe("The mind, on the Mac's graphics card", () => {
     measure("alive", {
       pulsesIn3s: during,
       pulsesWhileOff5s: whileOff,
+      keptMountedWhileOff: kept,
       reopenFirstPictureMs: Number(again),
     });
   });
@@ -743,8 +870,28 @@ test.describe("The mind, on the Mac's graphics card", () => {
             .memory?.usedJSHeapSize ?? 0,
       );
     const without = await heap();
+    // The app's own reminder check writes its mark every 30 s
+    // (useReminderNotifications): listed once it has, so that the two lists
+    // differ only by what the visit kept.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            Object.keys(localStorage).some((k) =>
+              k.startsWith("buzz:lastReminderCheck:"),
+            ),
+          ),
+        { timeout: 45_000, intervals: [500] },
+      )
+      .toBe(true);
+    const storedBefore = await storageOf(page);
     await railRow(page, "The mind").click();
+    // While the first picture is made: one quiet line in the middle.
+    const building = page.getByTestId("mnemos-mind-drawing");
+    await expect(building).toHaveText("Drawing the mind…");
+    await expect(building).toHaveAttribute("role", "status");
     const frame = await drawn(page);
+    await expect(building).toHaveCount(0);
     const first = Number(
       await page
         .getByTestId("mnemos-mind-frame")
@@ -779,6 +926,15 @@ test.describe("The mind, on the Mac's graphics card", () => {
     }
     const dragFps = ((await frames()) - a) / ((Date.now() - t) / 1000);
     await page.mouse.up();
+    // At rest later, once what arrived has cooled (the engine animates new
+    // arrivals for 40 s) and while it still turns (30 s after the last
+    // touch): its slow turn alone.
+    await page.mouse.move(cx, box.y - 60);
+    await page.waitForTimeout(22_000);
+    a = await frames();
+    t = Date.now();
+    await page.waitForTimeout(5_000);
+    const laterRestFps = ((await frames()) - a) / ((Date.now() - t) / 1000);
     const withMind = await heap();
     const frameHeap = await frame.evaluate(
       () =>
@@ -790,14 +946,15 @@ test.describe("The mind, on the Mac's graphics card", () => {
     );
     await page.waitForTimeout(1500);
     await shot(page, "08-mind-3000-dark");
-    const stored = await page.evaluate(
-      async () => (await navigator.storage.estimate()).usage ?? 0,
-    );
-    // Shown again: the drawing kept by the engine opens it.
-    await railRow(page, "Log").click();
-    await expect(page.getByTestId("mnemos-mind-frame")).toHaveCount(0);
+    // Nothing of the mind is left in the app's storage: listed before the
+    // visit, and after it (on the same section), every kind, the same.
+    await railRow(page, "At a glance").click();
+    await expect(page.getByTestId("mnemos-glance")).toBeVisible();
     await page.waitForTimeout(1000);
+    const storedAfter = await storageOf(page);
+    expect(storedAfter).toEqual(storedBefore);
     const afterGone = await heap();
+    // Shown again with nothing kept: made afresh where the room was let go.
     await railRow(page, "The mind").click();
     await drawn(page);
     const again = Number(
@@ -814,11 +971,13 @@ test.describe("The mind, on the Mac's graphics card", () => {
       firstPictureAgainMs: again,
       idleFps: Math.round(idleFps * 10) / 10,
       dragFps: Math.round(dragFps * 10) / 10,
+      laterRestFps: Math.round(laterRestFps * 10) / 10,
+      storedBefore,
+      storedAfter,
       jsHeapMbWithoutMind: Math.round(without / 1e5) / 10,
       jsHeapMbWithMind: Math.round(withMind / 1e5) / 10,
       jsHeapMbFrameRealm: Math.round(frameHeap / 1e5) / 10,
       jsHeapMbAfterGone: Math.round(afterGone / 1e5) / 10,
-      storedMb: Math.round(stored / 1e5) / 10,
       built,
     });
   });

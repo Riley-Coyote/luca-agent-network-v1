@@ -25,7 +25,7 @@ export type MindState =
    *  start. `why` is the engine's own reason, for the record only. */
   | { kind: "cannot"; why: string };
 
-/** Colours as the renderer takes them: linear light, 0 to 1. */
+/** A colour as three channels, 0 to 1. */
 export type Rgb = [number, number, number];
 
 /** The picture's light, from the app's: the floor it prints on (the card
@@ -50,6 +50,10 @@ export type MindFrameOptions = {
   onState: (state: MindState) => void;
   onPick: (id: string) => void;
   onLetGo: () => void;
+  /** The memory under the pointer, or none. */
+  onHover: (id: string | null) => void;
+  /** Whether it starts shown (`MindFrame.setShown`). */
+  shown: boolean;
 };
 
 /** The parts of the engine's page this frame reads (`window.__mind`). */
@@ -57,6 +61,7 @@ type MindApi = {
   N: number;
   frames: number;
   selected: number;
+  hover: number;
   built: unknown;
   byId: (id: string) => number | undefined;
   pick: (x: number, y: number) => number;
@@ -247,11 +252,15 @@ function installFeed(
   win: FrameWindow,
   root: URL,
   holdings: () => FeedHoldings | null,
+  hold: () => Promise<void> | null,
   log: FeedLog,
   onLog: () => void,
 ) {
   const feed = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new win.Request(input, init);
+    // Not shown, it asks nothing: what it asks waits until it is.
+    const waiting = hold();
+    if (waiting) await waiting;
     const answer = await answerFeed(
       new URL(request.url),
       request.method,
@@ -277,9 +286,110 @@ function installFeed(
   fix(win.navigator, "sendBeacon", () => false);
 }
 
+// ── nothing kept ─────────────────────────────────────────────────────
+
+/** A `Storage` that lives in memory and dies with the frame. */
+export function memoryStorage() {
+  const items = new Map<string, string>();
+  return {
+    get length() {
+      return items.size;
+    },
+    key: (index: number) => [...items.keys()][index] ?? null,
+    getItem: (key: string) => items.get(String(key)) ?? null,
+    setItem: (key: string, value: string) => {
+      items.set(String(key), String(value));
+    },
+    removeItem: (key: string) => {
+      items.delete(String(key));
+    },
+    clear: () => items.clear(),
+  };
+}
+
+/** The page's drawing-keeper (`mind/keep.js`) as a worker that keeps
+ *  nothing. What the page hands it is let go, as the page means it to be
+ *  (moved, not copied, so the page holds none of it after). */
+function keeperOfNothing(win: FrameWindow) {
+  return {
+    onmessage: null,
+    onmessageerror: null,
+    onerror: null,
+    postMessage(
+      _message: unknown,
+      transfer?: Transferable[] | StructuredSerializeOptions,
+    ) {
+      const moved = Array.isArray(transfer) ? transfer : transfer?.transfer;
+      if (!moved?.length) return;
+      try {
+        win.structuredClone(moved, { transfer: moved });
+      } catch {
+        // Nothing to let go.
+      }
+    },
+    terminate() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent: () => false,
+  };
+}
+
 /**
- * One frame, from mounting to letting go. Its life is the section's: it is
- * built when The mind is shown and destroyed, not hidden, when it isn't.
+ * Nothing of a mind is left in the app (WP-50 review, 1): the page's local
+ * and session storage are in memory and go with the frame; IndexedDB,
+ * caches and cookies refuse (the page draws without them, as it does in a
+ * private window); its drawing-keeper keeps nothing. Installed with the
+ * feed, before the page's script runs.
+ */
+function keepNothing(win: FrameWindow, doc: Document) {
+  const own = (target: object, name: string, value: unknown) =>
+    Object.defineProperty(target, name, {
+      configurable: false,
+      get: () => value,
+    });
+  const refuse = () => {
+    throw new win.DOMException("Nothing is kept from here.", "SecurityError");
+  };
+  own(win, "localStorage", memoryStorage());
+  own(win, "sessionStorage", memoryStorage());
+  own(win, "indexedDB", {
+    open: refuse,
+    deleteDatabase: refuse,
+    databases: () => Promise.resolve([]),
+    cmp: refuse,
+  });
+  own(win, "caches", {
+    open: () =>
+      Promise.reject(
+        new win.DOMException("Nothing is kept from here.", "SecurityError"),
+      ),
+    has: () => Promise.resolve(false),
+    keys: () => Promise.resolve([]),
+    match: () => Promise.resolve(undefined),
+    delete: () => Promise.resolve(false),
+  });
+  Object.defineProperty(doc, "cookie", {
+    configurable: false,
+    get: () => "",
+    set: () => {},
+  });
+  const RealWorker = win.Worker;
+  function Worker(url: string | URL, options?: WorkerOptions) {
+    const where = new URL(String(url), win.location.href);
+    if (where.pathname.endsWith("/mind/keep.js")) return keeperOfNothing(win);
+    return new RealWorker(url, options);
+  }
+  Object.defineProperty(win, "Worker", {
+    configurable: false,
+    value: Worker,
+    writable: false,
+  });
+}
+
+/**
+ * One frame, from mounting to letting go. Its life is the room's: built
+ * when The mind is first shown, paused (not torn down) while another
+ * section is (`setShown`), destroyed only when the room goes.
  */
 export class MindFrame {
   readonly frame: HTMLIFrameElement;
@@ -298,11 +408,21 @@ export class MindFrame {
   private timers = new Set<ReturnType<typeof setTimeout>>();
   private undo: (() => void)[] = [];
   private gone = false;
+  /** Not shown: it draws nothing and asks nothing (`setShown`). */
+  private paused: boolean;
+  /** Its frame requests, held while it isn't shown. */
+  private parked = new Map<number, FrameRequestCallback>();
+  private nextParked = -1;
+  private realFrame: ((run: FrameRequestCallback) => number) | null = null;
+  /** Its requests to the feed, held while it isn't shown. */
+  private held: (() => void)[] = [];
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly options: MindFrameOptions;
 
   constructor(host: HTMLElement, options: MindFrameOptions) {
     this.options = options;
+    this.paused = !options.shown;
     const frame = document.createElement("iframe");
     frame.className = "luca-mnemos-mind-frame";
     frame.title = "The mind: every memory a cell, every link a fibre";
@@ -315,11 +435,35 @@ export class MindFrame {
     const onMessage = (event: MessageEvent) => this.heard(event);
     window.addEventListener("message", onMessage);
     this.undo.push(() => window.removeEventListener("message", onMessage));
+    frame.dataset.shown = String(options.shown);
     frame.src = MIND_PAGE;
     this.catchStart(frame.contentDocument);
-    this.later(() => {
-      if (this.state.kind === "drawing") this.cannot("it didn't start in time");
-    }, START_MS);
+    this.armStart();
+  }
+
+  /**
+   * Shown, or not (Decided 5): not shown, it stops drawing (its frame
+   * requests wait) and stops asking (its page is told it's hidden, and what
+   * it asks the feed waits), and lets go of nothing, so it comes back as it
+   * was, at once.
+   */
+  setShown(shown: boolean) {
+    if (this.gone || shown === !this.paused) return;
+    this.paused = !shown;
+    this.frame.dataset.shown = String(shown);
+    const win = this.win;
+    if (win) win.document.dispatchEvent(new win.Event("visibilitychange"));
+    if (!shown) {
+      if (this.startTimer) clearTimeout(this.startTimer);
+      this.startTimer = null;
+      return;
+    }
+    const run = this.realFrame;
+    if (run) for (const waiting of this.parked.values()) run(waiting);
+    this.parked.clear();
+    this.letAsk();
+    if (this.state.kind === "drawing") this.armStart();
+    this.apply();
   }
 
   /** What's shown: the memory picked, or the whole mind. */
@@ -335,6 +479,10 @@ export class MindFrame {
     this.gone = true;
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.parked.clear();
+    // What it was asking is answered with nothing: it has gone.
+    this.letAsk();
     for (const undo of this.undo.splice(0)) undo();
     try {
       const canvas = this.win?.document.getElementById("mind") as
@@ -349,6 +497,66 @@ export class MindFrame {
     this.win = null;
     this.api = null;
     this.frame.remove();
+  }
+
+  /** The page has a minute to draw its first picture, counted while it's
+   *  shown. */
+  private armStart() {
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.startTimer = setTimeout(() => {
+      this.startTimer = null;
+      if (!this.gone && !this.paused && this.state.kind === "drawing")
+        this.cannot("it didn't start in time");
+    }, START_MS);
+  }
+
+  private letAsk() {
+    for (const go of this.held.splice(0)) go();
+  }
+
+  private hold(): Promise<void> | null {
+    if (!this.paused || this.gone) return null;
+    return new Promise((go) => this.held.push(go));
+  }
+
+  /** Its frame requests and its sense of being seen, as the frame gives
+   *  them: while it isn't shown, frames wait and the page is hidden. */
+  private pace(win: FrameWindow, doc: Document) {
+    const request = win.requestAnimationFrame.bind(win);
+    const cancel = win.cancelAnimationFrame.bind(win);
+    this.realFrame = request;
+    Object.defineProperty(win, "requestAnimationFrame", {
+      configurable: false,
+      writable: false,
+      value: (run: FrameRequestCallback) => {
+        if (!this.paused) return request(run);
+        const id = this.nextParked--;
+        this.parked.set(id, run);
+        return id;
+      },
+    });
+    Object.defineProperty(win, "cancelAnimationFrame", {
+      configurable: false,
+      writable: false,
+      value: (id: number) => {
+        if (id < 0) this.parked.delete(id);
+        else cancel(id);
+      },
+    });
+    const proto = win.Document.prototype;
+    const hidden = Object.getOwnPropertyDescriptor(proto, "hidden")?.get;
+    const state = Object.getOwnPropertyDescriptor(
+      proto,
+      "visibilityState",
+    )?.get;
+    Object.defineProperty(doc, "hidden", {
+      configurable: false,
+      get: () => this.paused || Boolean(hidden?.call(doc)),
+    });
+    Object.defineProperty(doc, "visibilityState", {
+      configurable: false,
+      get: () => (this.paused ? "hidden" : (state?.call(doc) ?? "visible")),
+    });
   }
 
   private later(run: () => void, ms: number) {
@@ -404,9 +612,18 @@ export class MindFrame {
     this.fedInTime = doc.readyState === "loading";
     const root = new URL("../", win.location.href);
     const holdings = () => (this.gone ? null : this.options.holdings());
-    installFeed(win, root, holdings, this.log, () => {
-      this.frame.dataset.feed = logLine(this.log);
-    });
+    installFeed(
+      win,
+      root,
+      holdings,
+      () => this.hold(),
+      this.log,
+      () => {
+        this.frame.dataset.feed = logLine(this.log);
+      },
+    );
+    keepNothing(win, doc);
+    this.pace(win, doc);
     // Its own refusals (no graphics card, no WebGL, nothing to draw) end
     // its script: they are the place's one line, not the console's.
     const onError = (event: ErrorEvent | PromiseRejectionEvent) => {
@@ -569,6 +786,25 @@ export class MindFrame {
       const id = this.idOf(api.pick(e.clientX, e.clientY));
       if (id) this.options.onPick(id);
     });
+    // The memory under the pointer, as the engine has found it (it looks
+    // on the same move, so it's read a frame later).
+    let named: string | null = null;
+    let looking = 0;
+    const name = () => {
+      looking = 0;
+      const api = this.api;
+      if (!api || this.gone) return;
+      const id = api.hover >= 0 ? this.idOf(api.hover) : null;
+      if (id === named) return;
+      named = id;
+      this.options.onHover(id);
+    };
+    const look = () => {
+      if (!looking) looking = requestAnimationFrame(name);
+    };
+    win.addEventListener("pointermove", look);
+    win.document.documentElement.addEventListener("pointerleave", look);
+    this.undo.push(() => cancelAnimationFrame(looking));
     win.addEventListener(
       "keydown",
       (e) => {

@@ -74,9 +74,25 @@ export function lifeForFrame(life: BookLife): BookLife {
   };
 }
 
-/** The memories document as the page reads it. The place keeps no times
- *  for what was recalled lately, so the page's recall track (which the
- *  place doesn't show) is given none. */
+/** One recall, as the engine logs it: which memory came back, and when. */
+export type Recalled = [id: string, at: string];
+
+/** The engine's log of recall, whole, where the place read it
+ *  (`recalledLog`); a reading without it gives none. Anything not shaped
+ *  as the engine writes it is left out. */
+export function recalledOf(memories: NotebookMemories): Recalled[] {
+  const log = (memories as { recalledLog?: unknown }).recalledLog;
+  if (!Array.isArray(log)) return [];
+  return log.filter(
+    (entry): entry is Recalled =>
+      Array.isArray(entry) &&
+      entry.length >= 2 &&
+      typeof entry[0] === "string" &&
+      typeof entry[1] === "string",
+  );
+}
+
+/** The memories document as the page reads it, its recall log included. */
 export function memoriesForFrame(
   memories: NotebookMemories,
   made: string | null,
@@ -85,7 +101,7 @@ export function memoriesForFrame(
     version: memories.version,
     made,
     memories: memories.memories,
-    recalled: [] as unknown[],
+    recalled: recalledOf(memories),
   };
 }
 

@@ -9,9 +9,9 @@ import {
   checkCopy,
   FILES,
 } from "../../../../scripts/mnemos-mind-copy.mjs";
-import { cellOfMemory, drawingWords } from "./drawingShape.ts";
-import { answerFeed, kindOf, REFUSED } from "./mindFeed.ts";
-import { inkOnPaper, MindFrame } from "./mindFrame.ts";
+import { cellOfMemory, drawingWords, firstLine } from "./drawingShape.ts";
+import { answerFeed, kindOf, REFUSED, recalledOf } from "./mindFeed.ts";
+import { inkOnPaper, MindFrame, memoryStorage } from "./mindFrame.ts";
 
 // ── the copy (WP-50, Decided 1) ──────────────────────────────────────
 
@@ -98,6 +98,23 @@ test("life and memories are answered from what the place holds", async () => {
     memories: [{ id: "m1" }, { id: "m2" }],
     recalled: [],
   });
+});
+
+test("the engine's recall log is handed on whole, when the place read it", async () => {
+  const h = holdings();
+  const log = [
+    ["m1", "2026-11-20T07:00:00Z"],
+    ["m2", "2026-11-20T07:00:02Z"],
+  ];
+  h.memories = { ...h.memories, recalledLog: log };
+  const mem = await answerFeed(at("../data/memories.json"), "GET", root, h);
+  assert.deepEqual(mem.body.recalled, log);
+  assert.deepEqual(recalledOf({ memories: [] }), []);
+  assert.deepEqual(recalledOf({ recalledLog: "no" }), []);
+  assert.deepEqual(
+    recalledOf({ recalledLog: [["m1", "t"], ["m2"], [3, "t"], null] }),
+    [["m1", "t"]],
+  );
 });
 
 test("what comes to mind is asked through the session, since a moment", async () => {
@@ -194,6 +211,8 @@ test("the frame is destroyed, not hidden: its element, its timers, its listener"
     onState: (s) => states.push(s),
     onPick: () => {},
     onLetGo: () => {},
+    onHover: () => {},
+    shown: true,
   });
   assert.equal(frame.src, "/mnemos-mind/mind/index.html?behind");
   assert.ok(listeners.has("message"));
@@ -206,6 +225,184 @@ test("the frame is destroyed, not hidden: its element, its timers, its listener"
   assert.deepEqual(states, []);
   delete globalThis.document;
   delete globalThis.window;
+});
+
+// ── shown and not (review, 2) ────────────────────────────────────────
+
+const LIGHT = {
+  floor: [0, 0, 0],
+  fire: [1, 1, 1],
+  pulse: [0, 0, 1],
+  floorCss: "rgb(0 0 0)",
+  invert: false,
+};
+
+/** A frame whose page commits: its window and document, as far as the
+ *  frame touches them before the page's script runs. */
+function committingDom() {
+  const { frame } = fakeDom();
+  const ran = [];
+  const events = [];
+  class FakeDocument {
+    get hidden() {
+      return false;
+    }
+    get visibilityState() {
+      return "visible";
+    }
+  }
+  const doc = Object.assign(Object.create(FakeDocument.prototype), {
+    readyState: "loading",
+    head: { append() {} },
+    createElement: () => ({ dataset: {} }),
+    addEventListener() {},
+    dispatchEvent: (event) => events.push(event.type),
+  });
+  class FakeWorker {
+    constructor(url) {
+      this.url = String(url);
+    }
+  }
+  const win = {
+    location: { href: "http://app.test/mnemos-mind/mind/index.html?behind" },
+    navigator: {},
+    Request,
+    Response,
+    DOMException,
+    Event,
+    Worker: FakeWorker,
+    structuredClone,
+    Document: FakeDocument,
+    requestAnimationFrame: (run) => ran.push(run),
+    cancelAnimationFrame() {},
+    addEventListener() {},
+    document: doc,
+  };
+  return {
+    frame,
+    win,
+    doc,
+    ran,
+    events,
+    commit() {
+      frame.contentDocument = doc;
+      frame.contentWindow = win;
+    },
+  };
+}
+
+async function startedFrame(asked) {
+  const dom = committingDom();
+  const made = new MindFrame(
+    { append() {} },
+    {
+      holdings: () => {
+        asked.push("read");
+        return holdings();
+      },
+      light: LIGHT,
+      ids: () => [],
+      onState() {},
+      onPick() {},
+      onLetGo() {},
+      onHover() {},
+      shown: true,
+    },
+  );
+  dom.commit();
+  await new Promise((done) => setTimeout(done, 10));
+  return { made, ...dom };
+}
+
+const settled = (promise, ms = 30) =>
+  Promise.race([
+    promise.then(() => "answered"),
+    new Promise((done) => setTimeout(() => done("waiting"), ms)),
+  ]);
+
+test("not shown, it draws nothing and asks nothing; shown again, it goes on as it was", async () => {
+  const asked = [];
+  const { made, frame, win, doc, ran, events } = await startedFrame(asked);
+  try {
+    assert.equal(made.fedInTime, true);
+    win.requestAnimationFrame(() => {});
+    assert.equal(ran.length, 1);
+
+    made.setShown(false);
+    assert.equal(frame.dataset.shown, "false");
+    assert.equal(doc.hidden, true);
+    assert.equal(doc.visibilityState, "hidden");
+    assert.deepEqual(events, ["visibilitychange"]);
+    // Its frames wait, and so does what it asks.
+    win.requestAnimationFrame(() => {});
+    assert.equal(ran.length, 1);
+    const life = win.fetch("http://app.test/mnemos-mind/data/life.json");
+    assert.equal(await settled(life), "waiting");
+    assert.deepEqual(asked, []);
+
+    made.setShown(true);
+    assert.equal(doc.hidden, false);
+    assert.deepEqual(events, ["visibilitychange", "visibilitychange"]);
+    assert.equal(ran.length, 2);
+    const answer = await life;
+    assert.equal(answer.status, 200);
+    assert.equal((await answer.json()).identity.name, "Heron");
+    assert.deepEqual(asked, ["read"]);
+    // The same frame: nothing was let go, nothing made again.
+    assert.equal(frame.removed, false);
+  } finally {
+    made.destroy();
+  }
+});
+
+test("gone while not shown, what it was asking is answered with nothing", async () => {
+  const asked = [];
+  const { made, win } = await startedFrame(asked);
+  made.setShown(false);
+  const pending = win.fetch("http://app.test/mnemos-mind/data/memories.json");
+  made.destroy();
+  const answer = await pending;
+  assert.equal(answer.status, 503);
+  assert.deepEqual(asked, []);
+});
+
+test("nothing of a mind is kept: storage in memory, no IndexedDB, no keeper", async () => {
+  const { made, win, doc } = await startedFrame([]);
+  try {
+    win.localStorage.setItem("mnemos.mind.budget.v3", "2400000");
+    assert.equal(win.localStorage.getItem("mnemos.mind.budget.v3"), "2400000");
+    assert.equal(win.localStorage.length, 1);
+    assert.equal(win.sessionStorage.getItem("mnemos.mind.budget.v3"), null);
+    assert.throws(() => win.indexedDB.open("mnemos-mind", 1), {
+      name: "SecurityError",
+    });
+    await assert.rejects(win.caches.open("x"));
+    doc.cookie = "kept=1";
+    assert.equal(doc.cookie, "");
+    const drawing = new ArrayBuffer(64);
+    const keeper = new win.Worker(
+      new URL("./keep.js", "http://app.test/mnemos-mind/mind/mind.js"),
+    );
+    keeper.postMessage({ record: { out: { data: drawing } } }, [drawing]);
+    // Handed over and let go: the page holds none of it after.
+    assert.equal(drawing.byteLength, 0);
+    const builder = new win.Worker("./build.js", { type: "module" });
+    assert.equal(builder.url, "./build.js");
+  } finally {
+    made.destroy();
+  }
+});
+
+test("a storage in memory behaves as a Storage", () => {
+  const store = memoryStorage();
+  store.setItem("a", 1);
+  store.setItem("b", "two");
+  assert.equal(store.getItem("a"), "1");
+  assert.equal(store.key(1), "b");
+  store.removeItem("a");
+  assert.equal(store.length, 1);
+  store.clear();
+  assert.equal(store.getItem("b"), null);
 });
 
 // ── the light (Decided 3) ─────────────────────────────────────────────
@@ -269,6 +466,14 @@ test("one memory alone is one cell, a spine for each of its links", () => {
   assert.equal(crowded.links, 80);
   assert.equal(crowded.inc.length, 64);
   assert.equal(crowded.inc[0].rel, "distilled_into");
+});
+
+test("a memory is named by its first line", () => {
+  assert.equal(
+    firstLine("\n  The path along the sea wall\nmore"),
+    "The path along the sea wall",
+  );
+  assert.equal(firstLine(""), "");
 });
 
 test("the drawing's words say what it shows", () => {

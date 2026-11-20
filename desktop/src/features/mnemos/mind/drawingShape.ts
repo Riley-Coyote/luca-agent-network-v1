@@ -92,3 +92,13 @@ export function drawingWords(memory: BookMemory): string {
   if (memory.state === "dormant") parts.push("gone quiet");
   return parts.join(", ");
 }
+
+/** A memory's first line, as the quiet line names it. */
+export function firstLine(text: string) {
+  return (
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) ?? ""
+  );
+}

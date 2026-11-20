@@ -1,19 +1,28 @@
 import * as React from "react";
 
 import "./mnemos-mind.css";
-import { Button } from "@/shared/ui/button";
 import { mnemosPlace } from "../api";
 import type { BookMemory } from "../book";
 import { longDay, NeedsNewer, QuietLine, Words } from "../MnemosParts";
 import { signedBy, stateWords } from "../notebook";
-import { plural } from "../notebookWords";
 import { type NotebookView, type RoomProps, useAddressItem } from "../roomKit";
 import type { FeedHoldings } from "./mindFeed";
+import { firstLine } from "./drawingShape";
 import { lightOf, MindFrame, type MindState } from "./mindFrame";
 import { MemoryDrawing } from "./MemoryDrawing";
 
 /** The line when the mind can't be drawn here (Decided 6). */
 export const CANNOT_DRAW = "This Mac can’t draw the mind just now.";
+
+/** The line while its first picture is being made. */
+export const DRAWING = "Drawing the mind…";
+
+export type MindRoomProps = RoomProps & {
+  /** Whether The mind is the section shown (by default it is). The room can
+   *  stay mounted while another section is: not shown, its picture pauses
+   *  (`MindFrame.setShown`), and it goes only when the room unmounts. */
+  shown?: boolean;
+};
 
 /**
  * The mind (WP-50): Mnemos's own picture of a mind, every memory a cell and
@@ -21,9 +30,9 @@ export const CANNOT_DRAW = "This Mac can’t draw the mind just now.";
  * files and fed only from what the place has read. A memory pressed opens
  * beside it, quietly, and the address keeps it.
  */
-export function MindRoom(props: RoomProps) {
-  if (!props.notebook) return <NeedsNewer what="The mind" />;
-  return <Mind {...props} notebook={props.notebook} />;
+export function MindRoom({ shown = true, ...props }: MindRoomProps) {
+  if (!props.notebook) return shown ? <NeedsNewer what="The mind" /> : null;
+  return <Mind {...props} notebook={props.notebook} shown={shown} />;
 }
 
 /** What the mind's frame asks of the session: what came to it since a
@@ -78,21 +87,25 @@ function Mind({
   mind,
   notebook,
   openItem,
-}: RoomProps & { notebook: NotebookView }) {
+  shown,
+}: RoomProps & { notebook: NotebookView; shown: boolean }) {
   const host = React.useRef<HTMLDivElement>(null);
   const panel = React.useRef<HTMLElement>(null);
   const frame = React.useRef<MindFrame | null>(null);
   const [state, setState] = React.useState<MindState>({ kind: "drawing" });
+  const [hovered, setHovered] = React.useState<string | null>(null);
   const memories = notebook.memories.memories;
   const byId = React.useMemo(
     () => new Map(memories.map((m) => [m.id, m])),
     [memories],
   );
+  // Not shown, the address is another section's: the mind neither reads
+  // nor lets go of its item.
   const picked = useAddressItem(
     mind.id,
-    item,
+    shown ? item : null,
     (id) => byId.has(id),
-    true,
+    shown,
     openItem,
   );
   const pulse = usePulse(mind.id, notebook);
@@ -109,15 +122,24 @@ function Mind({
   const pickedBy = React.useRef<"press" | null>(null);
   const handlers = React.useRef({ openItem });
   handlers.current = { openItem };
+  const shownNow = React.useRef(shown);
+  shownNow.current = shown;
+  // The app's look, as the picture was last shown in it: a change while
+  // it isn't shown waits until it is.
   const look = useLookKey();
+  const [lookShown, setLookShown] = React.useState(look);
+  React.useEffect(() => {
+    if (shown) setLookShown(look);
+  }, [look, shown]);
 
-  // One frame for as long as the section is shown, made again when the
+  // One frame for as long as the room is mounted, made again when the
   // app's look changes (its light is given when it starts).
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new look asks for a new frame; the rest is read through refs.
   React.useEffect(() => {
     const el = host.current;
     if (!el) return;
     setState({ kind: "drawing" });
+    setHovered(null);
     const made = new MindFrame(el, {
       holdings: () => holdings.current,
       light: lightOf(el),
@@ -128,56 +150,73 @@ function Mind({
         handlers.current.openItem(id);
       },
       onLetGo: () => handlers.current.openItem(null),
+      onHover: setHovered,
+      shown: shownNow.current,
     });
     frame.current = made;
     return () => {
       made.destroy();
       if (frame.current === made) frame.current = null;
     };
-  }, [mind.id, look]);
+  }, [mind.id, lookShown]);
+
+  React.useEffect(() => {
+    frame.current?.setShown(shown);
+    if (!shown) setHovered(null);
+  }, [shown]);
 
   React.useEffect(() => {
     if (state.kind === "cannot") frame.current?.destroy();
   }, [state.kind]);
 
   React.useEffect(() => {
+    if (!shown) return;
     frame.current?.show(picked);
     if (picked && pickedBy.current === "press") panel.current?.focus();
     pickedBy.current = null;
-  }, [picked]);
+  }, [picked, shown]);
   React.useEffect(() => {
-    if (state.kind === "drawn") frame.current?.show(picked);
-  }, [state.kind, picked]);
+    if (shown && state.kind === "drawn") frame.current?.show(picked);
+  }, [state.kind, picked, shown]);
 
   const memory = picked ? (byId.get(picked) ?? null) : null;
-  const count =
-    state.kind === "drawn"
+  const named = hovered ? byId.get(hovered) : undefined;
+  const line = named
+    ? firstLine(named.content)
+    : state.kind === "drawn"
       ? state.counts
-      : state.kind === "drawing"
-        ? `Drawing ${plural(memories.length, "memory", "memories")}…`
-        : "";
+      : "";
   return (
     <section
+      aria-hidden={shown ? undefined : true}
       aria-label="The mind"
       className="luca-mnemos-mind"
+      data-shown={String(shown)}
       data-state={state.kind}
       data-testid="mnemos-mind"
+      inert={!shown}
     >
-      <header className="luca-mnemos-mind-head">
-        <h2 className="luca-mnemos-mind-title text-base">The mind</h2>
-        <p
-          aria-live="polite"
-          className="luca-mnemos-mind-count text-xs"
-          data-testid="mnemos-mind-count"
-        >
-          {count}
-        </p>
-      </header>
+      <p
+        className="luca-mnemos-mind-line text-xs"
+        data-named={named ? "" : undefined}
+        data-testid="mnemos-mind-count"
+      >
+        {line}
+      </p>
       <div className="luca-mnemos-mind-stage">
         <div className="luca-mnemos-mind-host" ref={host} />
+        {state.kind === "drawing" ? (
+          <p
+            className="luca-mnemos-mind-note text-sm"
+            data-testid="mnemos-mind-drawing"
+            role="status"
+          >
+            {DRAWING}
+          </p>
+        ) : null}
         {state.kind === "cannot" ? (
           <p
-            className="luca-mnemos-mind-cannot text-sm"
+            className="luca-mnemos-mind-note text-sm"
             data-testid="mnemos-mind-cannot"
           >
             {CANNOT_DRAW} Everything in it is in the{" "}
@@ -207,7 +246,7 @@ function Mind({
 }
 
 /** The memory picked in the mind (Decided 4): its drawing, its words, its
- *  quiet line, and the place's two quiet ways on. */
+ *  quiet line, and the place's two quiet ways on, on the place's plate. */
 const PickedMemory = React.forwardRef<
   HTMLElement,
   {
@@ -220,7 +259,7 @@ const PickedMemory = React.forwardRef<
   return (
     <aside
       aria-label="The memory picked in the mind"
-      className="luca-mnemos-mind-picked"
+      className="luca-mnemos-plate luca-mnemos-mind-picked"
       data-testid="mnemos-mind-picked"
       ref={ref}
       tabIndex={-1}
@@ -237,26 +276,24 @@ const PickedMemory = React.forwardRef<
         ]}
         testId="mnemos-mind-picked-line"
       />
-      <div className="luca-mnemos-acts">
-        <Button
+      <p className="luca-mnemos-mind-ways text-sm">
+        <button
+          className="luca-mnemos-link"
           data-testid="mnemos-mind-open-it"
           onClick={onOpen}
-          size="quiet"
           type="button"
-          variant="quiet"
         >
           Open it
-        </Button>
-        <Button
+        </button>
+        <button
+          className="luca-mnemos-link"
           data-testid="mnemos-mind-whole"
           onClick={onWhole}
-          size="quiet"
           type="button"
-          variant="quiet"
         >
           The whole mind
-        </Button>
-      </div>
+        </button>
+      </p>
     </aside>
   );
 });
