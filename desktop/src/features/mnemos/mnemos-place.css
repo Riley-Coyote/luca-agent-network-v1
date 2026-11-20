@@ -53,7 +53,7 @@
     top: 0;
   }
 
-  .luca-mnemos-back {
+  .luca-mnemos-room .luca-mnemos-back {
     display: none;
   }
 }
@@ -188,8 +188,11 @@
 
 .luca-mnemos-dot {
   display: inline-block;
-  margin-left: 6px;
   vertical-align: 0.1em;
+}
+
+.luca-mnemos-meta .luca-mnemos-dot {
+  margin-left: 6px;
 }
 
 /* ── search and the chips ─────────────────────────────────────────── */

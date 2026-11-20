@@ -22,14 +22,15 @@ import { DIDNT_ANSWER, type RoomProps, useAddressItem } from "./roomKit";
 
 /** How many entries the Journal lists (the notebook's whole journal, to the
  *  place's limit). */
-const JOURNAL_LAST = 500;
+export const JOURNAL_LAST = 500;
 
 /** Journal (WP-45, Decided 5): entries by date, each titled by its own
  *  first sentence with its mood; the whole entry opened. */
 export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
   const entries = useLoad(() => book.journal(JOURNAL_LAST), [book]);
   React.useEffect(() => {
-    if (entries.value)
+    // At the limit the count would undersay it, so the rail shows none.
+    if (entries.value && entries.value.length < JOURNAL_LAST)
       setRoomCounts(mind.id, { journal: entries.value.length });
   }, [entries.value, mind.id]);
   const list = entries.value ?? [];
@@ -132,7 +133,7 @@ export function NotesRoom({ book, mind, item, openItem }: RoomProps) {
           t.notes.some(unread) ? (
             <span
               aria-label="not read yet"
-              className={UNREAD_DOT_CLASS}
+              className={`${UNREAD_DOT_CLASS} luca-mnemos-dot`}
               data-testid={`mnemos-unread-${t.id}`}
               role="img"
             />

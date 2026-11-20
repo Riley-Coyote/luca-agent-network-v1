@@ -17,12 +17,22 @@ export function MnemosRailMind() {
   const [open, setOpen] = React.useState(false);
   const listId = React.useId();
   const head = React.useRef<HTMLButtonElement>(null);
+  const refocus = React.useRef(false);
   const minds = facts.minds?.minds ?? [];
+  React.useEffect(() => {
+    // Once the list has gone, focus goes back to the head that opened it.
+    if (open || !refocus.current) return;
+    const frame = requestAnimationFrame(() => {
+      refocus.current = false;
+      head.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
   if (!mind) return null;
 
   const close = () => {
+    refocus.current = true;
     setOpen(false);
-    head.current?.focus();
   };
 
   return (
@@ -45,6 +55,7 @@ export function MnemosRailMind() {
         data-rail-focus="home"
         data-testid="mnemos-rail-mind-button"
         onClick={() => setOpen((was) => !was)}
+        ref={head}
         type="button"
       >
         <span className="luca-mnemos-railmind-name text-sm">{mind.name}</span>

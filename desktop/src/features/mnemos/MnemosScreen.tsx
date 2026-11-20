@@ -19,13 +19,14 @@ import { GlanceRoom } from "./GlanceRoom";
 import { MemoriesRoom } from "./MemoriesRoom";
 import { PlaceLine } from "./MnemosParts";
 import { stateLine } from "./notebook";
-import { loadMinds } from "./placeStore";
+import { loadMinds, setRoomCounts } from "./placeStore";
 import { BeliefsRoom, CarryingRoom } from "./ReaderRooms";
 import type { RoomProps } from "./roomKit";
-import { JournalRoom, NotesRoom } from "./TalkRooms";
+import { JOURNAL_LAST, JournalRoom, NotesRoom } from "./TalkRooms";
 import { useMindInView } from "./useMindInView";
 import { type SessionPhase, useMnemosSession } from "./useMnemosSession";
-import { useReader } from "./useReader";
+import { type Reader, useReader } from "./useReader";
+import type { Book } from "./adapt";
 
 const SEARCH_KEYS = ["room", "item", "mind"] as const;
 
@@ -123,6 +124,7 @@ function MindCard({
   const { phase, ask, retry, visible } = useMnemosSession(mind.id);
   const book = React.useMemo(() => bookOf(ask), [ask]);
   const reader = useReader(mind);
+  useRoomCounts(book, reader, mind.id, phase.kind === "open" && visible);
   const Room = ROOMS[room];
   return (
     <>
@@ -148,6 +150,52 @@ function MindCard({
       ) : null}
     </>
   );
+}
+
+/** The rail's counts for the mind in view, once it is open: numbers only.
+ *  A count that can't be read is left off rather than guessed. */
+function useRoomCounts(book: Book, reader: Reader, mind: string, on: boolean) {
+  React.useEffect(() => {
+    if (!on) return;
+    let current = true;
+    (async () => {
+      const facts = await book.facts();
+      if (!current) return;
+      setRoomCounts(mind, {
+        memories: facts.states.active + facts.states.dormant,
+      });
+      const notes = await book.notes();
+      if (current) setRoomCounts(mind, { notes: notes.length });
+      const journal = await book.journal(JOURNAL_LAST);
+      if (current && journal.length < JOURNAL_LAST)
+        setRoomCounts(mind, { journal: journal.length });
+    })().catch(() => {
+      // The card says why when Mnemos doesn't answer; the rail just has
+      // no number.
+    });
+    return () => {
+      current = false;
+    };
+  }, [book, mind, on]);
+  React.useEffect(() => {
+    if (reader.kind !== "ready") return;
+    let current = true;
+    reader.counts().then(
+      (counts) => {
+        if (current)
+          setRoomCounts(mind, {
+            beliefs: counts.beliefs,
+            carrying: counts.handoffs,
+          });
+      },
+      () => {
+        // No number where the old reader can't count.
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [mind, reader]);
 }
 
 /** The card's one line for a mind not open, by why. */

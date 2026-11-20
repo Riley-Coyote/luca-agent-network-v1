@@ -116,12 +116,12 @@ export function GlanceRoom({ book, mind, goTo, reader }: RoomProps) {
                 className="text-3xl tabular-nums"
                 data-testid="mnemos-count"
               >
-                {states.active.toLocaleString()}
+                {(states.active + states.dormant).toLocaleString()}
               </span>
               <span className="text-sm"> it can reach</span>
             </p>
             <p className="luca-mnemos-quiet text-xs tabular-nums">
-              {states.dormant.toLocaleString()} gone quiet ·{" "}
+              {states.dormant.toLocaleString()} of them gone quiet ·{" "}
               {states.archived.toLocaleString()} let go
             </p>
             <DayStrip book={book} total={total ?? 0} />

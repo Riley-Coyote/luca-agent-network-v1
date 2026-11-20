@@ -111,12 +111,14 @@ export function MemoriesRoom(props: RoomProps) {
     mind.id,
     item,
     (id) => seen.current.has(id),
-    loaded && (asked === null || search.value !== null),
+    asked !== null
+      ? search.value !== null || search.failed !== null
+      : chip === "standing" || loaded,
     openItem,
   );
   const memory = opened ? (seen.current.get(opened) ?? null) : null;
   const standingItem =
-    chip === "standing" && standingOpen !== null
+    chip === "standing" && asked === null && standingOpen !== null
       ? (standing.items?.[standingOpen] ?? null)
       : null;
 
