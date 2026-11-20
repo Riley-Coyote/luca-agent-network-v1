@@ -214,11 +214,8 @@ async function expectCardWords(page: Page, names: string) {
   );
 }
 
-test("(a) a request arrives, Create makes the project and the owner stays", async ({
-  page,
-}) => {
-  const consoleSeen = await boot(page);
-  // Luca's one chat, from the rail.
+/** Luca's one chat, from the rail; its id. */
+async function openLucaChat(page: Page) {
   await page
     .getByTestId("rail-home-luca")
     .locator('[data-rail-focus="home"]')
@@ -230,6 +227,82 @@ test("(a) a request arrives, Create makes the project and the owner stays", asyn
     /channels\/([^/?]+)/,
   )?.[1];
   expect(lucaChat).toBeTruthy();
+  return lucaChat ?? "";
+}
+
+/** The owner asks Luca for a project in its chat, and Luca says one line back. */
+async function talkInLucaChat(page: Page, lucaChat: string) {
+  await page.waitForTimeout(500);
+  await page.evaluate(
+    ({ id, luca }) => {
+      const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+      if (!emit) throw new Error("Expected the mock bridge.");
+      const now = Math.floor(Date.now() / 1000);
+      emit({
+        channelId: id,
+        content: "Start a project for the Ghost app.",
+        createdAt: now - 20,
+        kind: 9,
+      });
+      emit({
+        channelId: id,
+        content:
+          "Happy to. I've put a card here so you can make it with one click.",
+        createdAt: now - 10,
+        kind: 9,
+        pubkey: luca,
+      });
+    },
+    { id: lucaChat, luca: LUCA },
+  );
+  await expect(
+    page.getByText("I've put a card here so you can make it"),
+  ).toBeVisible({ timeout: 15_000 });
+}
+
+/** The card in its place: Luca's last line above it, the composer below. */
+async function shotInPlace(page: Page, name: string) {
+  await page.mouse.move(1430, 890);
+  await waitForAnimations(page);
+  await page.waitForTimeout(250);
+  const boxes = await Promise.all(
+    [
+      page.getByText("I've put a card here so you can make it"),
+      card(page),
+      page.getByTestId("message-composer").first(),
+    ].map((target) => target.boundingBox()),
+  );
+  const present = boxes.filter((box) => box !== null);
+  expect(present).toHaveLength(3);
+  const pad = 32;
+  const left = Math.min(...present.map((box) => box.x)) - pad;
+  const top = Math.min(...present.map((box) => box.y)) - pad;
+  const right = Math.max(...present.map((box) => box.x + box.width)) + pad;
+  const bottom = Math.max(...present.map((box) => box.y + box.height)) + pad;
+  mkdirSync(SHOTS, { recursive: true });
+  const path = `${SHOTS}/${name}.png`;
+  await page.screenshot({
+    animations: "disabled",
+    caret: "hide",
+    clip: {
+      height: Math.min(900, bottom) - Math.max(0, top),
+      width: Math.min(1440, right) - Math.max(0, left),
+      x: Math.max(0, left),
+      y: Math.max(0, top),
+    },
+    path,
+  });
+  const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
+  measure(`shot_${name}`, { hash, path });
+  return hash;
+}
+
+test("(a) a request arrives, Create makes the project and the owner stays", async ({
+  page,
+}) => {
+  const consoleSeen = await boot(page);
+  const lucaChat = await openLucaChat(page);
+  await talkInLucaChat(page, lucaChat);
   await expect(card(page)).toHaveCount(0);
   // Luca asks while the owner is in its chat.
   await page.evaluate(
@@ -240,7 +313,7 @@ test("(a) a request arrives, Create makes the project and the owner stays", asyn
   await expect(
     card(page).getByTestId("project-proposal-duplicate"),
   ).toHaveCount(0);
-  const hashes = [await shot(page, card(page), "01-card-dark")];
+  const hashes = [await shotInPlace(page, "01-card-dark")];
 
   await card(page).getByTestId("project-proposal-create").click();
   const settled = page.getByTestId("project-proposal-settled");
@@ -311,9 +384,15 @@ test("(a) a request arrives, Create makes the project and the owner stays", asyn
 });
 
 test("(a, light) the card in the paper look", async ({ page }) => {
-  const consoleSeen = await boot(page, { light: true, proposals: [ask()] });
+  const consoleSeen = await boot(page, { light: true });
+  const lucaChat = await openLucaChat(page);
+  await talkInLucaChat(page, lucaChat);
+  await page.evaluate(
+    (seed) => window.__BUZZ_E2E_PUSH_PROJECT_PROPOSAL__?.(seed),
+    ask({ channelName: undefined, conversationId: lucaChat }),
+  );
   await expectCardWords(page, "Luca joins");
-  await shot(page, card(page), "02-card-light");
+  await shotInPlace(page, "02-card-light");
   measure("console_light", consoleSeen);
   expect(consoleSeen).toEqual([]);
 });
@@ -477,5 +556,45 @@ test("(g) with the new look off, the card shows and works", async ({
   });
   expect(await page.evaluate(() => window.location.hash)).toContain(GENERAL);
   measure("console_g", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+test("(h) in an empty chat, an ask takes the welcome picture's place", async ({
+  page,
+}) => {
+  const consoleSeen = await boot(page);
+  const lucaChat = await openLucaChat(page);
+  const greeting = page.locator(".luca-first-message-greeting");
+  await expect(greeting).toBeVisible({ timeout: 15_000 });
+  await page.evaluate(
+    (seed) => window.__BUZZ_E2E_PUSH_PROJECT_PROPOSAL__?.(seed),
+    ask({ channelName: undefined, conversationId: lucaChat }),
+  );
+  await expectCardWords(page, "Luca joins");
+  await expect(greeting).toHaveCount(0);
+  // Nothing of the welcome lies under the card.
+  const box = await card(page).boundingBox();
+  const under = await page.evaluate((rect) => {
+    if (!rect) return ["no card"];
+    const hits = new Set<string>();
+    for (let x = rect.x + 8; x < rect.x + rect.width; x += 24)
+      for (let y = rect.y + 8; y < rect.y + rect.height; y += 12)
+        for (const node of document.elementsFromPoint(x, y))
+          if (node.closest(".luca-first-message-greeting"))
+            hits.add(node.className.toString());
+    return [...hits];
+  }, box);
+  measure("empty_chat_ask", { card: box, greetingUnderCard: under });
+  expect(under).toEqual([]);
+  await shot(
+    page,
+    page.getByTestId("channel-drop-zone"),
+    "08-empty-chat-ask-dark",
+  );
+  // When the ask is answered, the welcome comes back.
+  await card(page).getByTestId("project-proposal-not-now").click();
+  await expect(card(page)).toHaveCount(0, { timeout: 15_000 });
+  await expect(greeting).toBeVisible({ timeout: 15_000 });
+  measure("console_h", consoleSeen);
   expect(consoleSeen).toEqual([]);
 });

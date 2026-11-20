@@ -1645,10 +1645,13 @@ export const ChannelPane = React.memo(function ChannelPane({
                       </>
                     )}
                     {/* Height zero, so the composer's measured height (and
-                        the timeline's padding) never changes for the name. */}
+                        the timeline's padding) never changes for the name.
+                        An ask above the composer takes its place. */}
                     <div className="luca-measure luca-first-message-greeting-slot">
                       <AnimatePresence key={activeChannelId ?? "none"}>
-                        {firstMessage.open && firstMessage.subject ? (
+                        {firstMessage.open &&
+                        firstMessage.subject &&
+                        roomAskCount === 0 ? (
                           <FirstMessageGreeting
                             subject={firstMessage.subject}
                           />
