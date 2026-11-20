@@ -344,9 +344,7 @@ test("attachment and permission failures stay sanitized while text remains avail
   await expect(permissionCard).toContainText(
     "Remembers git status for polyphonic. Take it back any time in Settings › Agents › Capabilities.",
   );
-  await permissionCard
-    .getByTestId("managed-permission-tense-always")
-    .click();
+  await permissionCard.getByTestId("managed-permission-tense-always").click();
   await expect
     .poll(() =>
       page.evaluate(
@@ -498,7 +496,11 @@ test("attachment and permission failures stay sanitized while text remains avail
             options: [
               { option_id: "allow", name: "Allow", kind: "allow_once" },
               { option_id: "reject", name: "Reject", kind: "reject_once" },
-              { option_id: "allow-always", name: "Allow", kind: "allow_always" },
+              {
+                option_id: "allow-always",
+                name: "Allow",
+                kind: "allow_always",
+              },
             ],
           },
           offer: {

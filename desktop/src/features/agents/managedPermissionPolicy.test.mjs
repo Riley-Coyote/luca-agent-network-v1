@@ -94,7 +94,9 @@ function offer(overrides) {
 
 test("beta.13 P3: the card offers exactly Deny, Once, Always, in that order", () => {
   assert.deepEqual(
-    visiblePermissionTenses(offer({ deny: true, once: true, alwaysHere: true })),
+    visiblePermissionTenses(
+      offer({ deny: true, once: true, alwaysHere: true }),
+    ),
     ["deny", "once", "always"],
   );
 });

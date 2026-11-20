@@ -9,7 +9,10 @@
   "optional_permissions": ["history", "bookmarks"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "incognito": "not_allowed",
-  "externally_connectable": {"ids": [], "matches": []},
-  "background": {"service_worker": "service-worker.js"},
-  "action": {"default_popup": "popup.html", "default_title": "Polyphonic browser awareness"}
+  "externally_connectable": { "ids": [], "matches": [] },
+  "background": { "service_worker": "service-worker.js" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Polyphonic browser awareness"
+  }
 }

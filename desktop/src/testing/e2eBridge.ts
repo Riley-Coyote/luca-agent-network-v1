@@ -1,7 +1,10 @@
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { agentInboxFixtureCommand } from "./agentInboxFixture";
-import { createHarnessDashboardFixture, harnessDashboardFixtureCommand } from "./harnessDashboardFixture";
+import {
+  createHarnessDashboardFixture,
+  harnessDashboardFixtureCommand,
+} from "./harnessDashboardFixture";
 import { decode } from "nostr-tools/nip19";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { parse as yamlParse } from "yaml";
@@ -2878,13 +2881,15 @@ function resetMockPersonas(config?: E2eConfig) {
       id: "builtin:mira",
       display_name: "Mira",
       avatar_url: null,
-      system_prompt: "Mira investigates questions using original sources and calibrated evidence.",
+      system_prompt:
+        "Mira investigates questions using original sources and calibrated evidence.",
     },
     {
       id: "builtin:coda",
       display_name: "Coda",
       avatar_url: null,
-      system_prompt: "Coda writes and edits while preserving the person's voice and factual intent.",
+      system_prompt:
+        "Coda writes and edits while preserving the person's voice and factual intent.",
     },
   ];
   mockPersonas = builtInPersonas.map((persona) => ({
@@ -11425,7 +11430,9 @@ export function maybeInstallE2eTauriMocks() {
     ];
     return { grant, replayed: current?.state === nextState };
   };
-  if (new URLSearchParams(window.location.search).get("harness-fixture") === "1") {
+  if (
+    new URLSearchParams(window.location.search).get("harness-fixture") === "1"
+  ) {
     window.__BUZZ_E2E_HARNESS_DASHBOARD__ ??= createHarnessDashboardFixture();
   }
   const handleMockCommand = async (command: string, payload: unknown) => {
@@ -11450,7 +11457,13 @@ export function maybeInstallE2eTauriMocks() {
 
     switch (command) {
       case "list_harness_sessions":
-        return { sourceId: null, runtimeFamily: (payload as { runtimeFamily: string }).runtimeFamily, sessions: [], truncated: false, notice: "Browser preview has no access to native sessions." };
+        return {
+          sourceId: null,
+          runtimeFamily: (payload as { runtimeFamily: string }).runtimeFamily,
+          sessions: [],
+          truncated: false,
+          notice: "Browser preview has no access to native sessions.",
+        };
       case "query_agent_inbox":
       case "read_agent_inbox_task":
       case "mark_agent_inbox_task_read":

@@ -13,6 +13,8 @@
   },
   "plugins": {
     "updater": { "endpoints": [] },
-    "deep-link": { "desktop": { "schemes": ["polyphonic-companion-initiative"] } }
+    "deep-link": {
+      "desktop": { "schemes": ["polyphonic-companion-initiative"] }
+    }
   }
 }

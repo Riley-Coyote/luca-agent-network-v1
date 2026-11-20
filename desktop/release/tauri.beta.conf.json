@@ -7,10 +7,7 @@
     "beforeBuildCommand": "VITE_LUCA_SHELL_FRAME=1 pnpm build"
   },
   "bundle": {
-    "targets": [
-      "app",
-      "dmg"
-    ],
+    "targets": ["app", "dmg"],
     "createUpdaterArtifacts": true,
     "macOS": {
       "infoPlist": "Info.beta.plist",
