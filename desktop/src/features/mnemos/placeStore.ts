@@ -35,6 +35,24 @@ type Facts = {
 
 const empty: Facts = { minds: null, failed: null, counts: {} };
 let facts: Facts = empty;
+/** How many memories a newer Mnemos's notebook says each mind can reach,
+ *  once read: the one number the head, the rail and its mind line all show,
+ *  over the count the minds were listed with. */
+const told = new Map<string, number>();
+
+/** The minds, each with the notebook's own number where it has told one. */
+function withTold(minds: PlaceMinds | null): PlaceMinds | null {
+  const differs = (m: PlaceMinds["minds"][number]) =>
+    (told.get(m.id) ?? m.memories) !== m.memories;
+  if (!minds?.minds.some(differs)) return minds;
+  return {
+    ...minds,
+    minds: minds.minds.map((m) => {
+      const n = told.get(m.id);
+      return n === undefined || n === m.memories ? m : { ...m, memories: n };
+    }),
+  };
+}
 let loading: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
@@ -66,7 +84,7 @@ export function loadMinds(again = false): Promise<void> {
   loading = mnemosPlace
     .minds()
     .then(
-      (minds) => set({ ...facts, minds, failed: null }),
+      (minds) => set({ ...facts, minds: withTold(minds), failed: null }),
       (error) => set({ ...facts, failed: codeOf(error) }),
     )
     .finally(() => {
@@ -88,9 +106,20 @@ export function setRoomCounts(mind: string, counts: RoomCounts) {
   });
 }
 
+/** The notebook's own count of the memories a mind can reach: its rail
+ *  row, and the number the minds are listed with (the head's and the rail's
+ *  mind line), so all three agree. */
+export function setNotebookMemories(mind: string, memories: number) {
+  told.set(mind, memories);
+  setRoomCounts(mind, { memories });
+  const minds = withTold(facts.minds);
+  if (minds !== facts.minds) set({ ...facts, minds });
+}
+
 /** Forget everything (a community switch). */
 export function resetMnemosPlace() {
   loading = null;
+  told.clear();
   clearMnemosDrafts();
   resetOwnerTouch();
   resetReadHere();

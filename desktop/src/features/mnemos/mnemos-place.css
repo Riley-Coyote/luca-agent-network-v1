@@ -200,6 +200,38 @@
   gap: 22px;
 }
 
+/* A note asked for by its address (a line in the Log): a quiet light
+ * under it for a moment, fading as it goes. It moves nothing. */
+.luca-mnemos-thread > li {
+  position: relative;
+}
+
+/* Its light reaches past the note by a shadow's spread, so it never
+ * widens what holds it. */
+.luca-mnemos-thread > li::before {
+  background: var(--luca-plate-hover);
+  border-radius: 2px;
+  box-shadow: 0 0 0 9px var(--luca-plate-hover);
+  content: "";
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity 700ms ease-out;
+  z-index: -1;
+}
+
+.luca-mnemos-thread > li[data-marked]::before {
+  opacity: 1;
+  transition-duration: 160ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-mnemos-thread > li::before {
+    transition: none;
+  }
+}
+
 .luca-mnemos-dot {
   display: inline-block;
   vertical-align: 0.1em;
@@ -835,6 +867,61 @@
   overflow-wrap: normal;
   text-overflow: clip;
   white-space: normal;
+}
+
+/* A memory in the list: its first line beside its day, its tags under
+ * both, on the row's whole width (every row alike, tags or not). */
+[data-testid="mnemos-memories-list"]
+  .luca-place-plate
+  > .luca-place-row
+  > .luca-place-row-what {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+[data-testid="mnemos-memories-list"]
+  .luca-place-plate
+  > .luca-place-row
+  .luca-place-row-title {
+  padding-right: calc(84px + 12px);
+}
+
+[data-testid="mnemos-memories-list"]
+  .luca-place-plate
+  > .luca-place-row
+  > .luca-place-row-note {
+  grid-column: -2;
+  grid-row: 1;
+  pointer-events: none;
+}
+
+[data-testid="mnemos-memories-list"]
+  .luca-place-plate
+  > .luca-place-row
+  > .luca-place-row-middle:empty {
+  display: none;
+}
+
+/* Each tag whole; the separator sits in the gap before a tag, so the one
+ * before the first tag on a line falls outside the row and is never seen,
+ * and none is ever left at a line's end. */
+.luca-mnemos-tags {
+  column-gap: 1.25em;
+  display: flex;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.luca-mnemos-tags > span {
+  position: relative;
+}
+
+.luca-mnemos-tags > span::before {
+  content: "·" / "";
+  position: absolute;
+  right: 100%;
+  text-align: center;
+  width: 1.25em;
 }
 
 /* An hour holds what it wrote: the hour's line, its span on a line of its

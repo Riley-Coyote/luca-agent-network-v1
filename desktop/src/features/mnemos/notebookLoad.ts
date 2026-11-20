@@ -25,6 +25,9 @@ export type NotebookMemories = {
   memories: BookMemory[];
   /** Ids recalled lately (the first page's). */
   recalled: string[];
+  /** The first page's `recalled`, whole and untouched, for The mind's
+   *  recall track: each time a memory came back, and when. */
+  recalledLog: unknown[];
 };
 
 /** What the place holds of a mind's notebook, while it is on screen. */
@@ -75,6 +78,7 @@ export async function loadMemories(
     let offset: number | null = 0;
     let version: string | null = null;
     let recalled: string[] = [];
+    let recalledLog: unknown[] = [];
     const memories: BookMemory[] = [];
     let moved = false;
     while (offset !== null) {
@@ -91,6 +95,7 @@ export async function loadMemories(
       if (version === null) {
         version = page.version;
         recalled = page.recalled;
+        recalledLog = page.recalledLog;
       } else if (page.version !== version) {
         moved = true;
         break;
@@ -99,7 +104,8 @@ export async function loadMemories(
       // Onward only: a `next` that doesn't move on ends the reading.
       offset = page.next !== null && page.next > offset ? page.next : null;
     }
-    if (!moved) return { version: version ?? "", memories, recalled };
+    if (!moved)
+      return { version: version ?? "", memories, recalled, recalledLog };
   }
   throw new Error("notebook_changing");
 }

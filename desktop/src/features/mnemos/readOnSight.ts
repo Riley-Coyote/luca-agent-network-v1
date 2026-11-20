@@ -47,7 +47,9 @@ export type SightOptions = {
  * leaves it. A note shown for `SEEN_AFTER_MS` while someone is looking is
  * read, and the notes read within `SAY_AFTER_MS` of each other are said in
  * one `read`. A note already said is never said again; one whose saying
- * failed is unread again, for the next look.
+ * failed is unread again, and is tried again only the next time it is on
+ * sight (it leaves the screen and comes back, or the window hides and
+ * shows again): never again and again while it sits there.
  */
 export function sightReader(options: SightOptions) {
   const setTimer =
@@ -58,6 +60,8 @@ export function sightReader(options: SightOptions) {
     ((t: Timer) => clearTimeout(t as ReturnType<typeof setTimeout>));
   const waiting = new Map<string, Timer>();
   const said = new Set<string>();
+  /** Notes whose saying failed, still on screen since. */
+  const failed = new Set<string>();
   const toSay = new Set<string>();
   let saying: Timer | null = null;
 
@@ -75,6 +79,7 @@ export function sightReader(options: SightOptions) {
       options.read(ids).catch(() => {
         for (const each of ids) {
           said.delete(each);
+          failed.add(each);
           options.onUnseen?.(each);
         }
       });
@@ -85,6 +90,11 @@ export function sightReader(options: SightOptions) {
     /** A note came into view enough to read (`yes`), or left it. */
     shown(id: string, yes: boolean) {
       if (said.has(id)) return;
+      // A failed note waits until it has left the screen.
+      if (failed.has(id)) {
+        if (!yes) failed.delete(id);
+        return;
+      }
       if (yes && options.looking() && !waiting.has(id))
         waiting.set(
           id,
@@ -100,6 +110,8 @@ export function sightReader(options: SightOptions) {
     pause() {
       for (const t of waiting.values()) clearTimer(t);
       waiting.clear();
+      // Shown again, every note on screen is a new sight.
+      failed.clear();
     },
     /** Whether this note was read here. */
     said: (id: string) => said.has(id),

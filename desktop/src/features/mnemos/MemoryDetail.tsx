@@ -1,3 +1,5 @@
+import * as React from "react";
+
 import {
   PlaceList,
   PlaceListRow,
@@ -10,7 +12,7 @@ import { answeredKey, beliefKey } from "./notebookLog";
 import { ASK, KIND, putTo, question, RELATION } from "./notebookWords";
 import type { NotebookView, RoomProps } from "./roomKit";
 
-/** Ties an opened memory lists before saying how many more. */
+/** Ties an opened memory lists before offering the rest. */
 const TIES_SHOWN = 24;
 
 const two = (n: number) => n.toFixed(2);
@@ -38,6 +40,8 @@ export function MemoryDetail({
   part: "readings" | "related";
 }) {
   const { life } = notebook;
+  const [allTies, setAllTies] = React.useState(false);
+  const root = React.useRef<HTMLDivElement>(null);
   const all = notebook.memories.memories;
   const byId = new Map(all.map((m) => [m.id, m]));
   const read = readingsOf(memory, new Set(byId.keys()));
@@ -54,6 +58,17 @@ export function MemoryDetail({
   const answered = life.questions.answered
     .map((q) => ({ q, key: answeredKey(q) }))
     .filter(({ q }) => q.about === memory.id);
+  // The rest shown in place: focus goes to the first of them, where the
+  // button was.
+  const firstMore = ties[TIES_SHOWN]?.[0] ?? null;
+  React.useEffect(() => {
+    if (!allTies || !firstMore) return;
+    root.current
+      ?.querySelector<HTMLButtonElement>(
+        `[data-testid="mnemos-memory-tie-${CSS.escape(firstMore)}"] button`,
+      )
+      ?.focus();
+  }, [allTies, firstMore]);
   if (part === "readings")
     return (
       <p
@@ -85,29 +100,37 @@ export function MemoryDetail({
   )
     return null;
   return (
-    <div className="luca-mnemos-detail" data-testid="mnemos-memory-detail">
+    <div
+      className="luca-mnemos-detail"
+      data-testid="mnemos-memory-detail"
+      ref={root}
+    >
       {ties.length ? (
         <PlaceList
           count={ties.length}
           label="Tied to"
           testId="mnemos-memory-ties"
         >
-          {ties.slice(0, TIES_SHOWN).map(([id, relation]) => {
-            const other = byId.get(id) as BookMemory;
-            return (
-              <PlaceListRow
-                key={id}
-                note={placeNoteTime(other.born)}
-                onOpen={() => onOpenMemory(id)}
-                summary={RELATION[relation] ?? relation}
-                testId={`mnemos-memory-tie-${id}`}
-                title={firstLine(other.content)}
-              />
-            );
-          })}
-          {ties.length > TIES_SHOWN ? (
+          {(allTies ? ties : ties.slice(0, TIES_SHOWN)).map(
+            ([id, relation]) => {
+              const other = byId.get(id) as BookMemory;
+              return (
+                <PlaceListRow
+                  key={id}
+                  note={placeNoteTime(other.born)}
+                  onOpen={() => onOpenMemory(id)}
+                  summary={RELATION[relation] ?? relation}
+                  testId={`mnemos-memory-tie-${id}`}
+                  title={firstLine(other.content)}
+                />
+              );
+            },
+          )}
+          {!allTies && ties.length > TIES_SHOWN ? (
             <PlaceListRow
-              title={`and ${(ties.length - TIES_SHOWN).toLocaleString("en-US")} more`}
+              onOpen={() => setAllTies(true)}
+              testId="mnemos-memory-ties-more"
+              title={`Show ${(ties.length - TIES_SHOWN).toLocaleString("en-US")} more`}
             />
           ) : null}
         </PlaceList>

@@ -28,7 +28,9 @@ import { DIDNT_ANSWER, type NotebookView, type RoomProps } from "./roomKit";
 import { PlaceLine } from "./MnemosParts";
 import { linkedWords, stateLine } from "./notebook";
 import { bookOfNotebook, readerOfNotebook } from "./notebookLoad";
-import { loadMinds, setRoomCounts } from "./placeStore";
+import { letGoMindWordsDrafts } from "./drafts";
+import { possessive } from "./notebookWords";
+import { loadMinds, setNotebookMemories, setRoomCounts } from "./placeStore";
 import { QuestionsRoom } from "./QuestionsRoom";
 import { CarryingRoom } from "./ReaderRooms";
 import { SettingsRoom } from "./SettingsRoom";
@@ -64,6 +66,9 @@ const ROOMS: Record<MnemosRoomId, (props: RoomProps) => React.ReactNode> = {
  */
 export function MnemosScreen() {
   const { applyPatch, values } = useHistorySearchState(SEARCH_KEYS);
+  // Leaving the place lets go of the mind's words, and of every draft made
+  // of them.
+  React.useEffect(() => letGoMindWordsDrafts, []);
   useKeepPickInAddress("mnemos", applyPatch);
   const { pick } = usePlacePick("mnemos");
   const room: MnemosRoomId = isMnemosRoom(pick) ? pick : "glance";
@@ -187,6 +192,10 @@ function MindCard({
     [life, memories, newer, oldReader],
   );
   const writes = React.useMemo(() => writesOf(send, ask), [send, ask]);
+  // Hidden, the room and its words go: drafts made of the mind's words too.
+  React.useEffect(() => {
+    if (!visible) letGoMindWordsDrafts();
+  }, [visible]);
   useRoomCounts(
     book,
     reader,
@@ -279,8 +288,11 @@ function useNotebookCounts(
     if (!summary) return;
     const c = summary.counts;
     const states = life?.memory.states;
+    // One number for the head and the rail: what the notebook says it can
+    // reach (the summary's count until its life is read).
+    const memories = states ? states.active + states.dormant : c.memories;
+    if (memories !== undefined) setNotebookMemories(mind, memories);
     setRoomCounts(mind, {
-      memories: states ? states.active + states.dormant : c.memories,
       shared: c.shared,
       beliefs: c.beliefs,
       questions: c.questions,
@@ -360,7 +372,7 @@ function PhaseLine({
         action={{ label: "Show it here", run: () => retry() }}
         testId="mnemos-state-declined"
       >
-        {mind.name}’s memory isn’t shown here. Nothing was read.
+        {possessive(mind.name)} memory isn’t shown here. Nothing was read.
       </PlaceLine>
     );
   const code = phase.code;
@@ -370,8 +382,8 @@ function PhaseLine({
         action={{ label: "Show it here", run: () => retry(true) }}
         testId="mnemos-state-changed"
       >
-        {mind.name}’s memory file was moved or replaced since you said to show
-        it, so nothing was read.
+        {possessive(mind.name)} memory file was moved or replaced since you said
+        to show it, so nothing was read.
       </PlaceLine>
     );
   if (code === "mnemos_too_old")
@@ -401,7 +413,7 @@ function PhaseLine({
         action={{ label: "Look again", run: () => void loadMinds(true) }}
         testId="mnemos-state-mind-gone"
       >
-        {mind.name}’s memory isn’t on this Mac anymore.
+        {possessive(mind.name)} memory isn’t on this Mac anymore.
       </PlaceLine>
     );
   return (
@@ -409,7 +421,7 @@ function PhaseLine({
       action={{ label: "Try again", run: () => retry() }}
       testId="mnemos-state-failed"
     >
-      Mnemos couldn’t open {mind.name}’s memory.
+      Mnemos couldn’t open {possessive(mind.name)} memory.
     </PlaceLine>
   );
 }

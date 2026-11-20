@@ -157,6 +157,9 @@ export type MemoryPage = {
   version: string;
   memories: BookMemory[];
   recalled: string[];
+  /** The engine's `recalled` as given, whole and untouched: each time a
+   *  memory came back, and when (`[id, iso]`, oldest first). */
+  recalledLog: unknown[];
   next: number | null;
   total: number | null;
 };
@@ -167,9 +170,18 @@ export function memoryPageOf(document: unknown, page: unknown): MemoryPage {
   return {
     version: str(d.version),
     memories: items(d.memories, memoryOfNotebook),
+    // The engine gives `[id, when]` for each recall; an id alone, or
+    // `{ id }`, is read too.
     recalled: list(d.recalled)
-      .map((r) => (typeof r === "string" ? r : str(obj(r).id)))
+      .map((r) =>
+        typeof r === "string"
+          ? r
+          : Array.isArray(r)
+            ? str(r[0])
+            : str(obj(r).id),
+      )
       .filter((r) => r !== ""),
+    recalledLog: Array.isArray(d.recalled) ? d.recalled : [],
     next: num(p.next),
     total: num(p.total),
   };

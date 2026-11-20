@@ -168,7 +168,7 @@ function eventRows(
               () => goTo("journal", e.id),
             ),
         })),
-        ...event.notes.map(({ note, thread }) => ({
+        ...event.notes.map(({ note }) => ({
           at: note.at ?? event.at,
           node: (at: string) =>
             line(
@@ -180,7 +180,7 @@ function eventRows(
                 note.read ? "read" : "not yet read",
               ),
               firstLine(note.text),
-              () => goTo("notes", thread),
+              () => goTo("notes", note.id),
             ),
         })),
       ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
@@ -245,7 +245,7 @@ function eventRows(
             )
           : `From ${person ?? "you"}`,
         firstLine(n.text),
-        () => goTo("notes", event.thread),
+        () => goTo("notes", n.id),
       );
       return;
     }

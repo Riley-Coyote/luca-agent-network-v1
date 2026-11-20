@@ -19,6 +19,14 @@ import {
 
 /** A made-up newer engine: `n` memories in `version`, read in pages, with
  *  a summary whose token the test changes. Counts every request. */
+/** What the engine's first page says was recalled (`export.py`): each time
+ *  a memory came back, and when, oldest first. */
+const RECALLED = [
+  ["m2", "2026-11-18T03:00:00Z"],
+  ["m5", "2026-11-19T03:10:00Z"],
+  ["m2", "2026-11-20T01:30:00Z"],
+];
+
 function engine(n, version = "v1") {
   const state = {
     version,
@@ -92,7 +100,8 @@ function engine(n, version = "v1") {
         document: {
           version: state.version,
           memories: slice,
-          ...(request.offset === 0 ? { recalled: ["m2"] } : {}),
+          // The engine's own shape: each recall, `[id, when]`.
+          ...(request.offset === 0 ? { recalled: RECALLED } : { recalled: [] }),
         },
         page: {
           offset: request.offset,
@@ -113,7 +122,9 @@ test("memories come in pages of 500, following next", async () => {
   const all = await loadMemories(ask);
   assert.equal(all.memories.length, 1203);
   assert.equal(all.version, "v1");
-  assert.deepEqual(all.recalled, ["m2"]);
+  assert.deepEqual(all.recalled, ["m2", "m5", "m2"]);
+  // Kept whole and untouched beside the ids, for The mind's recall track.
+  assert.deepEqual(all.recalledLog, RECALLED);
   assert.deepEqual(state.asked, [
     "memories@0",
     "memories@500",

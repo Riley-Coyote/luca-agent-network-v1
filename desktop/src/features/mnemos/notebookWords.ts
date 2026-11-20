@@ -145,3 +145,9 @@ export function restsOnWords(
     parts.push(`${some(n, parts.length === 0)} ${who} wrote, a colleague`);
   return `rests on ${parts.join(" and ")}`;
 }
+
+/** A name as its owner's, once for the whole place: "Kestrel’s", and a
+ *  name ending in s takes only the apostrophe ("Field Notes’"). */
+export function possessive(name: string): string {
+  return /s$/i.test(name.trim()) ? `${name}’` : `${name}’s`;
+}

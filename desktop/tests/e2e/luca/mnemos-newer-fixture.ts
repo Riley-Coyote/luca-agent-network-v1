@@ -262,7 +262,16 @@ export function kestrelNotebook(now: number) {
       store: "~/.mnemos/kestrel.db",
     },
     hours,
-    schedule: [{ kind: "mine", when: "03:00", how: "launchd" }],
+    // The engine's shape (`export.py` `schedule`): a LaunchAgent that runs
+    // its own hour at three.
+    schedule: [
+      {
+        label: "com.mnemos.kestrel.hour-mine",
+        when: { Hour: 3, Minute: 0 },
+        kind: "mine",
+        loaded: true,
+      },
+    ],
     jev: { on: false, key: false, env: false, host: "api.typesafe.ai" },
     shared: {
       status: "ready",
@@ -397,5 +406,67 @@ export function kestrelNotebook(now: number) {
       },
     ],
   };
-  return { life, memories, version: "kv1", recalled: ["kes-m01", "kes-m05"] };
+  // Each time a memory came back, and when (`export.py` `recalled`).
+  const recalled = [
+    ["kes-m05", iso(now - 2 * day)],
+    ["kes-m01", iso(now - 5 * hour)],
+    ["kes-m05", iso(now - 4 * hour - 40 * 60_000)],
+  ];
+  return { life, memories, version: "kv1", recalled };
+}
+
+/**
+ * Kestrel grown for the tests that need length: a thread of sixteen notes
+ * (Pat's sandbar note, its answer, and fourteen more), and a memory tied to
+ * thirty others, so its ties offer the rest.
+ */
+export function growKestrel(
+  notebook: ReturnType<typeof kestrelNotebook>,
+  now: number,
+) {
+  const hour = 3_600_000;
+  const day = 24 * hour;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const { life, memories } = notebook;
+  let replyTo = "kes-n3";
+  for (let i = 1; i <= 14; i++) {
+    const id = `kes-r${String(i).padStart(2, "0")}`;
+    const agent = i % 2 === 1;
+    life.notes.push({
+      id,
+      at: iso(now - 3 * day + 3 * hour + i * 10 * 60_000),
+      kind: "reply",
+      text: `Reply ${i} about the sandbar. The old chart puts it a cable further north, and the buoy on the spit has drifted since the spring tides. Worth a look on the next calm morning, before the fog.`,
+      author: agent ? "agent" : "person",
+      model: agent ? "claude-opus-5-5" : "",
+      replyTo,
+      hour: "",
+      delivered: agent ? null : iso(now - 2 * day),
+      read: iso(now - 2 * day),
+    });
+    replyTo = id;
+  }
+  const base = memories[2];
+  if (!base) return notebook;
+  const tied: typeof base.ties = [];
+  for (let i = 0; i < 30; i++) {
+    const id = `kes-g${String(i).padStart(2, "0")}`;
+    memories.push({
+      ...base,
+      id,
+      born: iso(now - 40 * day - i * hour),
+      content: `A harbour fact, number ${i + 1}.`,
+      lesson: false,
+      standing: false,
+      asked: false,
+      state: "active",
+      recalls: 0,
+      ties: [],
+    });
+    tied.push([id, "co_activated", 0.4, iso(now - 30 * day), "agent", 0]);
+  }
+  base.ties = [...(base.ties ?? []), ...tied];
+  life.memory.states.active += 30;
+  life.memory.count += 30;
+  return notebook;
 }

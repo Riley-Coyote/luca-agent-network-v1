@@ -19,7 +19,16 @@ import {
   logDays,
   spanWords,
 } from "./notebookLog.ts";
-import { restsOnWords } from "./notebookWords.ts";
+import {
+  draftKey,
+  forgetDraft,
+  holdsMindWords,
+  keepDraft,
+  letGoMindWordsDrafts,
+  mindWordsDraftKey,
+  readDraft,
+} from "./drafts.ts";
+import { possessive, restsOnWords } from "./notebookWords.ts";
 import { showing, sightReader } from "./readOnSight.ts";
 
 const NOW = Date.UTC(2026, 10, 20, 15, 0);
@@ -431,15 +440,63 @@ test("a read that fails leaves the note unread, for the next look", async () => 
     },
     clearTimer: () => {},
   });
+  const settle = () => new Promise((r) => setTimeout(r, 0));
   reader.shown("n1", true);
-  await new Promise((r) => setTimeout(r, 0));
+  await settle();
   assert.deepEqual(unseen, ["n1"]);
   assert.equal(reader.said("n1"), false);
+  // Still on screen (its dot back, looked at again): not tried again, so
+  // a failing read never runs in a loop.
+  reader.shown("n1", true);
+  reader.shown("n1", true);
+  await settle();
+  assert.deepEqual(calls, [["n1"]]);
+  // It leaves the screen and comes back: the next sight tries again.
+  reader.shown("n1", false);
+  reader.shown("n1", true);
+  await settle();
+  assert.deepEqual(calls, [["n1"], ["n1"]]);
+  assert.equal(reader.said("n1"), false, "failed again");
+  // The window hid and showed again: a new sight too.
   fail = false;
   reader.shown("n1", true);
-  await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(calls, [["n1"], ["n1"]]);
+  await settle();
+  assert.equal(calls.length, 2);
+  reader.pause();
+  reader.shown("n1", true);
+  await settle();
+  assert.deepEqual(calls, [["n1"], ["n1"], ["n1"]]);
   assert.equal(reader.said("n1"), true);
+});
+
+test("a draft made of the mind's words goes with them; the owner's own stay", () => {
+  const note = draftKey("kestrel", "note");
+  const reply = draftKey("kestrel", "reply:kes-n1");
+  const correct = mindWordsDraftKey("kestrel", "correct:kes-m01");
+  const other = mindWordsDraftKey("wren", "correct:w1");
+  keepDraft(note, "Calm days too, please.");
+  keepDraft(reply, "Yes, lead with it.");
+  keepDraft(correct, "Pat reads the tide chart first, then the weather.");
+  keepDraft(other, "Edited words.");
+  assert.equal(holdsMindWords(correct), true);
+  assert.equal(holdsMindWords(note), false);
+  assert.notEqual(correct, draftKey("kestrel", "correct:kes-m01"));
+  // Leaving the place, or the window hiding: the mind's words go.
+  letGoMindWordsDrafts();
+  assert.equal(readDraft(correct), undefined);
+  assert.equal(readDraft(other), undefined);
+  // The owner's own words are kept exactly as before.
+  assert.equal(readDraft(note), "Calm days too, please.");
+  assert.equal(readDraft(reply), "Yes, lead with it.");
+  forgetDraft(note);
+  forgetDraft(reply);
+});
+
+test("a name as its owner's: an s takes only the apostrophe", () => {
+  assert.equal(possessive("Kestrel"), "Kestrel’s");
+  assert.equal(possessive("Field Notes"), "Field Notes’");
+  assert.equal(possessive("Wren"), "Wren’s");
+  assert.equal(possessive("JAMES"), "JAMES’");
 });
 
 test("a thing with no id is keyed by itself, so an insert never moves a link", () => {

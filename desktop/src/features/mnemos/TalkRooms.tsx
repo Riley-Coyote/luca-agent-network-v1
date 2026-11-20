@@ -37,6 +37,9 @@ import { WriteField } from "./WriteField";
  *  place's limit). */
 export const JOURNAL_LAST = 500;
 
+/** How long a note asked for by its address stays marked. */
+const MARKED_MS = 1600;
+
 /** Journal (WP-45, Decided 5): entries by date, each titled by its own
  *  first sentence with its mood; the whole entry opened. */
 export function JournalRoom({
@@ -164,14 +167,19 @@ export function NotesRoom({
   }, [list, mind.id]);
   const waiting = all.filter((t) => t.waits);
   const rest = all.filter((t) => !t.waits);
+  // The address names a thread, or one note in it (a line in the Log): the
+  // note's thread opens, and that note comes into view.
+  const threadOf = (id: string) =>
+    all.find((t) => t.id === id || t.notes.some((n) => n.id === id)) ?? null;
   const opened = useAddressItem(
     mind.id,
     item,
-    (id) => all.some((t) => t.id === id),
+    (id) => threadOf(id) !== null,
     notes.value !== null || notes.failed !== null,
     openItem,
   );
-  const thread = all.find((t) => t.id === opened) ?? null;
+  const thread = opened ? threadOf(opened) : null;
+  const asked = thread && opened !== thread.id ? opened : null;
   // Leaving a note is the list's first row; opened, its field is the thing
   // opened. It isn't in the address: the address names only the engine's.
   const [leaving, setLeaving] = React.useState(false);
@@ -186,7 +194,7 @@ export function NotesRoom({
   const rows = (group: Thread[]) =>
     group.map((t) => (
       <PlaceListRow
-        aria-current={t.id === opened ? "true" : undefined}
+        aria-current={t.id === thread?.id ? "true" : undefined}
         key={t.id}
         note={
           <>
@@ -297,6 +305,8 @@ export function NotesRoom({
           </article>
         ) : thread ? (
           <ThreadOpened
+            asked={asked}
+            key={thread.id}
             mindId={mind.id}
             mindName={mind.name}
             onAnswer={async (noteId, text) =>
@@ -338,6 +348,7 @@ export function wokenWords(note: Pick<BookNote, "delivered">): string {
 }
 
 function ThreadOpened({
+  asked,
   mindId,
   mindName,
   onAnswer,
@@ -345,6 +356,9 @@ function ThreadOpened({
   thread,
   watch,
 }: {
+  /** The note the address names, when it isn't the thread's first: it
+   *  comes into view and is marked for a moment. */
+  asked: string | null;
   mindId: string;
   mindName: string;
   onAnswer: (noteId: string, text: string) => Promise<void>;
@@ -356,11 +370,36 @@ function ThreadOpened({
   // An answer answers the mind's last word here. Once you have answered,
   // the thread waits on it, not you, so the field goes until it writes.
   const answers = thread.last.author === "agent" ? thread.last : null;
+  const list = React.useRef<HTMLOListElement>(null);
+  const [marked, setMarked] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!asked) return;
+    const el = list.current?.querySelector(
+      `[data-note="${CSS.escape(asked)}"]`,
+    );
+    if (!el) return;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // After the frame has taken focus (which scrolls it to its top).
+    const frame = window.requestAnimationFrame(() =>
+      el.scrollIntoView({
+        block: "center",
+        behavior: still ? "auto" : "smooth",
+      }),
+    );
+    setMarked(asked);
+    const done = window.setTimeout(() => setMarked(null), MARKED_MS);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(done);
+    };
+  }, [asked]);
   return (
     <article aria-label="Notes" data-testid="mnemos-thread-opened">
-      <ol className="luca-mnemos-thread">
+      <ol className="luca-mnemos-thread" ref={list}>
         {thread.notes.map((n) => (
           <li
+            aria-current={n.id === asked ? "true" : undefined}
+            data-marked={n.id === marked ? "" : undefined}
             data-note={n.id}
             data-unread={watch && stillUnread(n) ? n.id : undefined}
             key={n.id}

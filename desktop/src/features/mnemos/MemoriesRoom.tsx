@@ -37,7 +37,7 @@ import {
   visitOf,
 } from "./memoryArrange";
 import { MemoryDetail } from "./MemoryDetail";
-import { loadMinds, setRoomCounts } from "./placeStore";
+import { loadMinds, setNotebookMemories, setRoomCounts } from "./placeStore";
 import {
   DIDNT_ANSWER,
   type NotebookView,
@@ -45,7 +45,7 @@ import {
   useAddressItem,
 } from "./roomKit";
 import { useReaderSection } from "./useReader";
-import { draftKey, forgetDraft, readDraft } from "./drafts";
+import { forgetDraft, mindWordsDraftKey, readDraft } from "./drafts";
 import { failureWords, WriteField } from "./WriteField";
 
 const PAGE = 50;
@@ -196,6 +196,17 @@ export function MemoriesRoom(props: RoomProps) {
         .slice(0, pages.current * PAGE)
     : [];
 
+  // A filter or an order that leaves the opened memory out of the list
+  // closes it, in place, and the first then opens by itself, as on arrival.
+  const arranged = React.useRef({ filter, sort });
+  React.useEffect(() => {
+    const was = arranged.current;
+    if (was.filter === filter && was.sort === sort) return;
+    arranged.current = { filter, sort };
+    if (item !== null && !notebookShown.some((m) => m.id === item))
+      openItem(null, { replace: true });
+  }, [filter, item, notebookShown, openItem, sort]);
+
   const search = useLoad(
     () => (asked ? book.search(asked) : Promise.resolve(null)),
     [book, asked],
@@ -331,7 +342,11 @@ export function MemoriesRoom(props: RoomProps) {
                   key={m.id}
                   note={placeNoteTime(m.born)}
                   onOpen={() => openItem(m.id)}
-                  summary={fromNotebook.tags(m) || undefined}
+                  summary={
+                    fromNotebook.tags(m).length ? (
+                      <Tags tags={fromNotebook.tags(m)} />
+                    ) : undefined
+                  }
                   testId={`mnemos-memory-${m.id}`}
                   title={firstLine(m.content)}
                 />
@@ -451,7 +466,7 @@ export function MemoriesRoom(props: RoomProps) {
           </article>
         ) : memory ? (
           <MemoryOpened
-            draft={draftKey(mind.id, `correct:${memory.memory.id}`)}
+            draft={mindWordsDraftKey(mind.id, `correct:${memory.memory.id}`)}
             detail={
               notebook && memory.whole
                 ? (part) => (
@@ -500,9 +515,9 @@ export function MemoriesRoom(props: RoomProps) {
                   memory.whole ? memory.memory.state : "active",
                 );
                 lastFacts.current = next;
-                setRoomCounts(mind.id, {
-                  memories: next.states.active + next.states.dormant,
-                });
+                const left = next.states.active + next.states.dormant;
+                if (notebook) setNotebookMemories(mind.id, left);
+                else setRoomCounts(mind.id, { memories: left });
               }
               setShown((list) => list.filter((m) => m.id !== was.id));
               openItem(null, { replace: true });
@@ -882,11 +897,21 @@ function useNotebookList(
           m.state === "dormant" ? "gone quiet" : null,
           (ctx.heat.get(m.id) ?? 0) > 0.05 ? "warm from its hours" : null,
           m.recalls ? `recalled ${m.recalls}×` : null,
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        ].filter((t): t is string => t !== null),
     };
   }, [notebook, mind, filter, sort]);
+}
+
+/** A memory's tags, on the row's whole width: each kept whole, the
+ *  separator between two on one line, never left at a line's end. */
+function Tags({ tags }: { tags: string[] }) {
+  return (
+    <span className="luca-mnemos-tags" data-testid="mnemos-memory-tags">
+      {tags.map((tag) => (
+        <span key={tag}>{tag}</span>
+      ))}
+    </span>
+  );
 }
 
 /** The notebook's filters and its orders, as two quiet menus on one row,
