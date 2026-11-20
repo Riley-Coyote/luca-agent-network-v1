@@ -15,9 +15,11 @@ import {
   carriedBy,
   heldWords,
   memoryNumbers,
+  monthMarks,
   newest,
   newestDayKept,
   picturesOf,
+  type StripDay,
   stepTo,
 } from "./boardFacts";
 import { Cut } from "./Cut";
@@ -91,9 +93,9 @@ export function Board(props: RoomProps & { notebook: NotebookView }) {
                   pictures={pictures.slice(0, THUMBS)}
                   testId="mnemos-made-thumb"
                 />
-                <p className="luca-mnemos-quiet luca-mnemos-oneline text-xs">
+                <Cut className="luca-mnemos-quiet text-xs" lines={2}>
                   {pictures[0].name} · {when(pictures[0].at, now)}
-                </p>
+                </Cut>
               </>
             ) : (
               <Quiet>Nothing made yet.</Quiet>
@@ -141,7 +143,7 @@ function DayPlate({
       testId="mnemos-plate-day"
     >
       {day ? (
-        <Cut lines={9} testId="mnemos-day-rows">
+        <Cut className="luca-mnemos-day-cut" lines={9} testId="mnemos-day-rows">
           <ol className="luca-mnemos-day-rows">
             {day.rows.map((r) => (
               <li key={r.key}>
@@ -149,7 +151,9 @@ function DayPlate({
                   {r.time}
                   {r.tag ? <span> · {r.tag}</span> : null}
                 </span>
-                <span className="luca-mnemos-oneline text-sm">{r.text}</span>
+                <Cut className="text-sm" lines={2}>
+                  {r.text}
+                </Cut>
               </li>
             ))}
           </ol>
@@ -170,7 +174,6 @@ function MemoryPlate({
   now,
 }: PlateProps & { memories: BookMemory[] }) {
   const n = memoryNumbers(life, memories, now);
-  const most = Math.max(1, ...n.line.map((d) => d.count));
   return (
     <Plate
       className="luca-mnemos-board-memory"
@@ -195,26 +198,62 @@ function MemoryPlate({
             : "Nothing kept yet"}
         </p>
       </div>
-      {n.line.length ? (
-        <figure className="luca-mnemos-strip" data-testid="mnemos-day-strip">
-          <div
-            aria-label={`Memories kept each day, since ${n.since}`}
-            className="luca-mnemos-strip-days"
-            role="img"
-          >
-            {n.line.map((d) => (
-              <span
-                data-count={d.count}
-                key={d.key}
-                style={{
-                  height: `${d.count ? 12 + (88 * d.count) / most : 4}%`,
-                }}
-              />
-            ))}
-          </div>
-        </figure>
-      ) : null}
+      <DayStrip since={n.since} strip={n.strip} />
     </Plate>
+  );
+}
+
+/** The strip of days: the last six months, a thin tick for each day that
+ *  kept something, as tall as how many, a dot for a day that kept none,
+ *  and the months named under it. */
+function DayStrip({
+  since,
+  strip,
+}: {
+  since: string | null;
+  strip: StripDay[];
+}) {
+  const most = Math.max(1, ...strip.map((d) => d.count));
+  const busiest = strip.reduce((a, b) => (b.count > a.count ? b : a));
+  const at = (i: number) => `${(((i + 0.5) / strip.length) * 100).toFixed(3)}%`;
+  return (
+    <figure className="luca-mnemos-strip" data-testid="mnemos-day-strip">
+      <div
+        aria-label={`Memories kept each day, the last six months${
+          since ? `, since ${since}` : ""
+        }${
+          busiest.count
+            ? `; the most, ${busiest.count}, on ${busiest.date.toLocaleString(
+                "en-US",
+                { weekday: "long", month: "long", day: "numeric" },
+              )}`
+            : ""
+        }`}
+        className="luca-mnemos-ticks"
+        role="img"
+      >
+        {strip.map((d) => (
+          <span
+            data-count={d.count}
+            key={d.key}
+            style={
+              d.count
+                ? {
+                    height: `${(18 + 82 * Math.sqrt(d.count / most)).toFixed(1)}%`,
+                  }
+                : undefined
+            }
+          />
+        ))}
+      </div>
+      <div aria-hidden className="luca-mnemos-months text-2xs">
+        {monthMarks(strip).map((m) => (
+          <span key={m.index} style={{ left: at(m.index) }}>
+            {m.name}
+          </span>
+        ))}
+      </div>
+    </figure>
   );
 }
 
@@ -344,11 +383,11 @@ function AsksPlate({ goTo, life, now }: PlateProps) {
       ) : (
         <Quiet>Nothing is open.</Quiet>
       )}
-      <p className="luca-mnemos-quiet luca-mnemos-oneline text-xs">
+      <Cut className="luca-mnemos-quiet text-xs" lines={2}>
         {last?.at
           ? `Its latest answer, ${latestDay(new Date(last.at), now)}`
           : "It has answered none yet"}
-      </p>
+      </Cut>
     </Plate>
   );
 }
@@ -371,9 +410,9 @@ function JournalPlate({ goTo, life, now }: PlateProps) {
             {title.title}
           </Cut>
           {entry.mood ? (
-            <p className="luca-mnemos-quiet luca-mnemos-oneline text-xs">
+            <Cut className="luca-mnemos-quiet text-xs" lines={2}>
               mood, in its words: {entry.mood}
-            </p>
+            </Cut>
           ) : null}
           {title.body ? (
             <Cut className="luca-mnemos-quiet text-sm" lines={2}>

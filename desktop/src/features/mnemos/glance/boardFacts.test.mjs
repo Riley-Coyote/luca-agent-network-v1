@@ -10,6 +10,8 @@ import {
   carriedBy,
   heldWords,
   memoryNumbers,
+  monthMarks,
+  STRIP_DAYS,
   newest,
   newestDayKept,
   picturesMadeBy,
@@ -37,11 +39,23 @@ test("Memory: how many it can reach, let go, the days kept and since when", () =
   // from the first, 22 days and 5 hours ago, to today.
   assert.equal(n.days, 12);
   assert.equal(n.since, "Oct 29");
-  assert.equal(n.line.length, 23);
-  assert.equal(n.line.at(-1).count, 1);
+  // The strip always spans the last six months, ending today: a young
+  // mind is a few ticks at its right end.
+  assert.equal(n.strip.length, STRIP_DAYS);
+  assert.equal(n.strip.at(-1).key, "2026-11-20");
+  assert.equal(n.strip.at(-1).count, 1);
   assert.equal(
-    n.line.reduce((sum, d) => sum + d.count, 0),
+    n.strip.reduce((sum, d) => sum + d.count, 0),
     12,
+  );
+  assert.equal(
+    n.strip.findIndex((d) => d.count > 0),
+    STRIP_DAYS - 23,
+  );
+  // Its months, each named at its first day.
+  assert.deepEqual(
+    monthMarks(n.strip).map((m) => m.name),
+    ["Jun", "Jul", "Aug", "Sep", "Oct", "Nov"],
   );
 });
 

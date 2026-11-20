@@ -55,11 +55,13 @@ async function boot(
     mode = "dark",
     sharedStatus = "ready",
     reducedMotion = false,
+    longWords = false,
   }: {
     hash?: string;
     mode?: Mode;
     sharedStatus?: string;
     reducedMotion?: boolean;
+    longWords?: boolean;
   } = {},
 ) {
   const errors: string[] = [];
@@ -69,7 +71,16 @@ async function boot(
   });
   if (reducedMotion) await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(
-    ({ kestrel, wren, hello, pictures, broken, sharedStatus, hermes }) => {
+    ({
+      kestrel,
+      wren,
+      hello,
+      pictures,
+      broken,
+      sharedStatus,
+      hermes,
+      longWords,
+    }) => {
       type Invoke = (
         cmd: string,
         args?: Record<string, unknown>,
@@ -90,6 +101,29 @@ async function boot(
       };
       win.boardProbe = probe;
       kestrel.life.shared.status = sharedStatus;
+      if (longWords) {
+        // One very long unbroken word in every piece of words either mind
+        // has, and in the newest picture's name.
+        const long = "W".repeat(300);
+        const words = new Set(["content", "text", "said", "mood", "person"]);
+        const stretch = (value: unknown) => {
+          if (Array.isArray(value)) value.forEach(stretch);
+          else if (value && typeof value === "object")
+            for (const [key, inner] of Object.entries(value)) {
+              if (words.has(key) && typeof inner === "string" && inner)
+                (value as Record<string, unknown>)[key] = `${long} ${inner}`;
+              else stretch(inner);
+            }
+        };
+        stretch(kestrel);
+        stretch(wren);
+        const first = kestrel.life.studio[0];
+        if (first) {
+          const path = `${long}.png`;
+          pictures[path] = pictures[first.path] ?? "";
+          first.path = path;
+        }
+      }
       const now = Date.now();
       const iso = (ms: number) => new Date(ms).toISOString();
       const minds = [
@@ -363,6 +397,7 @@ async function boot(
       broken: BROKEN_PICTURE,
       sharedStatus,
       hermes: HERMES,
+      longWords,
     },
   );
   await installMockBridge(page, {});
@@ -718,7 +753,7 @@ test("(2, 3) the rail's state line; the dial and its one-sentence alternative", 
     .getByTestId("mnemos-rail-mind-button")
     .evaluate((el) =>
       [...el.querySelectorAll("span")]
-        .map((s) => s.textContent?.trim())
+        .map((s) => s.textContent?.replace(/\u00a0/g, " ").trim())
         .filter(Boolean),
     );
   expect(railMind).toEqual([
@@ -1321,5 +1356,212 @@ test("(motion) under reduced motion nothing on the board moves", async ({
   );
   measure("reduced-motion-running", moving);
   expect(moving).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+/** Every place on a board where something shows past its plate's edge
+ *  (what an inner box clips doesn't count: that's the fade). */
+async function overflowing(page: Page) {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    for (const plate of document.querySelectorAll<HTMLElement>(
+      "[data-testid='mnemos-place'] .luca-mnemos-plate",
+    )) {
+      const edge = plate.getBoundingClientRect();
+      if (plate.scrollWidth > plate.clientWidth + 1)
+        out.push(`${plate.dataset.testid ?? "plate"} scrolls`);
+      for (const el of plate.querySelectorAll<HTMLElement>("*")) {
+        const box = el.getBoundingClientRect();
+        if (!box.width) continue;
+        let right = box.right;
+        for (
+          let up = el.parentElement;
+          up && up !== plate;
+          up = up.parentElement
+        )
+          if (getComputedStyle(up).overflowX !== "visible")
+            right = Math.min(right, up.getBoundingClientRect().right);
+        if (right > edge.right + 0.5)
+          out.push(
+            `${plate.dataset.testid ?? plate.className}: ${el.tagName.toLowerCase()}.${el.className} ${Math.round(right - edge.right)} px over`,
+          );
+      }
+    }
+    return out;
+  });
+}
+
+test("(1) one 300-letter word everywhere: nothing goes past its plate, no word is cut", async ({
+  page,
+}) => {
+  const errors = await boot(page, { longWords: true });
+  await expect(page.getByTestId("mnemos-count")).toHaveText("12");
+  await expect(
+    page.getByTestId("mnemos-made-thumb").locator("img"),
+  ).toHaveCount(3);
+  const wide = await overflowing(page);
+  await page.setViewportSize({ width: 1100, height: 720 });
+  await page.waitForTimeout(300);
+  const narrow = await overflowing(page);
+  // No ellipsis anywhere on the board: words end whole, or fade.
+  const ellipses = await board(page).evaluate((el) =>
+    [...el.querySelectorAll<HTMLElement>("*")]
+      .filter((n) => getComputedStyle(n).textOverflow === "ellipsis")
+      .map((n) => n.className),
+  );
+  // Today's board on 0.6.7, too.
+  await page.goto("/#/mnemos?mind=wren&room=glance");
+  await expect(page.getByTestId("mnemos-board-newer")).toBeVisible();
+  await expect(page.getByTestId("mnemos-count")).toHaveText("24");
+  const old = await overflowing(page);
+  measure("long-words", { wide, narrow, ellipses, old });
+  expect(wide).toEqual([]);
+  expect(narrow).toEqual([]);
+  expect(ellipses).toEqual([]);
+  expect(old).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(1) the strip of days spans six months in thin ticks, months named under it", async ({
+  page,
+}) => {
+  const errors = await boot(page);
+  const strip = page.getByTestId("mnemos-day-strip");
+  const facts = await strip.evaluate((el) => {
+    const ticks = [
+      ...el.querySelectorAll<HTMLElement>(".luca-mnemos-ticks > span"),
+    ];
+    const kept = ticks.filter((t) => t.dataset.count !== "0");
+    return {
+      days: ticks.length,
+      kept: kept.length,
+      widest: Math.max(...ticks.map((t) => t.getBoundingClientRect().width)),
+      firstKept: ticks.findIndex((t) => t.dataset.count !== "0"),
+      months: [...el.querySelectorAll(".luca-mnemos-months > span")].map(
+        (m) => m.textContent,
+      ),
+      label: el.querySelector("[role='img']")?.getAttribute("aria-label"),
+    };
+  });
+  measure("strip", facts);
+  expect(facts.days).toBe(182);
+  expect(facts.kept).toBe(12);
+  expect(facts.widest).toBeLessThanOrEqual(2.5);
+  // A young mind: its ticks at the right end.
+  expect(facts.firstKept).toBeGreaterThan(150);
+  expect(facts.months.length).toBeGreaterThanOrEqual(5);
+  expect(facts.label).toMatch(/^Memories kept each day, the last six months/);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(2) the rail's state line is never cut: it wraps", async ({ page }) => {
+  const errors = await boot(page);
+  const line = page.getByTestId("mnemos-rail-state");
+  await expect(line).toHaveText("Still warm · its own hour ended 4.3 h ago");
+  const fit = await line.evaluate((el) => ({
+    overflow: getComputedStyle(el).textOverflow,
+    wraps: getComputedStyle(el).whiteSpace,
+    cut: el.scrollWidth > el.clientWidth + 1,
+    lines: Math.round(
+      el.getBoundingClientRect().height /
+        Number.parseFloat(getComputedStyle(el).lineHeight),
+    ),
+  }));
+  measure("rail-line", fit);
+  expect(fit.cut).toBe(false);
+  expect(fit.overflow).not.toBe("ellipsis");
+  expect(fit.wraps).toBe("normal");
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(5a) the confirm sits directly under the group it speaks for", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=settings",
+  });
+  const gaps = async () =>
+    page.getByTestId("mnemos-settings-hours").evaluate((el) => {
+      const group = el.querySelector(".luca-place-group") as HTMLElement;
+      const next = group.nextElementSibling as HTMLElement;
+      const rows = group.querySelectorAll("li");
+      return {
+        under: Math.round(
+          next.getBoundingClientRect().top -
+            group.getBoundingClientRect().bottom,
+        ),
+        rows:
+          rows.length > 1
+            ? Math.round(
+                (rows[1] as HTMLElement).getBoundingClientRect().top -
+                  (rows[0] as HTMLElement).getBoundingClientRect().bottom,
+              )
+            : 0,
+        what: next.dataset.testid ?? next.className,
+      };
+    });
+  await page.getByTestId("mnemos-hours-ours").fill("20:30");
+  await page.getByTestId("mnemos-hours-save").click();
+  await expect(page.getByTestId("mnemos-hours-ask")).toBeVisible();
+  const asked = await gaps();
+  measure("confirm-gap", asked);
+  expect(asked.what).toBe("mnemos-hours-ask");
+  expect(asked.under).toBeLessThanOrEqual(8);
+  expect(asked.under).toBeGreaterThanOrEqual(0);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(8) an unsent correction of a shared row goes with the place; an unsent addition stays", async ({
+  page,
+}) => {
+  const errors = await boot(page, { hash: "/mnemos?mind=kestrel&room=shared" });
+  const original = "We keep the harbour log in pencil.";
+  const correct = async () => {
+    await page
+      .getByTestId("mnemos-shared-row-kes-s1")
+      .getByRole("button")
+      .click();
+    await page.getByTestId("mnemos-shared-correct-open").click();
+    return page.getByTestId("mnemos-shared-correct-text");
+  };
+  const add = async () => {
+    await page.getByTestId("mnemos-shared-add-row").getByRole("button").click();
+    return page.getByTestId("mnemos-shared-add-text");
+  };
+  const hide = (state: "hidden" | "visible") =>
+    page.evaluate((s) => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => s,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, state);
+  // Both written, neither sent.
+  await (await add()).fill("My own words, not sent yet.");
+  await (await correct()).fill("Someone else's words, half corrected.");
+  // Another room and back: both are still there.
+  await rail(page).getByTestId("place-row-journal").click();
+  await rail(page).getByTestId("place-row-shared").click();
+  await expect(await correct()).toHaveValue(
+    "Someone else's words, half corrected.",
+  );
+  // The window hidden and shown: the correction is gone, the addition stays.
+  await hide("hidden");
+  await expect(page.getByTestId("mnemos-shared-section")).toHaveCount(0);
+  await hide("visible");
+  await expect(await correct()).toHaveValue(original);
+  await expect(await add()).toHaveValue("My own words, not sent yet.");
+  // The place left and come back to: the same.
+  await (await correct()).fill("Corrected again, not sent.");
+  await page.evaluate(() => {
+    location.hash = "/";
+  });
+  await expect(page.getByTestId("mnemos-place")).toHaveCount(0);
+  await page.evaluate(() => {
+    location.hash = "/mnemos?mind=kestrel&room=shared";
+  });
+  await expect(await correct()).toHaveValue(original);
+  await expect(await add()).toHaveValue("My own words, not sent yet.");
+  expect(await writes(page, "shared")).toEqual([]);
   expect(consoleClean(errors)).toEqual([]);
 });

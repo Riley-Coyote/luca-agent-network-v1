@@ -19,13 +19,7 @@ import {
   shortDay,
   tagsOf,
 } from "../boardWords";
-import {
-  countPerDay,
-  dayKey,
-  dayLine,
-  firstLine,
-  modelName,
-} from "../notebook";
+import { countPerDay, dayKey, firstLine, modelName } from "../notebook";
 import { ASK, ASK_ORDER, trailSentence } from "../notebookWords";
 
 const time = (iso: string | null | undefined) => {
@@ -128,8 +122,11 @@ export function memoryNumbers(
 ) {
   const { states } = life.memory;
   const counts = countPerDay(memories.filter((m) => m.state !== "archived"));
-  const line = dayLine(counts, now);
-  const first = line[0]?.key ?? null;
+  const first =
+    [...counts.entries()]
+      .filter(([, n]) => n > 0)
+      .map(([key]) => key)
+      .sort()[0] ?? null;
   const since = first
     ? new Date(
         Number(first.slice(0, 4)),
@@ -142,8 +139,44 @@ export function memoryNumbers(
     letGo: states.archived,
     days: [...counts.values()].filter((n) => n > 0).length,
     since: since ? shortDay(since, now) : null,
-    line,
+    strip: stripOf(counts, now),
   };
+}
+
+/** Days the strip of days spans: always the last six months. */
+export const STRIP_DAYS = 182;
+
+/** One day on the strip: its key, its date, how many it kept. */
+export type StripDay = { key: string; date: Date; count: number };
+
+/** The strip of days: the last six months, oldest first, ending today, each
+ *  with how many it kept (a young mind is a few ticks at the right end). */
+export function stripOf(
+  counts: ReadonlyMap<string, number>,
+  now: Date,
+): StripDay[] {
+  const out: StripDay[] = [];
+  for (let back = STRIP_DAYS - 1; back >= 0; back--) {
+    const date = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - back,
+    );
+    const key = dayKey(date);
+    out.push({ key, date, count: counts.get(key) ?? 0 });
+  }
+  return out;
+}
+
+/** The month names under the strip: each month's first day on it. */
+export function monthMarks(
+  strip: readonly StripDay[],
+): { index: number; name: string }[] {
+  return strip.flatMap((d, index) =>
+    d.date.getDate() === 1
+      ? [{ index, name: d.date.toLocaleString("en-US", { month: "short" }) }]
+      : [],
+  );
 }
 
 /** Its beliefs, the most firmly held first, then the newest. */

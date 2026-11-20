@@ -88,13 +88,14 @@
   font-weight: 600;
 }
 
+/* Its count or day: whole words, wrapping under itself if the plate is
+   narrow, never cut. */
 .luca-mnemos-plate-more {
   color: hsl(var(--mn-ink-faint));
   font-weight: 400;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .luca-mnemos-plate-head:hover > :first-child {
@@ -121,7 +122,10 @@
   color: hsl(var(--mn-ink));
   line-height: 1.5;
   max-height: calc(var(--cut-lines, 4) * 1.5em);
+  min-width: 0;
   overflow: hidden;
+  /* Lines end on whole words; only a word longer than the line breaks. */
+  overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
@@ -132,12 +136,6 @@
     transparent
   );
   mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5em), transparent);
-}
-
-.luca-mnemos-oneline {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* The newest day: a time and a tag over each line. */
@@ -156,13 +154,12 @@
   color: hsl(var(--mn-ink-faint));
 }
 
-.luca-mnemos-day-rows .luca-mnemos-cut,
-.luca-mnemos-day-rows .luca-mnemos-oneline {
+.luca-mnemos-day-rows .luca-mnemos-cut {
   color: hsl(var(--mn-ink) / 0.9);
 }
 
-.luca-mnemos-board-day .luca-mnemos-cut {
-  /* Each row is two lines tall (a time, then its words). */
+.luca-mnemos-board-day .luca-mnemos-day-cut {
+  /* Each row is up to three lines tall (a time, then its words). */
   max-height: calc(var(--cut-lines, 4) * 2.3em);
   white-space: normal;
 }
@@ -173,7 +170,45 @@
 }
 
 .luca-mnemos-board-memory .luca-mnemos-strip {
-  margin-top: 6px;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+/* The strip of days: one column a day for six months; a thin tick, as tall
+   as how many it kept, centred on the line; a faint dot for a quiet day. */
+.luca-mnemos-ticks {
+  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(182, minmax(0, 1fr));
+  height: 2.5rem;
+}
+
+.luca-mnemos-ticks > span {
+  background: hsl(var(--mn-ink) / 0.62);
+  border-radius: 1px;
+  justify-self: center;
+  width: 2px;
+}
+
+.luca-mnemos-ticks > span[data-count="0"] {
+  background: hsl(var(--mn-ink) / 0.16);
+  border-radius: 50%;
+  height: 1.5px;
+  width: 1.5px;
+}
+
+.luca-mnemos-months {
+  color: hsl(var(--mn-ink-faint));
+  height: 1rem;
+  position: relative;
+}
+
+.luca-mnemos-months > span {
+  line-height: 1rem;
+  position: absolute;
+  top: 0;
+  transform: translateX(-1px);
+  white-space: nowrap;
 }
 
 /* Beliefs: a bar each, as tall as it's held; the picked one in full ink. */
@@ -463,6 +498,16 @@
   gap: 8px;
 }
 
+/* What speaks for a group (its foot, its confirm) sits directly under it,
+   at the group's own spacing. */
+.luca-mnemos-place .luca-mnemos-settings-group > .luca-place-group {
+  margin-bottom: 0;
+}
+
+.luca-mnemos-place .luca-mnemos-settings-group > .luca-mnemos-ask {
+  margin-top: 0;
+}
+
 .luca-mnemos-settings .luca-place-row-summary {
   white-space: normal;
 }
@@ -539,4 +584,14 @@
   .luca-mnemos-thumb {
     transition: none;
   }
+}
+
+/* The rail's state line is never cut: it wraps to a second line. */
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-mnemos-railmind-line.luca-mnemos-railmind-state {
+  overflow: visible;
+  text-overflow: clip;
+  text-wrap: pretty;
+  white-space: normal;
 }
