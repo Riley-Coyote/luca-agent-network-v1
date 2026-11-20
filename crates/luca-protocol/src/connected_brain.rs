@@ -483,6 +483,8 @@ pub enum RepositoryToolOperationV1 {
     ListResidentRuntimes,
     /// Ask the owner to select one repository through the existing Brain review.
     ProposeRepositoryConnection,
+    /// Ask the owner to start one project with its first chat; the window creates it.
+    ProposeProject,
     /// Request a fixed owner review surface; does not approve any change.
     OperatorOpenSurface,
     /// Apply an exact companion setup request after host-owned consent.
@@ -780,6 +782,17 @@ mod tests {
         assert!(
             !operation.requires_permission(),
             "the host review obtains connection consent without a repository write request"
+        );
+    }
+
+    #[test]
+    fn project_proposal_is_a_distinct_host_review_operation() {
+        let operation: RepositoryToolOperationV1 =
+            serde_json::from_str("\"propose_project\"").expect("operation");
+        assert_eq!(operation, RepositoryToolOperationV1::ProposeProject);
+        assert!(
+            !operation.requires_permission(),
+            "the owner's card is the consent; no repository write request is raised"
         );
     }
 

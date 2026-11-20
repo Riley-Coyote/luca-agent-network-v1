@@ -225,6 +225,7 @@ pub const POLYPHONIC_BROKER_GUARDED_TOOLS: &[(&str, &str)] = &[
     ("luca-repositories", "propose_resident"),
     ("luca-repositories", "propose_runtime_task"),
     ("luca-repositories", "propose_repository_connection"),
+    ("luca-repositories", "propose_project"),
     ("luca-repositories", "configure_companion"),
 ];
 
@@ -563,6 +564,8 @@ mod tests {
     #[test]
     fn inventories_name_only_tools_that_exist() {
         assert!(POLYPHONIC_BROKER_GUARDED_TOOLS.contains(&("luca-repositories", "configure_companion")));
+        assert!(POLYPHONIC_BROKER_GUARDED_TOOLS.contains(&("luca-repositories", "propose_project")));
+        assert!(!POLYPHONIC_PRE_ALLOWED_TOOLS.contains(&("luca-repositories", "propose_project")));
         assert!(!POLYPHONIC_PRE_ALLOWED_TOOLS.contains(&("luca-repositories", "configure_companion")));
         assert!(POLYPHONIC_PRE_ALLOWED_TOOLS.contains(&("luca-repositories", "read_conversation_image")));
         // Copied from crates/buzz-dev-mcp/src/{lib,luca_repositories,
@@ -583,6 +586,7 @@ mod tests {
             "repositories",
             "polyphonic_status",
             "propose_repository_connection",
+            "propose_project",
             "list_resident_runtimes",
             "list_runtime_task_sessions",
             "propose_resident",

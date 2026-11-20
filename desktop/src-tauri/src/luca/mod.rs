@@ -82,6 +82,7 @@ mod reliability_f10;
 #[cfg(unix)]
 pub(crate) mod repository_bridge;
 pub(crate) mod surface_control;
+pub(crate) mod project_proposals;
 pub(crate) mod repository_connection_proposals;
 pub(crate) mod resident_capability_authority;
 pub(crate) mod resident_documents;

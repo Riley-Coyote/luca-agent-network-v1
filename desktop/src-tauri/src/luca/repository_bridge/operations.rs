@@ -133,6 +133,9 @@ pub(super) fn prepare(
         RepositoryToolOperationV1::ProposeRepositoryConnection => {
             Err("repository connection proposals are handled by the broker".into())
         }
+        RepositoryToolOperationV1::ProposeProject => {
+            Err("project proposals are handled by the broker".into())
+        }
         RepositoryToolOperationV1::ProposeResident => {
             Err("resident proposals are handled by the broker".into())
         }
@@ -241,6 +244,9 @@ pub(super) fn execute(
         }
         RepositoryToolOperationV1::ProposeRepositoryConnection => {
             Err("repository connection proposals are handled by the broker".into())
+        }
+        RepositoryToolOperationV1::ProposeProject => {
+            Err("project proposals are handled by the broker".into())
         }
         RepositoryToolOperationV1::ProposeResident => {
             Err("resident proposals are handled by the broker".into())
