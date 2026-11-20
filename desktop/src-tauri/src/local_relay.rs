@@ -40,6 +40,10 @@ struct LocalRelayConfig {
     data_dir: PathBuf,
     owner_pubkey: String,
     relay_private_key: String,
+    /// This app's own process id. The relay watches for its parent to change
+    /// from it, so a helper whose app ended without a normal quit (a signal, a
+    /// crash, a force quit) stops on its own instead of lingering.
+    parent_pid: u32,
 }
 
 impl LocalRelayConfig {
@@ -70,6 +74,7 @@ impl LocalRelayConfig {
             ("BUZZ_ALLOW_NIP_OA_AUTH", "true".to_string()),
             ("RELAY_OWNER_PUBKEY", self.owner_pubkey.clone()),
             ("BUZZ_RELAY_PRIVATE_KEY", self.relay_private_key.clone()),
+            ("BUZZ_PARENT_PID", self.parent_pid.to_string()),
         ]
     }
 }
@@ -146,6 +151,7 @@ pub(crate) fn start(
             data_dir: data_dir.clone(),
             owner_pubkey: owner_pubkey.clone(),
             relay_private_key: relay_keys.secret_key().to_secret_hex(),
+            parent_pid: std::process::id(),
         };
 
         match spawn_and_wait(&binary, config) {
@@ -531,9 +537,12 @@ mod tests {
             data_dir: PathBuf::from("/tmp/buzz/local-relay"),
             owner_pubkey: "owner".to_string(),
             relay_private_key: "private".to_string(),
+            parent_pid: 4242,
         };
         let env: HashMap<_, _> = config.environment().into_iter().collect();
 
+        // The whole contract, counted: a new variable is added here on purpose.
+        assert_eq!(env.len(), 13, "unexpected local relay environment: {env:?}");
         assert_eq!(env.get("BUZZ_PROFILE"), Some(&"single-node".to_string()));
         // Absolute, inside the data dir — never the relay's relative `./repos`
         // default, which a bundled launch cannot create (cwd is `/`).
@@ -571,5 +580,7 @@ mod tests {
             env.get("BUZZ_RELAY_PRIVATE_KEY"),
             Some(&"private".to_string())
         );
+        // The relay stops on its own once its parent is no longer this app.
+        assert_eq!(env.get("BUZZ_PARENT_PID"), Some(&"4242".to_string()));
     }
 }
