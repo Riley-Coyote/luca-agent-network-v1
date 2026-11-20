@@ -1,0 +1,542 @@
+/* ── the Mnemos place: the board, the dial, Settings, Shared (WP-49) ───────
+ * The page kit's plates and inks only; no colour but the kit's own. Sizes
+ * are the stock rem steps, set in the markup. */
+
+/* ── At a glance on a newer Mnemos: the whole board ──────────────────── */
+.luca-mnemos-board-wrap {
+  container: mnemos-board / inline-size;
+}
+
+.luca-mnemos-board-wrap[hidden] {
+  display: none;
+}
+
+.luca-mnemos-board {
+  display: grid;
+  gap: 12px;
+  grid-template-areas:
+    "wait wait"
+    "hours day"
+    "memory memory"
+    "beliefs made"
+    "asks journal"
+    "carry carry";
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Wide: four columns, three rows, each row's plates at one height. */
+@container mnemos-board (min-width: 880px) {
+  .luca-mnemos-board {
+    grid-template-areas:
+      "wait wait hours day"
+      "memory memory beliefs made"
+      "asks journal carry carry";
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.luca-mnemos-board > .luca-mnemos-plate {
+  align-content: start;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.luca-mnemos-board-waiting {
+  grid-area: wait;
+}
+.luca-mnemos-board-hours {
+  grid-area: hours;
+}
+.luca-mnemos-board-day {
+  grid-area: day;
+}
+.luca-mnemos-board-memory {
+  grid-area: memory;
+}
+.luca-mnemos-board-beliefs {
+  grid-area: beliefs;
+}
+.luca-mnemos-board-made {
+  grid-area: made;
+}
+.luca-mnemos-board-asks {
+  grid-area: asks;
+}
+.luca-mnemos-board-journal {
+  grid-area: journal;
+}
+.luca-mnemos-board-carry {
+  grid-area: carry;
+}
+
+/* A plate's head goes to its section: its label, a quiet word at the
+ * right. */
+.luca-mnemos-plate-head {
+  align-items: baseline;
+  border-radius: 4px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  text-align: left;
+  width: calc(100% + 8px);
+}
+
+.luca-mnemos-plate-head > :first-child {
+  color: hsl(var(--mn-ink-muted));
+  font-weight: 600;
+}
+
+.luca-mnemos-plate-more {
+  color: hsl(var(--mn-ink-faint));
+  font-weight: 400;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-mnemos-plate-head:hover > :first-child {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mnemos-plate-head:hover .luca-mnemos-plate-more {
+  color: hsl(var(--mn-ink-muted));
+}
+
+:is(
+  .luca-mnemos-plate-head,
+  .luca-mnemos-thumb,
+  .luca-mnemos-bars,
+  .luca-mnemos-picture,
+  .luca-mnemos-hour-link
+):focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 1px;
+}
+
+/* Words held to a few lines, cut with a fade under the last. */
+.luca-mnemos-cut {
+  color: hsl(var(--mn-ink));
+  line-height: 1.5;
+  max-height: calc(var(--cut-lines, 4) * 1.5em);
+  overflow: hidden;
+  white-space: pre-line;
+}
+
+.luca-mnemos-cut[data-cut] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - 1.5em),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5em), transparent);
+}
+
+.luca-mnemos-oneline {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The newest day: a time and a tag over each line. */
+.luca-mnemos-day-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.luca-mnemos-day-rows > li {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.luca-mnemos-day-meta {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-mnemos-day-rows .luca-mnemos-cut,
+.luca-mnemos-day-rows .luca-mnemos-oneline {
+  color: hsl(var(--mn-ink) / 0.9);
+}
+
+.luca-mnemos-board-day .luca-mnemos-cut {
+  /* Each row is two lines tall (a time, then its words). */
+  max-height: calc(var(--cut-lines, 4) * 2.3em);
+  white-space: normal;
+}
+
+.luca-mnemos-board-figure {
+  display: grid;
+  gap: 2px;
+}
+
+.luca-mnemos-board-memory .luca-mnemos-strip {
+  margin-top: 6px;
+}
+
+/* Beliefs: a bar each, as tall as it's held; the picked one in full ink. */
+.luca-mnemos-bars {
+  align-items: flex-end;
+  border-bottom: 0.5px solid hsl(var(--mn-ink) / 0.18);
+  border-radius: 2px;
+  display: flex;
+  gap: 5px;
+  height: 56px;
+  overflow: hidden;
+  padding: 0 2px;
+}
+
+.luca-mnemos-bars > span {
+  background: hsl(var(--mn-ink) / 0.24);
+  border-radius: 1.5px 1.5px 0 0;
+  cursor: pointer;
+  flex: 0 0 3px;
+}
+
+.luca-mnemos-bars > span[data-on] {
+  background: hsl(var(--mn-ink));
+}
+
+.luca-mnemos-held {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+}
+
+/* What its memory asks: a count over each kind. */
+.luca-mnemos-kinds {
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+}
+
+.luca-mnemos-kinds > div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+}
+
+.luca-mnemos-kinds dd {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.luca-mnemos-board-title {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+}
+
+/* Thumbnails: small, square-cornered to the plate's own radius. */
+.luca-mnemos-thumbs {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 5.5rem));
+}
+
+.luca-mnemos-thumb {
+  aspect-ratio: 1;
+  background: hsl(var(--mn-ink) / 0.04);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.1);
+  display: grid;
+  overflow: hidden;
+  place-items: center;
+  width: 100%;
+}
+
+.luca-mnemos-thumb img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.luca-mnemos-thumb-none {
+  color: hsl(var(--mn-ink-muted));
+  overflow-wrap: anywhere;
+  padding: 6px;
+  text-align: center;
+}
+
+/* ── the dial ─────────────────────────────────────────────────────── */
+.luca-mnemos-dial {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.luca-mnemos-dial-face {
+  aspect-ratio: 1;
+  position: relative;
+  width: 12.5rem;
+}
+
+.luca-mnemos-dial-face svg {
+  display: block;
+  height: 100%;
+  overflow: visible;
+  width: 100%;
+}
+
+.luca-mnemos-dial-ring {
+  fill: none;
+  stroke: hsl(var(--mn-ink) / 0.22);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.luca-mnemos-dial-tick {
+  stroke: hsl(var(--mn-ink) / 0.3);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.luca-mnemos-dial-arc {
+  fill: none;
+  stroke: hsl(var(--mn-ink) / 0.45);
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.luca-mnemos-dial-arc[data-last] {
+  stroke: hsl(var(--mn-ink));
+}
+
+.luca-mnemos-dial-now {
+  fill: hsl(var(--mn-ink));
+}
+
+.luca-mnemos-dial-mark {
+  color: hsl(var(--mn-ink-faint));
+  line-height: 1;
+  position: absolute;
+  white-space: nowrap;
+}
+
+.luca-mnemos-dial-mark[data-at="top"] {
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, 0);
+}
+
+.luca-mnemos-dial-mark[data-at="foot"] {
+  bottom: 0;
+  left: 50%;
+  transform: translate(-50%, 0);
+}
+
+.luca-mnemos-dial-mark[data-at="left"] {
+  left: 0;
+  top: 50%;
+  transform: translate(0, -50%);
+}
+
+.luca-mnemos-dial-mark[data-at="right"] {
+  right: 0;
+  top: 50%;
+  transform: translate(0, -50%);
+}
+
+.luca-mnemos-dial-middle {
+  color: hsl(var(--mn-ink-muted));
+  display: grid;
+  inset: 0;
+  justify-items: center;
+  line-height: 1.35;
+  place-content: center;
+  position: absolute;
+  text-align: center;
+}
+
+.luca-mnemos-dial-word {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.luca-mnemos-dial-next {
+  color: hsl(var(--mn-ink-muted));
+  text-align: center;
+}
+
+/* ── Hours: the dial and its sentence at the head ─────────────────── */
+.luca-mnemos-hours-head {
+  align-items: center;
+  display: flex;
+  gap: 28px;
+  margin-bottom: 24px;
+}
+
+.luca-mnemos-hours-head > p {
+  max-width: 44ch;
+}
+
+.luca-mnemos-hour-part {
+  display: grid;
+  gap: 6px;
+  margin-top: 22px;
+}
+
+.luca-mnemos-hour-link {
+  justify-items: start;
+  margin: 0 -8px;
+}
+
+.luca-mnemos-trail {
+  display: grid;
+  gap: 18px;
+  margin-top: 26px;
+}
+
+/* Its three groups are spaced by the trail's own gap alone. */
+.luca-mnemos-place .luca-mnemos-trail > .luca-place-group,
+.luca-mnemos-place .luca-mnemos-trail > .luca-place-group + .luca-place-group {
+  margin: 0;
+}
+
+/* ── a picture opened large, inside the card ─────────────────────── */
+.luca-mnemos-picture {
+  display: grid;
+  gap: 14px;
+}
+
+/* The view itself takes focus so the keys step; its controls carry the
+   ring, never the whole picture. */
+.luca-mnemos-place .luca-mnemos-picture:focus,
+.luca-mnemos-place .luca-mnemos-picture:focus-visible {
+  box-shadow: none;
+  outline: none;
+}
+
+.luca-mnemos-picture-top {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.luca-mnemos-picture .luca-mnemos-back {
+  margin: 0;
+}
+
+.luca-mnemos-picture-figure {
+  display: grid;
+  gap: 10px;
+}
+
+.luca-mnemos-picture-frame {
+  background: var(--luca-plate-fill);
+  border-radius: 12px;
+  box-shadow: inset 0 0.5px 0 var(--luca-plate-edge);
+  display: grid;
+  min-height: 12rem;
+  overflow: hidden;
+  place-items: center;
+}
+
+.luca-mnemos-picture-frame img {
+  display: block;
+  height: min(62vh, 40rem);
+  image-rendering: auto;
+  object-fit: contain;
+  width: 100%;
+}
+
+.luca-mnemos-picture-caption {
+  display: grid;
+  gap: 2px;
+}
+
+.luca-mnemos-picture-caption > :first-child {
+  color: hsl(var(--mn-ink));
+}
+
+/* ── Settings ─────────────────────────────────────────────────────── */
+.luca-mnemos-settings {
+  display: grid;
+  gap: 28px;
+  max-width: 640px;
+}
+
+.luca-mnemos-settings-group {
+  display: grid;
+  gap: 8px;
+}
+
+.luca-mnemos-settings .luca-place-row-summary {
+  white-space: normal;
+}
+
+.luca-mnemos-settings .luca-place-plate > .luca-place-row {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto 0;
+}
+
+.luca-mnemos-settings .luca-place-row-detail {
+  color: hsl(var(--mn-ink-muted));
+}
+
+.luca-mnemos-settings-value {
+  display: block;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.luca-mnemos-time {
+  background: hsl(var(--mn-ink) / 0.05);
+  border-radius: 6px;
+  color: hsl(var(--mn-ink));
+  padding: 3px 8px;
+}
+
+.luca-mnemos-time:disabled {
+  opacity: 0.45;
+}
+
+.luca-mnemos-time:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 1px;
+}
+
+.luca-mnemos-settings-foot {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  justify-content: flex-end;
+  min-height: 28px;
+}
+
+.luca-mnemos-settings-foot > :first-child {
+  margin-right: auto;
+}
+
+.luca-mnemos-said {
+  color: hsl(var(--mn-ink-muted));
+  line-height: 1.5;
+  max-width: 68ch;
+  white-space: pre-line;
+}
+
+.luca-mnemos-said-no {
+  color: hsl(var(--mn-ink));
+}
+
+/* ── Shared: its one line over the room ───────────────────────────── */
+.luca-mnemos-section-line {
+  margin-bottom: 18px;
+  max-width: 68ch;
+}
+
+/* ── an older Mnemos's board: one quiet line at its foot ──────────── */
+.luca-mnemos-board-foot {
+  margin-top: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-mnemos-plate-head,
+  .luca-mnemos-thumb {
+    transition: none;
+  }
+}

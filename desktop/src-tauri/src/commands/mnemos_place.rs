@@ -8,6 +8,7 @@
 //! also gives the whole notebook (`summary`, `notebook`), and the pictures
 //! it lists (`mnemos_place_picture`).
 mod grant;
+mod own_page;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -22,6 +23,7 @@ use session::{place, Fail, MindKey, Spawn};
 use std::{path::Path, time::Duration};
 use tauri::{AppHandle, Manager, Window};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+pub use own_page::*;
 pub use wire::{Reply, Request, Write, Written};
 
 /// How long a search may take: the first one waits for the meaning model.

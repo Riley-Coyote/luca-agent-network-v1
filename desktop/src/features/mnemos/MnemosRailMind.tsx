@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import "./mnemos-place.css";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { linkedWords, railLine } from "./notebook";
+import { useRailState } from "./railState";
 import { useMindInView } from "./useMindInView";
 
 /**
@@ -19,6 +20,8 @@ import { useMindInView } from "./useMindInView";
 export function MnemosRailMind() {
   const { facts, mind, choose } = useMindInView();
   const { goAgent } = useAppNavigation();
+  // A newer Mnemos's state, in the notebook's own words (WP-49, Decided 2).
+  const state = useRailState(mind?.id ?? null);
   const [open, setOpen] = React.useState(false);
   const listId = React.useId();
   const head = React.useRef<HTMLButtonElement>(null);
@@ -56,7 +59,7 @@ export function MnemosRailMind() {
       <button
         aria-controls={listId}
         aria-expanded={open}
-        aria-label={`${[mind.name, linkedWords(mind)].filter(Boolean).join(", ")}. Show the minds on this Mac`}
+        aria-label={`${[mind.name, state, linkedWords(mind)].filter(Boolean).join(", ")}. Show the minds on this Mac`}
         className="luca-mnemos-railmind-head"
         data-rail-focus="home"
         data-testid="mnemos-rail-mind-button"
@@ -65,6 +68,14 @@ export function MnemosRailMind() {
         type="button"
       >
         <span className="luca-mnemos-railmind-name text-sm">{mind.name}</span>
+        {state ? (
+          <span
+            className="luca-mnemos-railmind-line text-2xs"
+            data-testid="mnemos-rail-state"
+          >
+            {state}
+          </span>
+        ) : null}
         {linkedWords(mind) ? (
           <span className="luca-mnemos-railmind-line text-2xs">
             {linkedWords(mind)}
