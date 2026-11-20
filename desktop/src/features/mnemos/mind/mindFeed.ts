@@ -169,3 +169,23 @@ export const logLine = (log: FeedLog) =>
   (Object.keys(log) as FeedKind[])
     .map((k) => `${k}:${log[k].memory}/${log[k].refused}`)
     .join(" ");
+
+/** The line for a mind with no memory the picture would hold, or null
+ *  when it holds one: by its own counts, or by the memories read, whichever
+ *  knows of more. */
+export function nothingToDraw(notebook: {
+  life: BookLife;
+  memories: NotebookMemories;
+}): ((name: string) => string) | null {
+  const states = notebook.life.memory.states;
+  const list = notebook.memories.memories;
+  const awake = Math.max(
+    states.active + states.dormant,
+    list.filter((m) => m.state !== "archived").length,
+  );
+  if (awake > 0) return null;
+  const ever = Math.max(states.archived, list.length);
+  return ever > 0
+    ? (name) => `${name} has let every memory go, so there is nothing to draw.`
+    : (name) => `${name} has no memories yet, so there is nothing to draw.`;
+}

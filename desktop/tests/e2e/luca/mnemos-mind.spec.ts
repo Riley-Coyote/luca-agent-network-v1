@@ -1033,6 +1033,159 @@ const pickedInFrame = (frame: Frame, id: string) =>
   }, id);
 
 test.describe("The place, joined (WP-51)", () => {
+  test("an empty mind says it has nothing to draw, not that this Mac can't", async ({
+    page,
+  }) => {
+    const errors = await boot(page, { count: 0 });
+    const line = page.getByTestId("mnemos-mind-empty");
+    await expect(line).toHaveText(
+      "Heron has no memories yet, so there is nothing to draw.",
+    );
+    await expect(page.getByTestId("mnemos-mind-cannot")).toHaveCount(0);
+    await expect(page.getByTestId("mnemos-mind-frame")).toHaveCount(0);
+    // In the can't-draw line's own place and style.
+    const style = await line.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        cls: el.className,
+        color: s.color,
+        position: s.position,
+        align: s.textAlign,
+      };
+    });
+    expect(style.cls).toBe("luca-mnemos-mind-note text-sm");
+    expect(style.position).toBe("absolute");
+    expect(style.align).toBe("center");
+    await shot51(page, "07-empty-mind");
+    expect(errors).toEqual([]);
+  });
+
+  test("reduced motion, measured at rest: after something arrives and its glow has cooled, the picture is still", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const errors = await boot(page);
+    const frame = await drawn(page);
+    const frames = () =>
+      frame.evaluate(
+        () =>
+          (window as unknown as { __mind: { frames: number } }).__mind.frames,
+      );
+    const over = async (ms: number) => {
+      const a = await frames();
+      await page.waitForTimeout(ms);
+      return (await frames()) - a;
+    };
+    const picture = () =>
+      page.getByTestId("mnemos-mind-frame").screenshot({ animations: "allow" });
+    const looping = () =>
+      frame.evaluate(
+        () =>
+          (window as unknown as { __mind: { looping: boolean } }).__mind
+            .looping,
+      );
+    // Its first picture settles, then it stops drawing.
+    const firstSeconds = await over(3000);
+    const shownAt = Date.now();
+    await expect.poll(looping, { timeout: 30_000 }).toBe(false);
+    const settledAfterMs = Date.now() - shownAt + 3000;
+    const settled = await over(3000);
+    // Something comes to it: the engine lights the recalled memories and
+    // their fibres (its answer to the event), then lets them go.
+    await page.evaluate(() =>
+      (window as unknown as { mindRecall: (ids: string[]) => void }).mindRecall(
+        ["her-m0100", "her-m0112"],
+      ),
+    );
+    await expect
+      .poll(
+        () =>
+          frame.evaluate(
+            () => document.getElementById("now-text")?.textContent ?? "",
+          ),
+        { timeout: 10_000 },
+      )
+      .toContain("recalled 2 memories");
+    const arrived = Date.now();
+    const answering = await over(3000);
+    // That answer's light goes out on its own ease, and the drawing stops.
+    await expect.poll(looping, { timeout: 40_000 }).toBe(false);
+    const answeredForMs = Date.now() - arrived;
+    // After it, nothing turns or pulses on its own: the same picture
+    // seconds apart.
+    const a = await picture();
+    const between = await over(4000);
+    const b = await picture();
+    const samePicture = a.equals(b);
+    // And measured at rest, once the glow has cooled (40 s): no frames.
+    await page.waitForTimeout(Math.max(0, 41_000 - (Date.now() - arrived)));
+    const atRest = await over(5000);
+    measure("51-reduced-motion", {
+      framesInFirst3s: firstSeconds,
+      settledAfterMs,
+      framesIn3sSettled: settled,
+      framesIn3sAnsweringARecall: answering,
+      answerDrawnForMs: answeredForMs,
+      framesIn4sAfterTheAnswer: between,
+      samePictureAfterTheAnswer: samePicture,
+      framesIn5sAtRest41sAfter: atRest,
+    });
+    expect(settled).toBe(0);
+    expect(between).toBe(0);
+    expect(samePicture).toBe(true);
+    expect(atRest).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("reduced motion turned on while the mind is kept: its frame is made again, and it is still", async ({
+    page,
+  }) => {
+    const errors = await boot(page);
+    const first = await drawn(page);
+    const turning = await first.evaluate(
+      () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+    );
+    expect(turning).toBe(false);
+    // Away to another section (kept, paused), the setting changes, back.
+    await page.getByTestId("place-row-memories").click();
+    await expect(page.getByTestId("mnemos-memories")).toBeVisible();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await railRow(page, "The mind").click();
+    await expect.poll(() => first.isDetached(), { timeout: 10_000 }).toBe(true);
+    const again = await drawn(page);
+    expect(
+      await again.evaluate(
+        () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+      ),
+    ).toBe(true);
+    const frames = () =>
+      again.evaluate(
+        () =>
+          (window as unknown as { __mind: { frames: number } }).__mind.frames,
+      );
+    await expect
+      .poll(
+        () =>
+          again.evaluate(
+            () =>
+              (window as unknown as { __mind: { looping: boolean } }).__mind
+                .looping,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(false);
+    const x = await frames();
+    await page.waitForTimeout(3000);
+    const stillFrames = (await frames()) - x;
+    // And while it is shown, the setting changing makes it again too.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect.poll(() => again.isDetached(), { timeout: 10_000 }).toBe(true);
+    await drawn(page);
+    measure("51-reduced-motion-switched", { framesIn3sAtRest: stillFrames });
+    expect(stillFrames).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
   test("kept while its mind is open; gone when the place is left or another mind is shown", async ({
     page,
   }) => {

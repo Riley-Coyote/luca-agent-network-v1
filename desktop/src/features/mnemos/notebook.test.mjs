@@ -168,6 +168,13 @@ test("the notebook's words: titles, who wrote it, how it was found", () => {
     title: "A quiet day.",
     body: "Then the rain came.",
   });
+  // A first word longer than a title can be: never a body of one letter.
+  const long = `${"D".repeat(300)} and then the fog lifted`;
+  assert.deepEqual(titleOf(long), { title: long, body: "" });
+  assert.deepEqual(titleOf(`${long}\nThe second line.`), {
+    title: long,
+    body: "The second line.",
+  });
   assert.equal(foundWords("meaning"), "by meaning");
   assert.equal(foundWords("words"), "by its words");
   assert.equal(foundWords("link"), "through a link");

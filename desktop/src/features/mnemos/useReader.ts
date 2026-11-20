@@ -7,6 +7,14 @@ import {
   type ViewItem,
 } from "@/shared/api/mnemosView";
 import type { PlaceMind } from "./api";
+import { needsNewer } from "./MnemosParts";
+
+/** What each old-reader section is called where it shows. */
+const NAMED: Partial<Record<MnemosSection, string>> = {
+  beliefs: "Beliefs",
+  handoffs: "Carrying forward",
+  standing: "Standing",
+};
 
 /**
  * The old reader (`mnemos view`, through the agent page's own commands and
@@ -16,16 +24,15 @@ import type { PlaceMind } from "./api";
  */
 export type Reader =
   | { kind: "looking" }
-  /** Why the three rooms can't be read here, said plainly. */
-  | { kind: "missing"; line: string }
+  /** Why the three rooms can't be read here, said plainly; null when a
+   *  newer Mnemos would show them (no agent remembers with this mind). */
+  | { kind: "missing"; line: string | null }
   | {
       kind: "ready";
       read: (section: MnemosSection) => Promise<ViewItem[]>;
       counts: () => Promise<ViewCounts>;
     };
 
-const UNLINKED =
-  "Polyphonic can show this for a memory one of your agents remembers with.";
 const NO_PYTHON = "Reading it here needs Python 3.12 or 3.13 on this Mac.";
 const UNAVAILABLE = "The compatible local reader isn’t available.";
 
@@ -42,8 +49,10 @@ export function useReader(
       setReader({ kind: "looking" });
       return;
     }
+    // Read only through an agent that remembers with the mind: without
+    // one, this needs a newer Mnemos, as every other section says.
     if (!resident) {
-      setReader({ kind: "missing", line: UNLINKED });
+      setReader({ kind: "missing", line: null });
       return;
     }
     setReader({ kind: "looking" });
@@ -56,7 +65,7 @@ export function useReader(
         }
         const grant = status.grant;
         if (!grant || !status.linked) {
-          setReader({ kind: "missing", line: UNLINKED });
+          setReader({ kind: "missing", line: null });
           return;
         }
         setReader({
@@ -110,7 +119,11 @@ export function useReaderSection<T>(
       current = false;
     };
   }, [reader, section]);
-  if (reader.kind === "missing") return { items: null, line: reader.line };
+  if (reader.kind === "missing")
+    return {
+      items: null,
+      line: reader.line ?? needsNewer(NAMED[section] ?? "This"),
+    };
   if (failed) return { items: null, line: UNAVAILABLE };
   return { items, line: null };
 }

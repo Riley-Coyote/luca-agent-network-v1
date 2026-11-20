@@ -10,7 +10,13 @@ import {
   FILES,
 } from "../../../../scripts/mnemos-mind-copy.mjs";
 import { cellOfMemory, drawingWords, firstLine } from "./drawingShape.ts";
-import { answerFeed, kindOf, REFUSED, recalledOf } from "./mindFeed.ts";
+import {
+  answerFeed,
+  kindOf,
+  nothingToDraw,
+  REFUSED,
+  recalledOf,
+} from "./mindFeed.ts";
 import { inkOnPaper, MindFrame, memoryStorage } from "./mindFrame.ts";
 
 // ── the copy (WP-50, Decided 1) ──────────────────────────────────────
@@ -486,5 +492,29 @@ test("the drawing's words say what it shows", () => {
       memory({ lesson: true, ties: [], recalls: 0, state: "dormant" }),
     ),
     "A lesson, tied to nothing yet, gone quiet",
+  );
+});
+
+// ── an empty mind (WP-51, check 2) ───────────────────────────────────
+
+test("an empty mind has nothing to draw; a mind with one memory awake does", () => {
+  const book = (states, memories) => ({
+    life: { memory: { states } },
+    memories: { memories },
+  });
+  const none = { active: 0, dormant: 0, archived: 0 };
+  assert.equal(
+    nothingToDraw(book(none, []))?.("Heron"),
+    "Heron has no memories yet, so there is nothing to draw.",
+  );
+  assert.equal(
+    nothingToDraw(book({ ...none, archived: 2 }, []))?.("Heron"),
+    "Heron has let every memory go, so there is nothing to draw.",
+  );
+  assert.equal(nothingToDraw(book({ ...none, dormant: 1 }, [])), null);
+  // Counts the life didn't give: the memories read say there is one.
+  assert.equal(
+    nothingToDraw(book(none, [{ id: "m1", state: "active" }])),
+    null,
   );
 });

@@ -1565,3 +1565,203 @@ test("(8) an unsent correction of a shared row goes with the place; an unsent ad
   expect(await writes(page, "shared")).toEqual([]);
   expect(consoleClean(errors)).toEqual([]);
 });
+
+// ── WP-51, the whole-place check ──────────────────────────────────────
+
+test("(51-1) a mind's words go on a switch, a hide and leaving; the person's own stay, each mind's its own", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=memories",
+  });
+  const mindWords = {
+    memory: "A correction of a memory, half done.",
+    shared: "A correction of a shared line, half done.",
+  };
+  const own = {
+    note: "A note for Kestrel, not sent yet.",
+    add: "My own words for the shared notebook, not sent yet.",
+    wrenNote: "A note for Wren, not sent yet.",
+  };
+  const to = async (room: string) => {
+    await rail(page).getByTestId(`place-row-${room}`).locator("button").click();
+  };
+  const mind = async (id: string) => {
+    await page.getByTestId("mnemos-rail-mind-button").click();
+    await page.getByTestId(`mnemos-mind-${id}`).click();
+    await expect(page).toHaveURL(new RegExp(`mind=${id}`));
+  };
+  const memoryField = async () => {
+    await to("memories");
+    await expect(page.getByTestId("mnemos-memory-opened")).toBeVisible();
+    if (!(await page.getByTestId("mnemos-correct-text").count()))
+      await page.getByTestId("mnemos-correct-open").click();
+    return page.getByTestId("mnemos-correct-text");
+  };
+  const sharedField = async () => {
+    await to("shared");
+    await page
+      .getByTestId("mnemos-shared-row-kes-s1")
+      .getByRole("button")
+      .click();
+    if (!(await page.getByTestId("mnemos-shared-correct-text").count()))
+      await page.getByTestId("mnemos-shared-correct-open").click();
+    return page.getByTestId("mnemos-shared-correct-text");
+  };
+  const addField = async () => {
+    await to("shared");
+    await page.getByTestId("mnemos-shared-add-row").getByRole("button").click();
+    return page.getByTestId("mnemos-shared-add-text");
+  };
+  const noteField = async () => {
+    await to("notes");
+    await page.getByTestId("mnemos-leave-row").locator("button").click();
+    return page.getByTestId("mnemos-leave-note-text");
+  };
+  /** Both kinds written: the corrections (the mind's words), and, once,
+   *  the person's own. */
+  const writeMindWords = async () => {
+    await (await memoryField()).fill(mindWords.memory);
+    await (await sharedField()).fill(mindWords.shared);
+  };
+  /** The corrections are gone (each field opens on the mind's own words
+   *  again); the person's own words are all still there. */
+  const after = async (path: string) => {
+    await expect(await memoryField(), `${path}: memory`).not.toHaveValue(
+      mindWords.memory,
+    );
+    await expect(await sharedField(), `${path}: shared`).not.toHaveValue(
+      mindWords.shared,
+    );
+    await expect(await addField(), `${path}: add`).toHaveValue(own.add);
+    await expect(await noteField(), `${path}: note`).toHaveValue(own.note);
+  };
+
+  // The person's own words, on Kestrel and on Wren.
+  await (await addField()).fill(own.add);
+  await (await noteField()).fill(own.note);
+  await mind("wren");
+  await (await noteField()).fill(own.wrenNote);
+  await mind("kestrel");
+  // Kept while moving about the place: both kinds.
+  await writeMindWords();
+  await to("journal");
+  await expect(await memoryField()).toHaveValue(mindWords.memory);
+  await expect(await sharedField()).toHaveValue(mindWords.shared);
+
+  // 1. Another mind shown, and back.
+  await mind("wren");
+  await expect(await noteField(), "Wren's own note is Wren's").toHaveValue(
+    own.wrenNote,
+  );
+  await mind("kestrel");
+  await after("switch");
+
+  // 2. The window hidden and shown.
+  await writeMindWords();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.getByTestId("mnemos-place")).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await after("hide");
+
+  // 3. The place left, and come back to.
+  await writeMindWords();
+  await page.evaluate(() => {
+    location.hash = "/";
+  });
+  await expect(page.getByTestId("mnemos-place")).toHaveCount(0);
+  await page.evaluate(() => {
+    location.hash = "/mnemos?mind=kestrel&room=memories";
+  });
+  await after("leave");
+  // Wren's own note came through all three.
+  await mind("wren");
+  await expect(await noteField()).toHaveValue(own.wrenNote);
+  // Nothing was sent (a note read on sight is the place's own, not these).
+  expect((await writes(page)).filter((w) => w.command !== "read")).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+/** Every line of words showing on the board that holds a single letter or
+ *  digit alone (what a plate's cut hides doesn't count). */
+async function lonelyLetters(page: Page) {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    const place = document.querySelector("[data-testid='mnemos-place']");
+    if (!place) return ["no place"];
+    const walker = document.createTreeWalker(place, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node as Text;
+      if (!text.data.trim()) continue;
+      const host = text.parentElement as HTMLElement;
+      if (!host.closest(".luca-mnemos-plate")) continue;
+      // The box that clips it, if any: lines below its edge don't show.
+      let clip: DOMRect | null = null;
+      for (let up: HTMLElement | null = host; up; up = up.parentElement) {
+        if (getComputedStyle(up).overflowY !== "visible") {
+          clip = up.getBoundingClientRect();
+          break;
+        }
+      }
+      const lines = new Map<number, string>();
+      for (let i = 0; i < text.length; i++) {
+        range.setStart(text, i);
+        range.setEnd(text, i + 1);
+        const box = range.getClientRects()[0];
+        if (!box?.height) continue;
+        if (clip && (box.top >= clip.bottom - 1 || box.bottom <= clip.top + 1))
+          continue;
+        const y = Math.round(box.top);
+        lines.set(y, (lines.get(y) ?? "") + text.data[i]);
+      }
+      const rows = [...lines.values()].map((l) => l.trim()).filter(Boolean);
+      // A whole text of one letter (a count, an initial) is meant.
+      if (rows.length < 2) continue;
+      for (const row of rows)
+        if (row.length === 1 && /\p{L}|\p{N}/u.test(row))
+          out.push(
+            `${(host.closest(".luca-mnemos-plate") as HTMLElement).dataset.testid}: "${row}" alone`,
+          );
+    }
+    return out;
+  });
+}
+
+for (const [who, hash] of [
+  ["a newer Mnemos", "/mnemos?mind=kestrel&room=glance"],
+  ["Mnemos 0.6.7", "/mnemos?mind=wren&room=glance"],
+] as const)
+  test(`(51-6) no plate leaves one letter alone on a line, however long the word (${who})`, async ({
+    page,
+  }) => {
+    const errors = await boot(page, { hash, longWords: true });
+    await expect(page.getByTestId("mnemos-count")).toBeVisible();
+    await waitForAnimations(page);
+    const found: Record<string, string[]> = {};
+    for (const [w, h] of [
+      [1440, 900],
+      [1100, 720],
+      [1280, 800],
+    ] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.waitForTimeout(250);
+      found[`${w}x${h}`] = await lonelyLetters(page);
+    }
+    measure(`51-6-lonely-${who.startsWith("a") ? "newer" : "today"}`, found);
+    for (const [size, lonely] of Object.entries(found))
+      expect(lonely, size).toEqual([]);
+    expect(consoleClean(errors)).toEqual([]);
+  });

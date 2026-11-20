@@ -9,6 +9,18 @@
   max-width: 1040px;
 }
 
+/* The Quick Chat button never covers the place: the shell's one rule
+ * (shell-finish.css: the page's axis gives way by its right side alone,
+ * only as far as it reaches the button's column), for this wider axis. */
+:root[data-luca-frame]:has(.qc-launcher)
+  .luca-mnemos-place
+  .luca-place-page-axis {
+  padding-right: max(
+    0px,
+    calc(var(--luca-quickchat-clear) - 28px - max(0px, (100cqw - 1040px) / 2))
+  );
+}
+
 /* One rule for every piece of a mind's text, in lists and opened alike: it
  * wraps anywhere it must, and never makes what holds it wider. A section
  * added later is inside the place, so it can't forget it. */
@@ -392,13 +404,16 @@
   overflow: hidden;
 }
 
-/* Lately, on today's Mnemos: each memory's first line whole, wrapping
- * under itself; a line ends on a whole word (only a word longer than the
- * line breaks), never cut in the middle. */
+/* Lately, on today's Mnemos: each memory's first line in at most two
+ * lines. A line ends on a whole word, and what doesn't fit is cut at the
+ * end of a whole line, never mid-word (no ellipsis to make room for); only
+ * a word longer than the line breaks, at its edge, so one very long word
+ * can't push the other plates off the first screen. */
 .luca-mnemos-lately .luca-mnemos-clamp {
   display: block;
   -webkit-line-clamp: unset;
-  overflow: visible;
+  max-height: calc(2 * 1.5em);
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
 

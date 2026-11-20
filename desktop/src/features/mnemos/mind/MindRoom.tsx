@@ -6,7 +6,7 @@ import type { BookMemory } from "../book";
 import { longDay, NeedsNewer, QuietLine, Words } from "../MnemosParts";
 import { signedBy, stateWords } from "../notebook";
 import { type NotebookView, type RoomProps, useAddressItem } from "../roomKit";
-import type { FeedHoldings } from "./mindFeed";
+import { type FeedHoldings, nothingToDraw } from "./mindFeed";
 import { firstLine } from "./drawingShape";
 import { lightOf, MindFrame, type MindState } from "./mindFrame";
 import { MemoryDrawing } from "./MemoryDrawing";
@@ -32,7 +32,33 @@ export type MindRoomProps = RoomProps & {
  */
 export function MindRoom({ shown = true, ...props }: MindRoomProps) {
   if (!props.notebook) return shown ? <NeedsNewer what="The mind" /> : null;
+  const empty = nothingToDraw(props.notebook);
+  if (empty)
+    return shown ? <NothingToDraw line={empty(props.mind.name)} /> : null;
   return <Mind {...props} notebook={props.notebook} shown={shown} />;
+}
+
+/** An empty mind: nothing to draw, said where the picture would be, in
+ *  the picture's own quiet line (not the line for a Mac that can't). */
+function NothingToDraw({ line }: { line: string }) {
+  return (
+    <section
+      aria-label="The mind"
+      className="luca-mnemos-mind"
+      data-state="empty"
+      data-testid="mnemos-mind"
+    >
+      <p className="luca-mnemos-mind-line text-xs" />
+      <div className="luca-mnemos-mind-stage">
+        <p
+          className="luca-mnemos-mind-note text-sm"
+          data-testid="mnemos-mind-empty"
+        >
+          {line}
+        </p>
+      </div>
+    </section>
+  );
 }
 
 /** What the mind's frame asks of the session: what came to it since a
@@ -59,7 +85,16 @@ function usePulse(mind: string, notebook: NotebookView) {
   );
 }
 
-/** The app's look, as a key that changes when its dark and light do. */
+/** What the mind's page reads once, as it starts: the app's dark and
+ *  light, and whether motion is to be reduced (the engine's own still way,
+ *  `mind.js` `reduce`). A key that changes when any of them does, so a
+ *  room kept mounted makes its frame again rather than keep a picture
+ *  that moves when it shouldn't. */
+const STARTS_WITH = [
+  "(prefers-color-scheme: dark)",
+  "(prefers-reduced-motion: reduce)",
+];
+
 function useLookKey() {
   return React.useSyncExternalStore(
     (listener) => {
@@ -68,15 +103,19 @@ function useLookKey() {
         attributes: true,
         attributeFilter: ["class", "data-theme", "data-buzz-theme", "style"],
       });
-      const media = matchMedia("(prefers-color-scheme: dark)");
-      media.addEventListener("change", listener);
+      const media = STARTS_WITH.map((query) => matchMedia(query));
+      for (const each of media) each.addEventListener("change", listener);
       return () => {
         observer.disconnect();
-        media.removeEventListener("change", listener);
+        for (const each of media) each.removeEventListener("change", listener);
       };
     },
     () =>
-      `${document.documentElement.className}|${document.documentElement.dataset.buzzTheme ?? ""}|${matchMedia("(prefers-color-scheme: dark)").matches}`,
+      [
+        document.documentElement.className,
+        document.documentElement.dataset.buzzTheme ?? "",
+        ...STARTS_WITH.map((query) => matchMedia(query).matches),
+      ].join("|"),
     () => "",
   );
 }
@@ -133,7 +172,7 @@ function Mind({
   }, [look, shown]);
 
   // One frame for as long as the room is mounted, made again when the
-  // app's look changes (its light is given when it starts).
+  // app's look or its reduced motion changes (both are read as it starts).
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new look asks for a new frame; the rest is read through refs.
   React.useEffect(() => {
     const el = host.current;

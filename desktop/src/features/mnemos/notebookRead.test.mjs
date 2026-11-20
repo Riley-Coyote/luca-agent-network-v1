@@ -29,7 +29,7 @@ import {
   readDraft,
 } from "./drafts.ts";
 import { possessive, restsOnWords } from "./notebookWords.ts";
-import { showing, sightReader } from "./readOnSight.ts";
+import { RETRY_AFTER_MS, showing, sightReader } from "./readOnSight.ts";
 
 const NOW = Date.UTC(2026, 10, 20, 15, 0);
 const H = 36e5;
@@ -434,8 +434,10 @@ test("a read that fails leaves the note unread, for the next look", async () => 
     },
     looking: () => true,
     onUnseen: (id) => unseen.push(id),
-    setTimer: (run) => {
-      queueMicrotask(run);
+    // The sight's own short waits pass at once; the tries again on the
+    // same sight (`RETRY_AFTER_MS`, their own test below) never come.
+    setTimer: (run, ms) => {
+      if (ms < RETRY_AFTER_MS[0]) queueMicrotask(run);
       return 0;
     },
     clearTimer: () => {},
@@ -445,8 +447,8 @@ test("a read that fails leaves the note unread, for the next look", async () => 
   await settle();
   assert.deepEqual(unseen, ["n1"]);
   assert.equal(reader.said("n1"), false);
-  // Still on screen (its dot back, looked at again): not tried again, so
-  // a failing read never runs in a loop.
+  // Still on screen (its dot back, looked at again): not tried again at
+  // once, so a failing read never runs in a loop.
   reader.shown("n1", true);
   reader.shown("n1", true);
   await settle();
@@ -467,6 +469,112 @@ test("a read that fails leaves the note unread, for the next look", async () => 
   await settle();
   assert.deepEqual(calls, [["n1"], ["n1"], ["n1"]]);
   assert.equal(reader.said("n1"), true);
+});
+
+test("a failed read is tried again on the same sight: after 30 s, after 2 min, then not", async () => {
+  let now = 0;
+  let next = 1;
+  const timers = new Map();
+  const setTimer = (run, ms) => {
+    const id = next++;
+    timers.set(id, { at: now + ms, run });
+    return id;
+  };
+  const clearTimer = (id) => timers.delete(id);
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  /** The clock runs on; each `read` it starts has answered before the
+   *  next timer is due. */
+  const advance = async (ms) => {
+    const until = now + ms;
+    for (;;) {
+      const due = [...timers.entries()]
+        .filter(([, t]) => t.at <= until)
+        .sort((a, b) => a[1].at - b[1].at)[0];
+      if (!due) break;
+      timers.delete(due[0]);
+      now = due[1].at;
+      due[1].run();
+      await settle();
+    }
+    now = until;
+  };
+  let fail = true;
+  const calls = [];
+  const dot = new Map();
+  const reader = sightReader({
+    read: async () => {
+      calls.push(now);
+      if (fail) throw new Error("no");
+    },
+    looking: () => true,
+    onSeen: (id) => dot.set(id, "read"),
+    onUnseen: (id) => dot.set(id, "unread"),
+    setTimer,
+    clearTimer,
+  });
+  reader.shown("n1", true);
+  await advance(1500);
+  assert.deepEqual(
+    calls,
+    [1500],
+    "read once, after 1.2 s and the 0.3 s gather",
+  );
+  assert.equal(dot.get("n1"), "unread");
+  // Sitting on screen: nothing until 30 s after it failed.
+  await advance(29_999);
+  assert.equal(calls.length, 1);
+  await advance(1);
+  await advance(1500);
+  assert.deepEqual(calls, [1500, 31_800], "tried again 30 s on");
+  assert.equal(dot.get("n1"), "unread");
+  // Then 2 minutes after that failed (at 31.8 s, so at 151.8 s).
+  await advance(151_800 - 33_000 - 1);
+  assert.equal(calls.length, 2);
+  await advance(1);
+  await advance(1500);
+  assert.deepEqual(calls, [1500, 31_800, 152_100], "and once more, 2 min on");
+  // Then not again on this sight, however long it sits there.
+  await advance(60 * 60_000);
+  assert.equal(calls.length, 3);
+  assert.equal(timers.size, 0, "nothing left waiting: never a loop");
+  // The next sight starts afresh, and this time it is read.
+  fail = false;
+  reader.shown("n1", false);
+  reader.shown("n1", true);
+  await advance(1500);
+  assert.equal(calls.length, 4);
+  assert.equal(reader.said("n1"), true);
+  assert.equal(dot.get("n1"), "read");
+
+  // A try again that succeeds clears the dot, and nothing more is asked.
+  fail = true;
+  reader.shown("n2", true);
+  await advance(1500);
+  assert.equal(dot.get("n2"), "unread");
+  fail = false;
+  await advance(30_000);
+  await advance(1500);
+  assert.equal(reader.said("n2"), true);
+  assert.equal(dot.get("n2"), "read");
+  const asked = calls.length;
+  await advance(10 * 60_000);
+  assert.equal(calls.length, asked);
+
+  // Off the screen before its try again: none comes.
+  fail = true;
+  reader.shown("n3", true);
+  await advance(1500);
+  reader.shown("n3", false);
+  const before = calls.length;
+  await advance(5 * 60_000);
+  assert.equal(calls.length, before);
+  // The window hidden before its try again: none either.
+  reader.shown("n3", true);
+  await advance(1500);
+  reader.pause();
+  const hidden = calls.length;
+  await advance(5 * 60_000);
+  assert.equal(calls.length, hidden);
 });
 
 test("a draft made of the mind's words goes with them; the owner's own stay", () => {

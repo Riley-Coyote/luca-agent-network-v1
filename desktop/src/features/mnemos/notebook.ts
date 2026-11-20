@@ -200,9 +200,15 @@ export function titleOf(text: string): { title: string; body: string } {
       : "";
   if (!title) {
     const clause = line.slice(0, 110).match(/^(.{24,}?[,:;—])\s/);
+    // Cut at the last word that starts before 90; a first word longer
+    // than that is the title whole (`words.js` cut it to all but its last
+    // letter, leaving that letter alone as the body).
+    const space = line.lastIndexOf(" ", 90);
     title = clause
       ? (clause[1] as string)
-      : line.slice(0, line.lastIndexOf(" ", 90));
+      : space > 0
+        ? line.slice(0, space)
+        : line;
   }
   return { title, body: t.slice(title.length).trim() };
 }

@@ -1283,11 +1283,28 @@ test("(c) a linked mind opens unasked; another asks once; declining reads nothin
   await expect(page.getByTestId("mnemos-count")).toHaveText("9");
   probe = await probeOf(page);
   expect(probe.asked).toEqual(["field-notes", "field-notes"]);
-  // Field Notes has no resident: the old reader's plates say so.
+  // Field Notes has no resident: the old reader's plates and sections say
+  // what every section today's Mnemos can't give says (WP-51, check 5).
   await expect(
     page.getByTestId("mnemos-plate-beliefs").getByTestId("mnemos-plate-line"),
+  ).toHaveText("Beliefs needs a newer Mnemos. Updating Mnemos brings it.");
+  await expect(
+    page.getByTestId("mnemos-plate-carrying").getByTestId("mnemos-plate-line"),
   ).toHaveText(
-    "Polyphonic can show this for a memory one of your agents remembers with.",
+    "Carrying forward needs a newer Mnemos. Updating Mnemos brings it.",
+  );
+  for (const [room, what] of [
+    ["beliefs", "Beliefs"],
+    ["carrying", "Carrying forward"],
+  ]) {
+    await rail(page).getByTestId(`place-row-${room}`).locator("button").click();
+    await expect(page.getByTestId("mnemos-reader-line")).toHaveText(
+      `${what} needs a newer Mnemos. Updating Mnemos brings it.`,
+    );
+  }
+  await rail(page).getByTestId("place-row-shared").locator("button").click();
+  await expect(page.getByTestId("mnemos-needs-newer")).toHaveText(
+    "Shared needs a newer Mnemos. Updating Mnemos brings it.",
   );
   expect(consoleClean(errors)).toEqual([]);
 });
@@ -3368,7 +3385,7 @@ test("(48-r2) the head and the rail say one number, after a change too", async (
   expect(consoleClean(errors)).toEqual([]);
 });
 
-test("(48-r2) a read that fails leaves the note unread, tried again only on the next sight", async ({
+test("(48-r2) a read that fails leaves the note unread, not asked again at once; the next sight tries again", async ({
   page,
 }) => {
   const errors = await boot(page, {
@@ -3591,51 +3608,110 @@ test("(51) The mind's own mark in the rail", async ({ page }) => {
   expect(consoleClean(errors)).toEqual([]);
 });
 
-test("(51) today's board: Lately ends each line on a whole word", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1100, height: 900 });
-  const errors = await boot(page);
-  const lately = page.getByTestId("mnemos-plate-lately");
-  await expect(lately.locator("li")).toHaveCount(5);
-  const facts = await lately.evaluate((plate) =>
+/** Lately's rows on today's board: how many lines each shows, whether a
+ *  word is split across two showing lines, and whether any is cut short
+ *  with an ellipsis. */
+async function latelyFacts(page: Page) {
+  return page.getByTestId("mnemos-plate-lately").evaluate((plate) =>
     [...plate.querySelectorAll<HTMLElement>(".luca-mnemos-clamp")].map((el) => {
       const s = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      const line = Number.parseFloat(s.lineHeight);
       const text = el.firstChild;
-      // A word across two lines draws as two boxes.
+      // A word across two showing lines draws as two boxes there.
       let split = 0;
+      let long = 0;
       if (text?.nodeType === Node.TEXT_NODE) {
         const words = (text.textContent ?? "").matchAll(/\S+/g);
         for (const w of words) {
           const r = document.createRange();
           r.setStart(text, w.index ?? 0);
           r.setEnd(text, (w.index ?? 0) + w[0].length);
-          const lines = new Set(
-            [...r.getClientRects()].map((x) => Math.round(x.top)),
+          const shown = [...r.getClientRects()].filter(
+            (x) => x.top < box.bottom - 1 && x.bottom > box.top + 1,
           );
-          if (lines.size > 1) split++;
+          const lines = new Set(shown.map((x) => Math.round(x.top)));
+          // A word wider than the line may break; it's counted apart.
+          const wide = [...r.getClientRects()].reduce(
+            (sum, x) => sum + x.width,
+            0,
+          );
+          if (lines.size > 1) {
+            if (wide > box.width) long++;
+            else split++;
+          }
         }
       }
       return {
-        text: el.textContent,
+        text: (el.textContent ?? "").slice(0, 40),
         ellipsis: s.textOverflow === "ellipsis",
         clamp: s.webkitLineClamp,
-        clipped: el.scrollHeight > el.clientHeight + 1,
+        lines: Math.round(box.height / line),
+        wholeLines:
+          Math.abs(box.height / line - Math.round(box.height / line)) < 0.05,
         split,
-        lines: Math.round(el.getBoundingClientRect().height / 19.5),
+        long,
+        widerThanPlate: el.scrollWidth > el.clientWidth + 1,
       };
     }),
   );
+}
+
+test("(51) today's board: Lately in at most two lines, ending on a whole word", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  const errors = await boot(page);
+  const lately = page.getByTestId("mnemos-plate-lately");
+  await expect(lately.locator("li")).toHaveCount(5);
+  const facts = await latelyFacts(page);
   for (const f of facts) {
-    expect(f.ellipsis, f.text ?? "").toBe(false);
-    expect(f.clamp, f.text ?? "").toBe("none");
-    expect(f.clipped, f.text ?? "").toBe(false);
-    expect(f.split, f.text ?? "").toBe(0);
+    expect(f.ellipsis, f.text).toBe(false);
+    expect(f.clamp, f.text).toBe("none");
+    expect(f.lines, f.text).toBeLessThanOrEqual(2);
+    expect(f.wholeLines, f.text).toBe(true);
+    expect(f.split, f.text).toBe(0);
   }
   expect(facts.some((f) => f.lines > 1)).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
   await shot51(page, "04-old-board-lately");
-  measure51("old-board-lately", facts);
+
+  // One very long word: two lines of it, cut clean at the line's edge,
+  // and the other plates stay on the first screen.
+  const long = `${"W".repeat(300)} and the rest of the line`;
+  await rail(page).getByTestId("place-row-journal").locator("button").click();
+  await page.evaluate((text) => {
+    (window as unknown as { mnemosText: (text: string) => void }).mnemosText(
+      text,
+    );
+  }, long);
+  await page.getByTestId("mnemos-rail-mind-button").click();
+  await page.getByTestId("mnemos-mind-field-notes").click();
+  await page.getByTestId("mnemos-rail-mind-button").click();
+  await page.getByTestId("mnemos-mind-wren").click();
+  await rail(page).getByTestId("place-row-glance").locator("button").click();
+  await expect(lately.locator("li").first()).toContainText("WWWW");
+  const stretched = await latelyFacts(page);
+  for (const f of stretched) {
+    expect(f.lines, f.text).toBeLessThanOrEqual(2);
+    expect(f.wholeLines, f.text).toBe(true);
+    expect(f.split, f.text).toBe(0);
+    expect(f.widerThanPlate, f.text).toBe(false);
+  }
+  expect(stretched[0]?.long).toBe(1);
+  const firstScreen = await page.evaluate(() =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        "[data-testid='mnemos-glance'] > .luca-mnemos-plate",
+      ),
+    ].map((p) => ({
+      id: p.dataset.testid,
+      top: Math.round(p.getBoundingClientRect().top),
+    })),
+  );
+  for (const p of firstScreen) expect(p.top, p.id).toBeLessThan(900);
+  await shot51(page, "08-old-board-long-word");
+  measure51("old-board-lately", { facts, stretched, firstScreen });
   expect(consoleClean(errors)).toEqual([]);
 });
 
@@ -3829,5 +3905,123 @@ for (const which of ["newer", "today"] as const)
         expect(String(w.shown), `${w.room}: rail and section`).toBe(
           w.railCount,
         );
+    expect(consoleClean(errors)).toEqual([]);
+  });
+
+/** Every piece of words in the place that shows under the Quick Chat
+ *  button, as the place stands now (what its scroller hides doesn't
+ *  show); with `column`, every piece in the button's column at any height,
+ *  since anything there can be scrolled under it (the shell's rule keeps
+ *  the column clear, 8 short of the button). */
+async function underChatButton(page: Page, column = false) {
+  return page.evaluate((column) => {
+    const button = document
+      .querySelector("[data-testid='quickchat-launcher']")
+      ?.getBoundingClientRect();
+    const place = document.querySelector("[data-testid='mnemos-place']");
+    if (!button || !place) return ["no button or place"];
+    const left = column ? button.left - 8 : button.left;
+    const out: string[] = [];
+    const walker = document.createTreeWalker(place, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node as Text;
+      if (!text.data.trim()) continue;
+      const host = text.parentElement as HTMLElement;
+      let clip: DOMRect | null = null;
+      for (let up: HTMLElement | null = host; up; up = up.parentElement)
+        if (getComputedStyle(up).overflowY !== "visible") {
+          clip = up.getBoundingClientRect();
+          break;
+        }
+      range.selectNodeContents(text);
+      for (const box of range.getClientRects()) {
+        if (!box.width || !box.height) continue;
+        if (
+          !column &&
+          clip &&
+          (box.top >= clip.bottom || box.bottom <= clip.top)
+        )
+          continue;
+        if (
+          box.right > left &&
+          box.left < button.right &&
+          (column || (box.bottom > button.top && box.top < button.bottom))
+        )
+          out.push(
+            `${host.tagName.toLowerCase()} "${text.data.trim().slice(0, 30)}"`,
+          );
+      }
+    }
+    return out;
+  }, column);
+}
+
+for (const which of ["newer", "today"] as const)
+  test(`(51-7) the Quick Chat button covers nothing in the place, at rest or scrolled to the end, at 1100 × 720 (${which === "newer" ? "a newer Mnemos" : "Mnemos 0.6.7"})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1100, height: 720 });
+    if (which === "newer") await visitedKestrel(page);
+    const errors = await boot(page, {
+      hash:
+        which === "newer"
+          ? "/mnemos?mind=kestrel&room=glance"
+          : "/mnemos?room=glance",
+      newer: which === "newer",
+    });
+    await expect(page.getByTestId("quickchat-launcher")).toBeVisible();
+    const found: Record<
+      string,
+      { rest: string[]; end: string[]; column: string[] }
+    > = {};
+    for (const room of ROOMS_IN_ORDER) {
+      await rail(page)
+        .getByTestId(`place-row-${room}`)
+        .locator("button")
+        .click();
+      await expect(page).toHaveURL(new RegExp(`room=${room}`));
+      await page.waitForTimeout(400);
+      const rest = await underChatButton(page);
+      const column = await underChatButton(page, true);
+      // Every scroller in the place, to its end.
+      await page.evaluate(() => {
+        for (const el of document.querySelectorAll<HTMLElement>(
+          "[data-testid='mnemos-place'], [data-testid='mnemos-place'] *",
+        )) {
+          const y = getComputedStyle(el).overflowY;
+          if (
+            (y === "auto" || y === "scroll") &&
+            el.scrollHeight > el.clientHeight
+          )
+            el.scrollTop = el.scrollHeight;
+        }
+      });
+      await page.waitForTimeout(150);
+      const end = await underChatButton(page);
+      found[room] = { rest, end, column };
+    }
+    const where = await page.evaluate(() => {
+      const box = (sel: string) => {
+        const r = document.querySelector(sel)?.getBoundingClientRect();
+        return r
+          ? [r.left, r.top, r.right, r.bottom].map((n) => Math.round(n))
+          : null;
+      };
+      const axis = document.querySelector(
+        "[data-testid='mnemos-place'] .luca-place-page-axis",
+      );
+      return {
+        button: box("[data-testid='quickchat-launcher']"),
+        axis: box("[data-testid='mnemos-place'] .luca-place-page-axis"),
+        axisPaddingRight: axis ? getComputedStyle(axis).paddingRight : null,
+      };
+    });
+    measure51(`chat-button-${which}`, { where, found });
+    for (const [room, f] of Object.entries(found)) {
+      expect(f.rest, `${room} at rest`).toEqual([]);
+      expect(f.end, `${room} scrolled to the end`).toEqual([]);
+      expect(f.column, `${room}: nothing in the button's column`).toEqual([]);
+    }
     expect(consoleClean(errors)).toEqual([]);
   });

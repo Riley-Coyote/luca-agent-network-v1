@@ -73,17 +73,26 @@ const ROOMS: Record<MnemosRoomId, (props: RoomProps) => React.ReactNode> = {
  */
 export function MnemosScreen() {
   const { applyPatch, values } = useHistorySearchState(SEARCH_KEYS);
-  // The one hook for drafts that hold a mind's words (`drafts.ts`): the
-  // place left, or the window hidden, they go with the words.
-  const windowShown = useWindowVisible();
-  React.useEffect(() => {
-    if (!windowShown) letGoMindWordsDrafts();
-  }, [windowShown]);
-  React.useEffect(() => letGoMindWordsDrafts, []);
   useKeepPickInAddress("mnemos", applyPatch);
   const { pick } = usePlacePick("mnemos");
   const room: MnemosRoomId = isMnemosRoom(pick) ? pick : "glance";
   const { facts, mind } = useMindInView();
+  // The one hook for drafts that hold a mind's words (`drafts.ts`): the
+  // window hidden, another mind shown, or the place left, they go with the
+  // words.
+  const windowShown = useWindowVisible();
+  React.useEffect(() => {
+    if (!windowShown) letGoMindWordsDrafts();
+  }, [windowShown]);
+  const mindInView = mind?.id ?? null;
+  const mindBefore = React.useRef(mindInView);
+  React.useEffect(() => {
+    if (mindInView === null) return;
+    if (mindBefore.current !== null && mindBefore.current !== mindInView)
+      letGoMindWordsDrafts();
+    mindBefore.current = mindInView;
+  }, [mindInView]);
+  React.useEffect(() => letGoMindWordsDrafts, []);
   // An address that names a room or a mind that isn't here falls back, and
   // then says what is really shown, in place, so Back still works.
   const named = useRouterState({
