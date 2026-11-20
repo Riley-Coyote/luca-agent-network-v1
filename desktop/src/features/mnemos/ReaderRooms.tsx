@@ -7,7 +7,7 @@ import {
 } from "@/app/shell/placeRails/PlacePage";
 import { beliefOf, handoffOf } from "./adapt";
 import type { BookBelief, BookHandoff } from "./book";
-import { Fact, longDay, PlaceLine, RoomFrame, Words } from "./MnemosParts";
+import { longDay, PlaceLine, QuietLine, RoomFrame, Words } from "./MnemosParts";
 import { firstLine } from "./notebook";
 import { setRoomCounts } from "./placeStore";
 import type { RoomProps } from "./roomKit";
@@ -32,15 +32,14 @@ export function BeliefsRoom({ mind, reader }: RoomProps) {
       opened={(b) => (
         <article aria-label="A belief" data-testid="mnemos-belief-opened">
           <Words text={b.text} />
-          <dl className="luca-mnemos-facts">
-            {b.confidence !== undefined ? (
-              <Fact label="How firmly">{heldAt(b.confidence)}</Fact>
-            ) : null}
-            {b.born ? <Fact label="Since">{longDay(b.born)}</Fact> : null}
-          </dl>
+          <QuietLine
+            parts={[
+              heldAt(b.confidence),
+              b.born ? `since ${longDay(b.born)}` : null,
+            ]}
+          />
         </article>
       )}
-      openEmpty="Open a belief to read it whole."
       testId="mnemos-beliefs"
     />
   );
@@ -61,14 +60,9 @@ export function CarryingRoom({ mind, reader }: RoomProps) {
       opened={(h) => (
         <article aria-label="Carried forward" data-testid="mnemos-carry-opened">
           <Words text={h.text} />
-          {h.at ? (
-            <dl className="luca-mnemos-facts">
-              <Fact label="Left">{longDay(h.at)}</Fact>
-            </dl>
-          ) : null}
+          <QuietLine parts={[h.at ? `Left ${longDay(h.at)}` : null]} />
         </article>
       )}
-      openEmpty="Open one to read it whole."
       testId="mnemos-carrying"
     />
   );
@@ -84,7 +78,6 @@ function ReaderList<T extends { text: string }>({
   line,
   note,
   opened,
-  openEmpty,
   testId,
 }: {
   backLabel: string;
@@ -94,7 +87,6 @@ function ReaderList<T extends { text: string }>({
   line: string | null;
   note: (item: T) => string;
   opened: (item: T) => React.ReactNode;
-  openEmpty: string;
   testId: string;
 }) {
   const [open, setOpen] = React.useState<number | null>(null);
@@ -107,7 +99,9 @@ function ReaderList<T extends { text: string }>({
   return (
     <RoomFrame
       backLabel={backLabel}
-      empty={openEmpty}
+      first={items?.length ? "0" : null}
+      onOpenFirst={() => setOpen(0)}
+      openedKey={item ? String(open) : null}
       list={
         line ? (
           <PlaceLine testId="mnemos-reader-line">{line}</PlaceLine>

@@ -7,8 +7,9 @@ import { useMindInView } from "./useMindInView";
 
 /**
  * The head of Mnemos's rail (WP-45, Decided 2): the mind in view, named as
- * the link picker names it, with one line of its real numbers. It is a
- * button that lists the minds on this Mac: each one's name, how many
+ * the link picker names it, and under it who remembers with it (its numbers
+ * are the card head's, said once). It is a button that lists the minds on
+ * this Mac: each one's name, how many
  * memories, its newest day, and who remembers with it. Never a word of any
  * memory.
  */
@@ -50,7 +51,7 @@ export function MnemosRailMind() {
       <button
         aria-controls={listId}
         aria-expanded={open}
-        aria-label={`${mind.name}, ${railLine(mind)}. Show the minds on this Mac`}
+        aria-label={`${[mind.name, linkedWords(mind)].filter(Boolean).join(", ")}. Show the minds on this Mac`}
         className="luca-mnemos-railmind-head"
         data-rail-focus="home"
         data-testid="mnemos-rail-mind-button"
@@ -59,9 +60,11 @@ export function MnemosRailMind() {
         type="button"
       >
         <span className="luca-mnemos-railmind-name text-sm">{mind.name}</span>
-        <span className="luca-mnemos-railmind-line text-2xs">
-          {railLine(mind)}
-        </span>
+        {linkedWords(mind) ? (
+          <span className="luca-mnemos-railmind-line text-2xs">
+            {linkedWords(mind)}
+          </span>
+        ) : null}
         <ChevronDown aria-hidden className="luca-mnemos-railmind-chev" />
       </button>
       {open ? (

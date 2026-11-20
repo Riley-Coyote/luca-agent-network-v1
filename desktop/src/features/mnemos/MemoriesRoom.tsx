@@ -10,9 +10,9 @@ import { cn } from "@/shared/lib/cn";
 import { type BookStanding, standingOf } from "./adapt";
 import type { BookFound, BookMemory } from "./book";
 import {
-  Fact,
   longDay,
   PlaceLine,
+  QuietLine,
   RoomFrame,
   useLoad,
   Words,
@@ -231,24 +231,41 @@ export function MemoriesRoom(props: RoomProps) {
     </>
   );
 
+  const first =
+    asked !== null
+      ? (search.value?.[0]?.memory.id ?? null)
+      : chip === "standing"
+        ? standing.items?.length
+          ? "standing:0"
+          : null
+        : (shown[0]?.id ?? null);
+
   return (
     <RoomFrame
       backLabel="Memories"
-      empty="Open a memory to read it whole."
+      first={first}
       list={list}
       onBack={() => {
         if (standingItem) setStandingOpen(null);
         else openItem(null);
       }}
+      onOpenFirst={(key) => {
+        if (key === "standing:0") setStandingOpen(0);
+        else openItem(key, { replace: true });
+      }}
+      openedKey={
+        standingItem ? `standing:${standingOpen}` : memory ? opened : null
+      }
       opened={
         standingItem ? (
           <article aria-label="A standing memory">
             <Words text={standingItem.text} />
-            {standingItem.at ? (
-              <dl className="luca-mnemos-facts">
-                <Fact label="Kept">{longDay(standingItem.at)}</Fact>
-              </dl>
-            ) : null}
+            <QuietLine
+              parts={[
+                standingItem.at ? `Kept ${longDay(standingItem.at)}` : null,
+                "standing",
+              ]}
+            />
           </article>
         ) : memory ? (
           <MemoryOpened mindName={mind.name} seen={memory} />
@@ -268,27 +285,29 @@ function MemoryOpened({ mindName, seen }: { mindName: string; seen: Seen }) {
   return (
     <article aria-label="A memory" data-testid="mnemos-memory-opened">
       <Words text={memory.content} />
-      <dl className="luca-mnemos-facts">
-        {seen.whole && seen.memory.impact ? (
-          <Fact label="What it changed, in its words">
-            {seen.memory.impact}
-          </Fact>
-        ) : null}
-        <Fact label="Kept">{longDay(memory.born)}</Fact>
-        {seen.whole ? (
-          <>
-            <Fact label="Now">{stateWords(seen.memory.state)}</Fact>
-            <Fact label="Corrected">
-              {seen.memory.corrected
-                ? `corrected ${longDay(seen.memory.corrected)}`
-                : "never corrected"}
-            </Fact>
-            <Fact label="Who wrote it">
-              {signedBy(seen.memory, { name: mindName })}
-            </Fact>
-          </>
-        ) : null}
-      </dl>
+      {seen.whole && seen.memory.impact ? (
+        <div className="luca-mnemos-impact">
+          <p className="luca-mnemos-label text-2xs">
+            What it changed, in its words
+          </p>
+          <p className="text-sm">{seen.memory.impact}</p>
+        </div>
+      ) : null}
+      <QuietLine
+        parts={
+          seen.whole
+            ? [
+                `Kept ${longDay(memory.born)}`,
+                stateWords(seen.memory.state),
+                seen.memory.corrected
+                  ? `corrected ${longDay(seen.memory.corrected)}`
+                  : "never corrected",
+                signedBy(seen.memory, { name: mindName }),
+              ]
+            : [`Kept ${longDay(memory.born)}`]
+        }
+        testId="mnemos-memory-line"
+      />
     </article>
   );
 }

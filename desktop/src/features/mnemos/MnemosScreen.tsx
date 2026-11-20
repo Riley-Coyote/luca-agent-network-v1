@@ -53,7 +53,8 @@ export function MnemosScreen() {
   const { facts, mind } = useMindInView();
 
   const openItem = React.useCallback(
-    (id: string | null) => applyPatch({ item: id }, { replace: id === null }),
+    (id: string | null, options?: { replace?: boolean }) =>
+      applyPatch({ item: id }, { replace: options?.replace ?? false }),
     [applyPatch],
   );
   const goTo = React.useCallback(

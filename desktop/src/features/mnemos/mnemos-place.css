@@ -163,22 +163,28 @@
   max-width: 68ch;
 }
 
-.luca-mnemos-facts {
+/* What it changed: the one fact worth a label, under the words. */
+.luca-mnemos-impact {
+  color: hsl(var(--mn-ink-muted));
   display: grid;
-  gap: 12px;
-  margin-top: 22px;
+  gap: 3px;
+  line-height: 1.5;
+  margin-top: 20px;
   max-width: 68ch;
 }
 
-.luca-mnemos-fact dt {
+.luca-mnemos-label {
   color: hsl(var(--mn-ink-faint));
   letter-spacing: 0.02em;
-  margin-bottom: 2px;
 }
 
-.luca-mnemos-fact dd {
+/* The rest, in one quiet line, the way the notebook says it. */
+.luca-mnemos-quietline {
   color: hsl(var(--mn-ink-muted));
+  font-variant-numeric: tabular-nums;
   line-height: 1.5;
+  margin-top: 18px;
+  max-width: 68ch;
 }
 
 .luca-mnemos-thread {
@@ -193,6 +199,11 @@
 
 .luca-mnemos-meta .luca-mnemos-dot {
   margin-left: 6px;
+}
+
+/* In a row, the dot sits just before the date, on the first line. */
+.luca-place-row-note .luca-mnemos-dot {
+  margin-right: 6px;
 }
 
 /* ── search and the chips ─────────────────────────────────────────── */

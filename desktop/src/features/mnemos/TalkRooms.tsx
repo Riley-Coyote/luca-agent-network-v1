@@ -7,7 +7,14 @@ import {
 } from "@/app/shell/placeRails/PlacePage";
 import { UNREAD_DOT_CLASS } from "@/features/sidebar/ui/ChatList";
 import type { BookNote } from "./book";
-import { longDay, PlaceLine, RoomFrame, useLoad, Words } from "./MnemosParts";
+import {
+  longDay,
+  PlaceLine,
+  QuietLine,
+  RoomFrame,
+  useLoad,
+  Words,
+} from "./MnemosParts";
 import {
   firstLine,
   modelName,
@@ -47,7 +54,9 @@ export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
   return (
     <RoomFrame
       backLabel="Journal"
-      empty="Open an entry to read it whole."
+      first={list[0]?.id ?? null}
+      onOpenFirst={(id) => openItem(id, { replace: true })}
+      openedKey={entry ? entry.id : null}
       list={
         entries.failed ? (
           <PlaceLine action={{ label: "Try again", run: entries.again }}>
@@ -78,22 +87,17 @@ export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
             aria-label="A journal entry"
             data-testid="mnemos-entry-opened"
           >
-            <p className="luca-mnemos-meta text-2xs">
-              {[
-                longDay(entry.at),
-                entry.written ? writtenWords(entry.written) : null,
-                entry.model ? `signed ${modelName(entry.model)}` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
             <h2 className="luca-mnemos-title text-base">{title.title}</h2>
             {title.body ? <Words text={title.body} /> : null}
-            {entry.mood ? (
-              <p className="luca-mnemos-quiet text-sm">
-                mood, in its words: {entry.mood}
-              </p>
-            ) : null}
+            <QuietLine
+              parts={[
+                longDay(entry.at),
+                entry.mood ? `mood, in its words: ${entry.mood}` : null,
+                entry.written ? writtenWords(entry.written) : null,
+                entry.model ? `signed ${modelName(entry.model)}` : null,
+              ]}
+              testId="mnemos-entry-line"
+            />
           </article>
         ) : null
       }
@@ -129,23 +133,25 @@ export function NotesRoom({ book, mind, item, openItem }: RoomProps) {
     list.map((t) => (
       <PlaceListRow
         aria-current={t.id === opened ? "true" : undefined}
-        detail={
-          t.notes.some(unread) ? (
-            <span
-              aria-label="not read yet"
-              className={`${UNREAD_DOT_CLASS} luca-mnemos-dot`}
-              data-testid={`mnemos-unread-${t.id}`}
-              role="img"
-            />
-          ) : undefined
-        }
         key={t.id}
-        note={placeNoteTime(t.last.at)}
+        note={
+          <>
+            {t.notes.some(unread) ? (
+              <span
+                aria-label="not read yet"
+                className={`${UNREAD_DOT_CLASS} luca-mnemos-dot`}
+                data-testid={`mnemos-unread-${t.id}`}
+                role="img"
+              />
+            ) : null}
+            {placeNoteTime(t.last.at)}
+          </>
+        }
         onOpen={() => openItem(t.id)}
         summary={
-          t.last.author === "agent"
-            ? `${mind.name} wrote last`
-            : "you wrote last"
+          t.last.author === "person"
+            ? `you wrote last · ${wokenWords(t.last)}`
+            : undefined
         }
         testId={`mnemos-thread-${t.id}`}
         title={firstLine(t.last.text)}
@@ -155,7 +161,9 @@ export function NotesRoom({ book, mind, item, openItem }: RoomProps) {
   return (
     <RoomFrame
       backLabel="Notes"
-      empty="Open a note to read the whole exchange."
+      first={(waiting[0] ?? rest[0])?.id ?? null}
+      onOpenFirst={(id) => openItem(id, { replace: true })}
+      openedKey={thread ? thread.id : null}
       list={
         notes.failed ? (
           <PlaceLine action={{ label: "Try again", run: notes.again }}>
@@ -200,6 +208,14 @@ export function NotesRoom({ book, mind, item, openItem }: RoomProps) {
   );
 }
 
+/** Whether the mind has woken with a note of yours (the notebook's own
+ *  words): it reaches it, once, when it next wakes. */
+export function wokenWords(note: Pick<BookNote, "delivered">): string {
+  return note.delivered
+    ? `it has woken with this, ${longDay(note.delivered)}`
+    : "it wakes with this, once, in its next session";
+}
+
 function ThreadOpened({
   mindName,
   notes,
@@ -218,6 +234,7 @@ function ThreadOpened({
               {n.author === "agent" && n.model ? (
                 <span> · signed {modelName(n.model)}</span>
               ) : null}
+              {n.author === "person" ? <span> · {wokenWords(n)}</span> : null}
               {unread(n) ? (
                 <span
                   aria-label="not read yet"

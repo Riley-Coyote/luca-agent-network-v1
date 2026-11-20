@@ -522,9 +522,10 @@ test("(a, b, g) the tile after Brain; the rail; At a glance with real numbers", 
   await expect(card(page)).toBeVisible();
 
   // (b) The rail: the mind in view, its numbers, the rooms with counts.
-  await expect(page.getByTestId("mnemos-rail-mind")).toContainText("Wren");
-  await expect(page.getByTestId("mnemos-rail-mind")).toContainText(
-    "124 memories · newest today",
+  // The rail's head: the name, and who remembers with it; the numbers are
+  // the card head's alone.
+  await expect(page.getByTestId("mnemos-rail-mind-button")).toHaveText(
+    "WrenLuca remembers with this",
   );
   const rooms = await rail(page)
     .locator("[data-testid^='place-row-']")
@@ -909,8 +910,14 @@ test("(j) narrow: the opened thing slides over the list, with a back link", asyn
   const wide = await page
     .getByTestId("mnemos-memories")
     .evaluate((el) => el.clientWidth);
+  // Wide, the newest opened by itself.
+  await expect(page).toHaveURL(/item=wren-m123/);
   await page.setViewportSize({ width: 1000, height: 800 });
+  // Narrow from the start, it stays on the list.
+  await page.goto("/#/mnemos?room=memories");
   await expect(page.getByTestId("mnemos-memories-list")).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(page).not.toHaveURL(/item=/);
   const narrow = await page
     .getByTestId("mnemos-memories")
     .evaluate((el) => el.clientWidth);
@@ -1048,8 +1055,13 @@ test("measure: type sizes and contrast, both themes", async ({ page }) => {
         row_note: pick(
           "[data-testid='mnemos-memories-list'] .luca-place-row-note",
         ),
-        fact_label: pick("[data-testid='mnemos-memory-opened'] dt"),
-        fact: pick("[data-testid='mnemos-memory-opened'] dd"),
+        impact_label: pick(
+          "[data-testid='mnemos-memory-opened'] .luca-mnemos-label",
+        ),
+        impact: pick(
+          "[data-testid='mnemos-memory-opened'] .luca-mnemos-impact p + p",
+        ),
+        quiet_line: pick("[data-testid='mnemos-memory-line']"),
         chip: pick("[data-testid='mnemos-chip-all']"),
         rail_line: pick(".luca-mnemos-railmind-line"),
       };

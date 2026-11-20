@@ -26,17 +26,45 @@ export function PlaceLine({
   );
 }
 
-/** A day as the notebook says it in full: Monday, November 16, 2026. */
-export function longDay(iso: string | null | undefined): string {
+/** When, as the place says it everywhere: the time today ("today at
+ *  2:37 AM"), the day this year ("Friday, November 20"), the year only
+ *  before this one. */
+export function longDay(
+  iso: string | null | undefined,
+  now: Date = new Date(),
+): string {
   if (!iso) return "";
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "";
+  if (at.toDateString() === now.toDateString())
+    return `today at ${at.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    })}`;
   return at.toLocaleDateString(undefined, {
     weekday: "long",
     day: "numeric",
     month: "long",
-    year: "numeric",
+    year: at.getFullYear() === now.getFullYear() ? undefined : "numeric",
   });
+}
+
+/** The rest of an opened thing, said in one quiet line the way the notebook
+ *  says it: "Kept Friday, November 20 · it can reach · never corrected". */
+export function QuietLine({
+  parts,
+  testId,
+}: {
+  parts: (string | null | undefined | false)[];
+  testId?: string;
+}) {
+  const said = parts.filter(Boolean);
+  if (!said.length) return null;
+  return (
+    <p className="luca-mnemos-quietline text-xs" data-testid={testId}>
+      {said.join(" · ")}
+    </p>
+  );
 }
 
 /** Words as paragraphs, split where the writer left a blank line. */
@@ -58,41 +86,82 @@ export function Words({
   );
 }
 
+/** The width at which a room's list and the thing opened sit side by side
+ *  (mnemos-place.css says the same). */
+const SIDE_BY_SIDE = 721;
+
 /**
- * A room: its list (about 360 wide) beside the thing opened. Where the card
- * is narrow, the opened thing slides over the list, with a back link to it
+ * A room: its list (about 360 wide) beside the thing opened. Wide, the room
+ * opens its newest item by itself, so that side is never empty; narrow, it
+ * stays on the list, and the opened thing slides over it with a back link
  * (the WP-43 way; mnemos-place.css measures by the room's own width).
  */
 export function RoomFrame({
   backLabel,
-  empty,
+  first,
   list,
   onBack,
+  onOpenFirst,
   opened,
+  openedKey,
   testId,
 }: {
   backLabel: string;
-  /** What the opened side says while nothing is open. */
-  empty: string;
+  /** The newest item's key, once the list has it. */
+  first: string | null;
   list: React.ReactNode;
   onBack: () => void;
+  /** Opens the newest item, in place (wide only). */
+  onOpenFirst: (key: string) => void;
   opened: React.ReactNode | null;
+  /** The opened item's key, or null. */
+  openedKey: string | null;
   testId: string;
 }) {
+  const root = React.useRef<HTMLDivElement>(null);
   const openedRef = React.useRef<HTMLDivElement>(null);
-  const isOpen = opened !== null;
-  const wasOpen = React.useRef(isOpen);
+  const [wide, setWide] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const measure = () => setWide(el.clientWidth >= SIDE_BY_SIDE);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Wide, nothing open: the newest opens by itself, once per list.
+  const opener = React.useRef(onOpenFirst);
+  opener.current = onOpenFirst;
+  const autoFor = React.useRef<string | null>(null);
+  const autoOpened = React.useRef<string | null>(null);
   React.useEffect(() => {
-    // Reading on: the opened thing takes focus, so a screen reader starts
-    // there; it isn't something you act on, so it draws no ring.
-    if (isOpen && !wasOpen.current) openedRef.current?.focus();
-    wasOpen.current = isOpen;
-  }, [isOpen]);
+    if (!wide || openedKey !== null || !first || autoFor.current === first)
+      return;
+    autoFor.current = first;
+    autoOpened.current = first;
+    opener.current(first);
+  }, [wide, openedKey, first]);
+
+  // Reading on: what the person opens takes focus, so a screen reader
+  // starts there; what opened by itself leaves focus where it was. It isn't
+  // something you act on, so it draws no ring.
+  const lastKey = React.useRef(openedKey);
+  React.useEffect(() => {
+    if (!openedKey || openedKey === lastKey.current) return;
+    if (openedKey === autoOpened.current) autoOpened.current = null;
+    else openedRef.current?.focus();
+    lastKey.current = openedKey;
+  }, [openedKey]);
+
+  const isOpen = opened !== null;
   return (
     <div
       className="luca-mnemos-room"
       data-open={isOpen ? "" : undefined}
       data-testid={testId}
+      ref={root}
     >
       <div className="luca-mnemos-room-grid">
         <div className="luca-mnemos-list">{list}</div>
@@ -115,27 +184,9 @@ export function RoomFrame({
               </button>
               {opened}
             </div>
-          ) : (
-            <p className="luca-mnemos-quiet text-sm">{empty}</p>
-          )}
+          ) : null}
         </div>
       </div>
-    </div>
-  );
-}
-
-/** A fact under an opened thing: its label, small, and its words. */
-export function Fact({
-  children,
-  label,
-}: {
-  children: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <div className="luca-mnemos-fact">
-      <dt className="text-2xs">{label}</dt>
-      <dd className="text-sm">{children}</dd>
     </div>
   );
 }
