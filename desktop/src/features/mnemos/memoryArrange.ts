@@ -107,29 +107,26 @@ export function arrange(
   return out.sort(order[sort]);
 }
 
-/** The filters to offer, with how many each holds: New only when something
- *  is, Warm only when an hour lately warmed one, By colleagues only when a
- *  colleague signed one. */
+/** The filters, each with how many it holds: all of them always (one
+ *  with nothing in it at 0), and New whenever the last visit is known. */
 export function filtersFor(
   memories: readonly BookMemory[],
   ctx: ArrangeContext,
-): { id: MemoryFilter; label: string; n?: number }[] {
+): { id: MemoryFilter; label: string; n: number }[] {
   const reach = memories.filter((m) => m.state !== "archived");
-  const fresh = reach.filter((m) => isNew(m, ctx.since)).length;
-  const warm = reach.some((m) => isWarm(m, ctx.heat));
-  const colleagues = reach.some((m) => byColleague(m, ctx.model));
-  return [
-    { id: "all", label: "All" },
-    ...(fresh ? [{ id: "new" as const, label: "New", n: fresh }] : []),
-    ...(warm ? [{ id: "warm" as const, label: "Warm" }] : []),
-    { id: "lessons", label: "Lessons" },
-    { id: "standing", label: "Standing" },
-    { id: "asked", label: "Asked about" },
-    { id: "quiet", label: "Gone quiet" },
-    ...(colleagues
-      ? [{ id: "colleagues" as const, label: "By colleagues" }]
-      : []),
+  const count = (id: MemoryFilter) =>
+    reach.filter((m) => passes(m, id, ctx)).length;
+  const all: [MemoryFilter, string][] = [
+    ["all", "All"],
+    ...(ctx.since > 0 ? [["new", "New"] as [MemoryFilter, string]] : []),
+    ["warm", "Warm"],
+    ["lessons", "Lessons"],
+    ["standing", "Standing"],
+    ["asked", "Asked about"],
+    ["quiet", "Gone quiet"],
+    ["colleagues", "By colleagues"],
   ];
+  return all.map(([id, label]) => ({ id, label, n: count(id) }));
 }
 
 /** An hour's warmth: its light, cooling since it ended (half-life six

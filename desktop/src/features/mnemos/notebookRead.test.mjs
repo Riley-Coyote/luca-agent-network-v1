@@ -10,7 +10,16 @@ import {
   temperature,
   visitSince,
 } from "./memoryArrange.ts";
-import { dayName, dayWords, logDays } from "./notebookLog.ts";
+import {
+  answeredKey,
+  beliefKey,
+  dayName,
+  dayWords,
+  leftKey,
+  logDays,
+  spanWords,
+} from "./notebookLog.ts";
+import { restsOnWords } from "./notebookWords.ts";
 import { showing, sightReader } from "./readOnSight.ts";
 
 const NOW = Date.UTC(2026, 10, 20, 15, 0);
@@ -88,25 +97,34 @@ test("filters and sorts are the notebook's own", () => {
   assert.equal(ids("all", "easiest")[0], "b");
 
   assert.deepEqual(
-    filtersFor(all, ctx).map((f) => [f.id, f.n ?? null]),
+    filtersFor(all, ctx).map((f) => [f.id, f.n]),
     [
-      ["all", null],
+      ["all", 4],
       ["new", 1],
-      ["warm", null],
-      ["lessons", null],
-      ["standing", null],
-      ["asked", null],
-      ["quiet", null],
-      ["colleagues", null],
+      ["warm", 1],
+      ["lessons", 1],
+      ["standing", 1],
+      ["asked", 1],
+      ["quiet", 1],
+      ["colleagues", 1],
     ],
   );
-  // Nothing new, nothing warm, no colleague: those three aren't offered.
+  // Every filter stays, at 0 when it holds nothing; New only once the
+  // last visit is known.
   const plain = filtersFor([mem("x", { ago: 50 * H })], {
     since: 0,
     heat: new Map(),
     model: "claude-opus-5-5",
-  }).map((f) => f.id);
-  assert.deepEqual(plain, ["all", "lessons", "standing", "asked", "quiet"]);
+  }).map((f) => [f.id, f.n]);
+  assert.deepEqual(plain, [
+    ["all", 1],
+    ["warm", 0],
+    ["lessons", 0],
+    ["standing", 0],
+    ["asked", 0],
+    ["quiet", 0],
+    ["colleagues", 0],
+  ]);
 });
 
 test("warmth cools with a six-hour half-life, and adds the way light does", () => {
@@ -293,10 +311,10 @@ test("the log gathers a mind's days, newest first, each thing once", () => {
     ["n1", "n1"],
   );
   const keyed = days.flatMap((d) => d.events).filter((e) => "key" in e);
-  assert.deepEqual(keyed.map((e) => e.key).sort(), [
-    "#answered-0",
-    "#belief-0",
-    "#left-0",
+  assert.deepEqual(keyed.map((e) => e.key.replace(/-.*$/, "")).sort(), [
+    "#answered",
+    "#belief",
+    "#left",
   ]);
   assert.match(
     dayWords(today),
@@ -422,4 +440,88 @@ test("a read that fails leaves the note unread, for the next look", async () => 
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(calls, [["n1"], ["n1"]]);
   assert.equal(reader.said("n1"), true);
+});
+
+test("a thing with no id is keyed by itself, so an insert never moves a link", () => {
+  const at = (h) => iso(NOW - h * H);
+  const lists = [
+    [
+      leftKey,
+      [
+        { text: "Carry the tide.", at: at(3) },
+        { text: "Check the buoy.", at: at(30) },
+      ],
+      { text: "A new note to itself.", at: at(10) },
+    ],
+    [
+      beliefKey,
+      [
+        { text: "The tide comes first.", born: at(100) },
+        { text: "Fog and ferries.", born: at(50) },
+      ],
+      { text: "A new belief.", born: at(70) },
+    ],
+    [
+      answeredKey,
+      [
+        { prompt: "What did it teach?", answer: "This.", at: at(5) },
+        { prompt: "Still true?", answer: "Yes.", at: at(9) },
+      ],
+      { prompt: "What did it change?", answer: "That.", at: at(7) },
+    ],
+  ];
+  for (const [key, before, inserted] of lists) {
+    const keys = before.map(key);
+    assert.equal(new Set(keys).size, keys.length, "each its own key");
+    // One inserted in the middle: every old key still names its own thing.
+    const after = [before[0], inserted, before[1]];
+    for (const [i, k] of keys.entries())
+      assert.equal(
+        after.find((each) => key(each) === k),
+        before[i],
+        `${k} still opens the same thing`,
+      );
+    // Gone, its key names nothing, never a neighbour.
+    assert.equal(
+      [inserted, before[1]].find((each) => key(each) === keys[0]),
+      undefined,
+    );
+    // Same time, other words: another key.
+    const twin = { ...before[0], text: "x", prompt: "x" };
+    assert.notEqual(key(twin), keys[0]);
+  }
+});
+
+test("an hour's span, as the notebook says one", () => {
+  const d = (h, m) => new Date(2026, 10, 20, h, m).toISOString();
+  assert.equal(spanWords(d(1, 26), d(1, 56)), "1:26 to 1:56 AM");
+  assert.equal(spanWords(d(11, 40), d(12, 20)), "11:40 AM to 12:20 PM");
+  assert.equal(spanWords(d(13, 5), null), "1:05 PM");
+  assert.equal(spanWords(null, d(1, 0)), "");
+});
+
+test("what a belief rests on agrees with what is under it", () => {
+  const own = { model: "claude-opus-5-5" };
+  const sonnet = { model: "claude-sonnet-5" };
+  const me = "claude-opus-5-5";
+  assert.equal(restsOnWords([], me), "resting on no memory in view");
+  assert.equal(restsOnWords([own], me), "rests on a memory of its own");
+  assert.equal(
+    restsOnWords([own, own], me),
+    "rests on two memories of its own",
+  );
+  assert.equal(
+    restsOnWords([sonnet], me),
+    "rests on a memory Sonnet 5 wrote, a colleague",
+  );
+  assert.equal(
+    restsOnWords([own, sonnet], me),
+    "rests on a memory of its own and one Sonnet 5 wrote, a colleague",
+  );
+  assert.equal(
+    restsOnWords([sonnet, own, sonnet], me),
+    "rests on a memory of its own and two memories Sonnet 5 wrote, a colleague",
+  );
+  // A memory with no signature is counted as its own, as the notebook does.
+  assert.equal(restsOnWords([{}], me), "rests on a memory of its own");
 });

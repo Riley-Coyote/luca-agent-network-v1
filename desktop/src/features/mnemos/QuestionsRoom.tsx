@@ -59,8 +59,8 @@ export function QuestionsRoom(props: RoomProps) {
       })),
       {
         label: "Answered",
-        items: questions.answered.map((q, index) => ({
-          key: answeredKey(index),
+        items: questions.answered.map((q) => ({
+          key: answeredKey(q),
           title: question(q.prompt),
           note: placeNoteTime(q.at),
           summary: q.answer ? undefined : "no answer kept",

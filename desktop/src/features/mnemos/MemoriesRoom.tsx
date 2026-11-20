@@ -889,7 +889,8 @@ function useNotebookList(
   }, [notebook, mind, filter, sort]);
 }
 
-/** The notebook's filters, as chips, and its orders, beside a count. */
+/** The notebook's filters and its orders, as two quiet menus on one row,
+ *  the count at its end ("3 of 12 memories"). */
 function NotebookTools({
   count,
   filter,
@@ -901,57 +902,86 @@ function NotebookTools({
 }: {
   count: number;
   filter: MemoryFilter;
-  filters: { id: MemoryFilter; label: string; n?: number }[];
+  filters: { id: MemoryFilter; label: string; n: number }[];
   onFilter: (filter: MemoryFilter) => void;
   onSort: (sort: MemorySort) => void;
   sort: MemorySort;
   total: number;
 }) {
-  const used = filters.some((f) => f.id === filter) ? filter : "all";
+  const used = filters.find((f) => f.id === filter) ?? filters[0];
+  const memories = (n: number) =>
+    `${n.toLocaleString("en-US")} ${n === 1 ? "memory" : "memories"}`;
   return (
     <div className="luca-mnemos-tools">
-      <fieldset className="luca-mnemos-chips" aria-label="Which memories">
-        {filters.map((each) => (
-          <button
-            aria-pressed={used === each.id}
-            className="luca-mnemos-chip text-xs"
-            data-testid={`mnemos-filter-${each.id}`}
-            key={each.id}
-            onClick={() => onFilter(each.id)}
-            type="button"
-          >
-            {each.label}
-            {each.n ? (
-              <span className="luca-mnemos-chip-n">{each.n}</span>
-            ) : null}
-          </button>
-        ))}
-      </fieldset>
-      <div className="luca-mnemos-order">
-        <label className="luca-mnemos-sort text-xs">
-          <span className="sr-only">Order</span>
-          <select
-            data-testid="mnemos-sort"
-            onChange={(event) => onSort(event.target.value as MemorySort)}
-            value={sort}
-          >
-            {MEMORY_SORTS.map(([id, label]) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown aria-hidden />
-        </label>
-        <span
-          className="luca-mnemos-count text-xs"
-          data-testid="mnemos-memories-count"
-        >
-          {count === total
-            ? `${total.toLocaleString("en-US")} ${total === 1 ? "memory" : "memories"}`
-            : `${count.toLocaleString("en-US")} of ${total.toLocaleString("en-US")}`}
-        </span>
-      </div>
+      <QuietMenu
+        label="Which memories"
+        onChange={(id) => onFilter(id as MemoryFilter)}
+        options={filters.map((f) => ({
+          id: f.id,
+          // Each says how many it holds; one with none stays, dimmed.
+          label: `${f.label} (${f.n.toLocaleString("en-US")})`,
+          disabled: f.n === 0 && f.id !== used?.id,
+        }))}
+        shown={used?.label ?? "All"}
+        testId="mnemos-filter"
+        value={used?.id ?? "all"}
+      />
+      <QuietMenu
+        label="Order"
+        onChange={(id) => onSort(id as MemorySort)}
+        options={MEMORY_SORTS.map(([id, label]) => ({ id, label }))}
+        shown={MEMORY_SORTS.find(([id]) => id === sort)?.[1] ?? "Newest"}
+        testId="mnemos-sort"
+        value={sort}
+      />
+      <span
+        className="luca-mnemos-count text-xs"
+        data-testid="mnemos-memories-count"
+      >
+        {count === total
+          ? memories(total)
+          : `${count.toLocaleString("en-US")} of ${memories(total)}`}
+      </span>
     </div>
+  );
+}
+
+/** A menu that reads as its choice and a chevron ("Lessons ▾"): the
+ *  platform's own menu over it, so the keyboard, the type-ahead and the
+ *  list are the system's. */
+function QuietMenu({
+  label,
+  onChange,
+  options,
+  shown,
+  testId,
+  value,
+}: {
+  label: string;
+  onChange: (id: string) => void;
+  options: { id: string; label: string; disabled?: boolean }[];
+  shown: string;
+  testId: string;
+  value: string;
+}) {
+  return (
+    <label className="luca-mnemos-menu text-xs">
+      <span aria-hidden className="luca-mnemos-menu-shown">
+        {shown}
+      </span>
+      <ChevronDown aria-hidden />
+      <select
+        aria-label={label}
+        data-testid={testId}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {options.map((o) => (
+          <option disabled={o.disabled} key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

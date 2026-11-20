@@ -4,6 +4,7 @@
  * the place says what the notebook says.
  */
 import type { BookHour } from "./book";
+import { modelName } from "./notebook";
 
 /** A quiet hour's kind. */
 export const KIND: Record<string, string> = {
@@ -112,4 +113,35 @@ export function trailSentence(hour: BookHour, inMemory: number | null = null) {
   return inMemory === 0 && (woke.length || waiting.length || reached.length)
     ? `${said} None of it is in the memory shown here.`
     : said;
+}
+
+/**
+ * What a belief rests on, in the notebook's sentence (`room.js`
+ * `beliefsHTML`: "rests on a memory of its own", "rests on a memory Sonnet
+ * 5 wrote, a colleague", "resting on no memory in view"), counted: the
+ * notebook names only the first memory, so where it rests on more, the
+ * same sentence says how many, its own first, then each colleague's.
+ */
+export function restsOnWords(
+  memories: readonly { model?: string }[],
+  model: string,
+): string {
+  if (!memories.length) return "resting on no memory in view";
+  const name = (m: { model?: string }) =>
+    m.model && model && modelName(m.model) !== modelName(model)
+      ? modelName(m.model)
+      : null;
+  const own = memories.filter((m) => name(m) === null).length;
+  const theirs = new Map<string, number>();
+  for (const m of memories) {
+    const who = name(m);
+    if (who) theirs.set(who, (theirs.get(who) ?? 0) + 1);
+  }
+  const some = (n: number, first: boolean) =>
+    n === 1 ? (first ? "a memory" : "one") : `${words(n)} memories`;
+  const parts: string[] = [];
+  if (own) parts.push(`${some(own, true)} of its own`);
+  for (const [who, n] of theirs)
+    parts.push(`${some(n, parts.length === 0)} ${who} wrote, a colleague`);
+  return `rests on ${parts.join(" and ")}`;
 }

@@ -43,7 +43,7 @@ export function MemoryDetail({
   const read = readingsOf(memory, new Set(byId.keys()));
   const ties = (memory.ties ?? []).filter((t) => byId.has(t[0]));
   const beliefs = life.beliefs
-    .map((belief, index) => ({ belief, key: beliefKey(index) }))
+    .map((belief) => ({ belief, key: beliefKey(belief) }))
     .filter(({ belief }) => (belief.supports ?? []).includes(memory.id));
   const hours = life.hours.filter((h) =>
     [...h.trail.woke, ...h.trail.waiting, ...h.trail.reached].includes(
@@ -52,7 +52,7 @@ export function MemoryDetail({
   );
   const asked = life.questions.asked.filter((q) => q.about === memory.id);
   const answered = life.questions.answered
-    .map((q, index) => ({ q, key: answeredKey(index) }))
+    .map((q) => ({ q, key: answeredKey(q) }))
     .filter(({ q }) => q.about === memory.id);
   if (part === "readings")
     return (

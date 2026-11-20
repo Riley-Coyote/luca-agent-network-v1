@@ -6,11 +6,10 @@ import {
 import { beliefOf } from "./adapt";
 import type { BookBelief, BookMemory } from "./book";
 import { ItemsRoom } from "./ItemsRoom";
-import { sameModel } from "./memoryArrange";
 import { longDay, QuietLine, Words } from "./MnemosParts";
-import { firstLine, modelName } from "./notebook";
+import { firstLine } from "./notebook";
 import { beliefKey } from "./notebookLog";
-import { plural } from "./notebookWords";
+import { plural, restsOnWords } from "./notebookWords";
 import { setRoomCounts } from "./placeStore";
 import { heldAt, ReaderList } from "./ReaderRooms";
 import type { NotebookView, RoomProps } from "./roomKit";
@@ -65,7 +64,7 @@ function NotebookBeliefs({
   // Held most firmly first, the latest revised first among equals; each
   // keeps its place in the notebook's list as its key.
   const held = life.beliefs
-    .map((belief, index) => ({ belief, key: beliefKey(index) }))
+    .map((belief) => ({ belief, key: beliefKey(belief) }))
     .sort(
       (a, b) =>
         (b.belief.confidence ?? 0) - (a.belief.confidence ?? 0) ||
@@ -118,12 +117,7 @@ function BeliefOpened({
   const history = belief.history ?? [];
   const down = history.filter((h) => (h.to ?? 0) < (h.from ?? 0)).length;
   const up = history.filter((h) => (h.to ?? 0) > (h.from ?? 0)).length;
-  const first = restsOn[0];
-  const rests = !first
-    ? "resting on no memory in view"
-    : first.model && !sameModel(first.model, model)
-      ? `rests on a memory ${modelName(first.model)} wrote, a colleague`
-      : "rests on a memory of its own";
+  const rests = restsOnWords(restsOn, model);
   return (
     <article aria-label="A belief" data-testid="mnemos-belief-opened">
       <Words text={belief.text} />

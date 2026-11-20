@@ -17,12 +17,55 @@ import type {
 } from "./book";
 import { dayKey, threads } from "./notebook";
 
-/** Where each thing the notebook gives no id opens, by its place in the
- *  notebook's own list. The sections use the same keys. */
-export const leftKey = (index: number) => `#left-${index}`;
-export const beliefKey = (index: number) => `#belief-${index}`;
-export const answeredKey = (index: number) => `#answered-${index}`;
+/** A short hash of words (FNV-1a, base 36): enough to tell two things
+ *  apart, never to read them back. */
+export function wordsHash(words: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < words.length; i++) {
+    h ^= words.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/** A time as a short stamp (base-36 milliseconds), "0" without one. */
+const stamp = (iso: string | null | undefined) => {
+  const t = iso ? Date.parse(iso) : Number.NaN;
+  return Number.isNaN(t) ? "0" : t.toString(36);
+};
+
+/** Where each thing the notebook gives no id opens: a key made from the
+ *  thing itself, its time and a hash of its words, so a link always opens
+ *  the same thing, or nothing once it is gone; never a neighbour. The
+ *  sections use the same keys. */
+export const leftKey = (left: Pick<BookHandoff, "at" | "text">) =>
+  `#left-${stamp(left.at)}-${wordsHash(left.text)}`;
+export const beliefKey = (belief: Pick<BookBelief, "born" | "text">) =>
+  `#belief-${stamp(belief.born)}-${wordsHash(belief.text)}`;
+export const answeredKey = (
+  answered: Pick<BookAnswered, "at" | "prompt" | "answer">,
+) =>
+  `#answered-${stamp(answered.at)}-${wordsHash(`${answered.prompt}\n${answered.answer}`)}`;
 export const dayItemKey = (day: string) => `#${day}`;
+
+/** An hour's span, as the notebook says one: "1:26 to 1:56 AM" (the first
+ *  time's AM or PM said only when the two differ). */
+export function spanWords(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): string {
+  const clock = (iso: string) =>
+    new Date(iso).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  if (!start || Number.isNaN(Date.parse(start))) return "";
+  const from = clock(start);
+  if (!end || Number.isNaN(Date.parse(end))) return from;
+  const to = clock(end);
+  const half = (s: string) => s.slice(-2);
+  return `${half(from) === half(to) ? from.slice(0, -3) : from} to ${to}`;
+}
 
 export type LogEvent =
   | {
@@ -89,20 +132,19 @@ export function logEvents(
         note,
         thread: threadOf.get(note.id) ?? note.id,
       });
-  life.handoffs.forEach((left, i) => {
+  for (const left of life.handoffs)
     if (left.at)
-      events.push({ type: "left", at: left.at, left, key: leftKey(i) });
-  });
-  life.questions.answered.forEach((answered, i) => {
+      events.push({ type: "left", at: left.at, left, key: leftKey(left) });
+  for (const answered of life.questions.answered) {
     if (answered.at)
       events.push({
         type: "answer",
         at: answered.at,
         answered,
-        key: answeredKey(i),
+        key: answeredKey(answered),
       });
-  });
-  life.beliefs.forEach((belief, i) => {
+  }
+  for (const belief of life.beliefs) {
     for (const change of belief.history ?? [])
       if (change.at)
         events.push({
@@ -111,9 +153,9 @@ export function logEvents(
           belief,
           from: change.from,
           to: change.to,
-          key: beliefKey(i),
+          key: beliefKey(belief),
         });
-  });
+  }
   const formed = new Map<string, BookMemory[]>();
   for (const m of memories) {
     const t = time(m.born);

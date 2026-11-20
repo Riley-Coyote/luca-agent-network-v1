@@ -11,6 +11,7 @@ import {
   type LogDay,
   type LogEvent,
   logDays,
+  spanWords,
 } from "./notebookLog";
 import { KIND, question, trailSentence } from "./notebookWords";
 import type { RoomProps } from "./roomKit";
@@ -80,26 +81,29 @@ function Day({
   person: string | null;
 }) {
   const rows: React.ReactNode[] = [];
-  const row = (
-    key: string,
-    at: string,
-    kind: string,
-    title: string,
-    open: () => void,
-  ) =>
-    rows.push(
-      <PlaceListRow
-        data-log-event={key}
-        key={key}
-        note={clock(at)}
-        onOpen={open}
-        summary={kind}
-        testId={`mnemos-log-event-${key}`}
-        title={title}
-      />,
-    );
+  const line: Line = (key, at, kind, title, open, as) => (
+    <PlaceListRow
+      as={as}
+      data-at={as === "div" ? undefined : (at ?? undefined)}
+      data-log-event={key}
+      key={key}
+      note={at ? clock(at) : undefined}
+      onOpen={open}
+      summary={kind}
+      testId={`mnemos-log-event-${key}`}
+      title={title}
+    />
+  );
+  const row: Row = (...args) => rows.push(line(...args));
   for (const event of day.events)
-    eventRows(event, { goTo, model, person, row });
+    eventRows(event, {
+      goTo,
+      line,
+      model,
+      person,
+      push: (r) => rows.push(r),
+      row,
+    });
   return (
     <article aria-label="A day" data-testid="mnemos-log-day">
       <PlaceList label={dayName(day.at)} testId="mnemos-log-events">
@@ -109,25 +113,36 @@ function Day({
   );
 }
 
+/** One line of the day: its key, its time on the right (none for an
+ *  hour, whose span is said under it), what kind of thing it is, its words,
+ *  and where it opens. */
+type Line = (
+  key: string,
+  at: string | null,
+  kind: React.ReactNode,
+  title: string,
+  open: () => void,
+  as?: "li" | "div",
+) => React.ReactNode;
+type Row = (...args: Parameters<Line>) => void;
+
 /** One event's lines, each going to that thing in its own section. */
 function eventRows(
   event: LogEvent,
   {
     goTo,
+    line,
     model,
     person,
+    push,
     row,
   }: {
     goTo: RoomProps["goTo"];
+    line: Line;
     model: string;
     person: string | null;
-    row: (
-      key: string,
-      at: string,
-      kind: string,
-      title: string,
-      open: () => void,
-    ) => void;
+    push: (row: React.ReactNode) => void;
+    row: Row;
   },
 ) {
   const colleague = (signed: string) =>
@@ -138,37 +153,72 @@ function eventRows(
     parts.filter(Boolean).join(" · ");
   switch (event.type) {
     case "hour": {
+      // The hour, its span said on its own line, and what it wrote in it
+      // set in under it: inside the hour, newest first.
       const h = event.hour;
-      row(
-        `hour-${h.id}`,
-        event.at,
-        join(KIND[h.kind] ?? "An hour", h.practice && "practice"),
-        trailSentence(h),
-        () => goTo("hours", h.id),
+      const inside = [
+        ...event.journal.map((e) => ({
+          at: e.at ?? event.at,
+          node: (at: string) =>
+            line(
+              `journal-${e.id}`,
+              at,
+              join("Its journal", e.mood && `mood: ${e.mood}`),
+              titleOf(e.text).title || firstLine(e.text),
+              () => goTo("journal", e.id),
+            ),
+        })),
+        ...event.notes.map(({ note, thread }) => ({
+          at: note.at ?? event.at,
+          node: (at: string) =>
+            line(
+              `note-${note.id}`,
+              at,
+              join(
+                person ? `A note for ${person}` : "A note for you",
+                h.practice && "written in practice",
+                note.read ? "read" : "not yet read",
+              ),
+              firstLine(note.text),
+              () => goTo("notes", thread),
+            ),
+        })),
+      ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+      push(
+        <li
+          className="luca-mnemos-log-hour"
+          data-at={event.at}
+          key={`hour-${h.id}`}
+        >
+          {line(
+            `hour-${h.id}`,
+            null,
+            <>
+              <span className="luca-mnemos-log-kind">
+                {join(KIND[h.kind] ?? "An hour", h.practice && "practice")}
+              </span>
+              <span
+                className="luca-mnemos-log-span"
+                data-testid={`mnemos-log-span-${h.id}`}
+              >
+                {spanWords(h.start, h.end)}
+              </span>
+            </>,
+            trailSentence(h),
+            () => goTo("hours", h.id),
+            "div",
+          )}
+          {inside.length ? (
+            <ul
+              aria-label="Written in the hour"
+              className="luca-mnemos-log-inside"
+              data-testid={`mnemos-log-inside-${h.id}`}
+            >
+              {inside.map((each) => each.node(each.at))}
+            </ul>
+          ) : null}
+        </li>,
       );
-      // What it wrote in the hour, under the hour.
-      for (const e of [...event.journal].reverse())
-        row(
-          `journal-${e.id}`,
-          e.at ?? event.at,
-          join("Its journal, in the hour", e.mood && `mood: ${e.mood}`),
-          titleOf(e.text).title || firstLine(e.text),
-          () => goTo("journal", e.id),
-        );
-      for (const { note, thread } of event.notes)
-        row(
-          `note-${note.id}`,
-          note.at ?? event.at,
-          join(
-            person
-              ? `A note for ${person}, in the hour`
-              : "A note for you, in the hour",
-            h.practice && "written in practice",
-            note.read ? "read" : "not yet read",
-          ),
-          firstLine(note.text),
-          () => goTo("notes", thread),
-        );
       return;
     }
     case "journal": {

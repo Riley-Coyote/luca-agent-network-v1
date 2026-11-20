@@ -38,7 +38,7 @@ function NotebookCarrying({
 }) {
   const { handoffs, identity } = notebook.life;
   const left = handoffs
-    .map((handoff, index) => ({ handoff, key: leftKey(index) }))
+    .map((handoff) => ({ handoff, key: leftKey(handoff) }))
     .sort((a, b) => time(b.handoff.at ?? null) - time(a.handoff.at ?? null));
   const signed = (model: string | undefined) =>
     !model

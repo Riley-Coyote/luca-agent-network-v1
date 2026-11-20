@@ -1,4 +1,4 @@
-import type * as React from "react";
+import * as React from "react";
 
 import { PlaceList, PlaceListRow } from "@/app/shell/placeRails/PlacePage";
 import { NeedsNewer, PlaceLine, RoomFrame } from "./MnemosParts";
@@ -53,6 +53,12 @@ export function ItemsRoom({
     openItem,
   );
   const opened = local ? (item && has(item) ? item : null) : checked;
+  // A thing named by its own key that isn't here any more (gone from the
+  // notebook): the address lets go of it, in place.
+  const gone = local && groups !== null && item !== null && !has(item);
+  React.useEffect(() => {
+    if (gone) openItem(null, { replace: true });
+  }, [gone, openItem]);
   const current = all.find((each) => each.key === opened) ?? null;
   if (!notebook) return <NeedsNewer what={needs} />;
   return (

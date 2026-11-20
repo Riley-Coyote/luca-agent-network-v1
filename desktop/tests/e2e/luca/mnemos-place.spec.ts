@@ -2709,7 +2709,7 @@ for (const mode of ["dark", "light"] as const)
       "not yet read",
     );
     await expect(
-      day.getByTestId("mnemos-log-event-left-#left-0"),
+      day.locator("[data-log-event^='left-#left-']").first(),
     ).toContainText("Ask Pat whether calm days");
     await expect(
       day.getByTestId("mnemos-log-event-formed-kes-m11"),
@@ -2721,10 +2721,46 @@ for (const mode of ["dark", "light"] as const)
     expect(times.indexOf("hour-kes-h1")).toBeLessThan(
       times.indexOf("formed-kes-m11"),
     );
-    // What it wrote in the hour comes under the hour.
-    expect(times.indexOf("journal-kes-j1")).toBe(
-      times.indexOf("hour-kes-h1") + 1,
+    // The hour says its span on a line of its own, and what it wrote in
+    // it sits inside it, one step in, newest first.
+    await expect(day.getByTestId("mnemos-log-span-kes-h1")).toHaveText(
+      /^\d{1,2}:\d\d( [AP]M)? to \d{1,2}:\d\d [AP]M$/,
     );
+    const inside = day.getByTestId("mnemos-log-inside-kes-h1");
+    await expect(
+      inside.getByTestId("mnemos-log-event-journal-kes-j1"),
+    ).toBeVisible();
+    await expect(
+      inside.getByTestId("mnemos-log-event-note-kes-n1"),
+    ).toBeVisible();
+    const step = await inside.evaluate((el) => {
+      const hourRow = el.parentElement?.querySelector(".luca-place-row");
+      const first = el.querySelector(".luca-place-row");
+      return {
+        indent:
+          (first?.getBoundingClientRect().left ?? 0) -
+          (hourRow?.getBoundingClientRect().left ?? 0),
+        rule: getComputedStyle(el).borderLeftWidth,
+      };
+    });
+    expect(step.indent).toBeGreaterThanOrEqual(16);
+    expect(step.rule).toBe("1px");
+    // No time on the day's top level runs backwards.
+    const top = await day
+      .locator("[data-testid='mnemos-log-events'] .luca-place-plate > *")
+      .evaluateAll((els) =>
+        els.map((el) => Date.parse(el.getAttribute("data-at") ?? "")),
+      );
+    expect(top.every((t) => !Number.isNaN(t))).toBe(true);
+    expect(top).toEqual([...top].sort((a, b) => b - a));
+    // A day's summary wraps whole, never cut.
+    const cut = await page
+      .getByTestId("mnemos-log-list")
+      .locator(".luca-place-row-summary")
+      .evaluateAll(
+        (els) => els.filter((el) => el.scrollWidth > el.clientWidth + 1).length,
+      );
+    expect(cut).toBe(0);
     // Earlier days are listed with what they hold.
     await expect(
       page.getByTestId("mnemos-log-list").locator("li").nth(1),
@@ -2752,8 +2788,8 @@ for (const mode of ["dark", "light"] as const)
       "Should the morning note lead with the tide",
     );
     await page.goBack();
-    await page.getByTestId("mnemos-log-event-left-#left-0").click();
-    await expect(page).toHaveURL(/room=carrying&item=(%23|#)left-0/);
+    await page.locator("[data-log-event^='left-#left-']").first().click();
+    await expect(page).toHaveURL(/room=carrying&item=(%23|#)left-/);
     await expect(page.getByTestId("mnemos-carry-opened")).toContainText(
       "Ask Pat whether calm days",
     );
@@ -2768,8 +2804,8 @@ for (const mode of ["dark", "light"] as const)
       .getByText(/belief change/)
       .first()
       .click();
-    await page.locator("[data-log-event^='belief-#belief-0']").first().click();
-    await expect(page).toHaveURL(/room=beliefs&item=(%23|#)belief-0/);
+    await page.locator("[data-log-event^='belief-#belief-']").first().click();
+    await expect(page).toHaveURL(/room=beliefs&item=(%23|#)belief-/);
     await expect(page.getByTestId("mnemos-belief-opened")).toContainText(
       "The tide is the first thing Pat wants to know.",
     );
@@ -2792,32 +2828,57 @@ test("(48-2) Memories: the notebook's filters and orders, without asking", async
   await expect(page.getByTestId("mnemos-memories-count")).toHaveText(
     "12 memories",
   );
-  const chips = await page
-    .locator("[data-testid^='mnemos-filter-']")
+  const options = await page
+    .getByTestId("mnemos-filter")
+    .locator("option")
     .evaluateAll((els) => els.map((el) => el.textContent?.trim()));
-  expect(chips).toEqual([
-    "All",
-    "New2",
-    "Warm",
-    "Lessons",
-    "Standing",
-    "Asked about",
-    "Gone quiet",
-    "By colleagues",
+  expect(options).toEqual([
+    "All (12)",
+    "New (2)",
+    "Warm (3)",
+    "Lessons (1)",
+    "Standing (2)",
+    "Asked about (2)",
+    "Gone quiet (1)",
+    "By colleagues (2)",
   ]);
+  // One quiet row: the filter's menu, the order's, the count.
+  const row = await page.evaluate(() =>
+    ["mnemos-filter", "mnemos-sort", "mnemos-memories-count"].map((id) => {
+      const el = document.querySelector(`[data-testid='${id}']`);
+      const box = (el?.closest("label") ?? el)?.getBoundingClientRect();
+      return box ? Math.round(box.top + box.height / 2) : -1;
+    }),
+  );
+  expect(Math.max(...row) - Math.min(...row)).toBeLessThanOrEqual(3);
+  await expect(page.locator(".luca-mnemos-menu-shown").first()).toHaveText(
+    "All",
+  );
+  // A memory's tags wrap whole, never cut.
+  expect(
+    await page
+      .getByTestId("mnemos-memories-list")
+      .locator(".luca-place-row-summary")
+      .evaluateAll(
+        (els) => els.filter((el) => el.scrollWidth > el.clientWidth + 1).length,
+      ),
+  ).toBe(0);
   expect((await memoryRows(page))[0]).toBe("kes-m11");
   await shot48(page, "05-memories-filters-dark");
   const pick = async (id: string) => {
-    await page.getByTestId(`mnemos-filter-${id}`).click();
-    await expect(page.getByTestId(`mnemos-filter-${id}`)).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    await page.getByTestId("mnemos-filter").selectOption(id);
+    await expect(page.getByTestId("mnemos-filter")).toHaveValue(id);
     return memoryRows(page);
   };
   expect(await pick("new")).toEqual(["kes-m11", "kes-m10"]);
   expect(await pick("lessons")).toEqual(["kes-m05"]);
-  await expect(page.getByTestId("mnemos-memories-count")).toHaveText("1 of 12");
+  await expect(page.getByTestId("mnemos-memories-count")).toHaveText(
+    "1 of 12 memories",
+  );
+  // The menu says what it shows.
+  await expect(page.locator(".luca-mnemos-menu-shown").first()).toHaveText(
+    "Lessons",
+  );
   expect(await pick("standing")).toEqual(["kes-m07", "kes-m01"]);
   expect(await pick("asked")).toEqual(["kes-m10", "kes-m04"]);
   expect(await pick("quiet")).toEqual(["kes-m08"]);
@@ -2891,7 +2952,7 @@ test("(48-2) an opened memory: its readings, ties, beliefs, hours and questions"
     .getByTestId("mnemos-memory-beliefs")
     .getByText("The tide is the first thing Pat wants to know.")
     .click();
-  await expect(page).toHaveURL(/room=beliefs&item=(%23|#)belief-0/);
+  await expect(page).toHaveURL(/room=beliefs&item=(%23|#)belief-/);
   expect(consoleClean(errors)).toEqual([]);
 });
 
@@ -2906,8 +2967,12 @@ test("(48-2) Beliefs: how firmly, what each rests on, its history", async ({
   await expect(opened).toContainText(
     "The tide is the first thing Pat wants to know.",
   );
+  // Its line agrees with what's under it: two memories, both its own.
   await expect(opened.getByTestId("mnemos-belief-line")).toContainText(
-    "Held at 84% · rests on a memory of its own",
+    "Held at 84% · rests on two memories of its own",
+  );
+  await expect(opened.getByTestId("mnemos-belief-rests")).toContainText(
+    "What it rests on2",
   );
   const width = await opened
     .getByTestId("mnemos-belief-held")
@@ -2958,7 +3023,10 @@ test("(48-2) Questions: open ones by kind, answered ones with the answer, read o
     page.getByTestId("mnemos-questions").getByRole("textbox"),
   ).toHaveCount(0);
   await shot48(page, "08-questions-dark");
-  await page.getByTestId("mnemos-questions-row-#answered-0").click();
+  await page
+    .locator("[data-testid^='mnemos-questions-row-#answered-']")
+    .filter({ hasText: "Still true: one short note" })
+    .click();
   await expect(page.getByTestId("mnemos-answered-opened")).toContainText(
     "Still true. Pat said so again last week.",
   );
@@ -3062,28 +3130,15 @@ test("(48-2) keyboard through the Log, Memories, Beliefs and Questions", async (
   await page.getByTestId("mnemos-search").focus();
   await tabTo(
     () =>
-      document.activeElement?.getAttribute("data-testid") ===
-      "mnemos-filter-lessons",
+      document.activeElement?.getAttribute("data-testid") === "mnemos-filter",
   );
-  await page.keyboard.press("Enter");
-  await expect(page.getByTestId("mnemos-filter-lessons")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  expect(await memoryRows(page)).toEqual(["kes-m05"]);
-  // Back to All, the other way.
-  for (let i = 0; i < 12; i++) {
-    if (
-      await page.evaluate(
-        () =>
-          document.activeElement?.getAttribute("data-testid") ===
-          "mnemos-filter-all",
-      )
-    )
-      break;
-    await page.keyboard.press("Shift+Tab");
-  }
-  await page.keyboard.press("Enter");
+  await page.keyboard.type("L");
+  await expect(page.getByTestId("mnemos-filter")).toHaveValue("lessons");
+  await expect.poll(() => memoryRows(page)).toEqual(["kes-m05"]);
+  // A fresh type-ahead (the platform's waits a moment between words).
+  await page.waitForTimeout(1_200);
+  await page.keyboard.type("All");
+  await expect(page.getByTestId("mnemos-filter")).toHaveValue("all");
   await tabTo(
     () => document.activeElement?.getAttribute("data-testid") === "mnemos-sort",
   );
