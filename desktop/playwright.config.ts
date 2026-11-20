@@ -211,7 +211,8 @@ export default defineConfig({
       : []),
   ],
   webServer: {
-    command: `python3 -m http.server ${testPort} -d dist`,
+    // A deep connection queue, so a busy Mac doesn't reset script loads (see the script).
+    command: `python3 scripts/serve-dist.py ${testPort} dist`,
     cwd: ".",
     reuseExistingServer: !process.env.CI,
     url: testBaseUrl,
