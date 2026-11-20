@@ -6,8 +6,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import {
   projectProposalDuplicate,
+  projectLeftLine,
+  projectPartlyMade,
   projectProposalJoins,
-  projectProposalLine,
   projectProposalTitle,
   projectSettledLine,
 } from "../lib/projectProposalWords.ts";
@@ -87,9 +88,14 @@ test("the card asks in the owner's words and offers Create and Not now", () => {
   const words = text(html);
   assert.match(words, /Start a project called “Ghost app”\?/);
   assert.match(words, /Luca asks/);
+  // The purpose and who joins are two lines of their own.
   assert.match(
-    words,
-    /Build the Ghost app\. · Luca joins its first chat, general\./,
+    html,
+    /data-testid="project-proposal-purpose"[^>]*>Build the Ghost app\.</,
+  );
+  assert.match(
+    html,
+    /data-testid="project-proposal-joins"[^>]*>Luca joins its first chat, general\.</,
   );
   const buttons = [...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map(
     (match) => match[1],
@@ -126,10 +132,6 @@ test("the words, as written", () => {
     projectProposalJoins(["Luca", "Atlas", "Vektor"], "general"),
     "Luca, Atlas and Vektor join its first chat, general.",
   );
-  assert.equal(
-    projectProposalLine("Ship it.", ["Luca"], "general"),
-    "Ship it. · Luca joins its first chat, general.",
-  );
   assert.equal(projectProposalDuplicate("Ghost app", ["Studio"]), null);
   assert.equal(
     projectProposalDuplicate("Ghost app", [" GHOST APP "]),
@@ -137,6 +139,62 @@ test("the words, as written", () => {
   );
   assert.equal(
     projectSettledLine("Ghost app"),
+    "Ghost app is in your projects.",
+  );
+});
+
+test("a Create that stopped part-way says what exists in one sentence", () => {
+  const none = { project: false, chat: false, inProject: false, missing: [] };
+  const project = { ...none, project: true };
+  const chat = { ...project, chat: true };
+  const placed = { ...chat, inProject: true };
+  assert.equal(
+    projectPartlyMade("Ghost app", none),
+    "Ghost app couldn't be made. Nothing was saved.",
+  );
+  assert.equal(
+    projectPartlyMade("Ghost app", project),
+    "The project was made, but its first chat wasn't.",
+  );
+  assert.equal(
+    projectPartlyMade("Ghost app", chat),
+    "Ghost app and its chat were made, but the chat isn't in the project yet.",
+  );
+  assert.equal(
+    projectPartlyMade("Ghost app", { ...placed, missing: ["Luca"] }),
+    "Ghost app and its chat were made, but Luca couldn't be added.",
+  );
+  assert.equal(
+    projectPartlyMade("Ghost app", { ...placed, missing: ["Luca", "Atlas"] }),
+    "Ghost app and its chat were made, but Luca and Atlas couldn't be added.",
+  );
+});
+
+test("leaving it part-made tells the owner what is there", () => {
+  const project = { project: true, chat: false, inProject: false, missing: [] };
+  assert.equal(
+    projectLeftLine("Ghost app", project),
+    "Ghost app is in your projects, without its first chat.",
+  );
+  assert.equal(
+    projectLeftLine("Ghost app", { ...project, chat: true }),
+    "Ghost app is in your projects, but its chat isn't in it yet.",
+  );
+  assert.equal(
+    projectLeftLine("Ghost app", {
+      ...project,
+      chat: true,
+      inProject: true,
+      missing: ["Luca"],
+    }),
+    "Ghost app is in your projects, without Luca in it yet.",
+  );
+  assert.equal(
+    projectLeftLine("Ghost app", {
+      ...project,
+      chat: true,
+      inProject: true,
+    }),
     "Ghost app is in your projects.",
   );
 });

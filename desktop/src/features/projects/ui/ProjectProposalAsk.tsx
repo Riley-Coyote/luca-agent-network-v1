@@ -15,8 +15,11 @@ import {
   ProjectCreationFailure,
 } from "@/features/projects/lib/projectCreationTransaction";
 import {
+  type ProjectMadeSoFar,
+  projectLeftLine,
+  projectPartlyMade,
   projectProposalDuplicate,
-  projectProposalLine,
+  projectProposalJoins,
   projectProposalTitle,
   projectSettledLine,
 } from "@/features/projects/lib/projectProposalWords";
@@ -35,6 +38,9 @@ import {
 } from "@/shared/api/tauriProjectProposals";
 
 const NO_CHANNELS: { id: string; name: string }[] = [];
+/** Telling the resident a project was made: tries, and the wait between. */
+const HAND_BACK_ATTEMPTS = 3;
+const HAND_BACK_RETRY_MS = 1_000;
 
 /** What a card's row carries besides its ask: as ManagedAsks' `AskCommon`. */
 type ProjectAskCommon = {
@@ -45,29 +51,38 @@ type ProjectAskCommon = {
   openTestId?: string;
 } & { [attribute: `data-${string}`]: string };
 
-function messageOf(error: unknown, fallback: string) {
-  return error instanceof Error && error.message.trim()
-    ? error.message
-    : typeof error === "string" && error.trim()
-      ? error
-      : fallback;
+/** What a stopped Create left, read from the creation's own checkpoint. */
+function madeSoFar(
+  checkpoint: ProjectCreationCheckpoint | null,
+  nameOf: (pubkey: string) => string,
+): ProjectMadeSoFar {
+  return {
+    project: Boolean(checkpoint?.projectId),
+    chat: Boolean(checkpoint?.channelId),
+    inProject: Boolean(checkpoint?.roomAssigned),
+    missing: (checkpoint?.pendingResidentPubkeys ?? []).map(nameOf),
+  };
 }
 
 /**
  * A resident's ask to start a project, as one ask row in its conversation and
- * in Needs you: "Start a project called “Ghost app”?", who asks, one faint
- * line (the purpose and who joins its first chat), and Create · Not now.
- * Create runs the + dialog's own creation without leaving the conversation,
- * then hands the resident the result; a part-made project can be tried again
- * or left as it is, and the resident hears exactly which.
+ * in Needs you: "Start a project called “Ghost app”?", who asks, the purpose,
+ * who joins its first chat, and Create · Not now. Create runs the + dialog's
+ * own creation without leaving the conversation, then hands the resident the
+ * result. When Create stops part-way the card says in one sentence what exists,
+ * and offers Try again or Leave it; leaving it tells the resident and leaves
+ * the owner a line saying what is there. Nothing is ever deleted.
  */
 export function ProjectProposalAsk({
   common,
+  focusLineOnCreate = false,
   nameOf,
   proposal,
   summary,
 }: {
   common?: ProjectAskCommon;
+  /** In the conversation itself: after Create, focus its "Open …" link. */
+  focusLineOnCreate?: boolean;
   nameOf: (pubkey: string) => string;
   proposal: ProjectProposalV1;
   summary: string;
@@ -79,22 +94,28 @@ export function ProjectProposalAsk({
   const [busy, setBusy] = React.useState<"create" | "decline" | null>(null);
   const [checkpoint, setCheckpoint] =
     React.useState<ProjectCreationCheckpoint | null>(null);
-  const [problem, setProblem] = React.useState<string | null>(null);
+  const [stopped, setStopped] = React.useState(false);
 
   const names = proposal.residentPubkeys.map(nameOf);
+  // The project this request already half-made is not "one you already have".
   const duplicate = projectProposalDuplicate(
     proposal.projectName,
-    catalog.map((project) => project.label),
+    catalog
+      .filter((project) => project.id !== checkpoint?.projectId)
+      .map((project) => project.label),
   );
   const title = projectProposalTitle(proposal.projectName);
+  const made = madeSoFar(checkpoint, nameOf);
+  const partly = stopped ? projectPartlyMade(proposal.projectName, made) : null;
+  const leaving = stopped && made.project;
 
   const onCreate = async () => {
     setBusy("create");
-    setProblem(null);
-    let made = false;
+    setStopped(false);
+    let reached: ProjectCreationCheckpoint | null = checkpoint;
     try {
       await authorizeProjectProposal(proposal.requestId);
-      const reached = await create(
+      reached = await create(
         {
           label: proposal.projectName,
           roomName: proposal.chatName,
@@ -104,53 +125,77 @@ export function ProjectProposalAsk({
         },
         checkpoint,
       );
-      setCheckpoint(reached);
-      if (!reached.projectId || !reached.channelId)
-        throw new Error("The project was saved without its first chat.");
-      remember({
-        chatId: reached.channelId,
-        conversationId: proposal.conversationId,
-        projectId: reached.projectId,
-        projectName: proposal.projectName,
-        requestId: proposal.requestId,
-      });
-      made = true;
-      await finishProjectProposal(proposal.requestId, {
-        chatId: reached.channelId,
-        outcome: "created",
-        projectId: reached.projectId,
-      });
     } catch (error) {
-      if (error instanceof ProjectCreationFailure)
-        setCheckpoint(error.checkpoint);
-      if (made) {
-        // Made in full but not handed back: the line stays; say why.
-        toast.error(messageOf(error, "The resident could not be told."));
-      } else {
-        setProblem(messageOf(error, "The project could not be made."));
-      }
+      if (error instanceof ProjectCreationFailure) reached = error.checkpoint;
+      setCheckpoint(reached);
+      setStopped(true);
       setBusy(null);
+      return;
+    }
+    setCheckpoint(reached);
+    const { channelId, projectId } = reached;
+    if (!projectId || !channelId) {
+      setStopped(true);
+      setBusy(null);
+      return;
+    }
+    // The owner's part is done: the line replaces the card from here on,
+    // whether or not the resident can be told right now.
+    remember({
+      chatId: channelId,
+      conversationId: proposal.conversationId,
+      focus: focusLineOnCreate,
+      projectId,
+      projectName: proposal.projectName,
+      requestId: proposal.requestId,
+      words: projectSettledLine(proposal.projectName),
+    });
+    // The line already stands; telling the resident is tried a few times,
+    // quietly, so a passing hiccup still reaches it.
+    for (let attempt = 0; attempt < HAND_BACK_ATTEMPTS; attempt += 1) {
+      if (attempt > 0)
+        await new Promise((resolve) => setTimeout(resolve, HAND_BACK_RETRY_MS));
+      const told = await finishProjectProposal(proposal.requestId, {
+        chatId: channelId,
+        outcome: "created",
+        projectId,
+      }).then(
+        () => true,
+        () => false,
+      );
+      if (told) return;
     }
   };
 
   const onDecline = async () => {
     setBusy("decline");
+    const projectId = checkpoint?.projectId;
     try {
       await finishProjectProposal(
         proposal.requestId,
-        checkpoint?.projectId
+        projectId
           ? {
-              chatId: checkpoint.channelId,
+              chatId: checkpoint?.channelId,
               outcome: "partial",
-              problem: problem ?? "it was only partly made",
-              projectId: checkpoint.projectId,
+              problem: projectPartlyMade(proposal.projectName, made),
+              projectId,
             }
           : { outcome: "declined" },
       );
-    } catch (error) {
-      toast.error(messageOf(error, "This request is no longer waiting."));
+    } catch {
+      toast.error("This request has already ended.");
       setBusy(null);
+      return;
     }
+    if (projectId)
+      remember({
+        chatId: checkpoint?.channelId,
+        conversationId: proposal.conversationId,
+        projectId,
+        projectName: proposal.projectName,
+        requestId: proposal.requestId,
+        words: projectLeftLine(proposal.projectName, made),
+      });
   };
 
   return (
@@ -163,33 +208,49 @@ export function ProjectProposalAsk({
             disabled={busy !== null}
             onClick={() => void onCreate()}
           >
-            {busy === "create" ? "Creating…" : problem ? "Try again" : "Create"}
+            {busy === "create" ? "Creating…" : stopped ? "Try again" : "Create"}
           </PlaceQuietButton>
           <PlaceQuietButton
             data-testid="project-proposal-not-now"
             disabled={busy !== null}
             onClick={() => void onDecline()}
           >
-            Not now
+            {leaving ? "Leave it" : "Not now"}
           </PlaceQuietButton>
         </>
       }
+      className="luca-project-ask"
       data-project-request={proposal.requestId}
       extra={
-        <span className="luca-ask-defaults" data-testid="project-proposal-line">
-          {projectProposalLine(proposal.purpose, names, proposal.chatName)}
+        <span
+          className="luca-project-ask__lines"
+          data-testid="project-proposal-line"
+        >
+          <span
+            className="luca-project-ask__purpose"
+            data-testid="project-proposal-purpose"
+            title={proposal.purpose}
+          >
+            {proposal.purpose}
+          </span>
+          <span
+            className="luca-project-ask__joins"
+            data-testid="project-proposal-joins"
+          >
+            {projectProposalJoins(names, proposal.chatName)}
+          </span>
         </span>
       }
       openLabel={`${title}, ${summary}. Open the conversation`}
       panel={
-        duplicate || problem ? (
+        duplicate || partly ? (
           <div className="luca-project-ask-notes">
             {duplicate ? (
               <p data-testid="project-proposal-duplicate">{duplicate}</p>
             ) : null}
-            {problem ? (
+            {partly ? (
               <p data-testid="project-proposal-problem" role="alert">
-                {problem}
+                {partly}
               </p>
             ) : null}
           </div>
@@ -201,31 +262,48 @@ export function ProjectProposalAsk({
   );
 }
 
-/** The one quiet line a created project leaves: where it is, and a way in. */
+/** The one quiet line a project made from a card leaves: what is there, and
+ *  a way in when its chat exists. */
 export function ProjectProposalSettled({
   line,
   onDismiss,
+  onFocused,
 }: {
   line: SettledProjectProposal;
   onDismiss: () => void;
+  /** The line took focus once; it does not take it again. */
+  onFocused?: () => void;
 }) {
   const { goChannel } = useAppNavigation();
+  const section = React.useRef<HTMLElement>(null);
+  const takeFocus = Boolean(line.focus && line.chatId);
+  React.useEffect(() => {
+    if (!takeFocus) return;
+    section.current
+      ?.querySelector<HTMLElement>('[data-testid="project-proposal-open"]')
+      ?.focus({ preventScroll: true });
+    onFocused?.();
+  }, [takeFocus, onFocused]);
+  const chatId = line.chatId;
   return (
     <section
-      aria-label="Project created"
+      aria-label="New project"
       className="luca-task-notice luca-measure luca-project-settled"
       data-testid="project-proposal-settled"
+      ref={section}
     >
       <div className="luca-task-notice__row">
         <span className="luca-project-settled__words" role="status">
-          {projectSettledLine(line.projectName)}
+          {line.words}
         </span>
-        <PlaceAskLink
-          data-testid="project-proposal-open"
-          onClick={() => void goChannel(line.chatId)}
-        >
-          Open {line.projectName}
-        </PlaceAskLink>
+        {chatId ? (
+          <PlaceAskLink
+            data-testid="project-proposal-open"
+            onClick={() => void goChannel(chatId)}
+          >
+            Open {line.projectName}
+          </PlaceAskLink>
+        ) : null}
         <button
           aria-label="Dismiss"
           className="luca-task-notice__dismiss"

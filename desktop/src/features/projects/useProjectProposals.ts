@@ -13,14 +13,29 @@ const SETTLED_KEY = ["project-proposals-settled"] as const;
 const NONE: ProjectProposalV1[] = [];
 const NONE_SETTLED: SettledProjectProposal[] = [];
 
-/** A project the owner created from a card, kept for the conversation's line. */
+/** A project the owner made from a card, kept for the conversation's line. */
 export type SettledProjectProposal = {
   requestId: string;
   conversationId: string;
   projectId: string;
   projectName: string;
-  chatId: string;
+  /** The first chat, when it was made: the line's way in. */
+  chatId?: string;
+  /** What the line says is there. */
+  words: string;
+  /** Take keyboard focus once, to the way in (after Create). */
+  focus?: boolean;
 };
+
+/** The owner's part is done for these requests; their cards never return. */
+function useSettledList(): SettledProjectProposal[] {
+  return useQuery({
+    queryKey: SETTLED_KEY,
+    queryFn: () => NONE_SETTLED,
+    enabled: false,
+    initialData: NONE_SETTLED,
+  }).data;
+}
 
 function byCreatedAt(left: ProjectProposalV1, right: ProjectProposalV1) {
   return left.createdAt.localeCompare(right.createdAt);
@@ -85,7 +100,15 @@ export function useAllProjectProposals(): ProjectProposalV1[] {
     };
   }, [queryClient]);
 
-  return query.data ?? NONE;
+  // A project made in full is the owner's part done, even when telling the
+  // resident failed: its card does not come back with Create on it.
+  const settled = useSettledList();
+  const all = query.data ?? NONE;
+  return React.useMemo(() => {
+    if (settled.length === 0) return all;
+    const done = new Set(settled.map((item) => item.requestId));
+    return all.filter((proposal) => !done.has(proposal.requestId));
+  }, [all, settled]);
 }
 
 /** The waiting project asks of one conversation. */
@@ -105,12 +128,7 @@ export function useProjectProposals(
 /** Projects created from a card, for the one quiet line each leaves behind. */
 export function useSettledProjectProposals(conversationId: string | null) {
   const queryClient = useQueryClient();
-  const settled = useQuery({
-    queryKey: SETTLED_KEY,
-    queryFn: () => NONE_SETTLED,
-    enabled: false,
-    initialData: NONE_SETTLED,
-  }).data;
+  const settled = useSettledList();
   const lines = React.useMemo(
     () =>
       conversationId
@@ -127,7 +145,18 @@ export function useSettledProjectProposals(conversationId: string | null) {
       ),
     [queryClient],
   );
-  return { dismiss, lines };
+  const focused = React.useCallback(
+    (requestId: string) =>
+      queryClient.setQueryData<SettledProjectProposal[]>(
+        SETTLED_KEY,
+        (current = []) =>
+          current.map((item) =>
+            item.requestId === requestId ? { ...item, focus: false } : item,
+          ),
+      ),
+    [queryClient],
+  );
+  return { dismiss, focused, lines };
 }
 
 /** Keep a created project's line, wherever its card was answered. */

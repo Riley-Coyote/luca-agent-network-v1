@@ -33,11 +33,13 @@ export function useResidentNameOf(): (pubkey: string) => string {
  */
 export function useConversationProjectAsks(conversationId: string | null) {
   const proposals = useProjectProposals(conversationId);
-  const { dismiss, lines } = useSettledProjectProposals(conversationId);
+  const { dismiss, focused, lines } =
+    useSettledProjectProposals(conversationId);
   const nameOf = useResidentNameOf();
   const asks = proposals.map((proposal) => (
     <ProjectProposalAsk
       common={{ "data-testid": "project-proposal-row" }}
+      focusLineOnCreate
       key={proposal.requestId}
       nameOf={nameOf}
       proposal={proposal}
@@ -49,6 +51,7 @@ export function useConversationProjectAsks(conversationId: string | null) {
       key={line.requestId}
       line={line}
       onDismiss={() => dismiss(line.requestId)}
+      onFocused={() => focused(line.requestId)}
     />
   ));
   return { asks, count: proposals.length, settled };
