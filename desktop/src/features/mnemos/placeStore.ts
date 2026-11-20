@@ -2,6 +2,9 @@ import * as React from "react";
 
 import { codeOf, mnemosPlace, type PlaceMinds } from "./api";
 import { clearMnemosDrafts } from "./drafts";
+import { resetVisits } from "./memoryArrange";
+import { resetOwnerTouch } from "./readOnSight";
+import { resetReadHere } from "./useReadOnSight";
 
 /**
  * What the Mnemos place's rail and card both need to know: the minds on this
@@ -89,5 +92,8 @@ export function setRoomCounts(mind: string, counts: RoomCounts) {
 export function resetMnemosPlace() {
   loading = null;
   clearMnemosDrafts();
+  resetOwnerTouch();
+  resetReadHere();
+  resetVisits();
   set(empty);
 }

@@ -261,6 +261,7 @@
 .luca-mnemos-chips {
   border: 0;
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin: 0 0 12px;
   padding: 0;
@@ -710,4 +711,112 @@
 .luca-mnemos-sent {
   color: hsl(var(--mn-ink-muted));
   line-height: 1.5;
+}
+
+/* ── the notebook's memories: its filters, its order, its readings ── */
+.luca-mnemos-tools .luca-mnemos-chips {
+  margin-bottom: 8px;
+}
+
+.luca-mnemos-chip-n {
+  color: hsl(var(--mn-ink-muted));
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.luca-mnemos-order {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 0 0 12px 2px;
+}
+
+.luca-mnemos-sort {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: inline-flex;
+  position: relative;
+}
+
+.luca-mnemos-sort select {
+  appearance: none;
+  background: transparent;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  padding: 3px 18px 3px 0;
+}
+
+.luca-mnemos-sort svg {
+  height: 12px;
+  pointer-events: none;
+  position: absolute;
+  right: 2px;
+  width: 12px;
+}
+
+.luca-mnemos-sort:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mnemos-sort select:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 1px;
+}
+
+.luca-mnemos-count {
+  color: hsl(var(--mn-ink-faint));
+  font-variant-numeric: tabular-nums;
+}
+
+.luca-mnemos-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 28px;
+}
+
+/* The detail's own gap sets its groups apart, not the kit's margins. */
+.luca-mnemos-place .luca-mnemos-detail > .luca-place-group {
+  margin: 0;
+}
+
+.luca-mnemos-readings {
+  color: hsl(var(--mn-ink));
+  display: flex;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+  gap: 4px 16px;
+  letter-spacing: 0.01em;
+}
+
+.luca-mnemos-readings i {
+  color: hsl(var(--mn-ink-faint));
+  font-style: normal;
+  margin-right: 6px;
+}
+
+/* How firmly a belief is held: one hairline, filled as far as it is. */
+.luca-mnemos-held {
+  background: hsl(var(--mn-ink) / 0.1);
+  border-radius: 1px;
+  height: 2px;
+  margin: 14px 0 10px;
+  max-width: 240px;
+  overflow: hidden;
+}
+
+.luca-mnemos-held i {
+  background: hsl(var(--mn-ink) / 0.7);
+  display: block;
+  height: 100%;
+}
+
+[aria-label="A belief"] > .luca-place-group,
+[aria-label="A question"] > .luca-place-group,
+[aria-label="An answered question"] > .luca-place-group {
+  margin-top: 18px;
 }

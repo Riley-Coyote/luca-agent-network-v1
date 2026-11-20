@@ -326,6 +326,15 @@ export function writesOf(send: Send, ask: Ask) {
       if (written.kind !== "forgotten")
         throw { kind: "failed", code: "invalid_reply" } satisfies WriteFailure;
     },
+    /** Say the mind's notes were read, as the notebook's page does once
+     *  they have been on screen (only on a Mnemos that answers `read`).
+     *  Saying it twice changes nothing, so it is never looked for. */
+    async read(noteIds: string[]): Promise<string[]> {
+      const written = await send({ command: "read", note_ids: noteIds });
+      if (written.kind !== "read")
+        throw { kind: "failed", code: "invalid_reply" } satisfies WriteFailure;
+      return written.ids;
+    },
   };
 }
 

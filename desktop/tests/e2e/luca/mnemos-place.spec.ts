@@ -2658,3 +2658,461 @@ test("(48-1) the token loop reads again only when something shown changed", asyn
   expect(await count("summary")).toBe(before);
   expect(consoleClean(errors)).toEqual([]);
 });
+
+/* ── WP-48, Part 2: the reading sections on the newer Mnemos ───────── */
+
+/** The writes the place sent Kestrel's engine. */
+async function kestrelWrites(page: Page) {
+  return (await probeOf(page)).calls
+    .filter((c) => c.cmd === "write_mnemos_place" && c.args?.mind === "kestrel")
+    .map((c) => c.args?.write as { command: string; note_ids?: string[] });
+}
+
+/** A visit to Kestrel three days ago, so what formed since is New. */
+async function visitedKestrel(page: Page) {
+  await page.addInitScript(() => {
+    const seen = Date.now() - 3 * 24 * 3600_000;
+    window.localStorage.setItem(
+      "luca.mnemos.visit.kestrel",
+      JSON.stringify({ since: 0, seen }),
+    );
+  });
+}
+
+const memoryRows = (page: Page) =>
+  page
+    .getByTestId("mnemos-memories-list")
+    .locator("[data-memory]")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("data-memory")));
+
+for (const mode of ["dark", "light"] as const)
+  test(`(48-2) the Log: its days, each line opening its thing (${mode})`, async ({
+    page,
+  }) => {
+    const errors = await boot(page, {
+      hash: "/mnemos?mind=kestrel&room=log",
+      mode,
+      newer: true,
+    });
+    // Today opens by itself: its hour, its journal, its note, what it left
+    // itself, and the memories formed.
+    const day = page.getByTestId("mnemos-log-day");
+    await expect(day).toBeVisible();
+    await expect(day.getByLabel("Today")).toBeVisible();
+    await expect(day.getByTestId("mnemos-log-event-hour-kes-h1")).toContainText(
+      "Its own hour",
+    );
+    await expect(
+      day.getByTestId("mnemos-log-event-journal-kes-j1"),
+    ).toContainText("The fog lifted by nine.");
+    await expect(day.getByTestId("mnemos-log-event-note-kes-n1")).toContainText(
+      "not yet read",
+    );
+    await expect(
+      day.getByTestId("mnemos-log-event-left-#left-0"),
+    ).toContainText("Ask Pat whether calm days");
+    await expect(
+      day.getByTestId("mnemos-log-event-formed-kes-m11"),
+    ).toContainText("Memory formed");
+    // Newest first.
+    const times = await day
+      .locator("[data-log-event]")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-log-event")));
+    expect(times.indexOf("hour-kes-h1")).toBeLessThan(
+      times.indexOf("formed-kes-m11"),
+    );
+    // What it wrote in the hour comes under the hour.
+    expect(times.indexOf("journal-kes-j1")).toBe(
+      times.indexOf("hour-kes-h1") + 1,
+    );
+    // Earlier days are listed with what they hold.
+    await expect(
+      page.getByTestId("mnemos-log-list").locator("li").nth(1),
+    ).toContainText(/memor|hour|journal|note|answer|belief/);
+    if (mode === "light") {
+      await shot48(page, "11-log-light");
+      expect(consoleClean(errors)).toEqual([]);
+      return;
+    }
+    await shot48(page, "04-log-dark");
+    // Each line opens its thing in its own section.
+    await day.getByTestId("mnemos-log-event-journal-kes-j1").click();
+    await expect(page).toHaveURL(/room=journal&item=kes-j1/);
+    await expect(page.getByTestId("mnemos-entry-opened")).toContainText(
+      "The fog lifted by nine.",
+    );
+    await page.goBack();
+    await page.getByTestId("mnemos-log-event-hour-kes-h1").click();
+    await expect(page).toHaveURL(/room=hours&item=kes-h1/);
+    await expect(page.getByTestId("mnemos-hour-opened")).toBeVisible();
+    await page.goBack();
+    await page.getByTestId("mnemos-log-event-note-kes-n1").click();
+    await expect(page).toHaveURL(/room=notes&item=kes-n1/);
+    await expect(page.getByTestId("mnemos-thread-opened")).toContainText(
+      "Should the morning note lead with the tide",
+    );
+    await page.goBack();
+    await page.getByTestId("mnemos-log-event-left-#left-0").click();
+    await expect(page).toHaveURL(/room=carrying&item=(%23|#)left-0/);
+    await expect(page.getByTestId("mnemos-carry-opened")).toContainText(
+      "Ask Pat whether calm days",
+    );
+    await page.goBack();
+    await page.getByTestId("mnemos-log-event-formed-kes-m11").click();
+    await expect(page).toHaveURL(/room=memories&item=kes-m11/);
+    await expect(page.getByTestId("mnemos-memory-opened")).toBeVisible();
+    // A day further back: a belief change and an answer, each opening.
+    await page.goBack();
+    await page
+      .getByTestId("mnemos-log-list")
+      .getByText(/belief change/)
+      .first()
+      .click();
+    await page.locator("[data-log-event^='belief-#belief-0']").first().click();
+    await expect(page).toHaveURL(/room=beliefs&item=(%23|#)belief-0/);
+    await expect(page.getByTestId("mnemos-belief-opened")).toContainText(
+      "The tide is the first thing Pat wants to know.",
+    );
+    // Nothing was read again for any of it.
+    const asks = await asked(page, "kestrel");
+    expect(asks.filter((a) => a === "notebook:memories")).toHaveLength(1);
+    expect(asks.filter((a) => a === "memories" || a === "search")).toEqual([]);
+    expect(await kestrelWrites(page)).toEqual([]);
+    expect(consoleClean(errors)).toEqual([]);
+  });
+
+test("(48-2) Memories: the notebook's filters and orders, without asking", async ({
+  page,
+}) => {
+  await visitedKestrel(page);
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=memories",
+    newer: true,
+  });
+  await expect(page.getByTestId("mnemos-memories-count")).toHaveText(
+    "12 memories",
+  );
+  const chips = await page
+    .locator("[data-testid^='mnemos-filter-']")
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim()));
+  expect(chips).toEqual([
+    "All",
+    "New2",
+    "Warm",
+    "Lessons",
+    "Standing",
+    "Asked about",
+    "Gone quiet",
+    "By colleagues",
+  ]);
+  expect((await memoryRows(page))[0]).toBe("kes-m11");
+  await shot48(page, "05-memories-filters-dark");
+  const pick = async (id: string) => {
+    await page.getByTestId(`mnemos-filter-${id}`).click();
+    await expect(page.getByTestId(`mnemos-filter-${id}`)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    return memoryRows(page);
+  };
+  expect(await pick("new")).toEqual(["kes-m11", "kes-m10"]);
+  expect(await pick("lessons")).toEqual(["kes-m05"]);
+  await expect(page.getByTestId("mnemos-memories-count")).toHaveText("1 of 12");
+  expect(await pick("standing")).toEqual(["kes-m07", "kes-m01"]);
+  expect(await pick("asked")).toEqual(["kes-m10", "kes-m04"]);
+  expect(await pick("quiet")).toEqual(["kes-m08"]);
+  expect(await pick("colleagues")).toEqual(["kes-m11", "kes-m03"]);
+  const warm = await pick("warm");
+  expect(warm).toEqual(
+    expect.arrayContaining(["kes-m01", "kes-m04", "kes-m05"]),
+  );
+  await expect(page.getByTestId("mnemos-memory-kes-m05")).toContainText(
+    "warm from its hours",
+  );
+  await pick("all");
+  await page.getByTestId("mnemos-sort").selectOption("recalled");
+  expect((await memoryRows(page))[0]).toBe("kes-m03");
+  await page.getByTestId("mnemos-sort").selectOption("oldest");
+  expect((await memoryRows(page))[0]).toBe("kes-m00");
+  await page.getByTestId("mnemos-sort").selectOption("connected");
+  expect(["kes-m01"]).toContain((await memoryRows(page))[0]);
+  await page.getByTestId("mnemos-sort").selectOption("easiest");
+  expect((await memoryRows(page)).at(-1)).toBe("kes-m08");
+  // All of it from the notebook as read: no page, no search asked.
+  const asks = await asked(page, "kestrel");
+  expect(asks.filter((a) => a === "notebook:memories")).toHaveLength(1);
+  expect(asks.filter((a) => a === "memories" || a === "search")).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(48-2) an opened memory: its readings, ties, beliefs, hours and questions", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=memories&item=kes-m01",
+    newer: true,
+  });
+  const opened = page.getByTestId("mnemos-memory-opened");
+  const readings = opened.getByTestId("mnemos-memory-readings");
+  await expect(readings).toHaveText(
+    "strength0.60stability0.50reach0.47links2recalled7×",
+  );
+  await expect(opened.getByTestId("mnemos-memory-line")).toContainText(
+    "signed Kestrel",
+  );
+  const ties = opened.getByTestId("mnemos-memory-ties");
+  await expect(ties.getByTestId("mnemos-memory-tie-kes-m05")).toContainText(
+    "a lesson distilled from it",
+  );
+  await expect(ties.getByTestId("mnemos-memory-tie-kes-m04")).toContainText(
+    "came back together",
+  );
+  await expect(opened.getByTestId("mnemos-memory-beliefs")).toContainText(
+    "The tide is the first thing Pat wants to know.",
+  );
+  await expect(opened.getByTestId("mnemos-memory-hours")).toContainText(
+    "Its own hour: reached for it",
+  );
+  await expect(opened.getByTestId("mnemos-memory-questions")).toHaveCount(0);
+  await shot48(page, "06-memory-full-detail-dark");
+  // A colleague's is named as one; its questions are listed.
+  await ties.getByTestId("mnemos-memory-tie-kes-m04").click();
+  await expect(page).toHaveURL(/item=kes-m04/);
+  await expect(opened.getByTestId("mnemos-memory-questions")).toContainText(
+    "What did the late ferry teach you?",
+  );
+  await page.goto("/#/mnemos?mind=kestrel&room=memories&item=kes-m03");
+  await expect(page.getByTestId("mnemos-memory-line")).toContainText(
+    "written by Sonnet 5, a colleague",
+  );
+  await page.goto("/#/mnemos?mind=kestrel&room=memories&item=kes-m01");
+  // Each opens its thing: the belief, the hour.
+  await page
+    .getByTestId("mnemos-memory-beliefs")
+    .getByText("The tide is the first thing Pat wants to know.")
+    .click();
+  await expect(page).toHaveURL(/room=beliefs&item=(%23|#)belief-0/);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(48-2) Beliefs: how firmly, what each rests on, its history", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=beliefs",
+    newer: true,
+  });
+  const opened = page.getByTestId("mnemos-belief-opened");
+  await expect(opened).toContainText(
+    "The tide is the first thing Pat wants to know.",
+  );
+  await expect(opened.getByTestId("mnemos-belief-line")).toContainText(
+    "Held at 84% · rests on a memory of its own",
+  );
+  const width = await opened
+    .getByTestId("mnemos-belief-held")
+    .evaluate((el) => {
+      const bar = el.querySelector("i");
+      return bar
+        ? bar.getBoundingClientRect().width / el.getBoundingClientRect().width
+        : 0;
+    });
+  expect(width).toBeCloseTo(0.84, 2);
+  await expect(opened.getByTestId("mnemos-belief-history")).toContainText(
+    "From 72% to 84%",
+  );
+  await expect(opened.getByTestId("mnemos-belief-history")).toContainText(
+    "From 60% to 72%",
+  );
+  await expect(page.getByTestId("mnemos-beliefs-list")).toContainText(
+    "held at 58%",
+  );
+  await shot48(page, "07-beliefs-dark");
+  await opened.getByTestId("mnemos-belief-rests-kes-m05").click();
+  await expect(page).toHaveURL(/room=memories&item=kes-m05/);
+  await expect(page.getByTestId("mnemos-memory-opened")).toBeVisible();
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(48-2) Questions: open ones by kind, answered ones with the answer, read only", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=questions",
+    newer: true,
+  });
+  await expect(page.getByTestId("mnemos-question-opened")).toBeVisible();
+  const labels = await page
+    .getByTestId("mnemos-questions-list")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+  expect(labels).toEqual([
+    "What did it teach?",
+    "Is it still true?",
+    "What did it change?",
+    "Answered",
+  ]);
+  const opened = page.getByTestId("mnemos-question-opened");
+  await expect(opened).toContainText("What did the late ferry teach you?");
+  await expect(opened).toContainText("put to it");
+  await expect(
+    page.getByTestId("mnemos-questions").getByRole("textbox"),
+  ).toHaveCount(0);
+  await shot48(page, "08-questions-dark");
+  await page.getByTestId("mnemos-questions-row-#answered-0").click();
+  await expect(page.getByTestId("mnemos-answered-opened")).toContainText(
+    "Still true. Pat said so again last week.",
+  );
+  await expect(
+    page.getByTestId("mnemos-questions").getByRole("textbox"),
+  ).toHaveCount(0);
+  await page.getByTestId("mnemos-question-about-kes-m07").click();
+  await expect(page).toHaveURL(/room=memories&item=kes-m07/);
+  expect(await kestrelWrites(page)).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(48-2) Journal names model and mood; Carrying forward is life.handoffs", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=journal&item=kes-j2",
+    newer: true,
+  });
+  const line = page.getByTestId("mnemos-entry-line");
+  await expect(line).toContainText("mood, in its words: patient");
+  await expect(line).toContainText("Sonnet 5, a colleague");
+  await page.getByTestId("mnemos-entry-kes-j1").click();
+  await expect(line).toContainText("mood, in its words: clear");
+  await expect(line).toContainText("signed Opus 5.5");
+  await rail(page).getByTestId("place-row-carrying").click();
+  const rows = page.getByTestId("mnemos-carrying-list").locator("li");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText("Ask Pat whether calm days");
+  await expect(rows.nth(0)).toContainText("the note it left itself");
+  await expect(rows.nth(1)).toContainText("left by Sonnet 5, a colleague");
+  // From the notebook, never the old reader.
+  expect(
+    (await probeOf(page)).calls.filter((c) => c.cmd === "read_mnemos_view"),
+  ).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(48-2) a note is read after 1.2 s on screen, once touched, never hidden", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=notes&item=kes-n1",
+    newer: true,
+  });
+  const dot = page.getByTestId("mnemos-note-unread-kes-n1");
+  await expect(dot).toBeVisible();
+  // On screen, but nobody has touched the page: nothing is read.
+  await page.waitForTimeout(2_500);
+  expect(await kestrelWrites(page)).toEqual([]);
+  // Touched, then hidden before 1.2 s: still nothing.
+  await page.mouse.move(700, 400);
+  await setVisible(page, false);
+  await page.waitForTimeout(2_500);
+  expect(await kestrelWrites(page)).toEqual([]);
+  // Back on screen: read 1.2 s later, once, in one write.
+  await setVisible(page, true);
+  const back = Date.now();
+  await expect
+    .poll(async () => (await kestrelWrites(page)).length, { timeout: 6_000 })
+    .toBe(1);
+  expect(Date.now() - back).toBeGreaterThanOrEqual(1_200);
+  expect(await kestrelWrites(page)).toEqual([
+    { command: "read", note_ids: ["kes-n1"] },
+  ]);
+  await expect(dot).toBeHidden();
+  await page.mouse.move(600, 300);
+  await page.waitForTimeout(2_000);
+  expect(await kestrelWrites(page)).toHaveLength(1);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(48-2) keyboard through the Log, Memories, Beliefs and Questions", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=log",
+    newer: true,
+  });
+  const tabTo = async (match: (el: Element | null) => boolean, limit = 80) => {
+    for (let i = 0; i < limit; i++) {
+      if (await page.evaluate(match, null).catch(() => false)) return;
+      await page.keyboard.press("Tab");
+    }
+    throw new Error("never reached");
+  };
+  // The Log: a day's line, by Tab, opens the journal entry.
+  await page.getByTestId("mnemos-log-day").waitFor();
+  await page.getByTestId("mnemos-rail-mind-button").focus();
+  await tabTo(
+    () =>
+      !!document.activeElement?.closest(
+        "[data-testid='mnemos-log-event-journal-kes-j1']",
+      ),
+  );
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/room=journal&item=kes-j1/);
+  // Memories: a filter and an order by keyboard alone.
+  await page.goto("/#/mnemos?mind=kestrel&room=memories");
+  await page.getByTestId("mnemos-memories-list").waitFor();
+  await page.getByTestId("mnemos-search").focus();
+  await tabTo(
+    () =>
+      document.activeElement?.getAttribute("data-testid") ===
+      "mnemos-filter-lessons",
+  );
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("mnemos-filter-lessons")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(await memoryRows(page)).toEqual(["kes-m05"]);
+  // Back to All, the other way.
+  for (let i = 0; i < 12; i++) {
+    if (
+      await page.evaluate(
+        () =>
+          document.activeElement?.getAttribute("data-testid") ===
+          "mnemos-filter-all",
+      )
+    )
+      break;
+    await page.keyboard.press("Shift+Tab");
+  }
+  await page.keyboard.press("Enter");
+  await tabTo(
+    () => document.activeElement?.getAttribute("data-testid") === "mnemos-sort",
+  );
+  await page.keyboard.type("O");
+  await expect(page.getByTestId("mnemos-sort")).toHaveValue("oldest");
+  await expect.poll(async () => (await memoryRows(page))[0]).toBe("kes-m00");
+  // Beliefs: what it rests on, by Tab and Enter.
+  await page.goto("/#/mnemos?mind=kestrel&room=beliefs");
+  await page.getByTestId("mnemos-belief-opened").waitFor();
+  await page.getByTestId("mnemos-rail-mind-button").focus();
+  await tabTo(
+    () =>
+      !!document.activeElement?.closest(
+        "[data-testid='mnemos-belief-rests-kes-m01']",
+      ),
+  );
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/room=memories&item=kes-m01/);
+  // Questions: the memory a question is about.
+  await page.goto("/#/mnemos?mind=kestrel&room=questions");
+  await page.getByTestId("mnemos-question-opened").waitFor();
+  await page.getByTestId("mnemos-rail-mind-button").focus();
+  await tabTo(
+    () =>
+      !!document.activeElement?.closest(
+        "[data-testid='mnemos-question-about-kes-m04']",
+      ),
+  );
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/room=memories&item=kes-m04/);
+  expect(consoleClean(errors)).toEqual([]);
+});

@@ -109,7 +109,8 @@ export function kestrelNotebook(now: number) {
   const journal = [
     {
       id: "kes-j1",
-      at: iso(now - 3 * hour),
+      // Written in its hour (5 h to 4 h 20 min ago).
+      at: iso(now - 4 * hour - 35 * 60_000),
       text: "The fog lifted by nine. I wrote the tide first and the rest came easily.",
       mood: "clear",
       written: "between_sessions",
@@ -138,7 +139,7 @@ export function kestrelNotebook(now: number) {
   const notes = [
     {
       id: "kes-n1",
-      at: iso(now - 4 * hour),
+      at: iso(now - 4 * hour - 25 * 60_000),
       kind: "question",
       text: "Should the morning note lead with the tide even on calm days?",
       author: "agent",

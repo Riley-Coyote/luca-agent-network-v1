@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Search } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 
 import {
   PlaceList,
@@ -27,8 +27,23 @@ import {
   signedBy,
   stateWords,
 } from "./notebook";
+import {
+  arrange,
+  filtersFor,
+  heatOf,
+  MEMORY_SORTS,
+  type MemoryFilter,
+  type MemorySort,
+  visitOf,
+} from "./memoryArrange";
+import { MemoryDetail } from "./MemoryDetail";
 import { loadMinds, setRoomCounts } from "./placeStore";
-import { DIDNT_ANSWER, type RoomProps, useAddressItem } from "./roomKit";
+import {
+  DIDNT_ANSWER,
+  type NotebookView,
+  type RoomProps,
+  useAddressItem,
+} from "./roomKit";
 import { useReaderSection } from "./useReader";
 import { draftKey, forgetDraft, readDraft } from "./drafts";
 import { failureWords, WriteField } from "./WriteField";
@@ -41,16 +56,29 @@ const CHIPS: { id: Chip; label: string }[] = [
   { id: "standing", label: "Standing" },
 ];
 
+/** Where the visit is kept: its two times only. */
+const visitStore = {
+  get: (key: string) => window.localStorage.getItem(key),
+  set: (key: string, value: string) => window.localStorage.setItem(key, value),
+};
+
 /**
  * Memories (WP-45, Decided 5): newest first, asked from the end of the
  * engine's oldest-first list; All, Gone quiet, and Standing (the old
  * reader's, words only); a search by meaning that says how each was found;
  * and the memory opened whole beside the list. An opened memory can be
  * corrected in the person's words or let go (WP-47, Decided 4 and 5).
+ *
+ * On a Mnemos that gives the notebook (WP-48), the list is the notebook's,
+ * read without asking: all its filters and orders, and an opened memory
+ * with everything the notebook says about it (`MemoryDetail`).
  */
 export function MemoriesRoom(props: RoomProps) {
-  const { book, mind, item, openItem, reader, writes } = props;
+  const { book, goTo, mind, item, openItem, reader, writes } = props;
+  const notebook = props.notebook;
   const [chip, setChip] = React.useState<Chip>("all");
+  const [filter, setFilter] = React.useState<MemoryFilter>("all");
+  const [sort, setSort] = React.useState<MemorySort>("newest");
   const [query, setQuery] = React.useState("");
   const [asked, setAsked] = React.useState<string | null>(null);
   /** Pages read so far, from the newest end. */
@@ -88,7 +116,7 @@ export function MemoriesRoom(props: RoomProps) {
   // write moves where each page starts).
   // biome-ignore lint/correctness/useExhaustiveDependencies: `n` is Try again (or a write), asking once more.
   React.useEffect(() => {
-    if (chip === "standing") return;
+    if (chip === "standing" || notebook) return;
     let current = true;
     setFailed(false);
     (async () => {
@@ -121,7 +149,7 @@ export function MemoriesRoom(props: RoomProps) {
     return () => {
       current = false;
     };
-  }, [book, chip, mind.id, n]);
+  }, [book, chip, mind.id, n, notebook]);
 
   // Older memories: one new page each time; the pages already read stay.
   const [moreFailed, setMoreFailed] = React.useState(false);
@@ -149,6 +177,25 @@ export function MemoriesRoom(props: RoomProps) {
     }
   };
 
+  // The notebook's list: every memory it can reach is here already, so the
+  // filters, orders and older pages ask the engine nothing.
+  const fromNotebook = useNotebookList(notebook, mind.id, filter, sort);
+  /** Memories corrected or let go here, until the notebook is read again. */
+  const hidden = React.useRef(new Set<string>());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new read of the memories is the moment to forget them.
+  React.useEffect(() => {
+    hidden.current.clear();
+  }, [notebook?.memories]);
+  if (notebook)
+    for (const m of notebook.memories.memories)
+      if (!gone.current.has(m.id))
+        seen.current.set(m.id, { memory: m, whole: true });
+  const notebookShown = fromNotebook
+    ? fromNotebook.list
+        .filter((m) => !hidden.current.has(m.id))
+        .slice(0, pages.current * PAGE)
+    : [];
+
   const search = useLoad(
     () => (asked ? book.search(asked) : Promise.resolve(null)),
     [book, asked],
@@ -170,7 +217,7 @@ export function MemoriesRoom(props: RoomProps) {
     (id) => seen.current.has(id),
     asked !== null
       ? search.value !== null || search.failed !== null
-      : chip === "standing" || loaded,
+      : chip === "standing" || loaded || notebook !== null,
     openItem,
   );
   const memory =
@@ -225,7 +272,23 @@ export function MemoriesRoom(props: RoomProps) {
           {searching ? "Searching…" : ""}
         </span>
       </form>
-      {asked === null ? (
+      {asked === null && fromNotebook ? (
+        <NotebookTools
+          count={fromNotebook.list.length}
+          filter={filter}
+          filters={fromNotebook.filters}
+          onFilter={(next) => {
+            setFilter(next);
+            pages.current = 1;
+          }}
+          onSort={(next) => {
+            setSort(next);
+            pages.current = 1;
+          }}
+          sort={sort}
+          total={fromNotebook.total}
+        />
+      ) : asked === null ? (
         <fieldset className="luca-mnemos-chips" aria-label="Which memories">
           {CHIPS.map((each) => (
             <button
@@ -251,6 +314,44 @@ export function MemoriesRoom(props: RoomProps) {
           results={search.value}
           again={search.again}
         />
+      ) : fromNotebook ? (
+        notebookShown.length === 0 ? (
+          <PlaceLine testId="mnemos-memories-none">
+            {fromNotebook.total === 0
+              ? "It hasn’t kept a memory yet."
+              : "Nothing in its memory matches that."}
+          </PlaceLine>
+        ) : (
+          <>
+            <PlaceList testId="mnemos-memories-list">
+              {notebookShown.map((m) => (
+                <PlaceListRow
+                  aria-current={m.id === opened ? "true" : undefined}
+                  data-memory={m.id}
+                  key={m.id}
+                  note={placeNoteTime(m.born)}
+                  onOpen={() => openItem(m.id)}
+                  summary={fromNotebook.tags(m) || undefined}
+                  testId={`mnemos-memory-${m.id}`}
+                  title={firstLine(m.content)}
+                />
+              ))}
+            </PlaceList>
+            {fromNotebook.list.length > notebookShown.length ? (
+              <button
+                className="luca-mnemos-more text-sm"
+                data-testid="mnemos-more"
+                onClick={() => {
+                  pages.current += 1;
+                  setN((x) => x + 1);
+                }}
+                type="button"
+              >
+                Show older memories
+              </button>
+            ) : null}
+          </>
+        )
       ) : chip === "standing" ? (
         <StandingList
           items={standing.items}
@@ -316,7 +417,9 @@ export function MemoriesRoom(props: RoomProps) {
         ? standing.items?.length
           ? "standing:0"
           : null
-        : (shown[0]?.id ?? null);
+        : fromNotebook
+          ? (notebookShown[0]?.id ?? null)
+          : (shown[0]?.id ?? null);
 
   return (
     <RoomFrame
@@ -349,7 +452,21 @@ export function MemoriesRoom(props: RoomProps) {
         ) : memory ? (
           <MemoryOpened
             draft={draftKey(mind.id, `correct:${memory.memory.id}`)}
+            detail={
+              notebook && memory.whole
+                ? (part) => (
+                    <MemoryDetail
+                      goTo={goTo}
+                      memory={memory.memory}
+                      notebook={notebook}
+                      onOpenMemory={(id) => openItem(id)}
+                      part={part}
+                    />
+                  )
+                : null
+            }
             key={memory.memory.id}
+            mindModel={notebook?.life.identity.model}
             mindName={mind.name}
             onCorrect={async (text) => {
               const was = memory.memory;
@@ -366,6 +483,7 @@ export function MemoriesRoom(props: RoomProps) {
                 whole: true,
               });
               gone.current.add(was.id);
+              hidden.current.add(was.id);
               openItem(done.id, { replace: true });
               setN((x) => x + 1);
               void loadMinds(true);
@@ -374,7 +492,8 @@ export function MemoriesRoom(props: RoomProps) {
               const was = memory.memory;
               await writes.forget(was.id);
               gone.current.add(was.id);
-              const facts = lastFacts.current;
+              hidden.current.add(was.id);
+              const facts = notebook ? notebook.life.memory : lastFacts.current;
               if (facts) {
                 const next = afterLetGo(
                   facts,
@@ -414,14 +533,21 @@ const wholeOf = (m: BookFound["memory"]): BookMemory => ({
 });
 
 function MemoryOpened({
+  detail,
   draft,
+  mindModel,
   mindName,
   onCorrect,
   onLetGo,
   seen,
 }: {
+  /** What the notebook says about it besides, on a Mnemos that gives it:
+   *  its readings, and what it is related to. */
+  detail: ((part: "readings" | "related") => React.ReactNode) | null;
   /** Where an unsent correction is kept: one left here opens again. */
   draft: string;
+  /** The model that signs this mind's memories, where the notebook says. */
+  mindModel?: string;
   mindName: string;
   onCorrect: (text: string) => Promise<void>;
   onLetGo: () => Promise<void>;
@@ -487,12 +613,13 @@ function MemoryOpened({
                 seen.memory.corrected
                   ? `corrected ${longDay(seen.memory.corrected)}`
                   : "never corrected",
-                signedBy(seen.memory, { name: mindName }),
+                signedBy(seen.memory, { name: mindName, model: mindModel }),
               ]
             : [`Kept ${longDay(memory.born)}`]
         }
         testId="mnemos-memory-line"
       />
+      {detail?.("readings")}
       {mode === "asking" ? (
         <LetGoAsk
           mindName={mindName}
@@ -524,6 +651,7 @@ function MemoryOpened({
           </Button>
         </div>
       ) : null}
+      {detail?.("related")}
     </article>
   );
 }
@@ -705,5 +833,125 @@ function StandingList({
         />
       ))}
     </PlaceList>
+  );
+}
+
+/**
+ * The notebook's memories through its filter and in its order, with the
+ * filters it offers and how each row is tagged, as its page does it. The
+ * visit (for New) is worked out once a session; the warmth (for Warm) from
+ * the hours as last read.
+ */
+function useNotebookList(
+  notebook: NotebookView | null,
+  mind: string,
+  filter: MemoryFilter,
+  sort: MemorySort,
+) {
+  return React.useMemo(() => {
+    if (!notebook) return null;
+    const now = Date.now();
+    let store: typeof visitStore | null = null;
+    try {
+      store = window.localStorage ? visitStore : null;
+    } catch {
+      store = null;
+    }
+    const ctx = {
+      since: visitOf(mind, now, store),
+      heat: heatOf(notebook.life.hours, now),
+      model: notebook.life.identity.model,
+    };
+    const all = notebook.memories.memories;
+    const filters = filtersFor(all, ctx);
+    // A filter no longer offered (nothing new now) falls back to All.
+    const used = filters.some((f) => f.id === filter) ? filter : "all";
+    const list = arrange(all, used, sort, ctx);
+    return {
+      list,
+      filters,
+      total: all.filter((m) => m.state !== "archived").length,
+      tags: (m: BookMemory) =>
+        [
+          ctx.since > 0 && m.born && Date.parse(m.born) > ctx.since
+            ? "new"
+            : null,
+          m.lesson ? "a lesson" : null,
+          m.standing ? "standing" : null,
+          m.asked ? "asked about" : null,
+          m.state === "dormant" ? "gone quiet" : null,
+          (ctx.heat.get(m.id) ?? 0) > 0.05 ? "warm from its hours" : null,
+          m.recalls ? `recalled ${m.recalls}×` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+    };
+  }, [notebook, mind, filter, sort]);
+}
+
+/** The notebook's filters, as chips, and its orders, beside a count. */
+function NotebookTools({
+  count,
+  filter,
+  filters,
+  onFilter,
+  onSort,
+  sort,
+  total,
+}: {
+  count: number;
+  filter: MemoryFilter;
+  filters: { id: MemoryFilter; label: string; n?: number }[];
+  onFilter: (filter: MemoryFilter) => void;
+  onSort: (sort: MemorySort) => void;
+  sort: MemorySort;
+  total: number;
+}) {
+  const used = filters.some((f) => f.id === filter) ? filter : "all";
+  return (
+    <div className="luca-mnemos-tools">
+      <fieldset className="luca-mnemos-chips" aria-label="Which memories">
+        {filters.map((each) => (
+          <button
+            aria-pressed={used === each.id}
+            className="luca-mnemos-chip text-xs"
+            data-testid={`mnemos-filter-${each.id}`}
+            key={each.id}
+            onClick={() => onFilter(each.id)}
+            type="button"
+          >
+            {each.label}
+            {each.n ? (
+              <span className="luca-mnemos-chip-n">{each.n}</span>
+            ) : null}
+          </button>
+        ))}
+      </fieldset>
+      <div className="luca-mnemos-order">
+        <label className="luca-mnemos-sort text-xs">
+          <span className="sr-only">Order</span>
+          <select
+            data-testid="mnemos-sort"
+            onChange={(event) => onSort(event.target.value as MemorySort)}
+            value={sort}
+          >
+            {MEMORY_SORTS.map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown aria-hidden />
+        </label>
+        <span
+          className="luca-mnemos-count text-xs"
+          data-testid="mnemos-memories-count"
+        >
+          {count === total
+            ? `${total.toLocaleString("en-US")} ${total === 1 ? "memory" : "memories"}`
+            : `${count.toLocaleString("en-US")} of ${total.toLocaleString("en-US")}`}
+        </span>
+      </div>
+    </div>
   );
 }

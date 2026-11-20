@@ -8,18 +8,83 @@ import {
 import { handoffOf } from "./adapt";
 import type { BookHandoff } from "./book";
 import { longDay, PlaceLine, QuietLine, RoomFrame, Words } from "./MnemosParts";
-import { firstLine } from "./notebook";
+import { ItemsRoom } from "./ItemsRoom";
+import { sameModel } from "./memoryArrange";
+import { firstLine, modelName } from "./notebook";
+import { leftKey } from "./notebookLog";
 import { setRoomCounts } from "./placeStore";
-import type { RoomProps } from "./roomKit";
+import type { NotebookView, RoomProps } from "./roomKit";
 import { useReaderSection } from "./useReader";
 
 /** A belief's confidence, as the notebook says it: "held at 72%". */
 export const heldAt = (confidence: number | undefined) =>
   confidence === undefined ? null : `held at ${Math.round(confidence * 100)}%`;
 
-/** Carrying forward (WP-45, Decided 5), through the old reader: the notes
- *  it left itself, newest first. */
-export function CarryingRoom({ mind, reader }: RoomProps) {
+/** Carrying forward: the notes it left itself, newest first. From the
+ *  notebook's own list (`life.handoffs`) on a Mnemos that gives it, with
+ *  who signed each; else through the old reader. */
+export function CarryingRoom(props: RoomProps) {
+  if (props.notebook)
+    return <NotebookCarrying notebook={props.notebook} props={props} />;
+  return <ReaderCarrying {...props} />;
+}
+
+function NotebookCarrying({
+  notebook,
+  props,
+}: {
+  notebook: NotebookView;
+  props: RoomProps;
+}) {
+  const { handoffs, identity } = notebook.life;
+  const left = handoffs
+    .map((handoff, index) => ({ handoff, key: leftKey(index) }))
+    .sort((a, b) => time(b.handoff.at ?? null) - time(a.handoff.at ?? null));
+  const signed = (model: string | undefined) =>
+    !model
+      ? null
+      : sameModel(model, identity.model)
+        ? "the note it left itself"
+        : `left by ${modelName(model)}, a colleague`;
+  return (
+    <ItemsRoom
+      backLabel="Carrying forward"
+      empty="It hasn’t left itself anything to carry forward."
+      groups={[
+        {
+          items: left.map(({ handoff, key }) => ({
+            key,
+            title: firstLine(handoff.text),
+            note: placeNoteTime(handoff.at),
+            summary: signed(handoff.model) ?? undefined,
+            opened: () => (
+              <article
+                aria-label="Carried forward"
+                data-testid="mnemos-carry-opened"
+              >
+                <Words text={handoff.text} />
+                <QuietLine
+                  parts={[
+                    handoff.at ? `Left ${longDay(handoff.at)}` : null,
+                    signed(handoff.model),
+                  ]}
+                  testId="mnemos-carry-line"
+                />
+              </article>
+            ),
+          })),
+        },
+      ]}
+      needs="Carrying forward"
+      props={props}
+      testId="mnemos-carrying"
+    />
+  );
+}
+
+const time = (iso: string | null) => (iso ? Date.parse(iso) || 0 : 0);
+
+function ReaderCarrying({ mind, reader }: RoomProps) {
   const handoffs = useReaderSection(reader, "handoffs", handoffOf);
   return (
     <ReaderList<BookHandoff>

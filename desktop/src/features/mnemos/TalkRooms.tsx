@@ -25,8 +25,11 @@ import {
   withNote,
   writtenWords,
 } from "./notebook";
+import { sameModel } from "./memoryArrange";
+import { answers } from "./notebookShapes";
 import { setRoomCounts } from "./placeStore";
 import { DIDNT_ANSWER, type RoomProps, useAddressItem } from "./roomKit";
+import { useReadOnSight } from "./useReadOnSight";
 import { draftKey, readDraft } from "./drafts";
 import { WriteField } from "./WriteField";
 
@@ -36,7 +39,22 @@ export const JOURNAL_LAST = 500;
 
 /** Journal (WP-45, Decided 5): entries by date, each titled by its own
  *  first sentence with its mood; the whole entry opened. */
-export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
+export function JournalRoom({
+  book,
+  mind,
+  item,
+  notebook,
+  openItem,
+}: RoomProps) {
+  // Who signed an entry, where the notebook says who signs this mind's:
+  // a colleague is named as one.
+  const own = notebook?.life.identity.model ?? "";
+  const signed = (model: string) =>
+    !model
+      ? null
+      : own && !sameModel(model, own)
+        ? `${modelName(model)}, a colleague`
+        : `signed ${modelName(model)}`;
   const entries = useLoad(() => book.journal(JOURNAL_LAST), [book]);
   React.useEffect(() => {
     // At the limit the count would undersay it, so the rail shows none.
@@ -98,7 +116,7 @@ export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
                 longDay(entry.at),
                 entry.mood ? `mood, in its words: ${entry.mood}` : null,
                 entry.written ? writtenWords(entry.written) : null,
-                entry.model ? `signed ${modelName(entry.model)}` : null,
+                entry.model ? signed(entry.model) : null,
               ]}
               testId="mnemos-entry-line"
             />
@@ -119,8 +137,22 @@ export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
  * for your answer. Reading here marks nothing read; answering does, as the
  * engine does.
  */
-export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
+export function NotesRoom({
+  book,
+  mind,
+  item,
+  notebook,
+  openItem,
+  writes,
+}: RoomProps) {
   const notes = useLoad(() => book.notes(), [book]);
+  // On a Mnemos that answers `read`, its notes are read on sight; on an
+  // older one, reading here marks nothing.
+  const sight = useReadOnSight(
+    mind.id,
+    notebook && answers(notebook.hello, "read") ? writes.read : null,
+  );
+  const stillUnread = (n: BookNote) => unread(n) && !sight.readHere(n.id);
   const sent = useSentNotes();
   const list = React.useMemo(
     () => sent.onto(notes.value),
@@ -158,7 +190,7 @@ export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
         key={t.id}
         note={
           <>
-            {t.notes.some(unread) ? (
+            {t.notes.some(stillUnread) ? (
               <span
                 aria-label="not read yet"
                 className={`${UNREAD_DOT_CLASS} luca-mnemos-dot`}
@@ -270,7 +302,9 @@ export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
             onAnswer={async (noteId, text) =>
               sent.add(await writes.reply(noteId, text))
             }
+            stillUnread={stillUnread}
             thread={thread}
+            watch={sight.on ? sight.watch : null}
           />
         ) : null
       }
@@ -307,12 +341,17 @@ function ThreadOpened({
   mindId,
   mindName,
   onAnswer,
+  stillUnread,
   thread,
+  watch,
 }: {
   mindId: string;
   mindName: string;
   onAnswer: (noteId: string, text: string) => Promise<void>;
+  stillUnread: (note: BookNote) => boolean;
   thread: Thread;
+  /** Read on sight, on a Mnemos that answers `read`. */
+  watch: ((id: string) => (el: Element | null) => void) | null;
 }) {
   // An answer answers the mind's last word here. Once you have answered,
   // the thread waits on it, not you, so the field goes until it writes.
@@ -321,7 +360,12 @@ function ThreadOpened({
     <article aria-label="Notes" data-testid="mnemos-thread-opened">
       <ol className="luca-mnemos-thread">
         {thread.notes.map((n) => (
-          <li data-note={n.id} key={n.id}>
+          <li
+            data-note={n.id}
+            data-unread={watch && stillUnread(n) ? n.id : undefined}
+            key={n.id}
+            ref={watch && stillUnread(n) ? watch(n.id) : undefined}
+          >
             <p className="luca-mnemos-meta text-2xs">
               <span>{n.author === "agent" ? mindName : "You"}</span>
               <span> · {longDay(n.at)}</span>
@@ -331,9 +375,10 @@ function ThreadOpened({
               {n.author === "person" ? (
                 <span data-testid="mnemos-note-woken"> · {wokenWords(n)}</span>
               ) : null}
-              {unread(n) ? (
+              {stillUnread(n) ? (
                 <span
                   aria-label="not read yet"
+                  data-testid={`mnemos-note-unread-${n.id}`}
                   className={`${UNREAD_DOT_CLASS} luca-mnemos-dot`}
                   role="img"
                 />
