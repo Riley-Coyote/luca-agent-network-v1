@@ -86,9 +86,14 @@ export function MnemosScreen() {
   }, [applyPatch, mind, named, room, values.mind, values.room]);
 
   const openItem = React.useCallback(
-    (id: string | null, options?: { replace?: boolean }) =>
-      applyPatch({ item: id }, { replace: options?.replace ?? false }),
-    [applyPatch],
+    (id: string | null, options?: { replace?: boolean }) => {
+      // The room shown follows the rail's pick, a moment behind the
+      // address: a room still on screen after the address has gone on to
+      // another must not let go of that room's item.
+      if (id === null && values.room !== null && values.room !== room) return;
+      applyPatch({ item: id }, { replace: options?.replace ?? false });
+    },
+    [applyPatch, room, values.room],
   );
   const goTo = React.useCallback(
     (next: string, item?: string) =>
