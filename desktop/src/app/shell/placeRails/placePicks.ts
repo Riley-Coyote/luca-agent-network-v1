@@ -64,6 +64,7 @@ export type BrainViewId = (typeof BRAIN_VIEWS)[number]["id"];
  *  at the rail's foot (`foot`). */
 export const MNEMOS_ROOMS = [
   { id: "glance", label: "At a glance" },
+  { id: "mind", label: "The mind" },
   { id: "log", label: "Log" },
   { id: "memories", label: "Memories" },
   { id: "shared", label: "Shared" },

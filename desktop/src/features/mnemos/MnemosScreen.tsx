@@ -24,6 +24,7 @@ import { GlanceRoom } from "./GlanceRoom";
 import { HoursRoom } from "./HoursRoom";
 import { LogRoom } from "./LogRoom";
 import { MemoriesRoom } from "./MemoriesRoom";
+import { MindRoom } from "./mind/MindRoom";
 import { DIDNT_ANSWER, type NotebookView, type RoomProps } from "./roomKit";
 import { PlaceLine } from "./MnemosParts";
 import { linkedWords, stateLine } from "./notebook";
@@ -44,6 +45,7 @@ const SEARCH_KEYS = ["room", "item", "mind"] as const;
 /** Each room, by the rail's row. A room added later is one more line. */
 const ROOMS: Record<MnemosRoomId, (props: RoomProps) => React.ReactNode> = {
   glance: GlanceRoom,
+  mind: MindRoom,
   log: LogRoom,
   memories: MemoriesRoom,
   shared: SharedRoom,

@@ -1,0 +1,170 @@
+/* ── The mind (WP-50) ──────────────────────────────────────────────────
+ * Mnemos's own picture, in a frame that melts into the card: no border, no
+ * plate, its floor the card's own colour. The section's name and the
+ * engine's count above it; a memory picked opens quietly at the right, on
+ * the place's plate, where the engine leaves room for its reading room. */
+
+.luca-mnemos-mind {
+  container: mnemos-mind / inline-size;
+}
+
+.luca-mnemos-mind-head {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.luca-mnemos-mind-title {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+  letter-spacing: -0.006em;
+  line-height: 1.3;
+}
+
+.luca-mnemos-mind-count {
+  color: hsl(var(--mn-ink-muted));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  min-height: 1.4em;
+}
+
+.luca-mnemos-mind-stage {
+  height: clamp(420px, calc(100vh - 250px), 860px);
+  margin: 0 -8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.luca-mnemos-mind-host {
+  inset: 0;
+  position: absolute;
+}
+
+.luca-mnemos-mind-frame {
+  border: 0;
+  display: block;
+  height: 100%;
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  transition: opacity 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  width: 100%;
+}
+
+.luca-mnemos-mind-frame[data-drawn] {
+  opacity: 1;
+}
+
+/* The picture is printed on the card's own colour. By day it is drawn in
+ * night colours and turned to ink on paper: its floor lands on the card,
+ * its light on the page's ink, its blue on the place's (mindFrame.ts,
+ * `lightOf`). */
+.luca-mnemos-mind-frame[data-ink] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* The card's grain laid back over the picture, tiled from the window's
+ * origin as every copy of it on the card is, so the floor and the card
+ * are one surface. */
+.luca-mnemos-mind-host:has(.luca-mnemos-mind-frame)::after {
+  background-attachment: fixed;
+  background-image: var(--mn-card-finish, none);
+  background-position: 0 0;
+  background-size: 256px 256px;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.luca-mnemos-mind-cannot {
+  color: hsl(var(--mn-ink-muted));
+  left: 50%;
+  line-height: 1.5;
+  max-width: 420px;
+  position: absolute;
+  text-align: center;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100% - 48px);
+}
+
+/* The memory picked: the place's plate, at the right of the picture and
+ * centred on it, its own scroll if its words are long. */
+.luca-mnemos-mind-picked {
+  background: var(--mn-plate-opaque);
+  border-radius: 12px;
+  box-shadow: var(--mn-lit-edge), var(--mn-contact-shadow);
+  display: grid;
+  gap: 12px;
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  padding: 16px 18px 12px;
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 320px;
+}
+
+.luca-mnemos-mind-picked:focus {
+  outline: none;
+}
+
+.luca-mnemos-mind-picked:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 1px;
+}
+
+.luca-mnemos-mind-drawing {
+  color: hsl(var(--mn-ink));
+  height: 112px;
+  justify-self: start;
+  width: 112px;
+}
+
+.luca-mnemos-drawing {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.luca-mnemos-mind-words {
+  color: hsl(var(--mn-ink));
+  display: grid;
+  gap: 8px;
+  line-height: 1.55;
+}
+
+.luca-mnemos-mind-picked .luca-mnemos-acts {
+  margin-left: -8px;
+}
+
+/* Narrow, the engine leaves no room beside the memory: the panel sits
+ * under the picture instead. */
+@container mnemos-mind (max-width: 860px) {
+  .luca-mnemos-mind-picked {
+    margin-top: 12px;
+    max-height: none;
+    position: static;
+    transform: none;
+    width: auto;
+  }
+
+  .luca-mnemos-mind-stage:has(.luca-mnemos-mind-picked) {
+    height: auto;
+    overflow: visible;
+  }
+
+  .luca-mnemos-mind-stage:has(.luca-mnemos-mind-picked) .luca-mnemos-mind-host {
+    height: clamp(320px, 52vh, 560px);
+    position: relative;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-mnemos-mind-frame {
+    transition: none;
+  }
+}
