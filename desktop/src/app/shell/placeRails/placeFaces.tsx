@@ -3,6 +3,7 @@ import {
   Activity,
   AppWindow,
   Bell,
+  Bookmark,
   Bot,
   Code,
   Download,
@@ -11,11 +12,15 @@ import {
   Info,
   Keyboard,
   LayoutGrid,
+  ListEnd,
+  NotebookPen,
   Palette,
   Plug,
   Puzzle,
+  Scale,
   ShieldCheck,
   SlidersHorizontal,
+  StickyNote,
   Smartphone,
   Sparkles,
   Stethoscope,
@@ -107,6 +112,17 @@ export type RailFaceKind = "agent" | "app" | "icon";
  * have no row in the lab: Connections wears the joined points, Activity the
  * pulse the lab gives "What they read".
  */
+/** A mind's rooms in the Mnemos place: the notebook's own glyphs where
+ *  WP-33 gave them (memory a bookmark, journal a pen), line drawings else. */
+const MNEMOS_ROOM_FACES: Record<string, typeof User> = {
+  glance: LayoutGrid,
+  memories: Bookmark,
+  journal: NotebookPen,
+  notes: StickyNote,
+  beliefs: Scale,
+  carrying: ListEnd,
+};
+
 export function placeRowFace(
   place: RailPlace,
   rowId: string,
@@ -133,6 +149,7 @@ export function placeRowFace(
   if (place === "activity") return icon(Activity);
   if (place === "brain")
     return rowId === "connections" ? icon(Waypoints) : icon(Activity);
+  if (place === "mnemos") return icon(MNEMOS_ROOM_FACES[rowId] ?? LayoutGrid);
   if (rowId === "deleted") return icon(LIBRARY_DELETED_FACE);
   if (rowId === "skills:all") return icon(LIBRARY_SKILLS_FACE);
   if (rowId.startsWith("skills:"))

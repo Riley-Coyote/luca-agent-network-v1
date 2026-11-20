@@ -3,6 +3,7 @@ import { useRouterState } from "@tanstack/react-router";
 
 import {
   BRAIN_VIEWS,
+  MNEMOS_ROOMS,
   firstPickId,
   LIBRARY_KINDS,
   PICK_KEYS,
@@ -27,6 +28,7 @@ import {
 } from "@/features/agents/lib/useMindState";
 import { buildResidentLibrary } from "@/features/agents/ui/agentLibraryViewModel";
 import { useCommunities } from "@/features/communities/useCommunities";
+import { useMindInView } from "@/features/mnemos/useMindInView";
 import { useMindFreshness } from "@/features/agents/space/useMindFreshness";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -70,6 +72,7 @@ export const PLACE_NAMES: Record<RailPlace, string> = {
   activity: "Activity",
   library: "Library",
   brain: "Brain",
+  mnemos: "Mnemos",
 };
 
 function useAgentsRail(): PlaceRail {
@@ -253,6 +256,34 @@ function useBrainRail(): PlaceRail {
   return { ready: true, sections };
 }
 
+/** Mnemos's rail (WP-45, Decided 2): the mind in view's rooms, each with
+ *  its count where the engine gives one. The mind itself heads the rail
+ *  (`MnemosRailMind`). */
+function useMnemosRail(): PlaceRail {
+  const { facts, mind } = useMindInView();
+  const counts = mind ? facts.counts[mind.id] : undefined;
+  const sections = React.useMemo(
+    (): PlaceRailSection[] =>
+      mind
+        ? [
+            {
+              key: "rooms",
+              rows: MNEMOS_ROOMS.map((each) => {
+                const n = each.id === "glance" ? undefined : counts?.[each.id];
+                return {
+                  id: each.id,
+                  title: each.label,
+                  note: n === undefined ? undefined : n.toLocaleString(),
+                };
+              }),
+            },
+          ]
+        : [],
+    [counts, mind],
+  );
+  return { ready: facts.minds !== null, sections };
+}
+
 /** Each place's rail hook. A component calls the one for its place and is
  *  keyed by the place, so the hooks it calls never change under it. */
 export const PLACE_RAIL_HOOKS: Record<RailPlace, () => PlaceRail> = {
@@ -260,6 +291,7 @@ export const PLACE_RAIL_HOOKS: Record<RailPlace, () => PlaceRail> = {
   agents: useAgentsRail,
   brain: useBrainRail,
   library: useLibraryRail,
+  mnemos: useMnemosRail,
 };
 
 const PLACE_ROUTES: Record<RailPlace, string> = {
@@ -267,6 +299,7 @@ const PLACE_ROUTES: Record<RailPlace, string> = {
   activity: "/pulse",
   library: "/artifacts",
   brain: "/brain",
+  mnemos: "/mnemos",
 };
 
 function sessionStore(): Storage | null {

@@ -1,0 +1,227 @@
+import * as React from "react";
+import { NotebookText } from "lucide-react";
+
+import "./mnemos-place.css";
+import { PlacePage } from "@/app/shell/placeRails/PlacePage";
+import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
+import {
+  isMnemosRoom,
+  type MnemosRoomId,
+} from "@/app/shell/placeRails/placePicks";
+import {
+  useKeepPickInAddress,
+  usePlacePick,
+} from "@/app/shell/placeRails/usePlaceRails";
+import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
+import { bookOf } from "./adapt";
+import type { PlaceMind } from "./api";
+import { GlanceRoom } from "./GlanceRoom";
+import { MemoriesRoom } from "./MemoriesRoom";
+import { PlaceLine } from "./MnemosParts";
+import { stateLine } from "./notebook";
+import { loadMinds } from "./placeStore";
+import { BeliefsRoom, CarryingRoom } from "./ReaderRooms";
+import type { RoomProps } from "./roomKit";
+import { JournalRoom, NotesRoom } from "./TalkRooms";
+import { useMindInView } from "./useMindInView";
+import { type SessionPhase, useMnemosSession } from "./useMnemosSession";
+import { useReader } from "./useReader";
+
+const SEARCH_KEYS = ["room", "item", "mind"] as const;
+
+/** Each room, by the rail's row. A room added later is one more line. */
+const ROOMS: Record<MnemosRoomId, (props: RoomProps) => React.ReactNode> = {
+  glance: GlanceRoom,
+  memories: MemoriesRoom,
+  journal: JournalRoom,
+  notes: NotesRoom,
+  beliefs: BeliefsRoom,
+  carrying: CarryingRoom,
+};
+
+/**
+ * The Mnemos place (WP-45): a mind's notebook, read here. Its rail picks
+ * the mind and the room; the card is the room, its list beside the thing
+ * opened. Reading only.
+ */
+export function MnemosScreen() {
+  const { applyPatch, values } = useHistorySearchState(SEARCH_KEYS);
+  useKeepPickInAddress("mnemos", applyPatch);
+  const { pick } = usePlacePick("mnemos");
+  const room: MnemosRoomId = isMnemosRoom(pick) ? pick : "glance";
+  const { facts, mind } = useMindInView();
+
+  const openItem = React.useCallback(
+    (id: string | null) => applyPatch({ item: id }, { replace: id === null }),
+    [applyPatch],
+  );
+  const goTo = React.useCallback(
+    (next: string, item?: string) =>
+      applyPatch({ room: next, item: item ?? null }),
+    [applyPatch],
+  );
+
+  let body: React.ReactNode;
+  if (facts.failed && !facts.minds)
+    body = (
+      <PlaceLine
+        action={{ label: "Try again", run: () => void loadMinds(true) }}
+      >
+        Polyphonic couldn’t look for Mnemos on this Mac.
+      </PlaceLine>
+    );
+  else if (!facts.minds) body = null;
+  else if (!facts.minds.mnemosReady)
+    body = (
+      <PlaceLine testId="mnemos-state-missing">
+        Mnemos isn’t on this Mac.
+      </PlaceLine>
+    );
+  else if (!mind)
+    body = (
+      <PlaceLine testId="mnemos-state-no-minds">
+        Mnemos is installed, but it doesn’t keep a memory on this Mac yet.
+      </PlaceLine>
+    );
+
+  return (
+    <div className="luca-mnemos-place relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <PlacePage testId="mnemos-place">
+        {mind ? (
+          <MindCard
+            goTo={goTo}
+            item={values.item}
+            key={mind.id}
+            mind={mind}
+            openItem={openItem}
+            room={room}
+          />
+        ) : (
+          <>
+            <PlacePageHead face={<NotebookText />} title="Mnemos" />
+            {body}
+          </>
+        )}
+      </PlacePage>
+    </div>
+  );
+}
+
+function MindCard({
+  goTo,
+  item,
+  mind,
+  openItem,
+  room,
+}: {
+  goTo: RoomProps["goTo"];
+  item: string | null;
+  mind: PlaceMind;
+  openItem: RoomProps["openItem"];
+  room: MnemosRoomId;
+}) {
+  const { phase, ask, retry, visible } = useMnemosSession(mind.id);
+  const book = React.useMemo(() => bookOf(ask), [ask]);
+  const reader = useReader(mind);
+  const Room = ROOMS[room];
+  return (
+    <>
+      <PlacePageHead
+        face={<NotebookText />}
+        state={stateLine(mind)}
+        title={mind.name}
+      />
+      {phase.kind !== "open" ? (
+        <PhaseLine mind={mind} phase={phase} retry={retry} />
+      ) : visible ? (
+        // The words live only here, while the window is on screen: hidden,
+        // the room goes and its words with it; shown again, it reads again.
+        <Room
+          book={book}
+          goTo={goTo}
+          item={item}
+          key={room}
+          mind={mind}
+          openItem={openItem}
+          reader={reader}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** The card's one line for a mind not open, by why. */
+function PhaseLine({
+  mind,
+  phase,
+  retry,
+}: {
+  mind: PlaceMind;
+  phase: Exclude<SessionPhase, { kind: "open" }>;
+  retry: (askAgain?: boolean) => void;
+}) {
+  if (phase.kind === "opening")
+    return mind.linked.length ? null : (
+      <PlaceLine testId="mnemos-state-asking">
+        Polyphonic is asking whether to show {mind.name} here.
+      </PlaceLine>
+    );
+  if (phase.kind === "declined")
+    return (
+      <PlaceLine
+        action={{ label: "Show it here", run: () => retry() }}
+        testId="mnemos-state-declined"
+      >
+        {mind.name}’s memory isn’t shown here. Nothing was read.
+      </PlaceLine>
+    );
+  const code = phase.code;
+  if (code === "mind_changed")
+    return (
+      <PlaceLine
+        action={{ label: "Show it here", run: () => retry(true) }}
+        testId="mnemos-state-changed"
+      >
+        {mind.name}’s memory file was moved or replaced since you said to show
+        it, so nothing was read.
+      </PlaceLine>
+    );
+  if (code === "mnemos_too_old")
+    return (
+      <PlaceLine testId="mnemos-state-too-old">
+        This Mnemos is too old to be read here. Updating Mnemos brings it.
+      </PlaceLine>
+    );
+  if (code === "mnemos_timeout")
+    return (
+      <PlaceLine
+        action={{ label: "Try again", run: () => retry() }}
+        testId="mnemos-state-timeout"
+      >
+        Mnemos didn’t answer in time.
+      </PlaceLine>
+    );
+  if (code === "mnemos_unavailable")
+    return (
+      <PlaceLine testId="mnemos-state-gone">
+        Mnemos isn’t installed on this Mac anymore.
+      </PlaceLine>
+    );
+  if (code === "mind_unavailable")
+    return (
+      <PlaceLine
+        action={{ label: "Look again", run: () => void loadMinds(true) }}
+        testId="mnemos-state-mind-gone"
+      >
+        {mind.name}’s memory isn’t on this Mac anymore.
+      </PlaceLine>
+    );
+  return (
+    <PlaceLine
+      action={{ label: "Try again", run: () => retry() }}
+      testId="mnemos-state-failed"
+    >
+      Mnemos couldn’t open {mind.name}’s memory.
+    </PlaceLine>
+  );
+}

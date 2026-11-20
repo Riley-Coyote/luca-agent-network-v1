@@ -36,6 +36,7 @@ export type AppSidebarProps = {
     | "messages"
     | "agents"
     | "brain"
+    | "mnemos"
     | "artifacts"
     | "workflows"
     | "pulse"

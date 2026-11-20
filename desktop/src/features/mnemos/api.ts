@@ -1,0 +1,97 @@
+import { invoke } from "@tauri-apps/api/core";
+
+/**
+ * The Mnemos place's own commands (desktop/src-tauri/src/commands/
+ * mnemos_place.rs). Reading only: the four requests below are the only ones
+ * the app can make, and none writes to a memory. The `Wire*` shapes are what
+ * the person's `mnemos interface` answers; only `adapt.ts` reads them, and
+ * everything else reads the place's own shapes (`book.ts`).
+ */
+
+/** A resident that remembers with a mind. */
+export type LinkedResident = { pubkey: string; name: string };
+
+/** A mind on this Mac: its name and numbers, never any of its words. */
+export type PlaceMind = {
+  id: string;
+  name: string;
+  memories: number;
+  /** The day of its newest memory, YYYY-MM-DD. */
+  newest: string | null;
+  linked: LinkedResident[];
+};
+
+export type PlaceMinds = { mnemosReady: boolean; minds: PlaceMind[] };
+
+export type WireState = "active" | "dormant";
+
+export type PlaceRequest =
+  | { command: "memories"; state?: WireState; limit: number; offset: number }
+  | { command: "search"; query: string }
+  | { command: "journal"; last: number }
+  | { command: "notes" };
+
+export type WireCounts = { active: number; dormant: number; archived: number };
+
+export type WireMemory = {
+  id: string;
+  words: string;
+  kept: string | null;
+  state: string;
+  alive: number;
+  corrected: string | null;
+  impact: string;
+  author: string;
+};
+
+export type WireFound = {
+  id: string;
+  words: string;
+  kept: string | null;
+  closeness: number;
+  found: "meaning" | "words" | "link";
+};
+
+export type WireEntry = {
+  id: string;
+  text: string;
+  mood: string | null;
+  written: string | null;
+  model: string | null;
+  created_at: string | null;
+};
+
+export type WireNote = {
+  id: string;
+  kind: string | null;
+  text: string;
+  author: "agent" | "person";
+  model: string | null;
+  in_reply_to: string | null;
+  created_at: string | null;
+  read_at: string | null;
+  delivered_at?: string | null;
+};
+
+export type PlaceReply =
+  | { kind: "memories"; memories: WireMemory[]; counts: WireCounts }
+  | { kind: "search"; results: WireFound[] }
+  | { kind: "journal"; entries: WireEntry[] }
+  | { kind: "notes"; notes: WireNote[] };
+
+export const mnemosPlace = {
+  minds: () => invoke<PlaceMinds>("mnemos_place_minds"),
+  open: (mind: string, askAgain = false) =>
+    invoke<boolean>("open_mnemos_mind", { mind, askAgain }),
+  read: (mind: string, request: PlaceRequest) =>
+    invoke<PlaceReply>("read_mnemos_place", { mind, request }),
+  knows: (mind: string, id: string) =>
+    invoke<boolean>("mnemos_place_item", { mind, id }),
+  close: () => invoke<void>("close_mnemos_place"),
+  shown: (visible: boolean) => invoke<void>("mnemos_place_shown", { visible }),
+};
+
+/** An error's code, as the place's commands give it. */
+export function codeOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

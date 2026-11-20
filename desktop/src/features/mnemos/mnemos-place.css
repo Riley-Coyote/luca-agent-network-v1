@@ -1,0 +1,516 @@
+/* ── the Mnemos place (WP-45) ───────────────────────────────────────────
+ * The page kit's own card, wider: each room is a list about 360 wide beside
+ * the thing opened, so the axis holds both. Theme inks and plates only; the
+ * unread dot is the one accent. Sizes are the stock rem steps, set in the
+ * markup (text-base for the words, text-sm for rows, the small steps for
+ * dates, counts and labels). */
+
+.luca-mnemos-place .luca-place-page-axis {
+  max-width: 1040px;
+}
+
+.luca-mnemos-line {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.luca-mnemos-quiet {
+  color: hsl(var(--mn-ink-muted));
+  line-height: 1.5;
+}
+
+.luca-mnemos-meta {
+  color: hsl(var(--mn-ink-muted));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  margin-bottom: 8px;
+}
+
+/* ── a room: the list beside the thing opened ─────────────────────── */
+.luca-mnemos-room {
+  container: mnemos-room / inline-size;
+}
+
+.luca-mnemos-room-grid {
+  display: grid;
+  gap: 32px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container mnemos-room (min-width: 721px) {
+  .luca-mnemos-room-grid {
+    align-items: start;
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+
+  .luca-mnemos-opened {
+    position: sticky;
+    top: 0;
+  }
+
+  .luca-mnemos-back {
+    display: none;
+  }
+}
+
+/* Narrow: the opened thing slides over the list, with a back link to it;
+ * the push is the agent pages' own (WP-43): 22 and a fade, 340 ms. */
+@container mnemos-room (max-width: 720px) {
+  .luca-mnemos-room[data-open] .luca-mnemos-list,
+  .luca-mnemos-room:not([data-open]) .luca-mnemos-opened {
+    display: none;
+  }
+
+  .luca-mnemos-room[data-open] .luca-mnemos-push {
+    animation: luca-mnemos-push 340ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-mnemos-room[data-open] .luca-mnemos-push {
+    animation: luca-mnemos-fade 120ms ease-out both;
+  }
+}
+
+@keyframes luca-mnemos-push {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes luca-mnemos-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.luca-mnemos-opened {
+  border-radius: 10px;
+  padding: 4px 4px 32px;
+}
+
+.luca-mnemos-opened:focus {
+  outline: none;
+}
+
+.luca-mnemos-back {
+  align-items: center;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink));
+  display: inline-flex;
+  font-weight: 500;
+  gap: 2px;
+  margin: 0 0 14px -4px;
+  padding: 2px 4px;
+}
+
+.luca-mnemos-back svg {
+  height: 15px;
+  width: 15px;
+}
+
+.luca-mnemos-back:hover {
+  color: hsl(var(--mn-ink-muted));
+}
+
+/* Rows: one step smaller than the words, two lines at most; the opened
+ * one holds the plate's hover. */
+.luca-mnemos-place .luca-place-row-title {
+  -webkit-box-orient: vertical;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.luca-mnemos-place .luca-place-plate > .luca-place-row[aria-current] {
+  background: var(--luca-plate-hover);
+}
+
+.luca-mnemos-place .luca-place-group + .luca-place-group {
+  margin-top: 22px;
+}
+
+/* ── the words, the content ───────────────────────────────────────── */
+.luca-mnemos-words {
+  color: hsl(var(--mn-ink));
+  display: grid;
+  gap: 0.8em;
+  line-height: 1.6;
+  max-width: 68ch;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.luca-mnemos-title {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+  line-height: 1.45;
+  margin-bottom: 10px;
+  max-width: 68ch;
+}
+
+.luca-mnemos-facts {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  max-width: 68ch;
+}
+
+.luca-mnemos-fact dt {
+  color: hsl(var(--mn-ink-faint));
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+
+.luca-mnemos-fact dd {
+  color: hsl(var(--mn-ink-muted));
+  line-height: 1.5;
+}
+
+.luca-mnemos-thread {
+  display: grid;
+  gap: 22px;
+}
+
+.luca-mnemos-dot {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: 0.1em;
+}
+
+/* ── search and the chips ─────────────────────────────────────────── */
+.luca-mnemos-search {
+  align-items: center;
+  background: var(--luca-plate-fill);
+  border-radius: 10px;
+  box-shadow: inset 0 0.5px 0 var(--luca-plate-edge);
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  gap: 8px;
+  height: 34px;
+  margin-bottom: 12px;
+  padding: 0 10px;
+}
+
+.luca-mnemos-search svg {
+  flex: none;
+  height: 15px;
+  width: 15px;
+}
+
+.luca-mnemos-search input {
+  background: transparent;
+  color: hsl(var(--mn-ink));
+  flex: 1;
+  min-width: 0;
+  outline: none;
+}
+
+.luca-mnemos-search input::placeholder {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-mnemos-search:focus-within {
+  box-shadow:
+    inset 0 0.5px 0 var(--luca-plate-edge),
+    0 0 0 1px hsl(var(--mn-ink) / 0.4);
+}
+
+.luca-mnemos-chips {
+  border: 0;
+  display: flex;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.luca-mnemos-chip {
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-muted));
+  height: 26px;
+  padding: 0 10px;
+}
+
+.luca-mnemos-chip:hover {
+  background: hsl(var(--mn-ink) / 0.05);
+}
+
+.luca-mnemos-chip[aria-pressed="true"] {
+  background: hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+  font-weight: 500;
+}
+
+.luca-mnemos-more,
+.luca-mnemos-link {
+  border-radius: 6px;
+  color: hsl(var(--mn-ink));
+  font-weight: 500;
+  padding: 2px 4px;
+}
+
+.luca-mnemos-more {
+  margin: 12px 0 0 6px;
+}
+
+.luca-mnemos-link {
+  margin-left: -4px;
+}
+
+.luca-mnemos-more:hover,
+.luca-mnemos-link:hover {
+  color: hsl(var(--mn-ink-muted));
+}
+
+:is(
+  .luca-mnemos-chip,
+  .luca-mnemos-more,
+  .luca-mnemos-link,
+  .luca-mnemos-back,
+  .luca-mnemos-step,
+  .luca-mnemos-plate-open,
+  .luca-mnemos-lately-row
+):focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 1px;
+}
+
+/* ── At a glance: plates of real numbers ──────────────────────────── */
+.luca-mnemos-glance {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.luca-mnemos-plate {
+  background: var(--luca-plate-fill);
+  border-radius: 12px;
+  box-shadow: inset 0 0.5px 0 var(--luca-plate-edge);
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px 16px;
+  align-content: start;
+  min-width: 0;
+}
+
+.luca-mnemos-plate-label {
+  color: hsl(var(--mn-ink-muted));
+  font-weight: 600;
+}
+
+.luca-mnemos-clamp {
+  -webkit-box-orient: vertical;
+  color: hsl(var(--mn-ink));
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-height: 1.5;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.luca-mnemos-lately .luca-mnemos-clamp {
+  -webkit-line-clamp: 1;
+}
+
+.luca-mnemos-plate-foot {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.luca-mnemos-steps {
+  align-items: center;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  gap: 2px;
+}
+
+.luca-mnemos-step {
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  display: grid;
+  height: 24px;
+  place-items: center;
+  width: 24px;
+}
+
+.luca-mnemos-step:disabled {
+  opacity: 0.35;
+}
+
+.luca-mnemos-step svg {
+  height: 15px;
+  width: 15px;
+}
+
+.luca-mnemos-count {
+  align-items: baseline;
+  color: hsl(var(--mn-ink));
+  display: flex;
+  gap: 6px;
+}
+
+.luca-mnemos-count > :first-child {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.luca-mnemos-count > :last-child {
+  color: hsl(var(--mn-ink-muted));
+}
+
+.luca-mnemos-plate-open,
+.luca-mnemos-lately-row {
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  margin: -6px -8px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.luca-mnemos-lately-row {
+  align-items: baseline;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0 -8px;
+}
+
+.luca-mnemos-lately-row > :last-child {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-mnemos-plate-open:hover,
+.luca-mnemos-lately-row:hover {
+  background: hsl(var(--mn-ink) / 0.04);
+}
+
+.luca-mnemos-lately {
+  display: grid;
+  gap: 2px;
+}
+
+.luca-mnemos-strip {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.luca-mnemos-strip-days {
+  align-items: flex-end;
+  display: flex;
+  gap: 1px;
+  height: 36px;
+}
+
+.luca-mnemos-strip-days > span {
+  background: hsl(var(--mn-ink) / 0.5);
+  border-radius: 1px;
+  flex: 1;
+  min-width: 1px;
+}
+
+.luca-mnemos-strip-days > span[data-count="0"] {
+  background: hsl(var(--mn-ink) / 0.14);
+}
+
+/* ── the rail's head: the mind in view, and the minds on this Mac ─── */
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind {
+  margin: 0 0 6px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-head,
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-row {
+  border-radius: 8px;
+  display: grid;
+  gap: 1px;
+  padding: 6px 28px 6px 10px;
+  position: relative;
+  text-align: left;
+  width: 100%;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-head:hover,
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-row:hover {
+  background: var(--rail-plate);
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-mnemos-railmind-head:focus-visible,
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-row:focus-visible {
+  outline: 1px solid var(--rail-muted);
+  outline-offset: -1px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-name {
+  color: var(--rail-ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-line {
+  color: var(--rail-faint);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-chev {
+  color: var(--rail-faint);
+  height: 14px;
+  position: absolute;
+  right: 8px;
+  top: 10px;
+  transition: transform 160ms;
+  width: 14px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-mnemos-railmind-head[aria-expanded="true"]
+  .luca-mnemos-railmind-chev {
+  transform: rotate(180deg);
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds {
+  border-bottom: 0.5px solid var(--rail-plate);
+  display: grid;
+  gap: 1px;
+  margin: 2px 0 4px;
+  padding: 0 0 6px 8px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-mnemos-minds-row[aria-current]
+  .luca-mnemos-railmind-name::after {
+  color: var(--rail-faint);
+  content: " · in view";
+  font-weight: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-chev {
+    transition: none;
+  }
+}

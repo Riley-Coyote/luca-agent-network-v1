@@ -42,6 +42,8 @@ export function shellFramePageName(view: AppView): string {
       return "Activity";
     case "brain":
       return "Brain";
+    case "mnemos":
+      return "Mnemos";
     case "inbox":
       return "Inbox";
     case "messages":
@@ -67,6 +69,8 @@ export function shellFrameRailName(view: AppView): string {
       return "agents rail";
     case "brain":
       return "brain rail";
+    case "mnemos":
+      return "mnemos rail";
     case "pulse":
       return "activity rail";
     case "artifacts":

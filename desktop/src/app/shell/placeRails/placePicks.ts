@@ -9,7 +9,7 @@
  * same functions, so they never disagree about what is picked.
  */
 
-export type RailPlace = "agents" | "activity" | "library" | "brain";
+export type RailPlace = "agents" | "activity" | "library" | "brain" | "mnemos";
 
 /** The address's words that say a place's pick. */
 export const PICK_KEYS: Record<RailPlace, readonly string[]> = {
@@ -17,6 +17,8 @@ export const PICK_KEYS: Record<RailPlace, readonly string[]> = {
   activity: ["stream", "record"],
   library: ["made", "skills", "deleted"],
   brain: ["view"],
+  // The room is the pick; a new room starts with nothing opened in it.
+  mnemos: ["room", "item"],
 };
 
 /** The words a pick sets; every other pick word of its place is cleared. */
@@ -56,6 +58,22 @@ export const BRAIN_VIEWS = [
 
 export type BrainViewId = (typeof BRAIN_VIEWS)[number]["id"];
 
+/** A mind's rooms in the Mnemos place (WP-45, Decided 2), by the row's id
+ *  and the address's `room` word, named as the notebook names them. */
+export const MNEMOS_ROOMS = [
+  { id: "glance", label: "At a glance" },
+  { id: "memories", label: "Memories" },
+  { id: "journal", label: "Journal" },
+  { id: "notes", label: "Notes" },
+  { id: "beliefs", label: "Beliefs" },
+  { id: "carrying", label: "Carrying forward" },
+] as const;
+
+export type MnemosRoomId = (typeof MNEMOS_ROOMS)[number]["id"];
+
+export const isMnemosRoom = (value: unknown): value is MnemosRoomId =>
+  MNEMOS_ROOMS.some((each) => each.id === value);
+
 const isBrainView = (value: string | null): value is BrainViewId =>
   BRAIN_VIEWS.some((each) => each.id === value);
 
@@ -85,6 +103,10 @@ export function pickIdOf(place: RailPlace, search: Search): string | null {
     const view = word(search, "view");
     return isBrainView(view) ? view : null;
   }
+  if (place === "mnemos") {
+    const room = word(search, "room");
+    return isMnemosRoom(room) ? room : null;
+  }
   if (word(search, "deleted") === "recently") return "deleted";
   const skills = word(search, "skills");
   if (skills) return skills === "all" ? "skills:all" : `skills:${skills}`;
@@ -111,6 +133,7 @@ export function paramsOfPick(place: RailPlace, id: string): PickParams {
     };
   }
   if (place === "brain") return { view: isBrainView(id) ? id : "connections" };
+  if (place === "mnemos") return { room: isMnemosRoom(id) ? id : "glance" };
   // Words, never numbers: the router reads `1` in an address as a number.
   if (head === "deleted") return { deleted: "recently" };
   if (head === "skills") return { skills: tail || "all" };
@@ -140,6 +163,7 @@ export function firstPickId(place: RailPlace, lucaPubkey: string | null) {
     return lucaPubkey ? `mind:${lucaPubkey.toLowerCase()}` : "luca";
   if (place === "activity") return "all";
   if (place === "brain") return "connections";
+  if (place === "mnemos") return "glance";
   return "made:all";
 }
 

@@ -11,6 +11,7 @@ export type AppView =
   | "messages"
   | "agents"
   | "brain"
+  | "mnemos"
   | "artifacts"
   | "workflows"
   | "pulse"
@@ -190,6 +191,13 @@ export function deriveShellRoute(
     return {
       selectedChannelId: null,
       selectedView: "brain",
+    };
+  }
+
+  if (pathname === "/mnemos") {
+    return {
+      selectedChannelId: null,
+      selectedView: "mnemos",
     };
   }
 

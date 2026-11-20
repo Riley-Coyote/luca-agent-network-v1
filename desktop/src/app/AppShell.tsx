@@ -234,6 +234,7 @@ export function AppShell() {
     goDashboard,
     goHome,
     goInbox,
+    goMnemos,
     goNewMessage,
     goProject,
     goProjects,
@@ -1030,6 +1031,7 @@ export function AppShell() {
         onSelectAgents: () => void goAgents(),
         onSelectArtifacts: () => void goArtifacts(),
         onSelectBrain: () => void goBrain(),
+        onSelectMnemos: () => void goMnemos(),
         onSelectPulse: () => void goPulse(),
         // In Settings already: pressing it keeps your place.
         onSelectSettings: settingsOpen ? () => {} : handleOpenSettings,

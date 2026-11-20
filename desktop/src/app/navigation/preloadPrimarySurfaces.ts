@@ -18,6 +18,10 @@ export function preloadBrainSurface() {
   return warmSurface(() => import("@/features/luca/brain/BrainScreen"));
 }
 
+export function preloadMnemosSurface() {
+  return warmSurface(() => import("@/features/mnemos/MnemosScreen"));
+}
+
 export function preloadArtifactsSurface() {
   return warmSurface(
     () => import("@/features/artifacts/ui/ArtifactLibraryScreen"),
