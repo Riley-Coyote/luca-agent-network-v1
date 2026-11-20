@@ -668,6 +668,31 @@ test("a mind's Can read pane is that mind's own access, with Open Brain to the p
   expect(opened.hash).toMatch(/^#\/brain/);
 });
 
+test("a mind's Open Brain lands on Connections, whichever view Brain was left on", async ({
+  page,
+}) => {
+  await boot(page);
+  await landedOnBrain(page);
+  await openRail(page);
+  await page
+    .getByTestId("place-row-activity")
+    .locator(".luca-rail-row-hit")
+    .click();
+  await expect(page.getByTestId("brain-activity-list")).toBeVisible();
+  await page.evaluate((luca) => {
+    window.location.hash = `#/agents?profile=${luca}&section=settings&at=read`;
+  }, LUCA);
+  await expect(page.getByTestId("mind-open-brain")).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByTestId("mind-open-brain").click();
+  const landed = await landedOnBrain(page);
+  measure("open_brain_connections", landed);
+  expect(landed.hash).toContain("view=connections");
+  expect(landed.view).toBe("connections");
+  await expect(page.getByTestId("brain-activity-list")).toHaveCount(0);
+});
+
 test("flag off: the classic Brain page, a conversation, Settings and the mind space match the base", async ({
   browser,
 }) => {

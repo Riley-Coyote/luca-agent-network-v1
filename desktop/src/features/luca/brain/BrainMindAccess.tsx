@@ -141,7 +141,9 @@ export function BrainMindAccess({
       <div className="mt-4 flex flex-wrap gap-2">
         <Button
           data-testid="mind-open-brain"
-          onClick={() => void goBrain()}
+          // To Connections, whichever view Brain was left on: the row is
+          // about what this mind can read.
+          onClick={() => void goBrain({ view: "connections" })}
           size="quiet"
           variant="quiet"
         >
