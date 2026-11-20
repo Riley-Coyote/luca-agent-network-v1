@@ -75,15 +75,25 @@ async function shot(page: Page, target: Locator, name: string) {
   return hash;
 }
 
-/** Console errors and warnings, page errors, minus the ResizeObserver note
- *  and headless Chrome's own GPU driver notes (counted in measures/driver). */
+/** Console errors and warnings, page errors, minus the ResizeObserver note,
+ *  headless Chrome's own GPU driver notes (counted in measures/driver) and
+ *  the test harness's stale-listener note (counted in measures/stale_listener):
+ *  Tauri's event mock never drops a listener on unlisten (it reads `id`, the
+ *  call sends `eventId`), so an event sent after a card leaves the screen
+ *  still knocks on the callback that card already let go. */
 function watchConsole(page: Page) {
   const seen: string[] = [];
   let driver = 0;
+  let stale = 0;
   page.on("console", (message) => {
     if (message.type() !== "error" && message.type() !== "warning") return;
     const text = message.text();
     if (text.includes("ResizeObserver loop")) return;
+    if (text.startsWith("[TAURI] Couldn't find callback id")) {
+      stale += 1;
+      measure("stale_listener", { notes: stale });
+      return;
+    }
     if (text.includes("GL Driver Message")) {
       driver += 1;
       measure("driver", { gpuDriverNotes: driver, last: text });
@@ -100,12 +110,20 @@ async function boot(
   {
     hash = `/channels/${GENERAL}`,
     light = false,
+    mock = {},
     projects,
     proposals = [],
     shell = true,
   }: {
     hash?: string;
     light?: boolean;
+    /** Mock failures: a chat that can't be made, residents who can't join,
+     *  a hand-back that can't land. */
+    mock?: {
+      addChannelMembersErrors?: (string | null)[];
+      createChannelErrors?: string[];
+      finishProjectProposalErrors?: string[];
+    };
     /** Projects already in the owner's store, by label. */
     projects?: string[];
     proposals?: Seed[];
@@ -124,6 +142,7 @@ async function boot(
       { name: "Atlas", pubkey: ATLAS, status: "running" },
     ],
     projectProposals: proposals,
+    ...mock,
   });
   await page.addInitScript(
     ({ key, light, on, labels }) => {
@@ -205,8 +224,9 @@ async function expectCardWords(page: Page, names: string) {
   await expect(row).toBeVisible({ timeout: 20_000 });
   await expect(row).toContainText("Start a project called “Ghost app”?");
   await expect(row).toContainText("Luca asks");
-  await expect(row.getByTestId("project-proposal-line")).toHaveText(
-    `${PURPOSE} · ${names} its first chat, general.`,
+  await expect(row.getByTestId("project-proposal-purpose")).toHaveText(PURPOSE);
+  await expect(row.getByTestId("project-proposal-joins")).toHaveText(
+    `${names} its first chat, general.`,
   );
   await expect(row.getByTestId("project-proposal-create")).toHaveText("Create");
   await expect(row.getByTestId("project-proposal-not-now")).toHaveText(
@@ -596,5 +616,378 @@ test("(h) in an empty chat, an ask takes the welcome picture's place", async ({
   await expect(card(page)).toHaveCount(0, { timeout: 15_000 });
   await expect(greeting).toBeVisible({ timeout: 15_000 });
   measure("console_h", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+/** Every text box of a card against the card and the window: what runs past
+ *  the card's right edge, how many lines the title and purpose take, whether
+ *  who-joins shows whole, and whether the title and "Luca asks" touch. */
+async function cardGeometry(row: Locator) {
+  return row.evaluate((li) => {
+    const card = li.getBoundingClientRect();
+    const lines = (el: Element | null) => {
+      if (!el) return 0;
+      const style = getComputedStyle(el);
+      const height = el.getBoundingClientRect().height;
+      return Math.round(height / Number.parseFloat(style.lineHeight));
+    };
+    const pick = (selector: string) => li.querySelector(selector);
+    const title = pick(".luca-place-row-title");
+    const summary = pick(".luca-place-row-summary");
+    const purpose = pick('[data-testid="project-proposal-purpose"]');
+    const joins = pick('[data-testid="project-proposal-joins"]');
+    const overflow = [
+      ...li.querySelectorAll<HTMLElement>(
+        ".luca-place-row-title, .luca-place-row-summary, .luca-ask-extra, [data-testid^='project-proposal-'], .luca-project-ask-notes p, button",
+      ),
+    ]
+      .filter((el) => {
+        const box = el.getBoundingClientRect();
+        return (
+          box.right > card.right + 0.5 ||
+          box.left < card.left - 0.5 ||
+          el.scrollWidth > el.clientWidth + 1
+        );
+      })
+      .map((el) => el.dataset.testid ?? el.className);
+    const a = title?.getBoundingClientRect();
+    const b = summary?.getBoundingClientRect();
+    const touch =
+      a && b
+        ? a.bottom > b.top + 0.5 &&
+          a.top < b.bottom - 0.5 &&
+          a.right > b.left &&
+          a.left < b.right
+        : true;
+    return {
+      card: { left: card.left, right: card.right, width: card.width },
+      cardInWindow: card.right <= window.innerWidth + 0.5,
+      joinsWhole:
+        joins !== null &&
+        joins.scrollHeight <= joins.clientHeight + 1 &&
+        joins.scrollWidth <= joins.clientWidth + 1,
+      overflow,
+      purposeClipped:
+        purpose !== null && purpose.scrollHeight > purpose.clientHeight + 1,
+      purposeLines: lines(purpose),
+      titleClipped:
+        title !== null && title.scrollHeight > title.clientHeight + 1,
+      titleLines: lines(title),
+      titleTouchesSummary: touch,
+    };
+  });
+}
+
+const LONG_PURPOSE =
+  "A home for the Ghost companion app: the notch eyes, the panel, the voice, the screen marks, the iPhone build, the website words, and every small note about how Ghost should feel when it wakes up.";
+
+test("(i) a long purpose wraps inside the card, three lines at most", async ({
+  page,
+}) => {
+  expect(LONG_PURPOSE.length).toBeGreaterThanOrEqual(190);
+  expect(LONG_PURPOSE.length).toBeLessThanOrEqual(200);
+  const consoleSeen = await boot(page);
+  const lucaChat = await openLucaChat(page);
+  await talkInLucaChat(page, lucaChat);
+  await page.evaluate(
+    (seed) => window.__BUZZ_E2E_PUSH_PROJECT_PROPOSAL__?.(seed),
+    ask({
+      channelName: undefined,
+      conversationId: lucaChat,
+      purpose: LONG_PURPOSE,
+    }),
+  );
+  const shapes: Record<string, unknown> = {};
+  for (const [width, place] of [
+    [1440, "chat"],
+    [900, "chat"],
+    [1440, "needs-you"],
+    [900, "needs-you"],
+  ] as const) {
+    await page.setViewportSize({ height: 900, width });
+    if (place === "needs-you") {
+      await page.evaluate(() => {
+        window.location.hash = "#/needs-you";
+      });
+    }
+    const row =
+      place === "chat"
+        ? card(page)
+        : page.getByTestId("needs-you-project:project-request-ghost");
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row.getByTestId("project-proposal-joins")).toHaveText(
+      "Luca joins its first chat, general.",
+    );
+    await waitForAnimations(page);
+    const shape = await cardGeometry(row);
+    shapes[`${place}-${width}`] = shape;
+    expect(shape.overflow, `${place} ${width}`).toEqual([]);
+    expect(shape.cardInWindow, `${place} ${width}`).toBe(true);
+    expect(shape.purposeLines).toBeLessThanOrEqual(3);
+    expect(shape.purposeLines).toBeGreaterThanOrEqual(2);
+    expect(shape.joinsWhole).toBe(true);
+    if (width === 1440 && place === "chat")
+      await shotInPlace(page, "09-long-purpose-dark");
+    if (width === 1440 && place === "needs-you")
+      await shot(page, row, "10-long-purpose-needs-you-dark");
+  }
+  measure("long_purpose", shapes);
+  measure("console_i", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+const NAME_NO_SPACES = "A".repeat(120);
+const NAME_WITH_SPACES =
+  "WOMBAT MEADOW WORKSHOP WOMBAT MEADOW WORKSHOP WOMBAT MEADOW WORKSHOP WOMBAT MEADOW WORKSHOP WOMBAT MEADOW WORKSHOP WOMBA";
+
+test("(ii) a long name wraps to two lines at most, clear of who asks", async ({
+  page,
+}) => {
+  expect(new TextEncoder().encode(NAME_NO_SPACES).length).toBe(120);
+  expect(new TextEncoder().encode(NAME_WITH_SPACES).length).toBeLessThanOrEqual(
+    120,
+  );
+  const consoleSeen = await boot(page);
+  const lucaChat = await openLucaChat(page);
+  await talkInLucaChat(page, lucaChat);
+  const shapes: Record<string, unknown> = {};
+  for (const [name, label] of [
+    [NAME_NO_SPACES, "no-spaces"],
+    [NAME_WITH_SPACES, "with-spaces"],
+  ] as const) {
+    const requestId = `project-request-${label}`;
+    await page.evaluate(
+      (seed) => window.__BUZZ_E2E_PUSH_PROJECT_PROPOSAL__?.(seed),
+      ask({
+        channelName: undefined,
+        conversationId: lucaChat,
+        projectName: name,
+        requestId,
+      }),
+    );
+    for (const [width, place] of [
+      [1440, "chat"],
+      [900, "chat"],
+      [1440, "needs-you"],
+      [900, "needs-you"],
+    ] as const) {
+      await page.setViewportSize({ height: 900, width });
+      await page.evaluate(
+        (hash) => {
+          if (window.location.hash !== hash) window.location.hash = hash;
+        },
+        place === "chat" ? `#/channels/${lucaChat}` : "#/needs-you",
+      );
+      if (place === "chat") await showFoldedAsks(page);
+      const row =
+        place === "chat"
+          ? card(page, requestId)
+          : page.getByTestId(`needs-you-project:${requestId}`);
+      await expect(row).toBeVisible({ timeout: 20_000 });
+      await waitForAnimations(page);
+      const shape = await cardGeometry(row);
+      const at = `${label} ${place} ${width}`;
+      shapes[`${label}-${place}-${width}`] = shape;
+      expect(shape.titleLines, at).toBeLessThanOrEqual(2);
+      // Both names need three lines or more in the conversation's card at
+      // either width: there the title is cut at its end.
+      if (place === "chat") expect(shape.titleClipped, at).toBe(true);
+      expect(shape.titleTouchesSummary, at).toBe(false);
+      expect(shape.overflow, at).toEqual([]);
+      expect(shape.cardInWindow, at).toBe(true);
+      if (label === "no-spaces" && place === "chat" && width === 1440)
+        await shot(page, row, "11-long-name-dark");
+    }
+    await page.setViewportSize({ height: 900, width: 1440 });
+    // Clear it, so the next name is the conversation's one ask.
+    await page.evaluate((hash) => {
+      window.location.hash = hash;
+    }, `#/channels/${lucaChat}`);
+    await card(page, requestId).getByTestId("project-proposal-not-now").click();
+    await expect(card(page, requestId)).toHaveCount(0, { timeout: 15_000 });
+  }
+  measure("long_name", shapes);
+  measure("console_ii", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+/** Coming back to a conversation, its asks may wait folded to one line, by the
+ *  stack's own rule; the owner opens them with one click. */
+async function showFoldedAsks(page: Page) {
+  const held = page.getByTestId("pending-held");
+  await page.waitForTimeout(600);
+  if (await held.isVisible()) {
+    measure("folded_on_return", { folded: true });
+    await held.click();
+  }
+}
+
+const composerFocused = (page: Page) =>
+  page.evaluate(
+    () =>
+      document.activeElement?.closest('[data-testid="message-composer"]') !==
+      null,
+  );
+
+test("(iii) a Create that stopped part-way: one sentence, Try again or Leave it", async ({
+  page,
+}) => {
+  const consoleSeen = await boot(page, {
+    mock: { addChannelMembersErrors: ["mock: members write refused"] },
+  });
+  const lucaChat = await openLucaChat(page);
+  await talkInLucaChat(page, lucaChat);
+  await page.evaluate(
+    (seed) => window.__BUZZ_E2E_PUSH_PROJECT_PROPOSAL__?.(seed),
+    ask({ channelName: undefined, conversationId: lucaChat }),
+  );
+  await expectCardWords(page, "Luca joins");
+  await card(page).getByTestId("project-proposal-create").click();
+  const problem = card(page).getByTestId("project-proposal-problem");
+  await expect(problem).toHaveText(
+    "Ghost app and its chat were made, but Luca couldn't be added.",
+    { timeout: 15_000 },
+  );
+  // Its own half-made project is not "one you already have"; no raw error.
+  await expect(
+    card(page).getByTestId("project-proposal-duplicate"),
+  ).toHaveCount(0);
+  await expect(card(page)).not.toContainText("mock:");
+  await expect(card(page).getByTestId("project-proposal-create")).toHaveText(
+    "Try again",
+  );
+  await expect(card(page).getByTestId("project-proposal-not-now")).toHaveText(
+    "Leave it",
+  );
+  await shotInPlace(page, "12-partly-made-dark");
+
+  await card(page).getByTestId("project-proposal-not-now").click();
+  const settled = page.getByTestId("project-proposal-settled");
+  await expect(settled).toBeVisible({ timeout: 15_000 });
+  await expect(settled).toContainText(
+    "Ghost app is in your projects, without Luca in it yet.",
+  );
+  await expect(settled.getByTestId("project-proposal-open")).toHaveText(
+    "Open Ghost app",
+  );
+  await expect(card(page)).toHaveCount(0);
+  await expect.poll(() => composerFocused(page)).toBe(true);
+  // Nothing was deleted: the project and its chat stay in the rail.
+  await expect(projectChats(page, "project:ghost-app")).toHaveCount(1);
+  const chatId = await projectChats(page, "project:ghost-app").getAttribute(
+    "data-channel-id",
+  );
+  const answers = await answersOf(page);
+  measure("left_it", { answers });
+  expect(answers).toEqual([
+    {
+      answer: {
+        chatId,
+        outcome: "partial",
+        problem:
+          "Ghost app and its chat were made, but Luca couldn't be added.",
+        projectId: "ghost-app",
+      },
+      requestId: "project-request-ghost",
+    },
+  ]);
+  await shot(page, settled, "13-left-it-dark");
+  measure("console_iii", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+test("(iii, try again) a chat that couldn't be made, then made on Try again", async ({
+  page,
+}) => {
+  const consoleSeen = await boot(page, {
+    mock: { createChannelErrors: ["mock: create_channel failed"] },
+    proposals: [ask()],
+  });
+  await expectCardWords(page, "Luca joins");
+  await card(page).getByTestId("project-proposal-create").click();
+  await expect(card(page).getByTestId("project-proposal-problem")).toHaveText(
+    "The project was made, but its first chat wasn't.",
+    { timeout: 15_000 },
+  );
+  await expect(card(page)).not.toContainText("mock:");
+  await expect(card(page)).not.toContainText("already have");
+  await card(page).getByTestId("project-proposal-create").click();
+  await expect(page.getByTestId("project-proposal-settled")).toContainText(
+    "Ghost app is in your projects.",
+    { timeout: 15_000 },
+  );
+  const answers = await answersOf(page);
+  measure("try_again", { answers });
+  // The same project, finished: never a second one.
+  expect(answers[0]?.answer).toMatchObject({
+    outcome: "created",
+    projectId: "ghost-app",
+  });
+  await expect(home(page, "project:ghost-app-2")).toHaveCount(0);
+  measure("console_iii_try", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+test("(iv) made in full but not handed back: the line alone, never Create again", async ({
+  page,
+}) => {
+  const consoleSeen = await boot(page, {
+    mock: {
+      finishProjectProposalErrors: ["mock: no", "mock: no", "mock: no"],
+    },
+    proposals: [ask()],
+  });
+  await expectCardWords(page, "Luca joins");
+  await card(page).getByTestId("project-proposal-create").click();
+  const settled = page.getByTestId("project-proposal-settled");
+  await expect(settled).toContainText("Ghost app is in your projects.", {
+    timeout: 15_000,
+  });
+  await expect(card(page)).toHaveCount(0);
+  await expect(page.getByTestId("project-proposal-create")).toHaveCount(0);
+  await expect(page.getByText("mock:")).toHaveCount(0);
+  // Three quiet tries to tell the resident, then the line simply stands.
+  await expect
+    .poll(
+      async () =>
+        (await commandsOf(page)).filter(
+          (entry) => entry.command === "finish_project_proposal",
+        ).length,
+      { timeout: 10_000 },
+    )
+    .toBe(3);
+  await page.waitForTimeout(1_500);
+  await expect(card(page)).toHaveCount(0);
+  // Needs you no longer counts it.
+  await expect(
+    page.locator('[data-testid="rail-needs-you"]').filter({ hasText: "1" }),
+  ).toHaveCount(0);
+  measure("console_iv", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+test("(v) keyboard: after Create the way in, after Not now the message box", async ({
+  page,
+}) => {
+  const consoleSeen = await boot(page, { proposals: [ask()] });
+  await expectCardWords(page, "Luca joins");
+  await card(page).getByTestId("project-proposal-create").focus();
+  await page.keyboard.press("Enter");
+  const open = page.getByTestId("project-proposal-open");
+  await expect(open).toBeVisible({ timeout: 15_000 });
+  await expect(open).toBeFocused();
+  measure("keyboard_create", { focused: "project-proposal-open" });
+
+  await page.evaluate(
+    (seed) => window.__BUZZ_E2E_PUSH_PROJECT_PROPOSAL__?.(seed),
+    ask({ projectName: "Notes app", requestId: "project-request-notes" }),
+  );
+  const notes = card(page, "project-request-notes");
+  await expect(notes).toBeVisible({ timeout: 15_000 });
+  await notes.getByTestId("project-proposal-not-now").focus();
+  await page.keyboard.press("Enter");
+  await expect(notes).toHaveCount(0, { timeout: 15_000 });
+  await expect.poll(() => composerFocused(page)).toBe(true);
+  measure("console_v", consoleSeen);
   expect(consoleSeen).toEqual([]);
 });

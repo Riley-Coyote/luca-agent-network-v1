@@ -342,6 +342,8 @@ type E2eConfig = {
     runtimeTaskProposals?: MockRuntimeTaskProposalSeed[];
     /** Residents' asks to start a project (WP-44); a finish removes one. */
     projectProposals?: MockProjectProposalSeed[];
+    /** Reject successive `finish_project_proposal` calls, then resume. */
+    finishProjectProposalErrors?: string[];
     /** Questions residents are asking the owner (WP-14). */
     managedInputs?: MockManagedInputSeed[];
     /** Body-free UX-203A restart outcomes returned for operational presentation. */
@@ -14088,6 +14090,9 @@ export function maybeInstallE2eTauriMocks() {
           requestId?: string;
           answer?: unknown;
         } | null;
+        const finishError =
+          activeConfig?.mock?.finishProjectProposalErrors?.shift();
+        if (finishError) throw new Error(finishError);
         const seed = mockProjectProposals.find(
           (candidate) => candidate.requestId === input?.requestId,
         );
