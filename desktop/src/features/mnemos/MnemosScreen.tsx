@@ -166,7 +166,7 @@ function HeadState({ mind }: { mind: PlaceMind }) {
   if (!who) return numbers;
   const link = (pubkey: string, words: string) => (
     <button
-      className="luca-mnemos-headlink"
+      className="luca-mnemos-link"
       data-testid={`mnemos-head-resident-${pubkey}`}
       key={pubkey}
       onClick={() => void goAgent(pubkey)}

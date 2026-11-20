@@ -124,6 +124,8 @@ export function MemoriesRoom(props: RoomProps) {
       seen.current.set(r.memory.id, { memory: r.memory, whole: false });
   }
 
+  const searching =
+    asked !== null && search.value === null && search.failed === null;
   const standing = useReaderSection(reader, "standing", standingOf);
 
   const opened = useAddressItem(
@@ -175,6 +177,14 @@ export function MemoriesRoom(props: RoomProps) {
           type="search"
           value={query}
         />
+        {/* The first search by meaning waits for the model to load. */}
+        <span
+          aria-live="polite"
+          className="luca-mnemos-searching text-xs"
+          data-testid="mnemos-searching"
+        >
+          {searching ? "Searching…" : ""}
+        </span>
       </form>
       {asked === null ? (
         <fieldset className="luca-mnemos-chips" aria-label="Which memories">
@@ -390,6 +400,7 @@ function MemoryOpened({
           hint={`Its own words stay in its history. ${mindName} wakes knowing you corrected it, once.`}
           initial={memory.content}
           label="Correct it, in your words"
+          layout="stacked"
           needsChange
           onCancel={() => leave("correct")}
           onSend={onCorrect}

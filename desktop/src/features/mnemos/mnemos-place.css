@@ -234,6 +234,12 @@
   outline: none;
 }
 
+.luca-mnemos-searching {
+  color: hsl(var(--mn-ink-muted));
+  flex: none;
+  white-space: nowrap;
+}
+
 .luca-mnemos-search input::placeholder {
   color: hsl(var(--mn-ink-faint));
 }
@@ -269,25 +275,26 @@
   font-weight: 500;
 }
 
+/* The place's one link: quiet, underlined, the ink it sits in, as the
+ * head's "Luca remembers with this". */
 .luca-mnemos-more,
 .luca-mnemos-link {
-  border-radius: 6px;
-  color: hsl(var(--mn-ink));
-  font-weight: 500;
-  padding: 2px 4px;
+  border-radius: 4px;
+  color: inherit;
+  text-decoration-color: hsl(var(--mn-ink) / 0.28);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .luca-mnemos-more {
-  margin: 12px 0 0 6px;
-}
-
-.luca-mnemos-link {
-  margin-left: -4px;
+  color: hsl(var(--mn-ink-muted));
+  margin: 14px 0 0 2px;
 }
 
 .luca-mnemos-more:hover,
 .luca-mnemos-link:hover {
-  color: hsl(var(--mn-ink-muted));
+  color: hsl(var(--mn-ink));
 }
 
 :is(
@@ -558,18 +565,25 @@
   margin-top: 28px;
 }
 
-.luca-mnemos-leave {
-  margin: 0 0 28px;
+/* Its label is a section label, as the page kit sets one. */
+.luca-mnemos-write-label {
+  margin: 0;
 }
 
-.luca-mnemos-write-label {
-  color: hsl(var(--mn-ink));
-  font-weight: 500;
+.luca-mnemos-write-row {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.luca-mnemos-write[data-layout="inline"] .luca-mnemos-write-row {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 /* A well in the page: a step of ink below it and a hairline round it, so
  * an empty field still reads as a place to write. It grows with its words
- * (WriteField measures it), so it never scrolls inside itself. */
+ * (WriteField measures it): one line, to about five for an answer. */
 .luca-mnemos-write-text {
   background: hsl(var(--mn-ink) / 0.04);
   border-radius: 10px;
@@ -577,17 +591,22 @@
   color: hsl(var(--mn-ink));
   line-height: 1.5;
   max-height: 24rem;
-  min-height: 3.75rem;
+  min-height: 2.5rem;
   outline: none;
   overflow-y: auto;
-  padding: 9px 12px;
+  padding: 7px 12px;
   resize: none;
   transition: box-shadow 140ms;
   width: 100%;
 }
 
-.luca-mnemos-write-text::placeholder {
-  color: hsl(var(--mn-ink-faint));
+.luca-mnemos-write[data-layout="inline"] .luca-mnemos-write-text {
+  max-height: calc(7.5em + 14px);
+}
+
+/* Send sits by the field's last line, as tall as one line of it. */
+.luca-mnemos-write[data-layout="inline"] .luca-mnemos-write-row > button {
+  height: 2.5rem;
 }
 
 .luca-mnemos-write-text:focus-visible {
@@ -668,23 +687,4 @@
 .luca-mnemos-sent {
   color: hsl(var(--mn-ink-muted));
   line-height: 1.5;
-}
-
-/* The head's "Luca remembers with this": a way to the resident's page. */
-.luca-mnemos-headlink {
-  border-radius: 4px;
-  color: inherit;
-  text-decoration-color: hsl(var(--mn-ink) / 0.28);
-  text-decoration-line: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-
-.luca-mnemos-headlink:hover {
-  color: hsl(var(--mn-ink));
-}
-
-.luca-mnemos-headlink:focus-visible {
-  outline: 1px solid hsl(var(--mn-ink) / 0.55);
-  outline-offset: 1px;
 }

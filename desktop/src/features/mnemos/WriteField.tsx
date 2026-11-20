@@ -40,7 +40,9 @@ export function WriteField({
   failLine = "It couldn’t be sent just now. Your words are still here.",
   hint,
   initial = "",
+  hideLabel,
   label,
+  layout = "inline",
   needsChange,
   onCancel,
   onSend,
@@ -54,8 +56,14 @@ export function WriteField({
   /** The line for a write that failed for no reason Mnemos gave. */
   failLine?: string;
   hint?: string;
+  /** The label is said, not shown: a heading above already shows it. */
+  hideLabel?: boolean;
   initial?: string;
   label: string;
+  /** `inline`: one line that grows to about five, Send beside it (an
+   *  answer, a note). `stacked`: the words whole, the buttons under them
+   *  (a correction). */
+  layout?: "inline" | "stacked";
   /** Nothing to send until the words differ from `initial` (a correction). */
   needsChange?: boolean;
   onCancel?: () => void;
@@ -78,7 +86,7 @@ export function WriteField({
       mounted.current = false;
     };
   }, []);
-  // The field grows with what's written in it, from two lines.
+  // The field grows with what's written in it, from one line.
   const area = React.useRef<HTMLTextAreaElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: measured again whenever the words change.
   React.useLayoutEffect(() => {
@@ -110,17 +118,45 @@ export function WriteField({
   };
 
   const said = failure ? failureWords(failure, failLine) : null;
+  const sendButton = (
+    <Button
+      data-testid={`${testId}-send`}
+      disabled={sending || !state.canSend}
+      size="quiet"
+      type="submit"
+    >
+      {sending && sendingLabel ? sendingLabel : sendLabel}
+    </Button>
+  );
+  const count = state.count ? (
+    <span
+      aria-live="polite"
+      className="luca-mnemos-write-count text-2xs tabular-nums"
+      data-over={state.over ? "" : undefined}
+      data-testid={`${testId}-count`}
+    >
+      {state.count}
+    </span>
+  ) : null;
   return (
     <form
       aria-busy={sending || undefined}
       className="luca-mnemos-write"
+      data-layout={layout}
       data-testid={testId}
       onSubmit={(event) => {
         event.preventDefault();
         void send();
       }}
     >
-      <label className="luca-mnemos-write-label text-sm" htmlFor={id}>
+      <label
+        className={
+          hideLabel
+            ? "sr-only"
+            : "luca-place-section-label luca-mnemos-write-label"
+        }
+        htmlFor={id}
+      >
         {label}
       </label>
       {hint ? (
@@ -128,33 +164,36 @@ export function WriteField({
           {hint}
         </p>
       ) : null}
-      <textarea
-        aria-describedby={
-          [hint ? `${id}-hint` : null, said ? `${id}-said` : null]
-            .filter(Boolean)
-            .join(" ") || undefined
-        }
-        aria-invalid={state.over || undefined}
-        // biome-ignore lint/a11y/noAutofocus: Correct it turns the words into this field; the person's next act is typing.
-        autoFocus={autoFocus}
-        className="luca-mnemos-write-text text-base"
-        data-testid={`${testId}-text`}
-        id={id}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            void send();
-          } else if (event.key === "Escape" && onCancel && !sending) {
-            event.preventDefault();
-            event.stopPropagation();
-            onCancel();
+      <div className="luca-mnemos-write-row">
+        <textarea
+          aria-describedby={
+            [hint ? `${id}-hint` : null, said ? `${id}-said` : null]
+              .filter(Boolean)
+              .join(" ") || undefined
           }
-        }}
-        ref={area}
-        rows={2}
-        value={text}
-      />
+          aria-invalid={state.over || undefined}
+          // biome-ignore lint/a11y/noAutofocus: Correct it turns the words into this field; the person's next act is typing.
+          autoFocus={autoFocus}
+          className="luca-mnemos-write-text text-base"
+          data-testid={`${testId}-text`}
+          id={id}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              void send();
+            } else if (event.key === "Escape" && onCancel && !sending) {
+              event.preventDefault();
+              event.stopPropagation();
+              onCancel();
+            }
+          }}
+          ref={area}
+          rows={1}
+          value={text}
+        />
+        {layout === "inline" ? sendButton : null}
+      </div>
       {said ? (
         <div
           className="luca-mnemos-write-said"
@@ -176,38 +215,28 @@ export function WriteField({
           ) : null}
         </div>
       ) : null}
-      <div className="luca-mnemos-write-foot">
-        {state.count ? (
-          <span
-            aria-live="polite"
-            className="luca-mnemos-write-count text-2xs tabular-nums"
-            data-over={state.over ? "" : undefined}
-            data-testid={`${testId}-count`}
-          >
-            {state.count}
-          </span>
-        ) : null}
-        {onCancel && cancelLabel ? (
-          <Button
-            data-testid={`${testId}-cancel`}
-            disabled={sending}
-            onClick={onCancel}
-            size="quiet"
-            type="button"
-            variant="quiet"
-          >
-            {cancelLabel}
-          </Button>
-        ) : null}
-        <Button
-          data-testid={`${testId}-send`}
-          disabled={sending || !state.canSend}
-          size="quiet"
-          type="submit"
-        >
-          {sending && sendingLabel ? sendingLabel : sendLabel}
-        </Button>
-      </div>
+      {layout === "inline" ? (
+        count ? (
+          <div className="luca-mnemos-write-foot">{count}</div>
+        ) : null
+      ) : (
+        <div className="luca-mnemos-write-foot">
+          {count}
+          {onCancel && cancelLabel ? (
+            <Button
+              data-testid={`${testId}-cancel`}
+              disabled={sending}
+              onClick={onCancel}
+              size="quiet"
+              type="button"
+              variant="quiet"
+            >
+              {cancelLabel}
+            </Button>
+          ) : null}
+          {sendButton}
+        </div>
+      )}
     </form>
   );
 }

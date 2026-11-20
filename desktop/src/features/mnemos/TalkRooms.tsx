@@ -110,8 +110,9 @@ export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
 }
 
 /**
- * Notes (WP-45, Decided 5; WP-47, Decided 1 and 2): first, a note of your
- * own to leave; then the notes both ways, gathered into threads by what each
+ * Notes (WP-45, Decided 5; WP-47, Decided 1 and 2; WP-48, 0a): first, a row
+ * to leave a note of your own, which opens its field beside the list; then
+ * the notes both ways, gathered into threads by what each
  * answers, what's waiting on you first; a dot on a note of its own you
  * haven't read, by the engine's own record. An opened thread ends in a field
  * for your answer. Reading here marks nothing read; answering does, as the
@@ -138,6 +139,16 @@ export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
     openItem,
   );
   const thread = all.find((t) => t.id === opened) ?? null;
+  // Leaving a note is the list's first row; opened, its field is the thing
+  // opened. It isn't in the address: the address names only the engine's.
+  const [leaving, setLeaving] = React.useState(false);
+  React.useEffect(() => {
+    if (item !== null) setLeaving(false);
+  }, [item]);
+  const leave = () => {
+    setLeaving(true);
+    if (item !== null) openItem(null, { replace: true });
+  };
 
   const rows = (group: Thread[]) =>
     group.map((t) => (
@@ -174,23 +185,19 @@ export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
       backLabel="Notes"
       first={(waiting[0] ?? rest[0])?.id ?? null}
       onOpenFirst={(id) => openItem(id, { replace: true })}
-      openedKey={thread ? thread.id : null}
+      openedKey={leaving ? "leave" : thread ? thread.id : null}
       list={
         <>
           {notes.value ? (
-            <div className="luca-mnemos-leave">
-              <WriteField
-                hint="It wakes with it, once, in its next session."
-                label={`Leave ${mind.name} a note`}
-                onSend={async (text) => {
-                  const note = await writes.note(text);
-                  sent.add(note);
-                  openItem(note.id);
-                }}
-                sendLabel="Leave note"
-                testId="mnemos-leave-note"
+            <PlaceList testId="mnemos-leave">
+              <PlaceListRow
+                aria-current={leaving ? "true" : undefined}
+                onOpen={leave}
+                summary="It wakes with it, once, in its next session."
+                testId="mnemos-leave-row"
+                title={`Leave ${mind.name} a note`}
               />
-            </div>
+            </PlaceList>
           ) : null}
           {notes.failed ? (
             <PlaceLine action={{ label: "Try again", run: notes.again }}>
@@ -225,9 +232,32 @@ export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
           )}
         </>
       }
-      onBack={() => openItem(null)}
+      onBack={() => (leaving ? setLeaving(false) : openItem(null))}
       opened={
-        thread ? (
+        leaving ? (
+          <article aria-label="A note for it" data-testid="mnemos-leave-opened">
+            <h2 className="luca-mnemos-title text-base">
+              Leave {mind.name} a note
+            </h2>
+            <p className="luca-mnemos-quiet text-sm">
+              It wakes with it, once, in its next session. Write it the way
+              you’d say it.
+            </p>
+            <WriteField
+              hideLabel
+              label={`Leave ${mind.name} a note`}
+              onSend={async (text) => {
+                const note = await writes.note(text);
+                sent.add(note);
+                // The note's own thread opens; leaving ends when the address
+                // names it, so nothing else opens in between.
+                openItem(note.id);
+              }}
+              sendLabel="Leave note"
+              testId="mnemos-leave-note"
+            />
+          </article>
+        ) : thread ? (
           <ThreadOpened
             mindName={mind.name}
             onAnswer={async (noteId, text) =>
