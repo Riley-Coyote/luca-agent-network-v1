@@ -2,12 +2,17 @@
 //! Every word comes from the person's installed `mnemos interface`, for one
 //! mind at a time (`session`); a mind is shown only once the owner said so,
 //! or because one of their residents already remembers with it (`grant`).
-//! The person can write exactly four things there, as themselves: answer a
-//! note, leave one, correct a memory, let one go (`wire::Write`).
+//! The person can write exactly seven things there, as themselves: answer a
+//! note, leave one, correct a memory, let one go, mark notes read, set the
+//! quiet hours, and keep the shared notebook (`wire::Write`). A newer Mnemos
+//! also gives the whole notebook (`summary`, `notebook`), and the pictures
+//! it lists (`mnemos_place_picture`).
 mod grant;
 mod session;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_notebook;
 mod wire;
 
 use super::mnemos_view::link;
@@ -187,9 +192,14 @@ pub async fn open_mnemos_mind(
         person: found.scope.person_id.clone(),
         project: found.scope.project_scope.clone(),
     };
-    let command = session::command(tokio::process::Command::new(&program), &spec);
+    let studio = session::studio_of(&spec.home, &spec.agent);
     place()
-        .start(command, key)
+        .open(
+            |newer| session::command(tokio::process::Command::new(&program), &spec, newer),
+            key,
+            studio,
+            READ_LIMIT,
+        )
         .await
         .map_err(|fail| fail.code().to_owned())?;
     Ok(true)
@@ -221,7 +231,8 @@ async fn confirm(
 }
 
 /// Read one thing from the open mind: a page of memories, a search, the
-/// journal or the notes. Nothing else can be asked.
+/// journal or the notes; from a newer Mnemos, its summary or a part of its
+/// notebook. Nothing else can be asked.
 #[tauri::command]
 pub async fn read_mnemos_place(
     window: Window,
@@ -230,7 +241,7 @@ pub async fn read_mnemos_place(
 ) -> Result<Reply, String> {
     main_window(&window)?;
     let limit = match request {
-        Request::Search { .. } => SEARCH_LIMIT,
+        Request::Search { .. } | Request::Notebook { .. } => SEARCH_LIMIT,
         _ => READ_LIMIT,
     };
     place()
@@ -240,7 +251,8 @@ pub async fn read_mnemos_place(
 }
 
 /// One of the person's own writes to the open mind, sent once: answer a
-/// note, leave one, correct a memory, let one go. The owner's act alone:
+/// note, leave one, correct a memory, let one go, mark notes read, the quiet
+/// hours, the shared notebook. The owner's act alone:
 /// the main window, a mind they said to show (or one of their residents
 /// remembers with), and only ids the engine gave this mind this session.
 /// A refusal of the engine's own (a quiet hour, a note too long) comes back
@@ -268,6 +280,33 @@ pub async fn write_mnemos_place(
         .ask(&mind, &write, WRITE_LIMIT)
         .await
         .map_err(|fail| fail.told())
+}
+
+/// What the open mind's Mnemos said to `hello`: the commands and parts it
+/// answers, and the scope it holds. None from an older Mnemos.
+#[tauri::command]
+pub async fn mnemos_place_hello(
+    window: Window,
+    mind: String,
+) -> Result<Option<serde_json::Value>, String> {
+    main_window(&window)?;
+    Ok(place().hello(&mind).await)
+}
+
+/// The bytes of one picture the open mind's notebook listed this session,
+/// by its notebook path. Nothing else can be read this way.
+#[tauri::command]
+pub async fn mnemos_place_picture(
+    window: Window,
+    mind: String,
+    path: String,
+) -> Result<tauri::ipc::Response, String> {
+    main_window(&window)?;
+    place()
+        .picture(&mind, &path)
+        .await
+        .map(tauri::ipc::Response::new)
+        .map_err(|fail| fail.code().to_owned())
 }
 
 /// Whether the page may open the item `id` names (an address can name any):

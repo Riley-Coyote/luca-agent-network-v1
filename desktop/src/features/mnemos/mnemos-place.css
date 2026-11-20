@@ -458,6 +458,22 @@
   background: hsl(var(--mn-ink) / 0.14);
 }
 
+/* ── the rail: Settings at its foot ─────────────────────────────── */
+/* The rail and the two wrappers it sits in grow to the scroll area's
+ * height, so the foot is the area's foot; a rail taller than it scrolls. */
+:root[data-luca-shell] :has(> nav > [data-place-rail="mnemos"]),
+:root[data-luca-shell] nav:has(> [data-place-rail="mnemos"]),
+:root[data-luca-shell] [data-place-rail="mnemos"] {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
+:root[data-luca-shell] [data-place-rail="mnemos"] [data-place-section="foot"] {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
 /* ── the rail's head: the mind in view, and the minds on this Mac ─── */
 :root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind {
   margin: 0 0 6px;

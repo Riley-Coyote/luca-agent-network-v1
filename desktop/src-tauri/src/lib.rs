@@ -1345,6 +1345,8 @@ pub fn run() {
             open_mnemos_mind,
             read_mnemos_place,
             write_mnemos_place,
+            mnemos_place_hello,
+            mnemos_place_picture,
             mnemos_place_item,
             close_mnemos_place,
             mnemos_place_shown,

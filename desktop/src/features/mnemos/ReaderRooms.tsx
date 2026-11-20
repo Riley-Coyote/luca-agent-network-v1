@@ -5,8 +5,8 @@ import {
   PlaceListRow,
   placeNoteTime,
 } from "@/app/shell/placeRails/PlacePage";
-import { beliefOf, handoffOf } from "./adapt";
-import type { BookBelief, BookHandoff } from "./book";
+import { handoffOf } from "./adapt";
+import type { BookHandoff } from "./book";
 import { longDay, PlaceLine, QuietLine, RoomFrame, Words } from "./MnemosParts";
 import { firstLine } from "./notebook";
 import { setRoomCounts } from "./placeStore";
@@ -16,34 +16,6 @@ import { useReaderSection } from "./useReader";
 /** A belief's confidence, as the notebook says it: "held at 72%". */
 export const heldAt = (confidence: number | undefined) =>
   confidence === undefined ? null : `held at ${Math.round(confidence * 100)}%`;
-
-/** Beliefs (WP-45, Decided 5), through the old reader: what it believes,
- *  each with how firmly. */
-export function BeliefsRoom({ mind, reader }: RoomProps) {
-  const beliefs = useReaderSection(reader, "beliefs", beliefOf);
-  return (
-    <ReaderList<BookBelief>
-      backLabel="Beliefs"
-      count={(n) => setRoomCounts(mind.id, { beliefs: n })}
-      empty="It hasn’t formed a belief yet."
-      items={beliefs.items}
-      line={beliefs.line}
-      note={(b) => heldAt(b.confidence) ?? ""}
-      opened={(b) => (
-        <article aria-label="A belief" data-testid="mnemos-belief-opened">
-          <Words text={b.text} />
-          <QuietLine
-            parts={[
-              heldAt(b.confidence),
-              b.born ? `since ${longDay(b.born)}` : null,
-            ]}
-          />
-        </article>
-      )}
-      testId="mnemos-beliefs"
-    />
-  );
-}
 
 /** Carrying forward (WP-45, Decided 5), through the old reader: the notes
  *  it left itself, newest first. */
@@ -70,7 +42,7 @@ export function CarryingRoom({ mind, reader }: RoomProps) {
 
 /** A list the old reader gives (its items carry no ids, so what's open is
  *  this room's own, not the address's). */
-function ReaderList<T extends { text: string }>({
+export function ReaderList<T extends { text: string }>({
   backLabel,
   count,
   empty,

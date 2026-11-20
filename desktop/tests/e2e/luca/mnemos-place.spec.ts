@@ -6,6 +6,11 @@ import { expect, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
+import {
+  KESTREL_HELLO,
+  kestrelNotebook,
+  PICTURES,
+} from "./mnemos-newer-fixture";
 
 /**
  * WP-45, the Mnemos place, reading (polyphonic-beta14-finish.md): a place
@@ -50,6 +55,8 @@ type Probe = {
   linked: boolean;
   /** How long a search takes, in ms (the model loading). */
   searchDelay: number;
+  /** Kestrel's change token (the newer engine's `summary`). */
+  token: string;
 };
 
 test.use({
@@ -76,6 +83,7 @@ async function boot(
     fault = null,
     decline = false,
     classic = false,
+    newer = false,
   }: {
     hash?: string;
     mode?: Mode;
@@ -83,6 +91,8 @@ async function boot(
     decline?: boolean;
     /** The classic look: the new look's frame off. */
     classic?: boolean;
+    /** Kestrel too: a mind on a newer Mnemos that gives the notebook. */
+    newer?: boolean;
   } = {},
 ) {
   const errors: string[] = [];
@@ -92,7 +102,7 @@ async function boot(
   });
   // Before the test bridge, so every Mnemos command is this spec's.
   await page.addInitScript(
-    ({ luca, ori, fault, decline }) => {
+    ({ luca, ori, fault, decline, kestrel, hello, pictures }) => {
       type Call = (
         cmd: string,
         args?: Record<string, unknown>,
@@ -103,6 +113,9 @@ async function boot(
         mnemosProbe: Probe;
         mnemosDeliver?: () => void;
         mnemosText?: (text: string) => void;
+        /** Something shown changed in Kestrel's notebook: a new journal
+         *  entry (and with `memories`, a new memory, a new version). */
+        mnemosBump?: (memories?: boolean) => void;
       };
       const bridge = win.__TAURI_INTERNALS__ ?? {};
       win.__TAURI_INTERNALS__ = bridge;
@@ -116,6 +129,7 @@ async function boot(
         writeDelay: 0,
         linked: true,
         searchDelay: 0,
+        token: "kt1",
       };
       win.mnemosProbe = probe;
       const now = Date.now();
@@ -307,7 +321,207 @@ async function boot(
           newest: iso(now).slice(0, 10),
           linked: [],
         },
+        ...(kestrel
+          ? [
+              {
+                id: "kestrel",
+                name: "Kestrel",
+                memories: 12,
+                newest: iso(now).slice(0, 10),
+                linked: [] as { pubkey: string; name: string }[],
+              },
+            ]
+          : []),
       ];
+      // Kestrel's engine: hello, summary, the notebook, its pictures, and
+      // the three newer writes (the hours against this fake only).
+      const listed = new Set<string>();
+      let bumps = 0;
+      win.mnemosBump = (alsoMemories = false) => {
+        if (!kestrel) return;
+        bumps++;
+        kestrel.life.journal.unshift({
+          id: `kes-jn${bumps}`,
+          at: new Date().toISOString(),
+          text: `A new entry, number ${bumps}.`,
+          mood: "",
+          written: "in_session",
+          model: "claude-opus-5-5",
+          hour: "",
+        });
+        if (alsoMemories) {
+          kestrel.memories.push({
+            ...kestrel.memories[0],
+            id: `kes-mn${bumps}`,
+            born: new Date().toISOString(),
+            content: `A new memory, number ${bumps}.`,
+            ties: [],
+          });
+          kestrel.version = `kv${bumps + 1}`;
+          kestrel.life.memory.version = kestrel.version;
+          kestrel.life.memory.count = kestrel.memories.length;
+          kestrel.life.memory.states.active += 1;
+        }
+        probe.token = `kt${bumps + 1}`;
+      };
+      const kestrelSummary = () => {
+        if (!kestrel) return {};
+        const life = kestrel.life;
+        const theirs = life.notes.filter((n) => n.author === "agent");
+        return {
+          missing: false,
+          counts: {
+            memories: kestrel.memories.length,
+            states: life.memory.states,
+            shared: life.shared.rows.length,
+            beliefs: life.beliefs.length,
+            questions: life.questions.open,
+            answered: life.questions.answered.length,
+            journal: life.journal.length,
+            notes: theirs.length,
+            replies: life.notes.length - theirs.length,
+            hours: life.hours.length,
+            made: life.studio.length,
+            carrying: life.handoffs.length,
+          },
+          unread: theirs.filter((n) => !n.read).length,
+          waiting: 1,
+          change_token: probe.token,
+        };
+      };
+      const idsIn = (value: unknown) => {
+        if (Array.isArray(value)) value.forEach(idsIn);
+        else if (value && typeof value === "object")
+          for (const [key, inner] of Object.entries(value))
+            if (key === "id" && typeof inner === "string") seen.add(inner);
+            else idsIn(inner);
+      };
+      const kestrelRead = (request: Record<string, unknown>) => {
+        if (!kestrel) return fail("mind_unavailable");
+        if (request.command === "summary")
+          return { kind: "summary", summary: kestrelSummary() };
+        if (request.command === "notebook" && request.part === "life") {
+          idsIn(kestrel.life);
+          for (const path of Object.keys(pictures)) listed.add(path);
+          return {
+            kind: "notebook",
+            part: "life",
+            document: kestrel.life,
+            page: null,
+            pictures: Object.keys(pictures),
+          };
+        }
+        if (request.command === "notebook" && request.part === "memories") {
+          const offset = Number(request.offset ?? 0);
+          const limit = Number(request.limit ?? kestrel.memories.length);
+          const slice = kestrel.memories.slice(offset, offset + limit);
+          idsIn(slice);
+          const end = offset + slice.length;
+          return {
+            kind: "notebook",
+            part: "memories",
+            document: {
+              version: kestrel.version,
+              made: new Date().toISOString(),
+              memories: slice,
+              ...(offset === 0 ? { recalled: kestrel.recalled } : {}),
+            },
+            page: {
+              offset,
+              limit,
+              total: kestrel.memories.length,
+              next: end < kestrel.memories.length ? end : null,
+            },
+            pictures: [],
+          };
+        }
+        if (request.command === "search") {
+          const words = String(request.query).toLowerCase();
+          const results = kestrel.memories
+            .filter((m) => m.content.toLowerCase().includes(words))
+            .map((m, i) => ({
+              id: m.id,
+              words: m.content,
+              kept: m.born,
+              closeness: 1 - i * 0.1,
+              found: "meaning",
+            }));
+          for (const r of results) seen.add(r.id);
+          return { kind: "search", results };
+        }
+        // A newer engine still answers the first commands; the place
+        // never needs them for Kestrel.
+        return fail(`unexpected kestrel ${String(request.command)}`);
+      };
+      const kestrelWrite = (write: Record<string, unknown>) => {
+        if (!kestrel) return fail("mind_unavailable");
+        const named = [
+          ...(Array.isArray(write.note_ids) ? write.note_ids : []),
+          write.note_id,
+          write.memory_id,
+        ].filter((id): id is string => typeof id === "string");
+        if (named.some((id) => !seen.has(id))) return fail("unknown_item");
+        const at = new Date().toISOString();
+        if (write.command === "read") {
+          for (const n of kestrel.life.notes)
+            if ((write.note_ids as string[]).includes(n.id) && !n.read)
+              n.read = at;
+          probe.token = `${probe.token}r`;
+          return { kind: "read", ids: write.note_ids };
+        }
+        if (write.command === "hours")
+          return {
+            kind: "hours",
+            said: "Quiet hours are on, a made-up answer.",
+          };
+        if (write.command === "shared") {
+          if (write.action === "add") {
+            kestrel.life.shared.rows.unshift({
+              id: `kes-s${kestrel.life.shared.rows.length + 1}`,
+              content: String(write.text),
+              author: "person",
+              person: "Pat",
+              model: "",
+              born: at,
+              editable: true,
+            });
+            probe.token = `${probe.token}s`;
+          }
+          return { kind: "shared", said: "Kept in the shared notebook." };
+        }
+        if (write.command === "reply" || write.command === "note") {
+          const note = {
+            id: `kes-n${kestrel.life.notes.length + 1}`,
+            at,
+            kind: String(write.command),
+            text: String(write.text),
+            author: "person",
+            model: "",
+            replyTo: typeof write.note_id === "string" ? write.note_id : "",
+            hour: "",
+            delivered: null,
+            read: null,
+          };
+          kestrel.life.notes.unshift(note);
+          seen.add(note.id);
+          probe.token = `${probe.token}n`;
+          return {
+            kind: "note",
+            note: {
+              id: note.id,
+              kind: note.kind,
+              text: note.text,
+              author: "person",
+              model: null,
+              in_reply_to: note.replyTo || null,
+              created_at: at,
+              read_at: null,
+              delivered_at: null,
+            },
+          };
+        }
+        return fail("invalid_request");
+      };
       const granted = new Set<string>();
       let delegate: Call | undefined;
       const fail = (code: string) => Promise.reject(code);
@@ -319,9 +533,10 @@ async function boot(
           if (probe.fault === "none")
             return { mnemosReady: true, minds: [], withoutMemory };
           for (const m of minds)
-            m.memories = (memories[m.id] ?? []).filter(
-              (x) => x.state !== "archived",
-            ).length;
+            if (m.id !== "kestrel")
+              m.memories = (memories[m.id] ?? []).filter(
+                (x) => x.state !== "archived",
+              ).length;
           return {
             mnemosReady: true,
             minds: minds.map((m) => ({
@@ -330,6 +545,23 @@ async function boot(
             })),
             withoutMemory,
           };
+        }
+        if (cmd === "mnemos_place_hello")
+          return probe.open === "kestrel" && args.mind === "kestrel"
+            ? hello
+            : null;
+        if (cmd === "mnemos_place_picture") {
+          const path = String(args.path);
+          if (args.mind !== "kestrel" || !listed.has(path) || !pictures[path])
+            return fail("unknown_item");
+          const bytes = Uint8Array.from(atob(pictures[path]), (c) =>
+            c.charCodeAt(0),
+          );
+          return bytes.buffer;
+        }
+        if (cmd === "write_mnemos_place" && args.mind === "kestrel") {
+          if (probe.open !== "kestrel") return fail("not_open");
+          return kestrelWrite(args.write as Record<string, unknown>);
         }
         if (cmd === "write_mnemos_place") {
           const mind = String(args.mind);
@@ -443,6 +675,10 @@ async function boot(
             return fail("mnemos_timeout");
           }
           const request = args.request as Record<string, unknown>;
+          if (mind === "kestrel") return kestrelRead(request);
+          // An older Mnemos: the app never sends it the newer reads.
+          if (request.command === "summary" || request.command === "notebook")
+            return fail(`unexpected ${String(request.command)} to 0.6.7`);
           const list = memories[mind] ?? [];
           if (request.command === "memories") {
             const held = list.filter((m) =>
@@ -592,7 +828,15 @@ async function boot(
           },
       });
     },
-    { luca: LUCA, ori: ORI, fault, decline },
+    {
+      luca: LUCA,
+      ori: ORI,
+      fault,
+      decline,
+      kestrel: newer ? kestrelNotebook(Date.now()) : null,
+      hello: KESTREL_HELLO,
+      pictures: PICTURES,
+    },
   );
   await installMockBridge(page, {
     managedAgents: [
@@ -721,13 +965,20 @@ test("(a, b, g) the tile after Brain; the rail; At a glance with real numbers", 
   const rooms = await rail(page)
     .locator("[data-testid^='place-row-']")
     .evaluateAll((els) => els.map((el) => el.textContent?.trim()));
+  // The notebook's sections in its order, Settings at the foot; this
+  // Mnemos (0.6.7) feeds some of them, and the rest say so when opened.
   expect(rooms).toEqual([
     "At a glance",
+    "Log",
     "Memories124",
+    "Shared",
+    "Beliefs3",
+    "Questions",
     "Journal3",
     "Notes4",
-    "Beliefs3",
     "Carrying forward2",
+    "Hours",
+    "Settings",
   ]);
 
   // (g) At a glance: the fixture's own numbers.
@@ -939,6 +1190,7 @@ test("(f) Journal and Notes; Waiting first; nothing is written or marked read", 
     "mnemos_place_item",
     "close_mnemos_place",
     "mnemos_place_shown",
+    "mnemos_place_hello",
     "mnemos_view_status",
     "read_mnemos_view",
   ]);
@@ -1133,8 +1385,10 @@ test("(k) keyboard only: rooms, a search, a memory opened", async ({
 }) => {
   const errors = await boot(page);
   await expect(page.getByTestId("mnemos-count")).toHaveText("124");
-  // Into the rail's head, then down its rows with the arrow keys.
+  // Into the rail's head, then down its rows with the arrow keys: past
+  // At a glance and the Log to Memories.
   await page.getByTestId("mnemos-rail-mind-button").focus();
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
@@ -2244,5 +2498,163 @@ test("(check 9) nothing in the place moves under reduced motion", async ({
   await expect(page.getByTestId("mnemos-journal-opened")).toBeVisible();
   // Narrow, so the push is what would have run.
   await expect(page.getByTestId("mnemos-journal-list")).toBeHidden();
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+/* ── WP-48, Part 1: the place on the newer Mnemos ──────────────────── */
+
+/** What the place asked of each mind's engine, by command (a notebook
+ *  part by its name). */
+async function asked(page: Page, mind: string) {
+  return (await probeOf(page)).calls
+    .filter(
+      (c) =>
+        (c.cmd === "read_mnemos_place" || c.cmd === "mnemos_place_hello") &&
+        c.args?.mind === mind,
+    )
+    .map((c) => {
+      if (c.cmd === "mnemos_place_hello") return "hello";
+      const r = c.args?.request as { command: string; part?: string };
+      return r.command === "notebook" ? `notebook:${r.part}` : r.command;
+    });
+}
+
+test("(48-1) a newer Mnemos and a 0.6.7 one side by side", async ({ page }) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=glance",
+    newer: true,
+  });
+  await expect(page.getByTestId("mnemos-rail-mind-button")).toContainText(
+    "Kestrel",
+  );
+  // The rail: every section, its counts from the summary, Settings at the
+  // foot.
+  await expect(rail(page).getByTestId("place-row-hours")).toHaveText("Hours3");
+  const rows = await rail(page)
+    .locator("[data-testid^='place-row-']")
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim()));
+  expect(rows).toEqual([
+    "At a glance",
+    "Log",
+    "Memories12",
+    "Shared2",
+    "Beliefs2",
+    "Questions3",
+    "Journal3",
+    "Notes3",
+    "Carrying forward2",
+    "Hours3",
+    "Settings",
+  ]);
+  // At the foot of the rail's own scroll area, well below Hours.
+  const gap = await rail(page).evaluate((el) => {
+    let scroller = el.parentElement;
+    while (scroller && getComputedStyle(scroller).overflowY !== "auto")
+      scroller = scroller.parentElement;
+    const foot = el.querySelector("[data-place-section='foot']");
+    const hours = el.querySelector("[data-testid='place-row-hours']");
+    if (!scroller || !foot || !hours) return null;
+    const bottom = scroller.getBoundingClientRect().bottom;
+    const footBox = foot.getBoundingClientRect();
+    return {
+      belowFoot: bottom - footBox.bottom,
+      aboveFoot: footBox.top - hours.getBoundingClientRect().bottom,
+    };
+  });
+  expect(gap?.belowFoot).toBeLessThan(24);
+  expect(gap?.aboveFoot).toBeGreaterThan(120);
+  // At a glance reads from the notebook.
+  await expect(card(page)).toContainText(
+    "Should the morning note lead with the tide even on calm days?",
+  );
+  // Only the newer engine's own reads; never the old reader.
+  const kestrel = await asked(page, "kestrel");
+  expect(new Set(kestrel)).toEqual(
+    new Set(["hello", "summary", "notebook:life", "notebook:memories"]),
+  );
+  const memoriesPage = (await probeOf(page)).calls.find(
+    (c) =>
+      (c.args?.request as { part?: string } | undefined)?.part === "memories",
+  );
+  expect((memoriesPage?.args?.request as { limit: number }).limit).toBe(500);
+  expect(
+    (await probeOf(page)).calls.filter((c) => c.cmd.includes("mnemos_view")),
+  ).toEqual([]);
+  // Each section of the newer one opens with its words.
+  for (const [room, words] of [
+    ["memories", "When the wind backs south"],
+    ["journal", "The fog lifted by nine."],
+    ["notes", "Should the morning note lead with the tide"],
+    ["beliefs", "The tide is the first thing Pat wants to know."],
+    ["carrying", "Ask Pat whether calm days still lead with the tide."],
+    ["shared", "The tide goes first in the morning note."],
+    ["questions", "What did the late ferry teach you?"],
+    ["hours", "I drew this morning's tide"],
+  ] as const) {
+    await rail(page).getByTestId(`place-row-${room}`).click();
+    await expect(card(page)).toContainText(words);
+  }
+  // Wren, on 0.6.7: read as before, and a section it can't feed says so.
+  await page.getByTestId("mnemos-rail-mind-button").click();
+  await page.getByTestId("mnemos-mind-wren").click();
+  await expect(page.getByTestId("place-page-state")).toContainText(
+    "124 memories",
+  );
+  await rail(page).getByTestId("place-row-hours").click();
+  await expect(page.getByTestId("mnemos-needs-newer")).toHaveText(
+    "Hours needs a newer Mnemos. Updating Mnemos brings it.",
+  );
+  await shot48(page, "09-old-engine-line-dark");
+  await rail(page).getByTestId("place-row-journal").click();
+  await expect(card(page)).toContainText("A quiet day at the light.");
+  const wren = await asked(page, "wren");
+  expect(wren).toContain("journal");
+  expect(wren).not.toContain("summary");
+  expect(wren.some((c) => c.startsWith("notebook"))).toBe(false);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(48-1) the token loop reads again only when something shown changed", async ({
+  page,
+}) => {
+  const errors = await boot(page, {
+    hash: "/mnemos?mind=kestrel&room=journal",
+    newer: true,
+  });
+  await expect(card(page)).toContainText("The fog lifted by nine.");
+  const count = async (what: string) =>
+    (await asked(page, "kestrel")).filter((c) => c === what).length;
+  // Two summaries five seconds apart; the parts read once.
+  await expect
+    .poll(() => count("summary"), { timeout: 12_000 })
+    .toBeGreaterThanOrEqual(2);
+  expect(await count("notebook:life")).toBe(1);
+  expect(await count("notebook:memories")).toBe(1);
+  // A new journal entry: life again, the memories not.
+  await page.evaluate(() =>
+    (window as unknown as { mnemosBump: (m?: boolean) => void }).mnemosBump(),
+  );
+  await expect(card(page)).toContainText("A new entry, number 1.", {
+    timeout: 12_000,
+  });
+  expect(await count("notebook:life")).toBe(2);
+  expect(await count("notebook:memories")).toBe(1);
+  // A new memory: a new version, and the memories again.
+  await page.evaluate(() =>
+    (window as unknown as { mnemosBump: (m?: boolean) => void }).mnemosBump(
+      true,
+    ),
+  );
+  await expect
+    .poll(() => count("notebook:memories"), { timeout: 12_000 })
+    .toBe(2);
+  await expect(rail(page).getByTestId("place-row-memories")).toHaveText(
+    "Memories13",
+  );
+  // Hidden, nothing is asked.
+  await setVisible(page, false);
+  const before = await count("summary");
+  await page.waitForTimeout(6_000);
+  expect(await count("summary")).toBe(before);
   expect(consoleClean(errors)).toEqual([]);
 });

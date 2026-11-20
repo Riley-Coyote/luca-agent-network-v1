@@ -4,9 +4,14 @@
 //! at a time, a timeout on each, a size limit on each answer, and nothing it
 //! says is ever logged. One mind at a time; it ends when the place is left,
 //! when the window has been hidden for a while, and when the app exits.
-use super::wire::{self, Answered, Exchange, Refusal};
+//!
+//! A Mnemos new enough is opened as the person, held to the stated scope
+//! (`--as-person --strict-scope`), and asked `hello` once: the commands it
+//! names are the only ones sent after. An older one refuses the flags, and
+//! is opened as before, for the first eight commands.
+use super::wire::{self, Answered, Exchange, Greeting, Hello, Refusal};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     process::Stdio,
     sync::{
@@ -70,8 +75,11 @@ pub(crate) enum Fail {
     NotOpen,
     /// The mind's file was moved or replaced since it was opened.
     Changed,
-    /// This Mnemos has no interface for apps, or not these commands.
+    /// This Mnemos has no interface for apps.
     TooOld,
+    /// This Mnemos doesn't answer this command: the page says it needs a
+    /// newer one. The process stays.
+    Unanswered,
     /// Mnemos didn't answer in time.
     Timeout,
     /// The answer was larger than the place reads.
@@ -94,6 +102,7 @@ impl Fail {
             Self::NotOpen => "not_open",
             Self::Changed => "mind_changed",
             Self::TooOld => "mnemos_too_old",
+            Self::Unanswered => "mnemos_needs_newer",
             Self::Timeout => "mnemos_timeout",
             Self::TooLarge => "reply_too_large",
             Self::Failed => "mnemos_failed",
@@ -117,16 +126,16 @@ impl Fail {
     fn ends_session(&self) -> bool {
         !matches!(
             self,
-            Self::Refused(_) | Self::NotOpen | Self::Busy | Self::UnknownItem
+            Self::Refused(_) | Self::NotOpen | Self::Busy | Self::UnknownItem | Self::Unanswered
         )
     }
 }
 
 /// The command a mind's process runs, built on `base` (the person's own
-/// `mnemos`): the interface with
-/// all four scope flags, and an environment cleared of everything the app
-/// had (`CLAUDECODE`, `AI_AGENT` and every `MNEMOS_*` included).
-pub(crate) fn command(mut base: Command, spec: &Spawn) -> Command {
+/// `mnemos`): the interface with all four scope flags (and with `newer`,
+/// `--as-person --strict-scope`), and an environment cleared of everything
+/// the app had (`CLAUDECODE`, `AI_AGENT` and every `MNEMOS_*` included).
+pub(crate) fn command(mut base: Command, spec: &Spawn, newer: bool) -> Command {
     base.env_clear()
         .env("HOME", &spec.home)
         .env("PATH", PATH)
@@ -142,6 +151,11 @@ pub(crate) fn command(mut base: Command, spec: &Spawn) -> Command {
             "--project-scope",
             &spec.project,
         ])
+        .args(if newer {
+            &["--as-person", "--strict-scope"][..]
+        } else {
+            &[]
+        })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -156,7 +170,22 @@ struct Session {
     next: u64,
     /// Every id the engine returned for this mind in this session.
     seen: HashSet<String>,
+    /// What the engine said to `hello`; none for an older Mnemos.
+    hello: Option<Hello>,
+    /// The mind's own studio, where its pictures are.
+    studio: Option<PathBuf>,
+    /// Each picture the engine listed this session: its notebook path, and
+    /// the file it named.
+    pictures: HashMap<String, PathBuf>,
 }
+
+/// Where a mind's studio is (Mnemos's own `studio_dir`).
+pub(crate) fn studio_of(home: &Path, agent: &str) -> PathBuf {
+    home.join(".mnemos").join("studio").join(agent)
+}
+
+/// The most a picture may weigh (the notebook's own `MOST_BYTES`).
+pub(crate) const MOST_PICTURE: u64 = 6 * 1024 * 1024;
 
 /// The place's one process, and what it knows.
 pub(crate) struct Place {
@@ -210,10 +239,92 @@ impl Place {
             stdout: BufReader::new(stdout),
             next: 1,
             seen: HashSet::new(),
+            hello: None,
+            studio: None,
+            pictures: HashMap::new(),
         });
         Ok(())
     }
 
+    /// Open `mind` from `build` (its command, with or without the newer
+    /// flags): with them first, and `hello` asked; a Mnemos that refuses
+    /// them is opened again without, as before. A `hello` must say the
+    /// engine writes as the person, for this mind.
+    pub(crate) async fn open(
+        &self,
+        build: impl Fn(bool) -> Command,
+        mind: MindKey,
+        studio: PathBuf,
+        limit: Duration,
+    ) -> Result<(), Fail> {
+        let agent = mind.agent.clone();
+        self.start(build(true), mind.clone()).await?;
+        let greeted = match self.ask(&agent, &Greeting, limit).await {
+            Err(Fail::TooOld | Fail::Failed) => {
+                self.start(build(false), mind).await?;
+                self.ask(&agent, &Greeting, limit).await
+            }
+            other => other,
+        };
+        let hello = match greeted {
+            Ok(hello) => {
+                let said = &hello.said;
+                let person = said.get("writes_as").and_then(|w| w.as_str()) == Some("person");
+                let ours = said
+                    .pointer("/scope/agent_id")
+                    .and_then(|a| a.as_str())
+                    .is_none_or(|a| a == agent);
+                if !(person && ours) {
+                    self.end().await;
+                    return Err(Fail::Invalid);
+                }
+                Some(hello)
+            }
+            Err(Fail::Unanswered) => None,
+            Err(fail) => {
+                self.end().await;
+                return Err(fail);
+            }
+        };
+        let mut guard = self.session.lock().await;
+        let session = guard.as_mut().ok_or(Fail::Failed)?;
+        session.hello = hello;
+        session.studio = Some(studio);
+        Ok(())
+    }
+
+    /// What the open mind's Mnemos said to `hello`, if it answers one.
+    pub(crate) async fn hello(&self, agent: &str) -> Option<serde_json::Value> {
+        self.session
+            .lock()
+            .await
+            .as_ref()
+            .filter(|s| s.mind.agent == agent)
+            .and_then(|s| s.hello.as_ref())
+            .map(|h| h.said.clone())
+    }
+
+    /// The bytes of a picture the engine listed for `agent`'s mind this
+    /// session, by its notebook path: only from inside the mind's studio,
+    /// never through a link, a png, jpeg, webp or gif, at most 6 MB.
+    pub(crate) async fn picture(&self, agent: &str, path: &str) -> Result<Vec<u8>, Fail> {
+        let (file, studio) = {
+            let guard = self.session.lock().await;
+            let session = guard
+                .as_ref()
+                .filter(|s| s.mind.agent == agent)
+                .ok_or(Fail::NotOpen)?;
+            let file = session
+                .pictures
+                .get(path)
+                .cloned()
+                .ok_or(Fail::UnknownItem)?;
+            (file, session.studio.clone().ok_or(Fail::UnknownItem)?)
+        };
+        tokio::task::spawn_blocking(move || read_picture(&file, &studio))
+            .await
+            .map_err(|_| Fail::Failed)?
+    }
     /// The open mind's key, if `agent`'s mind is the one open.
     pub(crate) async fn open_key(&self, agent: &str) -> Option<MindKey> {
         self.session
@@ -240,6 +351,15 @@ impl Place {
         let Some(session) = guard.as_mut().filter(|s| s.mind.agent == agent) else {
             return Err(Fail::NotOpen);
         };
+        let command = exchange.command();
+        let answered = command == "hello"
+            || match &session.hello {
+                Some(hello) => hello.answers(command),
+                None => wire::FIRST_EIGHT.contains(&command),
+            };
+        if !answered {
+            return Err(Fail::Unanswered);
+        }
         if exchange
             .names()
             .iter()
@@ -267,6 +387,8 @@ impl Place {
                 session
                     .seen
                     .extend(answer.ids().into_iter().map(str::to_owned));
+                session.seen.extend(answer.more_ids());
+                session.pictures.extend(answer.pictures());
                 Ok(answer)
             }
             Err(fail) => {
@@ -394,8 +516,69 @@ async fn talk<E: Exchange>(
     }
     wire::parse(&line[..line.len() - 1], id, exchange).map_err(|refusal| match refusal {
         Refusal::Invalid => Fail::Invalid,
-        Refusal::Unknown => Fail::TooOld,
+        Refusal::Unknown => Fail::Unanswered,
         Refusal::Busy => Fail::Busy,
         Refusal::Refused(said) => Fail::Refused(said),
     })
+}
+
+/// A picture's bytes, read the way the notebook allows: the file must be
+/// inside `studio` once links are followed, not itself a link, with no
+/// hidden part, a picture by its name and by its first bytes, and at most
+/// `MOST_PICTURE`.
+pub(crate) fn read_picture(file: &Path, studio: &Path) -> Result<Vec<u8>, Fail> {
+    use std::{fs::OpenOptions, io::Read, os::unix::fs::OpenOptionsExt};
+    let refuse = || Fail::UnknownItem;
+    let studio = studio.canonicalize().map_err(|_| refuse())?;
+    let linked = std::fs::symlink_metadata(file).map_err(|_| refuse())?;
+    if !linked.file_type().is_file() {
+        return Err(refuse());
+    }
+    let real = file.canonicalize().map_err(|_| refuse())?;
+    let inside = real.strip_prefix(&studio).map_err(|_| refuse())?;
+    if real != file
+        || inside.as_os_str().is_empty()
+        || inside
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+    {
+        return Err(refuse());
+    }
+    let kind = real
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    if !matches!(
+        kind.as_deref(),
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif")
+    ) {
+        return Err(refuse());
+    }
+    let mut opened = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&real)
+        .map_err(|_| refuse())?;
+    let meta = opened.metadata().map_err(|_| refuse())?;
+    if !meta.is_file() || meta.len() > MOST_PICTURE {
+        return Err(refuse());
+    }
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    (&mut opened)
+        .take(MOST_PICTURE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| Fail::Failed)?;
+    if bytes.len() as u64 > MOST_PICTURE || !looks_like_a_picture(&bytes) {
+        return Err(refuse());
+    }
+    Ok(bytes)
+}
+
+/// Whether `bytes` begin as a png, jpeg, gif or webp does.
+fn looks_like_a_picture(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || bytes.starts_with(&[0xFF, 0xD8, 0xFF])
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+        || (bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
 }

@@ -2,7 +2,21 @@ import * as React from "react";
 
 import type { Book, Writes } from "./adapt";
 import { mnemosPlace, type PlaceMind } from "./api";
+import type { BookHello, BookLife, BookSummary } from "./book";
+import type { NotebookMemories } from "./notebookLoad";
 import type { Reader } from "./useReader";
+
+/** A newer Mnemos's whole notebook, as last read (`useNotebook`). */
+export type NotebookView = {
+  hello: BookHello;
+  life: BookLife;
+  memories: NotebookMemories;
+  /** The last summary: its counts, and what waits on the person. */
+  summary: BookSummary | null;
+  /** A picture the notebook listed, by its path, as an address the page
+   *  can show; null when it can't be read. */
+  picture: (path: string) => Promise<string | null>;
+};
 
 /** What every room is given by the card. */
 export type RoomProps = {
@@ -16,8 +30,11 @@ export type RoomProps = {
   /** Go to another room, with an item opened there. */
   goTo: (room: string, item?: string) => void;
   reader: Reader;
-  /** The person's four writes, each sent once. */
+  /** The person's writes, each sent once. */
   writes: Writes;
+  /** The whole notebook, from a Mnemos that gives it; null from an older
+   *  one, where a section it can't feed says so in one line. */
+  notebook: NotebookView | null;
 };
 
 /** The line a room shows when one read didn't come back. */

@@ -16,31 +16,44 @@ import { useRouterState } from "@tanstack/react-router";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
-import { bookOf, writesOf } from "./adapt";
+import { type Book, bookOf, writesOf } from "./adapt";
 import type { PlaceMind } from "./api";
+import type { BookLife, BookSummary } from "./book";
+import { BeliefsRoom } from "./BeliefsRoom";
 import { GlanceRoom } from "./GlanceRoom";
+import { HoursRoom } from "./HoursRoom";
+import { LogRoom } from "./LogRoom";
 import { MemoriesRoom } from "./MemoriesRoom";
+import { DIDNT_ANSWER, type NotebookView, type RoomProps } from "./roomKit";
 import { PlaceLine } from "./MnemosParts";
 import { linkedWords, stateLine } from "./notebook";
+import { bookOfNotebook, readerOfNotebook } from "./notebookLoad";
 import { loadMinds, setRoomCounts } from "./placeStore";
-import { BeliefsRoom, CarryingRoom } from "./ReaderRooms";
-import type { RoomProps } from "./roomKit";
+import { QuestionsRoom } from "./QuestionsRoom";
+import { CarryingRoom } from "./ReaderRooms";
+import { SettingsRoom } from "./SettingsRoom";
+import { SharedRoom } from "./SharedRoom";
 import { JOURNAL_LAST, JournalRoom, NotesRoom } from "./TalkRooms";
 import { useMindInView } from "./useMindInView";
 import { type SessionPhase, useMnemosSession } from "./useMnemosSession";
+import { useEngine, useNotebook, usePictures } from "./useNotebook";
 import { type Reader, useReader } from "./useReader";
-import type { Book } from "./adapt";
 
 const SEARCH_KEYS = ["room", "item", "mind"] as const;
 
 /** Each room, by the rail's row. A room added later is one more line. */
 const ROOMS: Record<MnemosRoomId, (props: RoomProps) => React.ReactNode> = {
   glance: GlanceRoom,
+  log: LogRoom,
   memories: MemoriesRoom,
+  shared: SharedRoom,
+  beliefs: BeliefsRoom,
+  questions: QuestionsRoom,
   journal: JournalRoom,
   notes: NotesRoom,
-  beliefs: BeliefsRoom,
   carrying: CarryingRoom,
+  hours: HoursRoom,
+  settings: SettingsRoom,
 };
 
 /**
@@ -143,11 +156,42 @@ function MindCard({
   room: MnemosRoomId;
 }) {
   const { phase, ask, send, retry, visible } = useMnemosSession(mind.id);
-  const book = React.useMemo(() => bookOf(ask), [ask]);
+  const open = phase.kind === "open";
+  // Which Mnemos this is: a newer one gives the whole notebook, and then
+  // the older interface's reads and the old reader are never used.
+  const engine = useEngine(mind.id, open);
+  const newer = engine.kind === "newer";
+  const read = useNotebook(ask, open && visible && newer);
+  const picture = usePictures(mind.id);
+  const oldReader = useReader(mind, engine.kind === "older");
+  const { life, memories, summary } = read;
+  const notebook = React.useMemo((): NotebookView | null => {
+    if (engine.kind !== "newer" || !life || !memories) return null;
+    return { hello: engine.hello, life, memories, summary, picture };
+  }, [engine, life, memories, summary, picture]);
+  const book = React.useMemo(
+    () =>
+      newer && life && memories
+        ? bookOfNotebook(life, memories, ask)
+        : bookOf(ask),
+    [ask, life, memories, newer],
+  );
+  const reader = React.useMemo(
+    () =>
+      newer && life && memories ? readerOfNotebook(life, memories) : oldReader,
+    [life, memories, newer, oldReader],
+  );
   const writes = React.useMemo(() => writesOf(send, ask), [send, ask]);
-  const reader = useReader(mind);
-  useRoomCounts(book, reader, mind.id, phase.kind === "open" && visible);
+  useRoomCounts(
+    book,
+    reader,
+    mind.id,
+    open && visible && !newer && engine.kind !== "asking",
+  );
+  useNotebookCounts(mind.id, newer ? life : null, newer ? summary : null);
   const Room = ROOMS[room];
+  // A newer Mnemos's rooms wait for the notebook's first reading.
+  const waiting = engine.kind === "asking" || (newer && !notebook);
   return (
     <>
       <PlacePageHead
@@ -157,6 +201,10 @@ function MindCard({
       />
       {phase.kind !== "open" ? (
         <PhaseLine mind={mind} phase={phase} retry={retry} />
+      ) : waiting ? (
+        read.failed && !notebook ? (
+          <PlaceLine testId="mnemos-notebook-failed">{DIDNT_ANSWER}</PlaceLine>
+        ) : null
       ) : visible ? (
         // The words live only here, while the window is on screen: hidden,
         // the room goes and its words with it; shown again, it reads again.
@@ -166,6 +214,7 @@ function MindCard({
           item={item}
           key={room}
           mind={mind}
+          notebook={notebook}
           openItem={openItem}
           reader={reader}
           writes={writes}
@@ -213,6 +262,29 @@ function HeadState({ mind }: { mind: PlaceMind }) {
       remember with this
     </>
   );
+}
+
+/** The rail's counts from a newer Mnemos's summary and notebook. */
+function useNotebookCounts(
+  mind: string,
+  life: BookLife | null,
+  summary: BookSummary | null,
+) {
+  React.useEffect(() => {
+    if (!summary) return;
+    const c = summary.counts;
+    const states = life?.memory.states;
+    setRoomCounts(mind, {
+      memories: states ? states.active + states.dormant : c.memories,
+      shared: c.shared,
+      beliefs: c.beliefs,
+      questions: c.questions,
+      journal: c.journal,
+      notes: c.notes === undefined ? undefined : c.notes + (c.replies ?? 0),
+      carrying: c.carrying,
+      hours: c.hours,
+    });
+  }, [life, mind, summary]);
 }
 
 /** The rail's counts for the mind in view, once it is open: numbers only.

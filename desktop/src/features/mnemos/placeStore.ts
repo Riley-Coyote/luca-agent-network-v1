@@ -10,7 +10,17 @@ import { clearMnemosDrafts } from "./drafts";
  * Reset with the community (`resetCommunityState`).
  */
 export type RoomCounts = Partial<
-  Record<"memories" | "journal" | "notes" | "beliefs" | "carrying", number>
+  Record<
+    | "memories"
+    | "shared"
+    | "beliefs"
+    | "questions"
+    | "journal"
+    | "notes"
+    | "carrying"
+    | "hours",
+    number
+  >
 >;
 
 type Facts = {

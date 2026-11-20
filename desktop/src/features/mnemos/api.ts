@@ -2,10 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 /**
  * The Mnemos place's own commands (desktop/src-tauri/src/commands/
- * mnemos_place.rs): four reading requests, and the person's four writes
- * (answer a note, leave one, correct a memory, let one go). The `Wire*`
+ * mnemos_place.rs): the reading requests (the first four, and a newer
+ * Mnemos's `summary` and `notebook`), its `hello`, its pictures, and the
+ * person's seven writes (answer a note, leave one, correct a memory, let one
+ * go, mark notes read, the quiet hours, the shared notebook). The `Wire*`
  * shapes are what the person's `mnemos interface` answers; only `adapt.ts`
- * reads them, and everything else reads the place's own shapes (`book.ts`).
+ * and `notebookShapes.ts` read them, and everything else reads the place's
+ * own shapes (`book.ts`).
  */
 
 /** A resident that remembers with a mind. */
@@ -34,7 +37,18 @@ export type PlaceRequest =
   | { command: "memories"; state?: WireState; limit: number; offset: number }
   | { command: "search"; query: string }
   | { command: "journal"; last: number }
-  | { command: "notes" };
+  | { command: "notes" }
+  | { command: "summary" }
+  | {
+      command: "notebook";
+      part: NotebookPart;
+      limit?: number;
+      offset?: number;
+      since?: string;
+    };
+
+/** A part of a newer Mnemos's notebook. */
+export type NotebookPart = "life" | "memories" | "pulse";
 
 export type WireCounts = { active: number; dormant: number; archived: number };
 
@@ -82,14 +96,41 @@ export type PlaceReply =
   | { kind: "memories"; memories: WireMemory[]; counts: WireCounts }
   | { kind: "search"; results: WireFound[] }
   | { kind: "journal"; entries: WireEntry[] }
-  | { kind: "notes"; notes: WireNote[] };
+  | { kind: "notes"; notes: WireNote[] }
+  /** Passed through as the engine gave it; `notebookShapes.ts` guards it. */
+  | { kind: "summary"; summary: unknown }
+  | {
+      kind: "notebook";
+      part: NotebookPart;
+      document: unknown;
+      page: unknown;
+      /** The pictures it lists, by their notebook path. */
+      pictures: string[];
+    };
 
-/** One of the person's own writes: exactly these four. */
+/** One of the person's own writes: exactly these seven. */
 export type PlaceWrite =
   | { command: "reply"; note_id: string; text: string }
   | { command: "note"; text: string }
   | { command: "correct"; memory_id: string; text: string }
-  | { command: "forget"; memory_id: string };
+  | { command: "forget"; memory_id: string }
+  | { command: "read"; note_ids: string[] }
+  | {
+      command: "hours";
+      on: boolean;
+      /** HH:MM, or "" for the notebook's own default. */
+      mine?: string;
+      ours?: string;
+      dream?: string;
+    }
+  | {
+      command: "shared";
+      action: "add" | "correct" | "forget";
+      text?: string;
+      memory_id?: string;
+      /** A forget is asked twice: true only once the person said so. */
+      confirmed?: boolean;
+    };
 
 export type WireWritten =
   | { kind: "note"; note: WireNote }
@@ -99,7 +140,10 @@ export type WireWritten =
       replaces: string;
       corrected: string | null;
     }
-  | { kind: "forgotten"; id: string; forgotten: string | null };
+  | { kind: "forgotten"; id: string; forgotten: string | null }
+  | { kind: "read"; ids: string[] }
+  | { kind: "hours"; said: string }
+  | { kind: "shared"; said: string };
 
 export const mnemosPlace = {
   minds: () => invoke<PlaceMinds>("mnemos_place_minds"),
@@ -109,6 +153,11 @@ export const mnemosPlace = {
     invoke<PlaceReply>("read_mnemos_place", { mind, request }),
   write: (mind: string, write: PlaceWrite) =>
     invoke<WireWritten>("write_mnemos_place", { mind, write }),
+  /** What a newer Mnemos said to `hello`; null from an older one. */
+  hello: (mind: string) => invoke<unknown>("mnemos_place_hello", { mind }),
+  /** The bytes of a picture the open mind's notebook listed. */
+  picture: (mind: string, path: string) =>
+    invoke<ArrayBuffer>("mnemos_place_picture", { mind, path }),
   knows: (mind: string, id: string) =>
     invoke<boolean>("mnemos_place_item", { mind, id }),
   close: () => invoke<void>("close_mnemos_place"),

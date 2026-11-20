@@ -60,13 +60,20 @@ export type BrainViewId = (typeof BRAIN_VIEWS)[number]["id"];
 
 /** A mind's rooms in the Mnemos place (WP-45, Decided 2), by the row's id
  *  and the address's `room` word, named as the notebook names them. */
+/** The Mnemos place's sections, in the notebook's own order; Settings sits
+ *  at the rail's foot (`foot`). */
 export const MNEMOS_ROOMS = [
   { id: "glance", label: "At a glance" },
+  { id: "log", label: "Log" },
   { id: "memories", label: "Memories" },
+  { id: "shared", label: "Shared" },
+  { id: "beliefs", label: "Beliefs" },
+  { id: "questions", label: "Questions" },
   { id: "journal", label: "Journal" },
   { id: "notes", label: "Notes" },
-  { id: "beliefs", label: "Beliefs" },
   { id: "carrying", label: "Carrying forward" },
+  { id: "hours", label: "Hours" },
+  { id: "settings", label: "Settings", foot: true },
 ] as const;
 
 export type MnemosRoomId = (typeof MNEMOS_ROOMS)[number]["id"];

@@ -268,14 +268,22 @@ function useMnemosRail(): PlaceRail {
         ? [
             {
               key: "rooms",
-              rows: MNEMOS_ROOMS.map((each) => {
-                const n = each.id === "glance" ? undefined : counts?.[each.id];
-                return {
-                  id: each.id,
-                  title: each.label,
-                  note: n === undefined ? undefined : n.toLocaleString(),
-                };
-              }),
+              rows: MNEMOS_ROOMS.filter((each) => !("foot" in each)).map(
+                (each) => {
+                  const n = counts?.[each.id as keyof typeof counts];
+                  return {
+                    id: each.id,
+                    title: each.label,
+                    note: n === undefined ? undefined : n.toLocaleString(),
+                  };
+                },
+              ),
+            },
+            {
+              key: "foot",
+              rows: MNEMOS_ROOMS.filter((each) => "foot" in each).map(
+                (each) => ({ id: each.id, title: each.label }),
+              ),
             },
           ]
         : [],

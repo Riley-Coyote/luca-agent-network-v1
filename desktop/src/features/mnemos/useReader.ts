@@ -29,11 +29,19 @@ const UNLINKED =
 const NO_PYTHON = "Reading it here needs Python 3.12 or 3.13 on this Mac.";
 const UNAVAILABLE = "The compatible local reader isn’t available.";
 
-export function useReader(mind: Pick<PlaceMind, "id" | "linked">): Reader {
+export function useReader(
+  mind: Pick<PlaceMind, "id" | "linked">,
+  /** Off for a Mnemos that gives the notebook: then nothing is asked. */
+  enabled: boolean,
+): Reader {
   const resident = mind.linked[0]?.pubkey ?? null;
   const [reader, setReader] = React.useState<Reader>({ kind: "looking" });
   React.useEffect(() => {
     let current = true;
+    if (!enabled) {
+      setReader({ kind: "looking" });
+      return;
+    }
     if (!resident) {
       setReader({ kind: "missing", line: UNLINKED });
       return;
@@ -71,7 +79,7 @@ export function useReader(mind: Pick<PlaceMind, "id" | "linked">): Reader {
     return () => {
       current = false;
     };
-  }, [resident]);
+  }, [enabled, resident]);
   return reader;
 }
 

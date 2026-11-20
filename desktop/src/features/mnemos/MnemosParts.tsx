@@ -26,6 +26,15 @@ export function PlaceLine({
   );
 }
 
+/** The one line of a section an older Mnemos can't feed. */
+export function NeedsNewer({ what }: { what: string }) {
+  return (
+    <PlaceLine testId="mnemos-needs-newer">
+      {what} needs a newer Mnemos. Updating Mnemos brings it.
+    </PlaceLine>
+  );
+}
+
 /** When, as the place says it everywhere: the time today ("today at
  *  2:37 AM"), the day this year ("Friday, November 20"), the year only
  *  before this one. */

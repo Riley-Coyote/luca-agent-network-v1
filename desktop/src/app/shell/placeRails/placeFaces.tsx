@@ -5,6 +5,7 @@ import {
   Bell,
   Bookmark,
   Bot,
+  CircleHelp,
   Code,
   Download,
   FileText,
@@ -13,11 +14,14 @@ import {
   Keyboard,
   LayoutGrid,
   ListEnd,
+  MoonStar,
   NotebookPen,
   Palette,
   Plug,
   Puzzle,
   Scale,
+  ScrollText,
+  Settings2,
   ShieldCheck,
   SlidersHorizontal,
   StickyNote,
@@ -27,6 +31,7 @@ import {
   Trash2,
   User,
   Users,
+  UsersRound,
   Waypoints,
 } from "lucide-react";
 
@@ -116,11 +121,16 @@ export type RailFaceKind = "agent" | "app" | "icon";
  *  WP-33 gave them (memory a bookmark, journal a pen), line drawings else. */
 const MNEMOS_ROOM_FACES: Record<string, typeof User> = {
   glance: LayoutGrid,
+  log: ScrollText,
   memories: Bookmark,
+  shared: UsersRound,
+  beliefs: Scale,
+  questions: CircleHelp,
   journal: NotebookPen,
   notes: StickyNote,
-  beliefs: Scale,
   carrying: ListEnd,
+  hours: MoonStar,
+  settings: Settings2,
 };
 
 export function placeRowFace(

@@ -82,7 +82,7 @@ impl Rig {
             .env("AI_AGENT", "someone")
             .env("MNEMOS_AGENT_ID", "another-mind")
             .env("MNEMOS_DB_PATH", "/elsewhere.db");
-        let command = session::command(base, &self.spec());
+        let command = session::command(base, &self.spec(), false);
         self.place.start(command, self.key.clone()).await.unwrap();
     }
 }
@@ -498,11 +498,29 @@ async fn the_real_interface_reads_a_store_this_test_made() {
         person: "pat-example".into(),
         project: "lighthouse".into(),
     };
+    // Opened the way the app opens a mind: the newer flags first, refused
+    // by this Mnemos, then as before.
+    let studio = session::studio_of(&spec.home, &spec.agent);
     place
-        .start(session::command(Command::new(&program), &spec), key)
+        .open(
+            |newer| session::command(Command::new(&program), &spec, newer),
+            key,
+            studio,
+            Duration::from_secs(60),
+        )
         .await
         .unwrap();
     let limit = Duration::from_secs(60);
+    if place.hello("wren").await.is_none() {
+        // An older Mnemos: the new parts are never sent to it.
+        assert_eq!(
+            place
+                .ask("wren", &Request::Summary {}, limit)
+                .await
+                .unwrap_err(),
+            Fail::Unanswered
+        );
+    }
     let Reply::Memories { memories, counts } = place.ask("wren", &memories(), limit).await.unwrap()
     else {
         panic!("not memories");
@@ -545,12 +563,15 @@ fn written(rig: &Rig) -> Vec<serde_json::Value> {
 }
 
 #[test]
-fn the_person_can_write_exactly_four_things() {
+fn the_person_can_write_exactly_seven_things() {
     for write in [
         json!({"command": "reply", "note_id": "note_1", "text": "yes"}),
         json!({"command": "note", "text": "hello"}),
         json!({"command": "correct", "memory_id": "engram_A", "text": "new words"}),
         json!({"command": "forget", "memory_id": "engram_A"}),
+        json!({"command": "read", "note_ids": ["note_1"]}),
+        json!({"command": "hours", "on": true, "mine": "03:00", "ours": "", "dream": "04:30"}),
+        json!({"command": "shared", "action": "add", "text": "We keep the lantern lit."}),
     ] {
         assert!(
             serde_json::from_value::<Write>(write.clone()).is_ok(),
@@ -558,7 +579,13 @@ fn the_person_can_write_exactly_four_things() {
         );
     }
     for other in [
-        json!({"command": "read", "note_ids": ["note_1"]}),
+        json!({"command": "read", "note_ids": ["note_1"], "all": true}),
+        json!({"command": "hours", "on": true, "at": "03:00"}),
+        json!({"command": "shared", "action": "delete", "memory_id": "engram_A"}),
+        json!({"command": "shared", "action": "add", "text": "x", "as": "agent"}),
+        json!({"command": "hello"}),
+        json!({"command": "summary"}),
+        json!({"command": "notebook", "part": "life"}),
         json!({"command": "remember", "content": "x"}),
         json!({"command": "memories", "limit": 5, "offset": 0}),
         json!({"command": "notes"}),
@@ -588,8 +615,79 @@ fn the_person_can_write_exactly_four_things() {
         Write::Forget {
             memory_id: String::new(),
         },
+        Write::Read { note_ids: vec![] },
+        Write::Read {
+            note_ids: vec!["note_1".into(); wire::MAX_READ + 1],
+        },
+        Write::Read {
+            note_ids: vec!["note\n1".into()],
+        },
+        Write::Hours {
+            on: true,
+            mine: Some("25:00".into()),
+            ours: None,
+            dream: None,
+        },
+        Write::Hours {
+            on: true,
+            mine: Some("3am".into()),
+            ours: None,
+            dream: None,
+        },
+        Write::Hours {
+            on: false,
+            mine: Some("03:00".into()),
+            ours: None,
+            dream: None,
+        },
+        Write::Shared {
+            action: wire::SharedAction::Forget,
+            text: None,
+            memory_id: Some("engram_A".into()),
+            confirmed: false,
+        },
+        Write::Shared {
+            action: wire::SharedAction::Add,
+            text: Some("  ".into()),
+            memory_id: None,
+            confirmed: false,
+        },
+        Write::Shared {
+            action: wire::SharedAction::Add,
+            text: Some("x".into()),
+            memory_id: Some("engram_A".into()),
+            confirmed: false,
+        },
+        Write::Shared {
+            action: wire::SharedAction::Correct,
+            text: Some("x".into()),
+            memory_id: None,
+            confirmed: false,
+        },
     ] {
         assert!(write.check().is_err(), "{write:?}");
+    }
+    for write in [
+        Write::Hours {
+            on: false,
+            mine: None,
+            ours: None,
+            dream: None,
+        },
+        Write::Hours {
+            on: true,
+            mine: Some("23:59".into()),
+            ours: Some(String::new()),
+            dream: None,
+        },
+        Write::Shared {
+            action: wire::SharedAction::Forget,
+            text: None,
+            memory_id: Some("engram_A".into()),
+            confirmed: true,
+        },
+    ] {
+        assert!(write.check().is_ok(), "{write:?}");
     }
     assert!(Write::Note {
         text: "x".repeat(wire::MAX_TEXT)
@@ -790,10 +888,18 @@ async fn the_real_interface_writes_as_the_person_under_an_agents_environment() {
         person: "pat-example".into(),
         project: "lighthouse".into(),
     };
-    let mut base = Command::new(&program);
-    base.env("CLAUDECODE", "1").env("AI_AGENT", "claude-code");
+    let studio = session::studio_of(&spec.home, &spec.agent);
     place
-        .start(session::command(base, &spec), key)
+        .open(
+            |newer| {
+                let mut base = Command::new(&program);
+                base.env("CLAUDECODE", "1").env("AI_AGENT", "claude-code");
+                session::command(base, &spec, newer)
+            },
+            key,
+            studio,
+            Duration::from_secs(60),
+        )
         .await
         .unwrap();
     let limit = Duration::from_secs(90);

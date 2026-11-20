@@ -2,9 +2,10 @@
  * The Mnemos place's own shapes: a mind's notebook as the notebook's own page
  * is given it (Mnemos `companion/export.py`, the `life` and `memories`
  * documents that `room.js` and the Ghost lab's `app.js` read). Rooms, helpers
- * and tests read only these. What today's `mnemos interface` (0.6.7) can't
- * give is optional, and is absent rather than invented; one adapter
- * (`adapt.ts`) fills these from what it does give.
+ * and tests read only these. A newer Mnemos gives them whole (`notebook`,
+ * guarded in `notebookShapes.ts`); what an older `mnemos interface` (0.6.7)
+ * can't give is optional, and is absent rather than invented, and one
+ * adapter (`adapt.ts`) fills these from what it does give.
  */
 
 /** How a memory stands: one it can reach, one gone quiet, one let go. */
@@ -83,6 +84,13 @@ export type BookNote = {
   read: string | null;
 };
 
+/** One change in how firmly a belief is held. */
+export type BookBeliefChange = {
+  at: string | null;
+  from: number | null;
+  to: number | null;
+};
+
 /** One belief (export `life.beliefs[]`). */
 export type BookBelief = {
   text: string;
@@ -90,6 +98,9 @@ export type BookBelief = {
   born?: string | null;
   revised?: string | null;
   revisions?: number;
+  history?: BookBeliefChange[];
+  /** The memories it rests on, by id. */
+  supports?: string[];
 };
 
 /** One note the mind left itself to carry forward (export
@@ -107,4 +118,153 @@ export type BookMemoryFacts = {
   count?: number;
   storeBytes?: number;
   version?: string;
+};
+
+/** What a quiet hour walked: the memories it woke with, was handed, and
+ *  reached for, by id. */
+export type BookTrail = {
+  woke: string[];
+  waiting: string[];
+  reached: string[];
+};
+
+/** One quiet hour (export `life.hours[]`), newest first. */
+export type BookHour = {
+  id: string;
+  kind: string;
+  /** Spent on a copy of the memory, not the memory itself. */
+  practice: boolean;
+  status: string;
+  reason: string;
+  start: string | null;
+  end: string | null;
+  minutes: number | null;
+  model: string;
+  modelName: string;
+  tokens: number | null;
+  /** Whether it wrote nothing to the real memory, where that was checked. */
+  untouched: boolean | null;
+  journal: BookEntry[];
+  notes: BookNote[];
+  /** Studio paths it made. */
+  made: string[];
+  said: string;
+  refused: string[];
+  trail: BookTrail;
+};
+
+/** A question its memory asked it about itself, still open. */
+export type BookAsked = {
+  id: string;
+  kind: string;
+  prompt: string;
+  excerpt: string;
+  shown: number;
+  at: string | null;
+  /** The memory it asks about, by id; "" when none. */
+  about: string;
+};
+
+/** A question it answered, with its answer. */
+export type BookAnswered = Omit<BookAsked, "id" | "shown"> & { answer: string };
+
+export type BookQuestions = {
+  open: number;
+  byKind: Record<string, number>;
+  asked: BookAsked[];
+  answered: BookAnswered[];
+};
+
+/** One row of the notebook it shares with the person (`life.shared`). */
+export type BookSharedRow = {
+  id: string;
+  content: string;
+  author: string;
+  person: string;
+  model: string;
+  born: string | null;
+  /** The person may correct it or let it go. */
+  editable: boolean;
+};
+
+export type BookShared = { status: string; rows: BookSharedRow[] };
+
+/** One thing in its studio (export `life.studio[]`). */
+export type BookStudioItem = {
+  path: string;
+  bytes: number;
+  at: string | null;
+  /** The page's own address for it, when it is a picture. */
+  picture: string | null;
+};
+
+/** Who the mind is (export `life.identity`). */
+export type BookIdentity = {
+  agentId: string;
+  name: string;
+  model: string;
+  person: string | null;
+  personId: string;
+  project: string;
+  store: string;
+};
+
+/** Jev, the cue's judge, as Settings shows it: never its key. */
+export type BookJev = {
+  on: boolean;
+  key: boolean;
+  env: boolean;
+  host: string;
+};
+
+/** The whole of a mind's life, as a newer Mnemos gives it (`life`). */
+export type BookLife = {
+  made: string | null;
+  /** The store isn't there: nothing else is. */
+  missing: boolean;
+  identity: BookIdentity;
+  hours: BookHour[];
+  /** What wakes the hours on their own (shown, never changed here). */
+  schedule: Record<string, unknown>[];
+  jev: BookJev | null;
+  shared: BookShared;
+  journal: BookEntry[];
+  notes: BookNote[];
+  studio: BookStudioItem[];
+  questions: BookQuestions;
+  memory: BookMemoryFacts;
+  beliefs: BookBelief[];
+  handoffs: BookHandoff[];
+};
+
+/** The counts a newer Mnemos gives cheaply, and the token that changes only
+ *  when something shown does (`summary`). */
+export type BookSummary = {
+  missing: boolean;
+  counts: Partial<
+    Record<
+      | "memories"
+      | "shared"
+      | "beliefs"
+      | "questions"
+      | "answered"
+      | "journal"
+      | "notes"
+      | "replies"
+      | "hours"
+      | "made"
+      | "carrying",
+      number
+    >
+  >;
+  unread: number;
+  waiting: number;
+  changeToken: string;
+};
+
+/** What a newer Mnemos said to `hello`. */
+export type BookHello = {
+  mnemos: string;
+  commands: string[];
+  parts: string[];
 };
