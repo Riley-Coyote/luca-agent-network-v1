@@ -32,6 +32,7 @@ import { letGoMindWordsDrafts } from "./drafts";
 import { possessive } from "./notebookWords";
 import { loadMinds, setNotebookMemories, setRoomCounts } from "./placeStore";
 import { QuestionsRoom } from "./QuestionsRoom";
+import { useRailStateSource } from "./railState";
 import { CarryingRoom } from "./ReaderRooms";
 import { SettingsRoom } from "./SettingsRoom";
 import { SharedRoom } from "./SharedRoom";
@@ -137,6 +138,7 @@ export function MnemosScreen() {
             goTo={goTo}
             item={values.item}
             key={mind.id}
+            settled={!isMnemosRoom(values.room) || values.room === room}
             mind={mind}
             openItem={openItem}
             room={room}
@@ -158,12 +160,17 @@ function MindCard({
   mind,
   openItem,
   room,
+  settled,
 }: {
   goTo: RoomProps["goTo"];
   item: string | null;
   mind: PlaceMind;
   openItem: RoomProps["openItem"];
   room: MnemosRoomId;
+  /** Whether the address names this room yet: the rail's pick can arrive a
+   *  moment before the address's item, and a room shown in between would
+   *  see the last room's item and let the new one go. */
+  settled: boolean;
 }) {
   const { phase, ask, send, retry, visible } = useMnemosSession(mind.id);
   const open = phase.kind === "open";
@@ -203,6 +210,7 @@ function MindCard({
     open && visible && !newer && engine.kind !== "asking",
   );
   useNotebookCounts(mind.id, newer ? life : null, newer ? summary : null);
+  useRailStateSource(mind.id, newer ? life : null);
   const Room = ROOMS[room];
   // A newer Mnemos's rooms wait for the notebook's first reading.
   const waiting = engine.kind === "asking" || (newer && !notebook);
@@ -219,7 +227,7 @@ function MindCard({
         read.failed && !notebook ? (
           <PlaceLine testId="mnemos-notebook-failed">{DIDNT_ANSWER}</PlaceLine>
         ) : null
-      ) : visible ? (
+      ) : !settled ? null : visible ? (
         // The words live only here, while the window is on screen: hidden,
         // the room goes and its words with it; shown again, it reads again.
         <Room

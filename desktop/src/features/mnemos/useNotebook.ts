@@ -10,6 +10,7 @@ import {
   SUMMARY_EVERY_MS,
 } from "./notebookLoad";
 import { helloOf } from "./notebookShapes";
+import { useWindowVisible } from "./useMnemosSession";
 
 /** Which Mnemos the open mind's process is: one that gives the notebook
  *  (its `hello`), an older one, or not known yet. */
@@ -104,16 +105,21 @@ export function useNotebook(ask: Ask, on: boolean): NotebookState {
  */
 export function usePictures(mind: string) {
   const urls = React.useRef(new Map<string, Promise<string | null>>());
+  const visible = useWindowVisible();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each change of `visible` lets the pictures go (its cleanup).
   React.useEffect(() => {
     const held = urls.current;
-    return () => {
+    const letGo = () => {
       for (const url of held.values())
         void url.then((u) => {
           if (u) URL.revokeObjectURL(u);
         });
       held.clear();
     };
-  }, []);
+    // Hidden (as when leaving), the pictures go with the words; shown
+    // again, they're read again as the rooms ask.
+    return letGo;
+  }, [visible]);
   return React.useCallback(
     (path: string): Promise<string | null> => {
       const known = urls.current.get(path);

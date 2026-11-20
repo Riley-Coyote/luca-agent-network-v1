@@ -1350,6 +1350,7 @@ pub fn run() {
             mnemos_place_item,
             close_mnemos_place,
             mnemos_place_shown,
+            open_mnemos_own_page,
             get_resident_notebook_item,
             get_resident_notebook_revision_history,
             create_resident_journal_page,

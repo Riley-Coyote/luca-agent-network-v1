@@ -8,6 +8,7 @@
 //! also gives the whole notebook (`summary`, `notebook`), and the pictures
 //! it lists (`mnemos_place_picture`).
 mod grant;
+mod own_page;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -17,6 +18,7 @@ mod wire;
 
 use super::mnemos_view::link;
 use crate::{app_state::AppState, data_dir::BuzzPathExt, managed_agents::BackendKind};
+pub use own_page::*;
 use serde::Serialize;
 use session::{place, Fail, MindKey, Spawn};
 use std::{path::Path, time::Duration};
@@ -336,4 +338,5 @@ pub async fn mnemos_place_shown(window: Window, visible: bool) -> Result<(), Str
 /// The app is exiting: the process ends now.
 pub(crate) fn shut_down_mnemos_place() {
     place().end_now();
+    own_page::end_own_pages();
 }
