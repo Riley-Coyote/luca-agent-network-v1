@@ -669,10 +669,8 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("luca-artifact", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
-                let response =
-                    crate::luca::companion_awareness::artifact_access::serve_static_presentation(
-                        &app, &request,
-                    );
+                let response = crate::luca::companion_awareness::artifact_access::
+                    serve_static_presentation(&app, &request);
                 responder.respond(response);
             });
         })
@@ -812,9 +810,7 @@ pub fn run() {
                                 // first or resident first. Only saved chat-approved
                                 // following is eligible; every authority is rechecked.
                                 for resident in crate::luca::managed_cognition::active_residents() {
-                                    let _ = state
-                                        .companion_sources
-                                        .restore_following(&source_app, &resident);
+                                    let _ = state.companion_sources.restore_following(&source_app, &resident);
                                 }
                             });
                         }
