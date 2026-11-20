@@ -30,6 +30,7 @@ import { linkedWords, stateLine } from "./notebook";
 import { bookOfNotebook, readerOfNotebook } from "./notebookLoad";
 import { loadMinds, setRoomCounts } from "./placeStore";
 import { QuestionsRoom } from "./QuestionsRoom";
+import { useRailStateSource } from "./railState";
 import { CarryingRoom } from "./ReaderRooms";
 import { SettingsRoom } from "./SettingsRoom";
 import { SharedRoom } from "./SharedRoom";
@@ -189,6 +190,7 @@ function MindCard({
     open && visible && !newer && engine.kind !== "asking",
   );
   useNotebookCounts(mind.id, newer ? life : null, newer ? summary : null);
+  useRailStateSource(mind.id, newer ? life : null);
   const Room = ROOMS[room];
   // A newer Mnemos's rooms wait for the notebook's first reading.
   const waiting = engine.kind === "asking" || (newer && !notebook);
