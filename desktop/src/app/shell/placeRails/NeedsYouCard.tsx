@@ -28,7 +28,11 @@ import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { ProposalAsk } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useRoomProjects } from "@/features/channels/lib/roomProjects";
-import { ProjectProposalAsk } from "@/features/projects/ui/ProjectProposalAsk";
+import {
+  ProjectProposalAsk,
+  ProjectProposalSettled,
+} from "@/features/projects/ui/ProjectProposalAsk";
+import { useSettledProjectRequests } from "@/features/projects/useProjectProposals";
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
   applyExchangeSnapshot,
@@ -154,6 +158,16 @@ export function NeedsYouCard() {
   const keys = React.useMemo(() => items.map((item) => item.key), [items]);
   const { listRef, onFocus } = useAskFocusHandoff(keys, emptyRef);
 
+  // A project answered here leaves its line here, until it is closed or the
+  // owner leaves the page; it no longer waits, so it is never counted.
+  const [answeredHere, setAnsweredHere] = React.useState<readonly string[]>([]);
+  const onAnswered = React.useCallback(
+    (requestId: string) =>
+      setAnsweredHere((current) => [...current, requestId]),
+    [],
+  );
+  const settled = useSettledProjectRequests(answeredHere);
+
   // The head's one line (WP-33, Decided 1): how many wait, and from whom,
   // in the order they ask.
   const askers = [...new Set(items.map((item) => side.nameOf(item.askedBy)))];
@@ -170,6 +184,18 @@ export function NeedsYouCard() {
         state={state}
         title="Needs you"
       />
+      {settled.lines.length > 0 ? (
+        <div className="luca-project-settled-lines">
+          {settled.lines.map((line) => (
+            <ProjectProposalSettled
+              key={line.requestId}
+              line={line}
+              onDismiss={() => settled.dismiss(line.requestId)}
+              onPage
+            />
+          ))}
+        </div>
+      ) : null}
       {items.length === 0 ? (
         <p
           className="luca-place-page-line"
@@ -192,6 +218,7 @@ export function NeedsYouCard() {
                 item={item}
                 key={item.key}
                 nameOf={side.nameOf}
+                onAnswered={onAnswered}
                 onOpen={() =>
                   void goChannel(
                     item.conversationId,
@@ -216,12 +243,15 @@ export function NeedsYouCard() {
 function NeedsYouItem({
   item,
   nameOf,
+  onAnswered,
   onOpen,
   projectSourceIds,
   roomOf,
 }: {
   item: Item;
   nameOf: (pubkey: string) => string;
+  /** A project ask answered here, to keep its line on the page. */
+  onAnswered: (requestId: string) => void;
   onOpen: () => void;
   projectSourceIds: string[];
   roomOf: (conversationId: string) => string;
@@ -270,6 +300,7 @@ function NeedsYouItem({
       <ProjectProposalAsk
         common={common}
         nameOf={nameOf}
+        onAnswered={onAnswered}
         proposal={item.value}
         summary={where(`${who} asks`)}
       />

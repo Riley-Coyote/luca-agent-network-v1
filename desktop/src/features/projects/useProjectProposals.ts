@@ -25,6 +25,8 @@ export type SettledProjectProposal = {
   words: string;
   /** Take keyboard focus once, to the way in (after Create). */
   focus?: boolean;
+  /** The owner closed the line; its card still never returns. */
+  dismissed?: boolean;
 };
 
 /** The owner's part is done for these requests; their cards never return. */
@@ -125,38 +127,62 @@ export function useProjectProposals(
   );
 }
 
-/** Projects created from a card, for the one quiet line each leaves behind. */
-export function useSettledProjectProposals(conversationId: string | null) {
+/** Closing a line (it stays closed everywhere, and its card stays answered),
+ *  and marking its one focus as spent. */
+function useSettledActions() {
   const queryClient = useQueryClient();
-  const settled = useSettledList();
-  const lines = React.useMemo(
-    () =>
-      conversationId
-        ? settled.filter((item) => item.conversationId === conversationId)
-        : NONE_SETTLED,
-    [conversationId, settled],
-  );
-  const dismiss = React.useCallback(
-    (requestId: string) =>
-      queryClient.setQueryData<SettledProjectProposal[]>(
-        SETTLED_KEY,
-        (current = []) =>
-          current.filter((item) => item.requestId !== requestId),
-      ),
-    [queryClient],
-  );
-  const focused = React.useCallback(
-    (requestId: string) =>
+  const change = React.useCallback(
+    (requestId: string, fields: Partial<SettledProjectProposal>) =>
       queryClient.setQueryData<SettledProjectProposal[]>(
         SETTLED_KEY,
         (current = []) =>
           current.map((item) =>
-            item.requestId === requestId ? { ...item, focus: false } : item,
+            item.requestId === requestId ? { ...item, ...fields } : item,
           ),
       ),
     [queryClient],
   );
-  return { dismiss, focused, lines };
+  const dismiss = React.useCallback(
+    (requestId: string) => change(requestId, { dismissed: true }),
+    [change],
+  );
+  const focused = React.useCallback(
+    (requestId: string) => change(requestId, { focus: false }),
+    [change],
+  );
+  return { dismiss, focused };
+}
+
+/** Projects created from a card, for the one quiet line each leaves behind
+ *  in its conversation. */
+export function useSettledProjectProposals(conversationId: string | null) {
+  const settled = useSettledList();
+  const lines = React.useMemo(
+    () =>
+      conversationId
+        ? settled.filter(
+            (item) => item.conversationId === conversationId && !item.dismissed,
+          )
+        : NONE_SETTLED,
+    [conversationId, settled],
+  );
+  return { ...useSettledActions(), lines };
+}
+
+/** The lines of these requests, wherever they were asked: Needs you shows the
+ *  ones answered there, for as long as the owner stays on the page. */
+export function useSettledProjectRequests(requestIds: readonly string[]) {
+  const settled = useSettledList();
+  const lines = React.useMemo(
+    () =>
+      requestIds.length === 0
+        ? NONE_SETTLED
+        : settled.filter(
+            (item) => requestIds.includes(item.requestId) && !item.dismissed,
+          ),
+    [requestIds, settled],
+  );
+  return { dismiss: useSettledActions().dismiss, lines };
 }
 
 /** Keep a created project's line, wherever its card was answered. */

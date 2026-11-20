@@ -77,6 +77,7 @@ export function ProjectProposalAsk({
   common,
   focusLineOnCreate = false,
   nameOf,
+  onAnswered,
   proposal,
   summary,
 }: {
@@ -84,6 +85,8 @@ export function ProjectProposalAsk({
   /** In the conversation itself: after Create, focus its "Open …" link. */
   focusLineOnCreate?: boolean;
   nameOf: (pubkey: string) => string;
+  /** The owner's answer left a line (Create, or Leave it): where to show it. */
+  onAnswered?: (requestId: string) => void;
   proposal: ProjectProposalV1;
   summary: string;
 }) {
@@ -150,6 +153,7 @@ export function ProjectProposalAsk({
       requestId: proposal.requestId,
       words: projectSettledLine(proposal.projectName),
     });
+    onAnswered?.(proposal.requestId);
     // The line already stands; telling the resident is tried a few times,
     // quietly, so a passing hiccup still reaches it.
     for (let attempt = 0; attempt < HAND_BACK_ATTEMPTS; attempt += 1) {
@@ -187,17 +191,75 @@ export function ProjectProposalAsk({
       setBusy(null);
       return;
     }
-    if (projectId)
-      remember({
-        chatId: checkpoint?.channelId,
-        conversationId: proposal.conversationId,
-        projectId,
-        projectName: proposal.projectName,
-        requestId: proposal.requestId,
-        words: projectLeftLine(proposal.projectName, made),
-      });
+    if (!projectId) return;
+    remember({
+      chatId: checkpoint?.channelId,
+      conversationId: proposal.conversationId,
+      projectId,
+      projectName: proposal.projectName,
+      requestId: proposal.requestId,
+      words: projectLeftLine(proposal.projectName, made),
+    });
+    onAnswered?.(proposal.requestId);
   };
 
+  return (
+    <ProjectProposalCard
+      busy={busy}
+      common={common}
+      duplicate={duplicate}
+      joins={projectProposalJoins(names, proposal.chatName)}
+      leaving={leaving}
+      onCreate={() => void onCreate()}
+      onDecline={() => void onDecline()}
+      partly={partly}
+      purpose={proposal.purpose}
+      requestId={proposal.requestId}
+      stopped={stopped}
+      summary={summary}
+      title={title}
+    />
+  );
+}
+
+/**
+ * The card as drawn, from what its ask knows. Top to bottom: the question,
+ * who asks, then either the purpose and who joins its first chat or, once a
+ * Create has stopped part-way, the one sentence of what exists; then the
+ * answers; under them only the note about a project already so named. Read
+ * the situation, then act.
+ */
+export function ProjectProposalCard({
+  busy,
+  common,
+  duplicate,
+  joins,
+  leaving,
+  onCreate,
+  onDecline,
+  partly,
+  purpose,
+  requestId,
+  stopped,
+  summary,
+  title,
+}: {
+  busy: "create" | "decline" | null;
+  common?: ProjectAskCommon;
+  duplicate: string | null;
+  joins: string;
+  /** Something was made, so declining keeps it: "Leave it". */
+  leaving: boolean;
+  onCreate: () => void;
+  onDecline: () => void;
+  /** What a stopped Create left, in one sentence. */
+  partly: string | null;
+  purpose: string;
+  requestId: string;
+  stopped: boolean;
+  summary: string;
+  title: string;
+}) {
   return (
     <PlaceAskRow
       {...common}
@@ -206,53 +268,58 @@ export function ProjectProposalAsk({
           <PlaceQuietButton
             data-testid="project-proposal-create"
             disabled={busy !== null}
-            onClick={() => void onCreate()}
+            onClick={onCreate}
           >
             {busy === "create" ? "Creating…" : stopped ? "Try again" : "Create"}
           </PlaceQuietButton>
           <PlaceQuietButton
             data-testid="project-proposal-not-now"
             disabled={busy !== null}
-            onClick={() => void onDecline()}
+            onClick={onDecline}
           >
             {leaving ? "Leave it" : "Not now"}
           </PlaceQuietButton>
         </>
       }
       className="luca-project-ask"
-      data-project-request={proposal.requestId}
+      data-project-request={requestId}
       extra={
         <span
           className="luca-project-ask__lines"
           data-testid="project-proposal-line"
         >
-          <span
-            className="luca-project-ask__purpose"
-            data-testid="project-proposal-purpose"
-            title={proposal.purpose}
-          >
-            {proposal.purpose}
-          </span>
-          <span
-            className="luca-project-ask__joins"
-            data-testid="project-proposal-joins"
-          >
-            {projectProposalJoins(names, proposal.chatName)}
-          </span>
+          {partly ? (
+            <span
+              className="luca-project-ask__problem"
+              data-testid="project-proposal-problem"
+              role="alert"
+            >
+              {partly}
+            </span>
+          ) : (
+            <>
+              <span
+                className="luca-project-ask__purpose"
+                data-testid="project-proposal-purpose"
+                title={purpose}
+              >
+                {purpose}
+              </span>
+              <span
+                className="luca-project-ask__joins"
+                data-testid="project-proposal-joins"
+              >
+                {joins}
+              </span>
+            </>
+          )}
         </span>
       }
       openLabel={`${title}, ${summary}. Open the conversation`}
       panel={
-        duplicate || partly ? (
+        duplicate ? (
           <div className="luca-project-ask-notes">
-            {duplicate ? (
-              <p data-testid="project-proposal-duplicate">{duplicate}</p>
-            ) : null}
-            {partly ? (
-              <p data-testid="project-proposal-problem" role="alert">
-                {partly}
-              </p>
-            ) : null}
+            <p data-testid="project-proposal-duplicate">{duplicate}</p>
           </div>
         ) : null
       }
@@ -268,27 +335,43 @@ export function ProjectProposalSettled({
   line,
   onDismiss,
   onFocused,
+  onPage = false,
 }: {
   line: SettledProjectProposal;
   onDismiss: () => void;
   /** The line took focus once; it does not take it again. */
   onFocused?: () => void;
+  /** Drawn on a page (Needs you) rather than above a composer: it sits on
+   *  the page's axis and takes focus when it appears. */
+  onPage?: boolean;
 }) {
   const { goChannel } = useAppNavigation();
   const section = React.useRef<HTMLElement>(null);
-  const takeFocus = Boolean(line.focus && line.chatId);
-  React.useEffect(() => {
+  const takeFocus = onPage || Boolean(line.focus);
+  // Before the list hands a vanished item's focus on: the way in, or the
+  // dismiss when there is no chat to open.
+  React.useLayoutEffect(() => {
     if (!takeFocus) return;
-    section.current
-      ?.querySelector<HTMLElement>('[data-testid="project-proposal-open"]')
-      ?.focus({ preventScroll: true });
+    const place = section.current;
+    (
+      place?.querySelector<HTMLElement>(
+        '[data-testid="project-proposal-open"]',
+      ) ??
+      place?.querySelector<HTMLElement>(
+        '[data-testid="project-proposal-dismiss"]',
+      )
+    )?.focus({ preventScroll: true });
     onFocused?.();
   }, [takeFocus, onFocused]);
   const chatId = line.chatId;
   return (
     <section
       aria-label="New project"
-      className="luca-task-notice luca-measure luca-project-settled"
+      className={
+        onPage
+          ? "luca-project-settled luca-project-settled--page"
+          : "luca-task-notice luca-measure luca-project-settled"
+      }
       data-testid="project-proposal-settled"
       ref={section}
     >
@@ -307,6 +390,7 @@ export function ProjectProposalSettled({
         <button
           aria-label="Dismiss"
           className="luca-task-notice__dismiss"
+          data-testid="project-proposal-dismiss"
           onClick={onDismiss}
           type="button"
         >

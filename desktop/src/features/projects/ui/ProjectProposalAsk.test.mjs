@@ -13,7 +13,10 @@ import {
   projectSettledLine,
 } from "../lib/projectProposalWords.ts";
 import { ProjectCreationProvider } from "../useRoomProjectCreation.ts";
-import { ProjectProposalAsk } from "./ProjectProposalAsk.tsx";
+import {
+  ProjectProposalAsk,
+  ProjectProposalCard,
+} from "./ProjectProposalAsk.tsx";
 
 const LUCA = "a".repeat(64);
 const ATLAS = "b".repeat(64);
@@ -79,6 +82,7 @@ function draw(fields = {}, projects = []) {
 function text(html) {
   return html
     .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -196,5 +200,91 @@ test("leaving it part-made tells the owner what is there", () => {
       inProject: true,
     }),
     "Ghost app is in your projects.",
+  );
+});
+
+/** The card as drawn, with the state a stopped Create leaves. */
+function drawCard(fields = {}) {
+  return renderToStaticMarkup(
+    createElement(ProjectProposalCard, {
+      busy: null,
+      duplicate: null,
+      joins: "Luca joins its first chat, general.",
+      leaving: false,
+      onCreate: () => {},
+      onDecline: () => {},
+      partly: null,
+      purpose: "Build the Ghost app.",
+      requestId: "project-proposal-1",
+      stopped: false,
+      summary: "Luca asks",
+      title: "Start a project called “Ghost app”?",
+      ...fields,
+    }),
+  );
+}
+
+/** Where each phrase first appears in the card's words, in reading order. */
+function order(words, phrases) {
+  return phrases.map((phrase) => {
+    const at = words.indexOf(phrase);
+    assert.notEqual(at, -1, `missing: ${phrase}`);
+    return at;
+  });
+}
+
+test("the card reads: question, who asks, purpose, who joins, then the answers", () => {
+  const words = text(drawCard());
+  const at = order(words, [
+    "Start a project called",
+    "Luca asks",
+    "Build the Ghost app.",
+    "Luca joins its first chat, general.",
+    "Create",
+    "Not now",
+  ]);
+  assert.deepEqual(
+    at,
+    [...at].sort((a, b) => a - b),
+  );
+});
+
+test("once a Create stops part-way, what exists takes the purpose's place, above the answers", () => {
+  const sentence =
+    "Ghost app and its chat were made, but Luca couldn't be added.";
+  const html = drawCard({ leaving: true, partly: sentence, stopped: true });
+  const words = text(html);
+  const at = order(words, [
+    "Start a project called",
+    "Luca asks",
+    sentence,
+    "Try again",
+    "Leave it",
+  ]);
+  assert.deepEqual(
+    at,
+    [...at].sort((a, b) => a - b),
+  );
+  assert.doesNotMatch(html, /project-proposal-purpose|project-proposal-joins/);
+  assert.doesNotMatch(words, /Build the Ghost app|joins its first chat/);
+  // The sentence lives in the row's own lines, not in the notes under it.
+  assert.match(
+    html,
+    /data-testid="project-proposal-line"[^>]*><span[^>]*data-testid="project-proposal-problem"[^>]*role="alert"/,
+  );
+});
+
+test("a project already so named stays the one note under the answers", () => {
+  const words = text(
+    drawCard({ duplicate: "You already have a project called Ghost app." }),
+  );
+  const at = order(words, [
+    "Luca joins its first chat, general.",
+    "Not now",
+    "You already have a project called Ghost app.",
+  ]);
+  assert.deepEqual(
+    at,
+    [...at].sort((a, b) => a - b),
   );
 });

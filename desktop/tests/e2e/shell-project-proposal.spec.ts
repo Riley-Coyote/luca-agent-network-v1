@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { expect, type Locator, type Page, test } from "@playwright/test";
 
@@ -16,10 +16,12 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
  * The card comes back after a reload while the host still waits, shows in
  * Needs you, warns about a name already in use, and works with the new look
  * off. The + button still opens what it makes. Shots land in WP44_SHOTS,
- * measurements in WP44_SHOTS/measures.
+ * measurements in WP44_SHOTS/measures; when WP44_KEEP names a folder, every
+ * shot is also copied there, out of reach of Playwright's own clean-up.
  */
 
 const SHOTS = process.env.WP44_SHOTS ?? "test-results/wp44";
+const KEEP = process.env.WP44_KEEP;
 const LUCA = "a".repeat(64);
 const ATLAS = "b".repeat(64);
 const GENERAL = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
@@ -72,7 +74,15 @@ async function shot(page: Page, target: Locator, name: string) {
   await target.screenshot({ animations: "disabled", caret: "hide", path });
   const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
   measure(`shot_${name}`, { hash, path });
+  keep(path, name);
   return hash;
+}
+
+/** A copy of a shot where the next run cannot wipe it. */
+function keep(path: string, name: string) {
+  if (!KEEP) return;
+  mkdirSync(KEEP, { recursive: true });
+  copyFileSync(path, `${KEEP}/${name}.png`);
 }
 
 /** Console errors and warnings, page errors, minus the ResizeObserver note,
@@ -314,6 +324,7 @@ async function shotInPlace(page: Page, name: string) {
   });
   const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
   measure(`shot_${name}`, { hash, path });
+  keep(path, name);
   return hash;
 }
 
@@ -710,6 +721,7 @@ test("(i) a long purpose wraps inside the card, three lines at most", async ({
         window.location.hash = "#/needs-you";
       });
     }
+    if (place === "chat") await showFoldedAsks(page);
     const row =
       place === "chat"
         ? card(page)
@@ -829,6 +841,36 @@ const composerFocused = (page: Page) =>
       null,
   );
 
+/** The card's boxes top to bottom once a Create stopped: the question, who
+ *  asks, what exists, then the two answers; the purpose and who joins gone. */
+async function stoppedOrder(row: Locator) {
+  const shape = await row.evaluate((li) => {
+    const box = (selector: string) => {
+      const found = li.querySelector(selector)?.getBoundingClientRect();
+      return found ? { bottom: found.bottom, top: found.top } : null;
+    };
+    return {
+      leave: box('[data-testid="project-proposal-not-now"]'),
+      problem: box('[data-testid="project-proposal-problem"]'),
+      purpose: box('[data-testid="project-proposal-purpose"]'),
+      joins: box('[data-testid="project-proposal-joins"]'),
+      summary: box(".luca-place-row-summary"),
+      title: box(".luca-place-row-title"),
+      tryAgain: box('[data-testid="project-proposal-create"]'),
+    };
+  });
+  const { leave, problem, summary, title, tryAgain } = shape;
+  expect(shape.purpose).toBeNull();
+  expect(shape.joins).toBeNull();
+  if (!title || !summary || !problem || !tryAgain || !leave)
+    throw new Error(`a box is missing: ${JSON.stringify(shape)}`);
+  expect(title.bottom).toBeLessThanOrEqual(summary.top + 0.5);
+  expect(summary.bottom).toBeLessThanOrEqual(problem.top + 0.5);
+  expect(problem.bottom).toBeLessThanOrEqual(tryAgain.top + 0.5);
+  expect(problem.bottom).toBeLessThanOrEqual(leave.top + 0.5);
+  return shape;
+}
+
 test("(iii) a Create that stopped part-way: one sentence, Try again or Leave it", async ({
   page,
 }) => {
@@ -859,6 +901,7 @@ test("(iii) a Create that stopped part-way: one sentence, Try again or Leave it"
   await expect(card(page).getByTestId("project-proposal-not-now")).toHaveText(
     "Leave it",
   );
+  measure("partly_order_chat", await stoppedOrder(card(page)));
   await shotInPlace(page, "12-partly-made-dark");
 
   await card(page).getByTestId("project-proposal-not-now").click();
@@ -989,5 +1032,133 @@ test("(v) keyboard: after Create the way in, after Not now the message box", asy
   await expect(notes).toHaveCount(0, { timeout: 15_000 });
   await expect.poll(() => composerFocused(page)).toBe(true);
   measure("console_v", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+const NEEDS_YOU_ITEM = "needs-you-project:project-request-ghost";
+const nothingCounted = (page: Page) =>
+  page.locator('[data-testid="rail-needs-you"]').filter({ hasText: /\d/ });
+
+test("(iii, needs you) stopped part-way in Needs you: what exists, then the answers", async ({
+  page,
+}) => {
+  const consoleSeen = await boot(page, {
+    hash: "/needs-you",
+    mock: { addChannelMembersErrors: ["mock: members write refused"] },
+    proposals: [ask()],
+  });
+  const item = page.getByTestId(NEEDS_YOU_ITEM);
+  await expect(item).toBeVisible({ timeout: 20_000 });
+  await item.getByTestId("project-proposal-create").click();
+  await expect(item.getByTestId("project-proposal-problem")).toHaveText(
+    "Ghost app and its chat were made, but Luca couldn't be added.",
+    { timeout: 15_000 },
+  );
+  await expect(item).not.toContainText("mock:");
+  measure("partly_order_needs_you", await stoppedOrder(item));
+  await shot(page, item, "12b-partly-made-needs-you-dark");
+
+  await item.getByTestId("project-proposal-not-now").click();
+  await expect(item).toHaveCount(0, { timeout: 15_000 });
+  const settled = page.getByTestId("project-proposal-settled");
+  await expect(settled).toContainText(
+    "Ghost app is in your projects, without Luca in it yet.",
+  );
+  await expect(settled.getByTestId("project-proposal-open")).toBeFocused();
+  await expect(page.getByTestId("needs-you-empty")).toBeVisible();
+  await expect(nothingCounted(page)).toHaveCount(0);
+  measure("console_iii_needs_you", consoleSeen);
+  expect(consoleSeen).toEqual([]);
+});
+
+test("(vi) Create in Needs you leaves its line there, not counted, focus on the way in", async ({
+  page,
+}) => {
+  const consoleSeen = await boot(page, {
+    hash: "/needs-you",
+    proposals: [
+      ask(),
+      ask({ projectName: "Notes app", requestId: "project-request-notes" }),
+    ],
+  });
+  const item = page.getByTestId(NEEDS_YOU_ITEM);
+  await expect(item).toBeVisible({ timeout: 20_000 });
+  // Two wait, and the rail says so.
+  await expect(nothingCounted(page)).toHaveCount(1);
+  await item.getByTestId("project-proposal-create").focus();
+  await page.keyboard.press("Enter");
+  await expect(item).toHaveCount(0, { timeout: 15_000 });
+  const settled = page.getByTestId("project-proposal-settled");
+  await expect(settled).toHaveCount(1);
+  await expect(settled).toContainText("Ghost app is in your projects.");
+  const open = settled.getByTestId("project-proposal-open");
+  await expect(open).toHaveText("Open Ghost app");
+  await expect(open).toBeFocused();
+
+  // The other ask still waits, and is the only one counted.
+  const notes = page.getByTestId("needs-you-project:project-request-notes");
+  await expect(notes.getByTestId("project-proposal-not-now")).toBeVisible();
+  await notes.getByTestId("project-proposal-not-now").click();
+  await expect(notes).toHaveCount(0, { timeout: 15_000 });
+  // Not now made nothing, so it leaves no line; Ghost app's line stays.
+  await expect(settled).toHaveCount(1);
+  await expect(page.getByTestId("needs-you-empty")).toBeVisible();
+  await expect(nothingCounted(page)).toHaveCount(0);
+  const counted = await page
+    .getByTestId("needs-you-card")
+    .evaluate((card) => card.querySelectorAll("[data-needs-key]").length);
+  measure("needs_you_settled", { counted, rail: "no count" });
+  expect(counted).toBe(0);
+  // The page's own column: its head, the line, and what waits.
+  const axis = page
+    .getByTestId("needs-you-card")
+    .locator(".luca-place-page-axis");
+  const lineBox = await settled.boundingBox();
+  const headBox = await page
+    .getByTestId("needs-you-card")
+    .locator(".luca-place-page-head")
+    .first()
+    .boundingBox();
+  const emptyBox = await page.getByTestId("needs-you-empty").boundingBox();
+  measure("needs_you_settled_boxes", { emptyBox, headBox, lineBox });
+  if (!lineBox || !headBox || !emptyBox) throw new Error("a box is missing");
+  // On the page's axis with its other lines, clear of the head above and of
+  // the empty line below.
+  expect(Math.abs(lineBox.x - emptyBox.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(lineBox.x - headBox.x)).toBeLessThanOrEqual(1);
+  expect(lineBox.y).toBeGreaterThanOrEqual(headBox.y + headBox.height);
+  expect(emptyBox.y).toBeGreaterThanOrEqual(lineBox.y + lineBox.height);
+  await shot(page, axis, "14-needs-you-settled-dark");
+
+  // The same dismiss closes it; it stays closed and the card stays answered.
+  await settled.getByTestId("project-proposal-dismiss").click();
+  await expect(settled).toHaveCount(0);
+  await expect(item).toHaveCount(0);
+
+  // Answered again here, then the owner leaves the page: the line goes too.
+  await page.evaluate(
+    (seed) => window.__BUZZ_E2E_PUSH_PROJECT_PROPOSAL__?.(seed),
+    ask({ projectName: "Field notes", requestId: "project-request-field" }),
+  );
+  const field = page.getByTestId("needs-you-project:project-request-field");
+  await expect(field).toBeVisible({ timeout: 15_000 });
+  await field.getByTestId("project-proposal-create").click();
+  await expect(settled).toContainText("Field notes is in your projects.", {
+    timeout: 15_000,
+  });
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, `#/channels/${GENERAL}`);
+  await expect(page.getByTestId("needs-you-card")).toHaveCount(0, {
+    timeout: 15_000,
+  });
+  await page.evaluate(() => {
+    window.location.hash = "#/needs-you";
+  });
+  await expect(page.getByTestId("needs-you-empty")).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByTestId("project-proposal-settled")).toHaveCount(0);
+  measure("console_vi", consoleSeen);
   expect(consoleSeen).toEqual([]);
 });
