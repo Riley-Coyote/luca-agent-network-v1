@@ -3496,11 +3496,16 @@ fn spawn_agent_child_unix(
     Ok(process)
 }
 
+/// What the agent logs unless `RUST_LOG` already names it: its own lines at
+/// info, plus warnings from the `luca::*` targets, which is where a reply that
+/// could not be posted says why.
+const CHILD_LOG_FILTER: &str = "buzz_acp=info,luca=warn";
+
 fn child_rust_log_filter() -> String {
     match std::env::var("RUST_LOG") {
         Ok(existing) if existing.contains("buzz_acp") => existing,
-        Ok(existing) if !existing.trim().is_empty() => format!("{existing},buzz_acp=info"),
-        _ => "buzz_acp=info".to_string(),
+        Ok(existing) if !existing.trim().is_empty() => format!("{existing},{CHILD_LOG_FILTER}"),
+        _ => CHILD_LOG_FILTER.to_string(),
     }
 }
 

@@ -18,20 +18,23 @@ type FrameKey = (String, String, String);
 type DispatchStore =
     std::sync::Arc<std::sync::Mutex<super::managed_dispatch_store::ManagedDispatchStore>>;
 
+/// Persist the failure of the dispatch behind a failed turn. A refusal comes
+/// back as its body-free reason, so the warning can name it.
 fn terminalize_failed_dispatch(
     dispatch_store: &DispatchStore,
     frame: &ManagedPresentationFrameV1,
-) -> bool {
-    dispatch_store.lock().is_ok_and(|mut store| {
-        store
-            .fail_exact(
-                frame.dispatch_receipt_id.as_str(),
-                frame.resident_pubkey.as_str(),
-                frame.conversation_id.as_str(),
-                frame.session_epoch.get(),
-            )
-            .is_ok()
-    })
+) -> Result<(), String> {
+    let mut store = dispatch_store
+        .lock()
+        .map_err(|_| "StoreLockPoisoned".to_owned())?;
+    store
+        .fail_exact(
+            frame.dispatch_receipt_id.as_str(),
+            frame.resident_pubkey.as_str(),
+            frame.conversation_id.as_str(),
+            frame.session_epoch.get(),
+        )
+        .map_err(|error| format!("{error:?}"))
 }
 
 #[derive(Clone)]
@@ -143,15 +146,18 @@ fn accept_continuation_frame(
                 frame.turn_id.as_str(),
                 frame.dispatch_receipt_id.as_str(),
             );
-            if frame.kind == ManagedPresentationKindV1::Failed
-                && !terminalize_failed_dispatch(dispatch_store, frame)
-            {
-                luca_log!(warn,
-                    "luca-managed-presentation: failed dispatch terminalization; suppressing retryable frame"
-                );
-                return false;
+            if frame.kind != ManagedPresentationKindV1::Failed {
+                return true;
             }
-            true
+            match terminalize_failed_dispatch(dispatch_store, frame) {
+                Ok(()) => true,
+                Err(reason) => {
+                    luca_log!(warn,
+                        "luca-managed-presentation: failed dispatch terminalization ({reason}); suppressing retryable frame"
+                    );
+                    false
+                }
+            }
         }
         ManagedPresentationKindV1::Liveness
         | ManagedPresentationKindV1::Phase
@@ -720,7 +726,7 @@ mod tests {
         let path = temp.path().join("dispatches.json");
         let (store, failed) = active_failed_frame(path.clone());
 
-        assert!(terminalize_failed_dispatch(&store, &failed));
+        assert_eq!(terminalize_failed_dispatch(&store, &failed), Ok(()));
         let mut locked = store.lock().expect("store lock");
         assert!(!locked.conversation_has_active_turn(CONVERSATION_ID));
         assert_eq!(
@@ -761,7 +767,10 @@ mod tests {
             .expect("store lock")
             .set_persistence_path_for_test(invalid_path);
 
-        assert!(!terminalize_failed_dispatch(&store, &failed));
+        assert_eq!(
+            terminalize_failed_dispatch(&store, &failed),
+            Err("Persistence".to_owned())
+        );
         assert!(store
             .lock()
             .expect("store lock")

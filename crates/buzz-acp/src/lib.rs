@@ -1481,9 +1481,12 @@ async fn tokio_main() -> Result<()> {
         return runtime_task_runner::run(args).await;
     }
 
+    // This crate at info, plus warnings from the `luca::*` targets: that is
+    // where a reply that could not be posted says why.
+    const LOG_FILTER: &str = "buzz_acp=info,luca=warn";
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("buzz_acp=info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(LOG_FILTER)),
         )
         .compact()
         .init();

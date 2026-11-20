@@ -2319,6 +2319,7 @@ async fn handoff_managed_final_after_end_turn(
         return;
     };
     let Some(batch) = batch else {
+        tracing::warn!(target: "luca::final", "managed final was not published: the turn carried no batch");
         agent.acp.discard_final_message_capture();
         agent.acp.observe(
             "turn_publication_terminal",
@@ -2329,6 +2330,7 @@ async fn handoff_managed_final_after_end_turn(
     let Some((trigger, admitted)) =
         last_eligible_managed_trigger_with_exchange(batch, &context.owner_pubkey)
     else {
+        tracing::warn!(target: "luca::final", "managed final was not published: no eligible message to answer");
         agent.acp.discard_final_message_capture();
         agent.acp.observe(
             "turn_publication_terminal",
@@ -2337,6 +2339,7 @@ async fn handoff_managed_final_after_end_turn(
         return;
     };
     let Some(draft) = agent.acp.take_final_message_draft(true) else {
+        tracing::warn!(target: "luca::final", "managed final was not published: the turn left no final message");
         agent.acp.observe(
             "turn_publication_terminal",
             serde_json::json!({"status": "failed"}),
@@ -2401,10 +2404,11 @@ async fn handoff_managed_final_after_end_turn(
             );
         }
         Ok(
-            luca_protocol::ManagedMessagePublishResultV1::Denied { .. }
+            result @ (luca_protocol::ManagedMessagePublishResultV1::Denied { .. }
             | luca_protocol::ManagedMessagePublishResultV1::Invalid { .. }
-            | luca_protocol::ManagedMessagePublishResultV1::Unavailable { .. },
+            | luca_protocol::ManagedMessagePublishResultV1::Unavailable { .. }),
         ) => {
+            tracing::warn!(target: "luca::final", "managed final publication was refused by the app: {result:?}");
             agent.acp.observe(
                 "turn_publication_terminal",
                 serde_json::json!({"status": "failed"}),
