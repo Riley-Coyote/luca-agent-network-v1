@@ -99,11 +99,11 @@ fn person_and_project(dir: &Path) -> (String, String) {
 }
 
 /// One mind found in the person's Mnemos folder.
-pub(super) struct Mind {
-    pub(super) file: PathBuf,
-    pub(super) scope: Scope,
-    memories: u64,
-    newest: Option<String>,
+pub(crate) struct Mind {
+    pub(crate) file: PathBuf,
+    pub(crate) scope: Scope,
+    pub(crate) memories: u64,
+    pub(crate) newest: Option<String>,
 }
 
 /// What the picker shows for a mind. Its id is its agent id, which also names
@@ -118,7 +118,7 @@ pub struct MindChoice {
 }
 
 impl Mind {
-    pub(super) fn name(&self) -> String {
+    pub(crate) fn name(&self) -> String {
         self.scope
             .agent_id
             .split(['-', '_'])
@@ -147,7 +147,7 @@ impl Mind {
 /// each, named for the agent, as Mnemos makes them. The rule is Mnemos's own
 /// (its log page's `minds_beside`): a store that pools several agents, the
 /// shared memory, and databases that aren't memory stores are left out.
-pub(super) fn minds(home: &Path) -> Vec<Mind> {
+pub(crate) fn minds(home: &Path) -> Vec<Mind> {
     let dir = mnemos_dir(home);
     let (person, project) = person_and_project(&dir);
     let mut files: Vec<PathBuf> = fs::read_dir(&dir)
@@ -219,7 +219,7 @@ fn census(file: &Path, agent: &str) -> Option<(u64, Option<String>)> {
 }
 
 /// A path as the person would write it, with their home folder as `~`.
-pub(super) fn display(home: &Path, path: &Path) -> String {
+pub(crate) fn display(home: &Path, path: &Path) -> String {
     match path.strip_prefix(home) {
         Ok(rest) => format!("~/{}", rest.display()),
         Err(_) => path.display().to_string(),

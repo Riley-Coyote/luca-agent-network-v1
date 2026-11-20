@@ -669,8 +669,10 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("luca-artifact", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
-                let response = crate::luca::companion_awareness::artifact_access::
-                    serve_static_presentation(&app, &request);
+                let response =
+                    crate::luca::companion_awareness::artifact_access::serve_static_presentation(
+                        &app, &request,
+                    );
                 responder.respond(response);
             });
         })
@@ -810,7 +812,9 @@ pub fn run() {
                                 // first or resident first. Only saved chat-approved
                                 // following is eligible; every authority is rechecked.
                                 for resident in crate::luca::managed_cognition::active_residents() {
-                                    let _ = state.companion_sources.restore_following(&source_app, &resident);
+                                    let _ = state
+                                        .companion_sources
+                                        .restore_following(&source_app, &resident);
                                 }
                             });
                         }
@@ -1341,6 +1345,12 @@ pub fn run() {
             connect_mnemos_view,
             disconnect_mnemos_view,
             read_mnemos_view,
+            mnemos_place_minds,
+            open_mnemos_mind,
+            read_mnemos_place,
+            mnemos_place_item,
+            close_mnemos_place,
+            mnemos_place_shown,
             get_resident_notebook_item,
             get_resident_notebook_revision_history,
             create_resident_journal_page,
@@ -1594,6 +1604,7 @@ pub fn run() {
         }
         RunEvent::Exit => {
             crate::luca::managed_permission::cancel_all();
+            crate::commands::shut_down_mnemos_place();
             shut_down_app(app_handle, &run_shutdown_done);
             app_handle.state::<ClipboardState>().release();
 
