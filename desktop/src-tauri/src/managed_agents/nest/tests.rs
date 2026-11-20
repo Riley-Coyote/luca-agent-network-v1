@@ -13,10 +13,12 @@ fn refreshed_nest_guidance_separates_brain_from_runtime_access() {
         "do not import or retain it merely because a one-off read was authorized",
         "Declining a Brain connection alone does not decline",
         "obey native approvals",
+        "ask them with `propose_project`",
+        "Never make a project or its chats any other way.",
     ] {
         assert!(skill.contains(rule), "missing access rule: {rule}");
     }
-    assert_eq!(NEST_SKILL_VERSION, 10);
+    assert_eq!(NEST_SKILL_VERSION, 11);
 }
 
 #[test]

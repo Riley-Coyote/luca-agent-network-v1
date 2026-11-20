@@ -593,6 +593,35 @@ fn stock_luca_access_instructions_refresh_without_touching_authored_work() {
 }
 
 #[test]
+fn stock_luca_guidance_from_before_projects_refreshes_to_the_project_line() {
+    use crate::managed_agents::resident_packs;
+
+    let dir = folder();
+    put(
+        dir.path(),
+        DocumentKind::Instructions,
+        resident_packs::LUCA_INSTRUCTIONS_BEFORE_PROJECTS,
+    );
+    std::fs::write(
+        dir.path().join("AGENTS.md"),
+        resident_packs::LUCA_AGENTS_BEFORE_PROJECTS,
+    )
+    .unwrap();
+    assert_eq!(
+        refresh_founding_documents(dir.path(), "builtin:fizz").unwrap(),
+        vec!["instructions.md".to_owned(), "AGENTS.md".to_owned()]
+    );
+    let instructions = std::fs::read_to_string(dir.path().join("instructions.md")).unwrap();
+    assert_eq!(instructions, resident_packs::LUCA.instructions);
+    assert!(instructions.contains("ask them with propose_project"));
+    assert!(!resident_packs::LUCA_INSTRUCTIONS_BEFORE_PROJECTS.contains("propose_project"));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap(),
+        resident_packs::LUCA.agents
+    );
+}
+
+#[test]
 fn access_guidance_refresh_preserves_edited_absent_and_other_resident_documents() {
     use crate::managed_agents::resident_packs;
 
