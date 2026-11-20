@@ -811,7 +811,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "propose_project",
-        description = "Ask the owner to start a project when they ask for one. A project keeps the chats about one piece of work together. Supply its name and one short purpose; add include_residents with exact keys from polyphonic_status only for other residents the owner wants in it. You always join its first chat, general. The owner sees a card in this conversation and chooses Create or Not now; this call waits for that answer, up to 15 minutes, and returns what actually happened as JSON with a message. Say the project exists only after status project_created. Your reply stays in this conversation; you answer in the new chat when the owner writes there. Never try to make a project or chat any other way. One request at a time per conversation; refused in a turn another agent started."
+        description = "Ask the owner to start a project when they ask for one. A project keeps the chats about one piece of work together. Supply its name and one short purpose; add include_residents with exact keys from polyphonic_status only for other residents the owner wants in it. You always join its first chat, general. The owner sees a card in this conversation and chooses Create or Not now; this call waits for that answer, up to 15 minutes, and returns what actually happened as JSON with a message. If this call ends before the owner answers, call it again with the same name to hear their answer. Say the project exists only after status project_created. Your reply stays in this conversation; you answer in the new chat when the owner writes there. Never try to make a project or chat any other way. One request at a time per conversation; refused in a turn another agent started."
     )]
     async fn propose_project(
         &self,
@@ -1897,6 +1897,9 @@ mod tests {
         let description = tool.description.as_deref().expect("description");
         assert!(description.contains("Create or Not now"));
         assert!(description.contains("Never try to make a project or chat any other way"));
+        assert!(description.contains(
+            "If this call ends before the owner answers, call it again with the same name to hear their answer."
+        ));
 
         let key = "a".repeat(64);
         let valid = serde_json::json!({"name":"Ghost app","purpose":"Build the Ghost app.","include_residents":[key]});

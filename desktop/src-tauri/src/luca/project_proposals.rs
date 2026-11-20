@@ -39,6 +39,8 @@ const MAX_PROBLEM_BYTES: usize = 300;
 const MEMBERSHIP_ATTEMPTS: usize = 10;
 const MEMBERSHIP_RETRY_DELAY: Duration = Duration::from_millis(500);
 const POLL: Duration = Duration::from_millis(50);
+/// How often a card with no call attached checks whether its request ended.
+const CARD_WATCH: Duration = Duration::from_millis(250);
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -181,6 +183,34 @@ struct Pending {
     residents: Vec<Hex64>,
     deadline: Instant,
     result: Option<Value>,
+    /// The result is the owner's own answer, not an ending without one.
+    owner_answered: bool,
+    /// When the result was set; it is kept for one more quarter hour.
+    settled_at: Option<Instant>,
+    /// A later call with the same name has already heard the kept answer.
+    replayed: bool,
+    /// The card is still drawn; the window has not been told it ended.
+    card_open: bool,
+}
+
+impl Pending {
+    fn new(
+        scope: ResidentProposalScope,
+        projection: ProjectProposalV1,
+        residents: Vec<Hex64>,
+    ) -> Self {
+        Self {
+            scope,
+            projection,
+            residents,
+            deadline: Instant::now() + LIFETIME,
+            result: None,
+            owner_answered: false,
+            settled_at: None,
+            replayed: false,
+            card_open: true,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -194,15 +224,101 @@ fn store() -> &'static Mutex<Store> {
 }
 
 fn lock(store: &Mutex<Store>) -> Result<MutexGuard<'_, Store>, String> {
-    store
+    let mut state = store
         .lock()
-        .map_err(|_| "Project requests are unavailable.".into())
+        .map_err(|_| "Project requests are unavailable.".to_owned())?;
+    prune(&mut state);
+    Ok(state)
 }
 
 fn waiting(pending: &Pending) -> bool {
     pending.result.is_none()
         && Instant::now() < pending.deadline
         && pending.scope.active.load(Ordering::SeqCst)
+}
+
+/// Settled requests are kept a quarter hour, so a later call can hear the answer.
+fn prune(state: &mut Store) {
+    state.pending.retain(|_, pending| {
+        pending
+            .settled_at
+            .is_none_or(|settled| settled.elapsed() < LIFETIME)
+    });
+}
+
+/// End a request that can no longer be answered: its quarter hour passed, or
+/// the resident's session truly ended. The caller of one tool call going away
+/// is neither, so it never ends a request.
+fn expire(pending: &mut Pending) {
+    if pending.result.is_some() {
+        return;
+    }
+    let reason = if !pending.scope.active.load(Ordering::SeqCst) {
+        "resident_session_ended"
+    } else if Instant::now() >= pending.deadline {
+        "no_answer"
+    } else {
+        return;
+    };
+    pending.result = Some(ended(reason));
+    pending.settled_at = Some(Instant::now());
+}
+
+/// What a resident's call does with a request it makes.
+#[derive(Debug, PartialEq)]
+enum Route {
+    /// No request of this name: show a new card.
+    New,
+    /// The same request is still waiting: wait on it too, with no second card.
+    Join(String),
+    /// The owner already answered it while no one could hear: hear it now, once.
+    Replay(Value),
+}
+
+/// The same resident, in the same conversation, asking for the same name.
+fn same_request(pending: &Pending, scope: &ResidentProposalScope, name: &str) -> bool {
+    pending.scope.owner == scope.owner
+        && pending.scope.resident == scope.resident
+        && pending.scope.conversation == scope.conversation
+        && pending.projection.project_name == name
+}
+
+/// Join the same waiting request, hear a kept answer once, or start a new one.
+/// One request waits per conversation; any other name is refused while it waits.
+fn route(state: &mut Store, scope: &ResidentProposalScope, name: &str) -> Result<Route, String> {
+    for pending in state.pending.values_mut() {
+        expire(pending);
+    }
+    if let Some((id, _)) = state
+        .pending
+        .iter()
+        .find(|(_, pending)| waiting(pending) && same_request(pending, scope, name))
+    {
+        return Ok(Route::Join(id.clone()));
+    }
+    let busy = state.pending.values().any(|other| {
+        other.scope.owner == scope.owner
+            && other.scope.conversation == scope.conversation
+            && waiting(other)
+    });
+    if busy {
+        return Err("A project request is already waiting for the owner's answer in this conversation. Wait for that answer first.".into());
+    }
+    if let Some(pending) = state.pending.values_mut().find(|pending| {
+        pending.owner_answered && !pending.replayed && same_request(pending, scope, name)
+    }) {
+        pending.replayed = true;
+        let mut kept = pending.result.clone().unwrap_or_else(declined);
+        kept["earlierAnswer"] = json!(true);
+        if let Some(message) = kept["message"].as_str() {
+            kept["message"] = json!(format!(
+                "This is the owner's answer to your earlier request for this project. {message}"
+            ));
+        }
+        kept["requestId"] = json!(pending.projection.request_id);
+        return Ok(Route::Replay(kept));
+    }
+    Ok(Route::New)
 }
 
 /// One request at a time in a conversation; others may wait in other conversations.
@@ -239,7 +355,16 @@ fn declined() -> Value {
     })
 }
 
-/// Set a request's one answer. A second answer for the same request is ignored.
+/// What a call that stopped waiting hears, in case anything still reads it.
+fn detached() -> Value {
+    json!({
+        "status": "still_waiting",
+        "message": "This call ended before the owner answered; the request is still waiting. Call propose_project again with the same name to hear their answer."
+    })
+}
+
+/// Set a request's one answer, whether or not a call is waiting on it.
+/// A second answer for the same request is ignored.
 fn settle(
     state: &mut Store,
     request_id: &str,
@@ -253,19 +378,33 @@ fn settle(
     if &pending.scope.owner != owner {
         return Err("This project request belongs to another owner.".into());
     }
+    expire(pending);
     if !waiting(pending) {
         return Ok(false);
     }
     pending.result = Some(result);
+    pending.owner_answered = true;
+    pending.settled_at = Some(Instant::now());
     Ok(true)
 }
 
-/// Wait for the owner's answer, the deadline, the session's end or the caller leaving.
+/// Close the card once its request has an outcome: the conversation to tell the
+/// window, the first time only.
+fn close_card(pending: &mut Pending) -> Option<String> {
+    expire(pending);
+    (pending.result.is_some() && pending.card_open).then(|| {
+        pending.card_open = false;
+        pending.projection.conversation_id.clone()
+    })
+}
+
+/// Wait on a request for its outcome. `None` when this call's caller went away
+/// first: the request keeps waiting, and the card stays.
 fn await_answer(
     store: &Mutex<Store>,
     request_id: &str,
     mut cancelled: impl FnMut() -> bool,
-) -> Result<Value, String> {
+) -> Result<Option<Value>, String> {
     loop {
         // The caller is probed outside the lock; a probe can take its read timeout.
         let caller_gone = cancelled();
@@ -274,48 +413,54 @@ fn await_answer(
             .pending
             .get_mut(request_id)
             .ok_or("This project request has ended.")?;
+        expire(pending);
         if let Some(result) = pending.result.clone() {
-            return Ok(result);
+            return Ok(Some(result));
         }
-        let reason = if !pending.scope.active.load(Ordering::SeqCst) {
-            Some("resident_session_ended")
-        } else if Instant::now() >= pending.deadline {
-            Some("no_answer")
-        } else if caller_gone {
-            Some("caller_disconnected")
-        } else {
-            None
-        };
-        if let Some(reason) = reason {
-            let result = ended(reason);
-            pending.result = Some(result.clone());
-            return Ok(result);
+        if caller_gone {
+            return Ok(None);
         }
         drop(state);
         thread::sleep(POLL);
     }
 }
 
-struct PendingGuard<'a> {
-    app: AppHandle,
-    store: &'a Mutex<Store>,
-    request_id: String,
-    conversation_id: String,
+fn emit_resolved(app: &AppHandle, request_id: &str, conversation_id: &str) {
+    let _ = app.emit(
+        RESOLVED_EVENT,
+        json!({"requestId": request_id, "conversationId": conversation_id}),
+    );
 }
 
-impl Drop for PendingGuard<'_> {
-    fn drop(&mut self) {
-        if let Ok(mut state) = self.store.lock() {
-            state.pending.remove(&self.request_id);
-        }
-        let _ = self.app.emit(
-            RESOLVED_EVENT,
-            json!({"requestId": self.request_id, "conversationId": self.conversation_id}),
-        );
-    }
+/// The card's own watch, apart from any tool call: it closes the card when the
+/// owner answers, the quarter hour passes or the resident's session ends.
+fn watch_card(app: AppHandle, request_id: String) {
+    let _ = thread::Builder::new()
+        .name("luca-project-card".into())
+        .spawn(move || loop {
+            let closed = match lock(store()) {
+                Ok(mut state) => match state.pending.get_mut(&request_id) {
+                    // Already closed when the owner answered.
+                    Some(pending) if !pending.card_open => Some(None),
+                    Some(pending) => close_card(pending).map(Some),
+                    None => Some(None),
+                },
+                Err(_) => Some(None),
+            };
+            match closed {
+                Some(Some(conversation)) => {
+                    emit_resolved(&app, &request_id, &conversation);
+                    return;
+                }
+                Some(None) => return,
+                None => thread::sleep(CARD_WATCH),
+            }
+        });
 }
 
-/// Show the owner one project card in the asking conversation and wait for the answer.
+/// Show the owner one project card in the asking conversation and wait for the
+/// answer. A repeat call for the same waiting request joins it; a call after the
+/// owner answered hears that answer once.
 pub(crate) fn propose_project(
     app: &AppHandle,
     scope: ResidentProposalScope,
@@ -329,43 +474,49 @@ pub(crate) fn propose_project(
         .owned_residents()
         .map_err(|_| "Your owner's residents could not be verified.")?;
     require_owned(&request.residents, &owned)?;
-    let request_id = format!("project-proposal-{}", uuid::Uuid::new_v4());
-    let projection = ProjectProposalV1 {
-        request_id: request_id.clone(),
-        kind: ProjectRequestKindV1::NewProject,
-        owner_pubkey: scope.owner.as_str().to_owned(),
-        resident_pubkey: scope.resident.as_str().to_owned(),
-        conversation_id: scope.conversation.as_str().to_owned(),
-        project_name: request.name,
-        purpose: request.purpose,
-        chat_name: FIRST_CHAT_NAME.to_owned(),
-        resident_pubkeys: request
-            .residents
-            .iter()
-            .map(|resident| resident.as_str().to_owned())
-            .collect(),
-        created_at: chrono::Utc::now().to_rfc3339(),
+    let request_id = {
+        let mut state = lock(store())?;
+        match route(&mut state, &scope, &request.name)? {
+            Route::Replay(kept) => {
+                return serde_json::to_string(&kept)
+                    .map_err(|_| "The project answer could not be encoded.".into())
+            }
+            Route::Join(request_id) => request_id,
+            Route::New => {
+                let request_id = format!("project-proposal-{}", uuid::Uuid::new_v4());
+                let projection = ProjectProposalV1 {
+                    request_id: request_id.clone(),
+                    kind: ProjectRequestKindV1::NewProject,
+                    owner_pubkey: scope.owner.as_str().to_owned(),
+                    resident_pubkey: scope.resident.as_str().to_owned(),
+                    conversation_id: scope.conversation.as_str().to_owned(),
+                    project_name: request.name,
+                    purpose: request.purpose,
+                    chat_name: FIRST_CHAT_NAME.to_owned(),
+                    resident_pubkeys: request
+                        .residents
+                        .iter()
+                        .map(|resident| resident.as_str().to_owned())
+                        .collect(),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                };
+                admit(
+                    &mut state,
+                    request_id.clone(),
+                    Pending::new(scope.clone(), projection.clone(), request.residents),
+                )?;
+                drop(state);
+                app.emit(EVENT, &projection)
+                    .map_err(|_| "The project card could not be shown.")?;
+                watch_card(app.clone(), request_id.clone());
+                request_id
+            }
+        }
     };
-    admit(
-        &mut *lock(store())?,
-        request_id.clone(),
-        Pending {
-            scope: scope.clone(),
-            projection: projection.clone(),
-            residents: request.residents,
-            deadline: Instant::now() + LIFETIME,
-            result: None,
-        },
-    )?;
-    let _guard = PendingGuard {
-        app: app.clone(),
-        store: store(),
-        request_id: request_id.clone(),
-        conversation_id: projection.conversation_id.clone(),
+    let Some(mut result) = await_answer(store(), &request_id, cancelled)? else {
+        return serde_json::to_string(&detached())
+            .map_err(|_| "The project answer could not be encoded.".into());
     };
-    app.emit(EVENT, &projection)
-        .map_err(|_| "The project card could not be shown.")?;
-    let mut result = await_answer(store(), &request_id, cancelled)?;
     let owner = AppExchangeRelay::new(app.clone())
         .owner()
         .map_err(|_| "The current owner is unavailable.")?;
@@ -668,7 +819,14 @@ pub async fn finish_project_proposal(
         if owner != current {
             return Err("This project request belongs to another owner.".into());
         }
-        settle(&mut *lock(store())?, &request_id, &current, result)
+        let mut state = lock(store())?;
+        let answered = settle(&mut state, &request_id, &current, result)?;
+        let closed = state.pending.get_mut(&request_id).and_then(close_card);
+        drop(state);
+        if let Some(conversation) = closed {
+            emit_resolved(&app, &request_id, &conversation);
+        }
+        Ok(answered)
     })
     .await
     .map_err(|_| "Project answer could not be recorded.".to_owned())?

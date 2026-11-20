@@ -33,13 +33,11 @@ fn projection(request_id: &str, conversation: &str) -> ProjectProposalV1 {
 }
 
 fn pending_in(request_id: &str, conversation: &str) -> Pending {
-    Pending {
-        scope: scope_in(conversation),
-        projection: projection(request_id, conversation),
-        residents: vec![key('b')],
-        deadline: Instant::now() + LIFETIME,
-        result: None,
-    }
+    Pending::new(
+        scope_in(conversation),
+        projection(request_id, conversation),
+        vec![key('b')],
+    )
 }
 
 #[test]
@@ -182,7 +180,7 @@ fn waiting_ends_with_the_answer_or_an_honest_reason() {
         });
         assert_eq!(
             await_answer(&store, "one", || false).expect("answer"),
-            declined()
+            Some(declined())
         );
     });
 
@@ -191,7 +189,9 @@ fn waiting_ends_with_the_answer_or_an_honest_reason() {
     let mut late = pending_in("late", "luca-chat");
     late.deadline = Instant::now() + Duration::from_millis(80);
     admit(&mut lock(&store).expect("lock"), "late".into(), late).expect("admit");
-    let result = await_answer(&store, "late", || false).expect("no answer");
+    let result = await_answer(&store, "late", || false)
+        .expect("no answer")
+        .expect("an outcome");
     assert_eq!(result["status"], "no_answer");
     assert!(result["message"]
         .as_str()
@@ -205,21 +205,11 @@ fn waiting_ends_with_the_answer_or_an_honest_reason() {
     admit(&mut lock(&store).expect("lock"), "gone".into(), pending).expect("admit");
     active.store(false, Ordering::SeqCst);
     assert_eq!(
-        await_answer(&store, "gone", || false).expect("ended")["reason"],
+        await_answer(&store, "gone", || false)
+            .expect("ended")
+            .expect("an outcome")["reason"],
         "resident_session_ended"
     );
-
-    // The tool caller hangs up.
-    let store = Mutex::new(Store::default());
-    admit(
-        &mut lock(&store).expect("lock"),
-        "left".into(),
-        pending_in("left", "luca-chat"),
-    )
-    .expect("admit");
-    let result = await_answer(&store, "left", || true).expect("left");
-    assert_eq!(result["status"], "incomplete");
-    assert_eq!(result["reason"], "caller_disconnected");
 }
 
 fn facts(private_chat: bool, members: &[Hex64]) -> ChatFacts {
@@ -328,7 +318,11 @@ fn every_answer_tells_the_resident_what_happened_in_plain_words() {
     assert_eq!(missing["missing"], json!(["some members"]));
     assert_eq!(missing["missingResidents"], json!([key('d').as_str()]));
 
-    assert_eq!(ended("caller_disconnected")["status"], "incomplete");
+    assert_eq!(ended("resident_session_ended")["status"], "incomplete");
+    assert!(detached()["message"]
+        .as_str()
+        .expect("message")
+        .contains("again with the same name"));
 }
 
 #[test]
@@ -370,4 +364,168 @@ fn the_card_is_drawn_from_host_facts_in_the_windows_shape() {
     assert_eq!(encoded["projectName"], "Ghost app");
     assert_eq!(encoded["residentPubkeys"], json!([key('b').as_str()]));
     assert_eq!(encoded["conversationId"], "luca-chat");
+}
+
+fn scope_like(pending: &Pending) -> ResidentProposalScope {
+    pending.scope.clone()
+}
+
+#[test]
+fn a_caller_going_away_neither_ends_the_request_nor_closes_its_card() {
+    let store = Mutex::new(Store::default());
+    let pending = pending_in("left", "luca-chat");
+    admit(&mut lock(&store).expect("lock"), "left".into(), pending).expect("admit");
+    assert_eq!(await_answer(&store, "left", || true).expect("left"), None);
+    let mut state = lock(&store).expect("lock");
+    let request = state.pending.get_mut("left").expect("still held");
+    assert!(waiting(request), "still waiting for the owner");
+    assert_eq!(close_card(request), None, "the card stays");
+}
+
+#[test]
+fn only_the_answer_the_quarter_hour_or_the_sessions_end_closes_a_card() {
+    let mut state = Store::default();
+    admit(&mut state, "one".into(), pending_in("one", "a-chat")).expect("admit");
+    assert!(settle(&mut state, "one", &key('a'), declined()).expect("answer"));
+    let one = state.pending.get_mut("one").expect("one");
+    assert_eq!(close_card(one), Some("a-chat".into()));
+    assert_eq!(close_card(one), None, "told once");
+
+    let mut late = pending_in("late", "b-chat");
+    late.deadline = Instant::now() - Duration::from_secs(1);
+    state.pending.insert("late".into(), late);
+    let late = state.pending.get_mut("late").expect("late");
+    assert_eq!(close_card(late), Some("b-chat".into()));
+    assert_eq!(late.result.as_ref().expect("ended")["status"], "no_answer");
+
+    let ended_session = pending_in("gone", "c-chat");
+    ended_session.scope.active.store(false, Ordering::SeqCst);
+    state.pending.insert("gone".into(), ended_session);
+    let gone = state.pending.get_mut("gone").expect("gone");
+    assert_eq!(close_card(gone), Some("c-chat".into()));
+    assert_eq!(
+        gone.result.as_ref().expect("ended")["reason"],
+        "resident_session_ended"
+    );
+}
+
+#[test]
+fn the_owner_answers_with_no_call_attached() {
+    let store = Mutex::new(Store::default());
+    admit(
+        &mut lock(&store).expect("lock"),
+        "one".into(),
+        pending_in("one", "luca-chat"),
+    )
+    .expect("admit");
+    assert_eq!(await_answer(&store, "one", || true).expect("left"), None);
+    let created = created_result(
+        &projection("one", "luca-chat"),
+        &[key('b')],
+        "ghost-app",
+        "chat-1",
+    );
+    assert!(settle(
+        &mut lock(&store).expect("lock"),
+        "one",
+        &key('a'),
+        created.clone()
+    )
+    .expect("answer lands"));
+    let state = lock(&store).expect("lock");
+    assert_eq!(state.pending["one"].result, Some(created));
+}
+
+#[test]
+fn the_same_request_again_joins_it_and_hears_the_answer() {
+    let store = Mutex::new(Store::default());
+    let first = pending_in("one", "luca-chat");
+    let scope = scope_like(&first);
+    admit(&mut lock(&store).expect("lock"), "one".into(), first).expect("admit");
+    // The same resident, conversation and (trimmed) name: no second card.
+    let name = parse_request(json!({"name":"  Ghost app ","purpose":"Again."}), &key('b'))
+        .expect("parse")
+        .name;
+    assert_eq!(
+        route(&mut lock(&store).expect("lock"), &scope, &name).expect("join"),
+        Route::Join("one".into())
+    );
+    assert_eq!(lock(&store).expect("lock").pending.len(), 1);
+    thread::scope(|threads| {
+        threads.spawn(|| {
+            thread::sleep(Duration::from_millis(100));
+            settle(
+                &mut lock(&store).expect("lock"),
+                "one",
+                &key('a'),
+                declined(),
+            )
+            .expect("answer");
+        });
+        assert_eq!(
+            await_answer(&store, "one", || false).expect("joined"),
+            Some(declined())
+        );
+    });
+
+    // A different name while one waits is refused, as before.
+    let store = Mutex::new(Store::default());
+    let first = pending_in("one", "luca-chat");
+    let scope = scope_like(&first);
+    admit(&mut lock(&store).expect("lock"), "one".into(), first).expect("admit");
+    let other =
+        route(&mut lock(&store).expect("lock"), &scope, "Another app").expect_err("different name");
+    assert!(other.contains("already waiting"));
+    // Another resident asking for the same name is refused too.
+    let mut stranger = scope.clone();
+    stranger.resident = key('d');
+    assert!(route(&mut lock(&store).expect("lock"), &stranger, "Ghost app").is_err());
+}
+
+#[test]
+fn an_answer_no_one_heard_is_kept_and_heard_once() {
+    let mut state = Store::default();
+    let first = pending_in("one", "luca-chat");
+    let scope = scope_like(&first);
+    admit(&mut state, "one".into(), first).expect("admit");
+    assert!(settle(&mut state, "one", &key('a'), declined()).expect("answer"));
+
+    let Route::Replay(kept) = route(&mut state, &scope, "Ghost app").expect("replay") else {
+        panic!("the kept answer is heard");
+    };
+    assert_eq!(kept["status"], "declined");
+    assert_eq!(kept["earlierAnswer"], true);
+    assert_eq!(kept["requestId"], "one");
+    assert!(kept["message"]
+        .as_str()
+        .expect("message")
+        .starts_with("This is the owner's answer to your earlier request"));
+    // Once only: the next call is a new request.
+    assert_eq!(
+        route(&mut state, &scope, "Ghost app").expect("new"),
+        Route::New
+    );
+
+    // After a quarter hour the kept answer is gone.
+    let mut state = Store::default();
+    admit(&mut state, "two".into(), pending_in("two", "luca-chat")).expect("admit");
+    assert!(settle(&mut state, "two", &key('a'), declined()).expect("answer"));
+    state.pending.get_mut("two").expect("two").settled_at =
+        Instant::now().checked_sub(LIFETIME + Duration::from_secs(1));
+    prune(&mut state);
+    assert!(state.pending.is_empty());
+    assert_eq!(
+        route(&mut state, &scope, "Ghost app").expect("new"),
+        Route::New
+    );
+
+    // An ending without the owner's answer is never replayed.
+    let mut state = Store::default();
+    let mut late = pending_in("late", "luca-chat");
+    late.deadline = Instant::now() - Duration::from_secs(1);
+    admit(&mut state, "late".into(), late).expect("admit");
+    assert_eq!(
+        route(&mut state, &scope, "Ghost app").expect("new"),
+        Route::New
+    );
 }
