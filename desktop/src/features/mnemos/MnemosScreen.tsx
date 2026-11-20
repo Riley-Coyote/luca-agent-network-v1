@@ -12,13 +12,14 @@ import {
   useKeepPickInAddress,
   usePlacePick,
 } from "@/app/shell/placeRails/usePlaceRails";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
-import { bookOf } from "./adapt";
+import { bookOf, writesOf } from "./adapt";
 import type { PlaceMind } from "./api";
 import { GlanceRoom } from "./GlanceRoom";
 import { MemoriesRoom } from "./MemoriesRoom";
 import { PlaceLine } from "./MnemosParts";
-import { stateLine } from "./notebook";
+import { linkedWords, stateLine } from "./notebook";
 import { loadMinds, setRoomCounts } from "./placeStore";
 import { BeliefsRoom, CarryingRoom } from "./ReaderRooms";
 import type { RoomProps } from "./roomKit";
@@ -43,7 +44,8 @@ const ROOMS: Record<MnemosRoomId, (props: RoomProps) => React.ReactNode> = {
 /**
  * The Mnemos place (WP-45): a mind's notebook, read here. Its rail picks
  * the mind and the room; the card is the room, its list beside the thing
- * opened. Reading only.
+ * opened. Reading, and the person's own four writes (WP-47): answer a note,
+ * leave one, correct a memory, let one go.
  */
 export function MnemosScreen() {
   const { applyPatch, values } = useHistorySearchState(SEARCH_KEYS);
@@ -122,8 +124,9 @@ function MindCard({
   openItem: RoomProps["openItem"];
   room: MnemosRoomId;
 }) {
-  const { phase, ask, retry, visible } = useMnemosSession(mind.id);
+  const { phase, ask, send, retry, visible } = useMnemosSession(mind.id);
   const book = React.useMemo(() => bookOf(ask), [ask]);
+  const writes = React.useMemo(() => writesOf(send), [send]);
   const reader = useReader(mind);
   useRoomCounts(book, reader, mind.id, phase.kind === "open" && visible);
   const Room = ROOMS[room];
@@ -131,7 +134,7 @@ function MindCard({
     <>
       <PlacePageHead
         face={<NotebookText />}
-        state={stateLine(mind)}
+        state={<HeadState mind={mind} />}
         title={mind.name}
       />
       {phase.kind !== "open" ? (
@@ -147,8 +150,49 @@ function MindCard({
           mind={mind}
           openItem={openItem}
           reader={reader}
+          writes={writes}
         />
       ) : null}
+    </>
+  );
+}
+
+/** The head's one line: its numbers, then who remembers with it, each name
+ *  a way to that resident's own page (WP-47, Decided 8). */
+function HeadState({ mind }: { mind: PlaceMind }) {
+  const { goAgent } = useAppNavigation();
+  const numbers = stateLine({ ...mind, linked: [] });
+  const who = linkedWords(mind);
+  if (!who) return numbers;
+  const link = (pubkey: string, words: string) => (
+    <button
+      className="luca-mnemos-headlink"
+      data-testid={`mnemos-head-resident-${pubkey}`}
+      key={pubkey}
+      onClick={() => void goAgent(pubkey)}
+      type="button"
+    >
+      {words}
+    </button>
+  );
+  const [only] = mind.linked;
+  if (mind.linked.length === 1 && only)
+    return (
+      <>
+        {numbers} · {link(only.pubkey, who)}
+      </>
+    );
+  const last = mind.linked.length - 1;
+  return (
+    <>
+      {numbers} ·{" "}
+      {mind.linked.map((r, i) => (
+        <React.Fragment key={r.pubkey}>
+          {i === 0 ? "" : i === last ? " and " : ", "}
+          {link(r.pubkey, r.name)}
+        </React.Fragment>
+      ))}{" "}
+      remember with this
     </>
   );
 }

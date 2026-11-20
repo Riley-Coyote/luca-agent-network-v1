@@ -2,6 +2,7 @@ import * as React from "react";
 import { ChevronDown } from "lucide-react";
 
 import "./mnemos-place.css";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { linkedWords, railLine } from "./notebook";
 import { useMindInView } from "./useMindInView";
 
@@ -11,15 +12,19 @@ import { useMindInView } from "./useMindInView";
  * are the card head's, said once). It is a button that lists the minds on
  * this Mac: each one's name, how many
  * memories, its newest day, and who remembers with it. Never a word of any
- * memory.
+ * memory. Under them, quietly, the owner's residents here that remember
+ * with nothing yet, each with an offer that opens its own Mnemos page
+ * (WP-47, Decided 8); the offer only opens it.
  */
 export function MnemosRailMind() {
   const { facts, mind, choose } = useMindInView();
+  const { goAgent } = useAppNavigation();
   const [open, setOpen] = React.useState(false);
   const listId = React.useId();
   const head = React.useRef<HTMLButtonElement>(null);
   const refocus = React.useRef(false);
   const minds = facts.minds?.minds ?? [];
+  const withoutMemory = facts.minds?.withoutMemory ?? [];
   React.useEffect(() => {
     // Once the list has gone, focus goes back to the head that opened it.
     if (open || !refocus.current) return;
@@ -104,6 +109,41 @@ export function MnemosRailMind() {
               </li>
             );
           })}
+          {withoutMemory.length ? (
+            <li
+              className="luca-mnemos-minds-none"
+              data-testid="mnemos-minds-no-memory"
+            >
+              <p className="luca-mnemos-railmind-line text-2xs">
+                No memory yet
+              </p>
+              <ul aria-label="Residents with no memory yet">
+                {withoutMemory.map((resident) => (
+                  <li key={resident.pubkey}>
+                    <button
+                      className="luca-mnemos-minds-row"
+                      data-rail-focus="home"
+                      data-testid={`mnemos-offer-${resident.pubkey}`}
+                      onClick={() => {
+                        close();
+                        void goAgent(resident.pubkey, {
+                          page: { kind: "mnemos" },
+                        });
+                      }}
+                      type="button"
+                    >
+                      <span className="luca-mnemos-railmind-name text-sm">
+                        {resident.name}
+                      </span>
+                      <span className="luca-mnemos-railmind-line text-2xs">
+                        Give {resident.name} a memory
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ) : null}
         </ul>
       ) : null}
     </div>

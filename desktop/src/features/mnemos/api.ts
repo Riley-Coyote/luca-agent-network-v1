@@ -2,10 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 
 /**
  * The Mnemos place's own commands (desktop/src-tauri/src/commands/
- * mnemos_place.rs). Reading only: the four requests below are the only ones
- * the app can make, and none writes to a memory. The `Wire*` shapes are what
- * the person's `mnemos interface` answers; only `adapt.ts` reads them, and
- * everything else reads the place's own shapes (`book.ts`).
+ * mnemos_place.rs): four reading requests, and the person's four writes
+ * (answer a note, leave one, correct a memory, let one go). The `Wire*`
+ * shapes are what the person's `mnemos interface` answers; only `adapt.ts`
+ * reads them, and everything else reads the place's own shapes (`book.ts`).
  */
 
 /** A resident that remembers with a mind. */
@@ -21,7 +21,12 @@ export type PlaceMind = {
   linked: LinkedResident[];
 };
 
-export type PlaceMinds = { mnemosReady: boolean; minds: PlaceMind[] };
+export type PlaceMinds = {
+  mnemosReady: boolean;
+  minds: PlaceMind[];
+  /** The owner's residents on this Mac that remember with no memory yet. */
+  withoutMemory: LinkedResident[];
+};
 
 export type WireState = "active" | "dormant";
 
@@ -79,12 +84,31 @@ export type PlaceReply =
   | { kind: "journal"; entries: WireEntry[] }
   | { kind: "notes"; notes: WireNote[] };
 
+/** One of the person's own writes: exactly these four. */
+export type PlaceWrite =
+  | { command: "reply"; note_id: string; text: string }
+  | { command: "note"; text: string }
+  | { command: "correct"; memory_id: string; text: string }
+  | { command: "forget"; memory_id: string };
+
+export type WireWritten =
+  | { kind: "note"; note: WireNote }
+  | {
+      kind: "corrected";
+      id: string;
+      replaces: string;
+      corrected: string | null;
+    }
+  | { kind: "forgotten"; id: string; forgotten: string | null };
+
 export const mnemosPlace = {
   minds: () => invoke<PlaceMinds>("mnemos_place_minds"),
   open: (mind: string, askAgain = false) =>
     invoke<boolean>("open_mnemos_mind", { mind, askAgain }),
   read: (mind: string, request: PlaceRequest) =>
     invoke<PlaceReply>("read_mnemos_place", { mind, request }),
+  write: (mind: string, write: PlaceWrite) =>
+    invoke<WireWritten>("write_mnemos_place", { mind, write }),
   knows: (mind: string, id: string) =>
     invoke<boolean>("mnemos_place_item", { mind, id }),
   close: () => invoke<void>("close_mnemos_place"),

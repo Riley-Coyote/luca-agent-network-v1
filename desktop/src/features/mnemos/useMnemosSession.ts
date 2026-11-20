@@ -1,7 +1,7 @@
 import * as React from "react";
 
-import type { Ask } from "./adapt";
-import { codeOf, mnemosPlace, type PlaceRequest } from "./api";
+import type { Ask, Send } from "./adapt";
+import { codeOf, mnemosPlace, type PlaceRequest, type PlaceWrite } from "./api";
 
 /** How the mind in view stands with the place. */
 export type SessionPhase =
@@ -105,9 +105,28 @@ export function useMnemosSession(mindId: string) {
     [mindId],
   );
 
+  // A write never touches the card's phase: whatever goes wrong, the room
+  // stays and so does what the person typed. One the app had closed (it was
+  // never sent) is sent once after opening again; nothing else is retried.
+  const send: Send = React.useCallback(
+    async (write: PlaceWrite) => {
+      try {
+        return await mnemosPlace.write(mindId, write);
+      } catch (error) {
+        if (codeOf(error) !== "not_open" || !live.current) throw error;
+      }
+      reopening.current ??= mnemosPlace.open(mindId, false).finally(() => {
+        reopening.current = null;
+      });
+      if (!(await reopening.current)) throw new Error("not_open");
+      return await mnemosPlace.write(mindId, write);
+    },
+    [mindId],
+  );
+
   const retry = React.useCallback((askAgain = false) => {
     setAttempt((before) => ({ n: before.n + 1, askAgain }));
   }, []);
 
-  return { phase, ask, retry, visible };
+  return { phase, ask, send, retry, visible };
 }

@@ -7,7 +7,7 @@
  * is tested without React.
  */
 import type { PlaceMind } from "./api";
-import type { BookMemory, BookNote } from "./book";
+import type { BookMemory, BookMemoryFacts, BookNote } from "./book";
 
 /** The notes, gathered into threads by what each answers: each thread's
  *  notes oldest first, and the thread with the newest word first. */
@@ -272,3 +272,57 @@ export const writtenWords = (written: string) =>
 /** The rooms' filters over memories: those gone quiet. */
 export const goneQuiet = (list: readonly BookMemory[]) =>
   list.filter((m) => m.state === "dormant");
+
+/** The longest note, answer or correction Mnemos keeps, in characters. */
+export const MAX_TEXT = 16_384;
+/** From here on, the field says how many characters are left. */
+export const NEAR_LIMIT = 15_000;
+
+/** What a field of the person's words may do, by what's in it: the count
+ *  only near the limit, and no sending past it or with nothing said. */
+export function fieldState(text: string): {
+  count: string | null;
+  over: boolean;
+  canSend: boolean;
+} {
+  const n = [...text].length;
+  const over = n > MAX_TEXT;
+  const count =
+    n < NEAR_LIMIT
+      ? null
+      : over
+        ? `${(n - MAX_TEXT).toLocaleString("en-US")} over`
+        : `${(MAX_TEXT - n).toLocaleString("en-US")} left`;
+  return { count, over, canSend: !over && text.trim().length > 0 };
+}
+
+/** The notes after one of the person's was kept: added once, by its id,
+ *  and the note it answers read, as the engine marks it on a reply. */
+export function withNote(
+  notes: readonly BookNote[],
+  note: BookNote,
+): BookNote[] {
+  const marked = notes.map((n) =>
+    note.replyTo && n.id === note.replyTo && !n.read
+      ? { ...n, read: note.at ?? new Date().toISOString() }
+      : n,
+  );
+  return marked.some((n) => n.id === note.id) ? marked : [note, ...marked];
+}
+
+/** The memory's numbers after one was let go: one fewer where it was, one
+ *  more let go. */
+export function afterLetGo(
+  facts: BookMemoryFacts,
+  from: BookMemory["state"],
+): BookMemoryFacts {
+  if (from === "archived") return facts;
+  return {
+    ...facts,
+    states: {
+      ...facts.states,
+      [from]: Math.max(0, facts.states[from] - 1),
+      archived: facts.states.archived + 1,
+    },
+  };
+}

@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import type { Book } from "./adapt";
+import type { Book, Writes } from "./adapt";
 import { mnemosPlace, type PlaceMind } from "./api";
 import type { Reader } from "./useReader";
 
@@ -16,6 +16,8 @@ export type RoomProps = {
   /** Go to another room, with an item opened there. */
   goTo: (room: string, item?: string) => void;
   reader: Reader;
+  /** The person's four writes, each sent once. */
+  writes: Writes;
 };
 
 /** The line a room shows when one read didn't come back. */

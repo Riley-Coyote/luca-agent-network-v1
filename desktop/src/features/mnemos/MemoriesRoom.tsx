@@ -7,8 +7,9 @@ import {
   placeNoteTime,
 } from "@/app/shell/placeRails/PlacePage";
 import { cn } from "@/shared/lib/cn";
-import { type BookStanding, standingOf } from "./adapt";
-import type { BookFound, BookMemory } from "./book";
+import { Button } from "@/shared/ui/button";
+import { type BookStanding, standingOf, type WriteFailure } from "./adapt";
+import type { BookFound, BookMemory, BookMemoryFacts } from "./book";
 import {
   longDay,
   PlaceLine,
@@ -18,6 +19,7 @@ import {
   Words,
 } from "./MnemosParts";
 import {
+  afterLetGo,
   firstLine,
   foundWords,
   newestFirst,
@@ -25,9 +27,10 @@ import {
   signedBy,
   stateWords,
 } from "./notebook";
-import { setRoomCounts } from "./placeStore";
+import { loadMinds, setRoomCounts } from "./placeStore";
 import { DIDNT_ANSWER, type RoomProps, useAddressItem } from "./roomKit";
 import { useReaderSection } from "./useReader";
+import { failureWords, WriteField } from "./WriteField";
 
 const PAGE = 50;
 type Chip = "all" | "dormant" | "standing";
@@ -41,10 +44,11 @@ const CHIPS: { id: Chip; label: string }[] = [
  * Memories (WP-45, Decided 5): newest first, asked from the end of the
  * engine's oldest-first list; All, Gone quiet, and Standing (the old
  * reader's, words only); a search by meaning that says how each was found;
- * and the memory opened whole beside the list.
+ * and the memory opened whole beside the list. An opened memory can be
+ * corrected in the person's words or let go (WP-47, Decided 4 and 5).
  */
 export function MemoriesRoom(props: RoomProps) {
-  const { book, mind, item, openItem, reader } = props;
+  const { book, mind, item, openItem, reader, writes } = props;
   const [chip, setChip] = React.useState<Chip>("all");
   const [query, setQuery] = React.useState("");
   const [asked, setAsked] = React.useState<string | null>(null);
@@ -58,6 +62,18 @@ export function MemoriesRoom(props: RoomProps) {
   /** Every memory shown in this room, whole from a list, or only its words
    *  and day from a search. */
   const seen = React.useRef(new Map<string, Seen>());
+  /** The memory's numbers, as last read, so a let-go changes them at once. */
+  const lastFacts = React.useRef<BookMemoryFacts | null>(null);
+  /** Memories corrected or let go here: kept only until the address lets
+   *  go of them, so the room never shows an old version again. */
+  const gone = React.useRef(new Set<string>());
+  React.useEffect(() => {
+    for (const id of gone.current) {
+      if (id === item) continue;
+      seen.current.delete(id);
+      gone.current.delete(id);
+    }
+  }, [item]);
 
   // The list: its numbers first, then pages from the newest end.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `n` is Try again, asking once more.
@@ -68,7 +84,10 @@ export function MemoriesRoom(props: RoomProps) {
     (async () => {
       const facts = await book.facts();
       const { active, dormant } = facts.states;
-      if (current) setRoomCounts(mind.id, { memories: active + dormant });
+      if (current) {
+        lastFacts.current = facts;
+        setRoomCounts(mind.id, { memories: active + dormant });
+      }
       const total = chip === "dormant" ? dormant : active + dormant;
       const list: BookMemory[] = [];
       for (let page = 0; page < pages; page++) {
@@ -242,6 +261,7 @@ export function MemoriesRoom(props: RoomProps) {
 
   return (
     <RoomFrame
+      addressed={item}
       backLabel="Memories"
       first={first}
       list={list}
@@ -268,7 +288,51 @@ export function MemoriesRoom(props: RoomProps) {
             />
           </article>
         ) : memory ? (
-          <MemoryOpened mindName={mind.name} seen={memory} />
+          <MemoryOpened
+            key={memory.memory.id}
+            mindName={mind.name}
+            onCorrect={async (text) => {
+              const was = memory.memory;
+              const done = await writes.correct(was.id, text);
+              // The new version, until the list reads it back.
+              seen.current.set(done.id, {
+                memory: {
+                  ...(memory.whole ? memory.memory : wholeOf(was)),
+                  id: done.id,
+                  content: text,
+                  author: "person",
+                  corrected: done.corrected ?? new Date().toISOString(),
+                },
+                whole: true,
+              });
+              gone.current.add(was.id);
+              openItem(done.id, { replace: true });
+              setN((x) => x + 1);
+              void loadMinds(true);
+            }}
+            onLetGo={async () => {
+              const was = memory.memory;
+              await writes.forget(was.id);
+              gone.current.add(was.id);
+              const facts = lastFacts.current;
+              if (facts) {
+                const next = afterLetGo(
+                  facts,
+                  memory.whole ? memory.memory.state : "active",
+                );
+                lastFacts.current = next;
+                setRoomCounts(mind.id, {
+                  memories: next.states.active + next.states.dormant,
+                });
+              }
+              setShown((list) => list.filter((m) => m.id !== was.id));
+              openItem(null, { replace: true });
+              setN((x) => x + 1);
+              if (asked !== null) search.again();
+              void loadMinds(true);
+            }}
+            seen={memory}
+          />
         ) : null
       }
       testId="mnemos-memories"
@@ -280,11 +344,62 @@ type Seen =
   | { memory: BookMemory; whole: true }
   | { memory: BookFound["memory"]; whole: false };
 
-function MemoryOpened({ mindName, seen }: { mindName: string; seen: Seen }) {
+/** A search result's memory, filled out only with what a search gives. */
+const wholeOf = (m: BookFound["memory"]): BookMemory => ({
+  ...m,
+  impact: "",
+  state: "active",
+  author: "unknown",
+  acc: 1,
+});
+
+function MemoryOpened({
+  mindName,
+  onCorrect,
+  onLetGo,
+  seen,
+}: {
+  mindName: string;
+  onCorrect: (text: string) => Promise<void>;
+  onLetGo: () => Promise<void>;
+  seen: Seen;
+}) {
   const { memory } = seen;
+  const [mode, setMode] = React.useState<"read" | "correct" | "asking">("read");
+  const back = React.useRef<"correct" | "letgo" | null>(null);
+  const correctButton = React.useRef<HTMLButtonElement>(null);
+  const letGoButton = React.useRef<HTMLButtonElement>(null);
+  React.useEffect(() => {
+    // Leaving the field or the question, focus goes back to what opened it.
+    if (mode !== "read" || !back.current) return;
+    (back.current === "correct" ? correctButton : letGoButton).current?.focus();
+    back.current = null;
+  }, [mode]);
+  const leave = (from: "correct" | "letgo") => {
+    back.current = from;
+    setMode("read");
+  };
+
   return (
     <article aria-label="A memory" data-testid="mnemos-memory-opened">
-      <Words text={memory.content} />
+      {mode === "correct" ? (
+        <WriteField
+          autoFocus
+          cancelLabel="Cancel"
+          failLine="It couldn’t be changed. Your words are still here."
+          hint={`Its own words stay in its history. ${mindName} wakes knowing you corrected it, once.`}
+          initial={memory.content}
+          label="Correct it, in your words"
+          needsChange
+          onCancel={() => leave("correct")}
+          onSend={onCorrect}
+          sendLabel="Save correction"
+          sendingLabel="Saving…"
+          testId="mnemos-correct"
+        />
+      ) : (
+        <Words text={memory.content} />
+      )}
       {seen.whole && seen.memory.impact ? (
         <div className="luca-mnemos-impact">
           <p className="luca-mnemos-label text-2xs">
@@ -308,7 +423,141 @@ function MemoryOpened({ mindName, seen }: { mindName: string; seen: Seen }) {
         }
         testId="mnemos-memory-line"
       />
+      {mode === "asking" ? (
+        <LetGoAsk
+          mindName={mindName}
+          onKeep={() => leave("letgo")}
+          onLetGo={onLetGo}
+        />
+      ) : mode === "read" &&
+        !(seen.whole && seen.memory.state === "archived") ? (
+        <div className="luca-mnemos-acts">
+          <Button
+            data-testid="mnemos-correct-open"
+            onClick={() => setMode("correct")}
+            ref={correctButton}
+            size="quiet"
+            type="button"
+            variant="quiet"
+          >
+            Correct it
+          </Button>
+          <Button
+            data-testid="mnemos-let-go-open"
+            onClick={() => setMode("asking")}
+            ref={letGoButton}
+            size="quiet"
+            type="button"
+            variant="quiet"
+          >
+            Let it go
+          </Button>
+        </div>
+      ) : null}
     </article>
+  );
+}
+
+/** Let it go asks first, in the notebook's own words, before anything is
+ *  sent; Keep it, or Escape, leaves it as it was. */
+function LetGoAsk({
+  mindName,
+  onKeep,
+  onLetGo,
+}: {
+  mindName: string;
+  onKeep: () => void;
+  onLetGo: () => Promise<void>;
+}) {
+  const id = React.useId();
+  const [sending, setSending] = React.useState(false);
+  const [failure, setFailure] = React.useState<WriteFailure | null>(null);
+  const inFlight = React.useRef(false);
+  const mounted = React.useRef(true);
+  const keep = React.useRef<HTMLButtonElement>(null);
+  React.useEffect(() => {
+    keep.current?.focus();
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const yes = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSending(true);
+    setFailure(null);
+    try {
+      await onLetGo();
+    } catch (error) {
+      if (mounted.current)
+        setFailure(
+          typeof error === "object" && error !== null && "kind" in error
+            ? (error as WriteFailure)
+            : { kind: "failed", code: String(error) },
+        );
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setSending(false);
+    }
+  };
+  const said = failure
+    ? failureWords(failure, "It couldn’t be changed.")
+    : null;
+  return (
+    <div
+      aria-describedby={`${id}-d`}
+      aria-labelledby={`${id}-h`}
+      className="luca-mnemos-ask"
+      data-testid="mnemos-let-go-ask"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !sending) {
+          event.stopPropagation();
+          onKeep();
+        }
+      }}
+      role="alertdialog"
+    >
+      <h3 className="luca-mnemos-ask-title text-sm" id={`${id}-h`}>
+        Let this memory go?
+      </h3>
+      <p className="luca-mnemos-ask-text text-sm" id={`${id}-d`}>
+        It won't come back by its words, its meaning or its id. It's kept in the
+        archive, not deleted, and {mindName} will know, once, that you let a
+        memory go, though not what it said.
+      </p>
+      {said ? (
+        <p
+          className="luca-mnemos-write-said text-sm"
+          data-testid="mnemos-let-go-said"
+          role="status"
+        >
+          {said.line}
+        </p>
+      ) : null}
+      <div className="luca-mnemos-ask-foot">
+        <Button
+          data-testid="mnemos-let-go-keep"
+          disabled={sending}
+          onClick={onKeep}
+          ref={keep}
+          size="quiet"
+          type="button"
+          variant="quiet"
+        >
+          Keep it
+        </Button>
+        <Button
+          data-testid="mnemos-let-go-yes"
+          disabled={sending}
+          onClick={() => void yes()}
+          size="quiet"
+          type="button"
+          variant="destructive"
+        >
+          {sending ? "Letting go…" : "Let it go"}
+        </Button>
+      </div>
+    </div>
   );
 }
 

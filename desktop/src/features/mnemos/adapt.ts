@@ -8,11 +8,13 @@ import type { ViewItem } from "@/shared/api/mnemosView";
 import type {
   PlaceReply,
   PlaceRequest,
+  PlaceWrite,
   WireEntry,
   WireFound,
   WireMemory,
   WireNote,
   WireState,
+  WireWritten,
 } from "./api";
 import type {
   BookBelief,
@@ -106,6 +108,34 @@ export const handoffOf = (item: ViewItem): BookHandoff => ({
 /** Asks the open mind one reading request (the session's own `read`). */
 export type Ask = (request: PlaceRequest) => Promise<PlaceReply>;
 
+/** Sends the open mind one of the person's writes, once. */
+export type Send = (write: PlaceWrite) => Promise<WireWritten>;
+
+/** Why a write didn't happen, as the field says it. */
+export type WriteFailure =
+  /** Mnemos said no in its own words (a quiet hour, a note too long). */
+  | { kind: "said"; said: string }
+  /** Someone else is writing to the store just now. */
+  | { kind: "busy" }
+  | { kind: "failed"; code: string };
+
+/** A write's error, as the place's command gives it. */
+export function writeFailure(error: unknown): WriteFailure {
+  const told = error instanceof Error ? error.message : String(error);
+  const refused = "mnemos_refused:";
+  if (told.startsWith(refused))
+    return { kind: "said", said: told.slice(refused.length) };
+  if (told === "mnemos_busy") return { kind: "busy" };
+  return { kind: "failed", code: told };
+}
+
+/** A memory's new version, after the person corrected it. */
+export type BookCorrected = {
+  id: string;
+  replaces: string;
+  corrected: string | null;
+};
+
 function expect<K extends PlaceReply["kind"]>(
   reply: PlaceReply,
   kind: K,
@@ -159,3 +189,53 @@ export function bookOf(ask: Ask) {
 }
 
 export type Book = ReturnType<typeof bookOf>;
+
+/** The person's four writes, in the notebook's shapes. Each is sent once;
+ *  a failure throws a `WriteFailure`. */
+export function writesOf(send: Send) {
+  const once = async (write: PlaceWrite) => {
+    try {
+      return await send(write);
+    } catch (error) {
+      throw writeFailure(error);
+    }
+  };
+  const noted = (written: WireWritten): BookNote => {
+    if (written.kind !== "note")
+      throw { kind: "failed", code: "invalid_reply" } satisfies WriteFailure;
+    return noteOf(written.note);
+  };
+  return {
+    /** Answer one of the mind's notes. */
+    async reply(noteId: string, text: string): Promise<BookNote> {
+      return noted(await once({ command: "reply", note_id: noteId, text }));
+    },
+    /** Leave the mind a note of the person's own. */
+    async note(text: string): Promise<BookNote> {
+      return noted(await once({ command: "note", text }));
+    },
+    /** Correct a memory in the person's words. */
+    async correct(memoryId: string, text: string): Promise<BookCorrected> {
+      const written = await once({
+        command: "correct",
+        memory_id: memoryId,
+        text,
+      });
+      if (written.kind !== "corrected")
+        throw { kind: "failed", code: "invalid_reply" } satisfies WriteFailure;
+      return {
+        id: written.id,
+        replaces: written.replaces,
+        corrected: written.corrected,
+      };
+    },
+    /** Let a memory go: archived, never deleted. */
+    async forget(memoryId: string): Promise<void> {
+      const written = await once({ command: "forget", memory_id: memoryId });
+      if (written.kind !== "forgotten")
+        throw { kind: "failed", code: "invalid_reply" } satisfies WriteFailure;
+    },
+  };
+}
+
+export type Writes = ReturnType<typeof writesOf>;

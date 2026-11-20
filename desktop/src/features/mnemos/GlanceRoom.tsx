@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { placeNoteTime } from "@/app/shell/placeRails/PlacePage";
 import type { Book } from "./adapt";
+import type { BookNote } from "./book";
 import { beliefOf, handoffOf } from "./adapt";
 import { longDay, useLoad } from "./MnemosParts";
 import {
@@ -18,7 +19,9 @@ import {
 import { setRoomCounts } from "./placeStore";
 import { heldAt } from "./ReaderRooms";
 import { DIDNT_ANSWER, type RoomProps } from "./roomKit";
+import { useSentNotes, wokenWords } from "./TalkRooms";
 import { useReaderSection } from "./useReader";
+import { WriteField } from "./WriteField";
 
 /** Days the strip shows: the last six months. */
 const STRIP_DAYS = 182;
@@ -30,7 +33,7 @@ const SWEEP_PAGE = 100;
  * words, each from its own source; a plate whose source isn't here says so
  * in one line.
  */
-export function GlanceRoom({ book, mind, goTo, reader }: RoomProps) {
+export function GlanceRoom({ book, mind, goTo, reader, writes }: RoomProps) {
   const facts = useLoad(() => book.facts(), [book]);
   const states = facts.value?.states ?? null;
   const total = states ? states.active + states.dormant : null;
@@ -44,13 +47,26 @@ export function GlanceRoom({ book, mind, goTo, reader }: RoomProps) {
     return newestFirst((await book.memories(slice)).memories);
   }, [book, total]);
   const notes = useLoad(() => book.notes(), [book]);
+  const sent = useSentNotes();
+  const noteList = React.useMemo(
+    () => sent.onto(notes.value),
+    [notes.value, sent.onto],
+  );
+  /** The thread the person just answered here, to say where it went. */
+  const [answered, setAnswered] = React.useState<{
+    thread: string;
+    note: BookNote;
+  } | null>(null);
   const journal = useLoad(() => book.journal(1), [book]);
   const handoffs = useReaderSection(reader, "handoffs", handoffOf);
   const beliefs = useReaderSection(reader, "beliefs", beliefOf);
   const waiting = React.useMemo(
-    () => waitingOnYou(threads(notes.value ?? [])),
-    [notes.value],
+    () => waitingOnYou(threads(noteList ?? [])),
+    [noteList],
   );
+  React.useEffect(() => {
+    if (noteList) setRoomCounts(mind.id, { notes: noteList.length });
+  }, [mind.id, noteList]);
   const [step, setStep] = React.useState(0);
   const ask = waiting[Math.min(step, waiting.length - 1)] ?? null;
   const entry = journal.value?.[0] ?? null;
@@ -60,48 +76,85 @@ export function GlanceRoom({ book, mind, goTo, reader }: RoomProps) {
       <Plate label="Waiting on you" testId="mnemos-plate-waiting">
         {notes.failed ? (
           <Quiet>{DIDNT_ANSWER}</Quiet>
-        ) : !notes.value ? null : !ask ? (
-          <Quiet>Nothing is waiting on you.</Quiet>
-        ) : (
+        ) : !notes.value ? null : (
           <>
-            <p className="luca-mnemos-clamp text-base">{ask.last.text}</p>
-            <div className="luca-mnemos-plate-foot">
-              <button
-                className="luca-mnemos-link text-sm"
-                data-testid="mnemos-answer-in-notes"
-                onClick={() => goTo("notes", ask.id)}
-                type="button"
+            {answered ? (
+              <p
+                className="luca-mnemos-sent text-sm"
+                data-testid="mnemos-glance-sent"
+                role="status"
               >
-                Answer in Notes
-              </button>
-              {waiting.length > 1 ? (
-                <span className="luca-mnemos-steps">
+                Your answer is in Notes; {wokenWords(answered.note)}.{" "}
+                <button
+                  className="luca-mnemos-link"
+                  onClick={() => goTo("notes", answered.thread)}
+                  type="button"
+                >
+                  Open it
+                </button>
+              </p>
+            ) : null}
+            {!ask ? (
+              answered ? null : (
+                <Quiet>Nothing is waiting on you.</Quiet>
+              )
+            ) : (
+              <>
+                <p className="luca-mnemos-clamp text-base">{ask.last.text}</p>
+                <WriteField
+                  key={ask.last.id}
+                  label="Your answer, in your own words"
+                  onSend={async (text) => {
+                    const note = await writes.reply(ask.last.id, text);
+                    sent.add(note);
+                    setAnswered({ thread: ask.id, note });
+                  }}
+                  sendLabel="Send"
+                  testId="mnemos-glance-answer"
+                />
+                <div className="luca-mnemos-plate-foot">
                   <button
-                    aria-label="The one before"
-                    className="luca-mnemos-step"
-                    disabled={step === 0}
-                    onClick={() => setStep((x) => Math.max(0, x - 1))}
+                    className="luca-mnemos-link text-sm"
+                    data-testid="mnemos-open-thread"
+                    onClick={() => goTo("notes", ask.id)}
                     type="button"
                   >
-                    <ChevronLeft aria-hidden />
+                    Open the thread
                   </button>
-                  <span className="text-2xs tabular-nums" aria-live="polite">
-                    {Math.min(step, waiting.length - 1) + 1} of {waiting.length}
-                  </span>
-                  <button
-                    aria-label="The next one"
-                    className="luca-mnemos-step"
-                    disabled={step >= waiting.length - 1}
-                    onClick={() =>
-                      setStep((x) => Math.min(waiting.length - 1, x + 1))
-                    }
-                    type="button"
-                  >
-                    <ChevronRight aria-hidden />
-                  </button>
-                </span>
-              ) : null}
-            </div>
+                  {waiting.length > 1 ? (
+                    <span className="luca-mnemos-steps">
+                      <button
+                        aria-label="The one before"
+                        className="luca-mnemos-step"
+                        disabled={step === 0}
+                        onClick={() => setStep((x) => Math.max(0, x - 1))}
+                        type="button"
+                      >
+                        <ChevronLeft aria-hidden />
+                      </button>
+                      <span
+                        className="text-2xs tabular-nums"
+                        aria-live="polite"
+                      >
+                        {Math.min(step, waiting.length - 1) + 1} of{" "}
+                        {waiting.length}
+                      </span>
+                      <button
+                        aria-label="The next one"
+                        className="luca-mnemos-step"
+                        disabled={step >= waiting.length - 1}
+                        onClick={() =>
+                          setStep((x) => Math.min(waiting.length - 1, x + 1))
+                        }
+                        type="button"
+                      >
+                        <ChevronRight aria-hidden />
+                      </button>
+                    </span>
+                  ) : null}
+                </div>
+              </>
+            )}
           </>
         )}
       </Plate>

@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bookOf, entryOf, memoryOf, noteOf } from "./adapt.ts";
 import {
+  bookOf,
+  entryOf,
+  memoryOf,
+  noteOf,
+  writeFailure,
+  writesOf,
+} from "./adapt.ts";
+import {
+  afterLetGo,
   countPerDay,
+  fieldState,
+  MAX_TEXT,
   dayLine,
   foundWords,
   goneQuiet,
@@ -16,6 +26,7 @@ import {
   titleOf,
   unread,
   waitingOnYou,
+  withNote,
 } from "./notebook.ts";
 
 const note = (id, at, author, text, replyTo = "", read = null) => ({
@@ -269,4 +280,140 @@ test("the one adapter: the interface's answers in the notebook's shapes", async 
   });
   assert.deepEqual(asked[1], { command: "memories", limit: 0, offset: 0 });
   await assert.rejects(() => book.notes(), /invalid_reply/);
+});
+
+test("the field: a count only near the limit, and no sending past it or empty", () => {
+  assert.deepEqual(fieldState(""), {
+    count: null,
+    over: false,
+    canSend: false,
+  });
+  assert.deepEqual(fieldState("   \n"), {
+    count: null,
+    over: false,
+    canSend: false,
+  });
+  assert.deepEqual(fieldState("Yes, keep them."), {
+    count: null,
+    over: false,
+    canSend: true,
+  });
+  assert.equal(fieldState("x".repeat(14_999)).count, null);
+  assert.deepEqual(fieldState("x".repeat(15_000)), {
+    count: "1,384 left",
+    over: false,
+    canSend: true,
+  });
+  assert.deepEqual(fieldState("x".repeat(MAX_TEXT)), {
+    count: "0 left",
+    over: false,
+    canSend: true,
+  });
+  assert.deepEqual(fieldState("x".repeat(MAX_TEXT + 2)), {
+    count: "2 over",
+    over: true,
+    canSend: false,
+  });
+  // Counted as Mnemos counts: characters, not UTF-16 halves.
+  assert.equal(fieldState("😀".repeat(MAX_TEXT)).over, false);
+});
+
+test("the thread after a send: the answer in it at once, its question read", () => {
+  const before = [
+    note("q", "2026-11-12T09:00:00Z", "agent", "Should I keep the old notes?"),
+    note("x", "2026-11-10T09:00:00Z", "agent", "Another."),
+  ];
+  const answer = note("r", "2026-11-20T10:00:00Z", "person", "Keep them.", "q");
+  const after = withNote(before, answer);
+  assert.equal(after.length, 3);
+  assert.equal(after.find((n) => n.id === "q").read, "2026-11-20T10:00:00Z");
+  assert.equal(after.find((n) => n.id === "x").read, null);
+  const thread = threads(after).find((t) => t.id === "q");
+  assert.deepEqual(
+    thread.notes.map((n) => n.id),
+    ["q", "r"],
+  );
+  assert.equal(thread.waits, false);
+  assert.equal(unread(after.find((n) => n.id === "q")), false);
+  // Kept once, even if the same answer comes back twice.
+  assert.equal(withNote(after, answer).length, 3);
+  // A note of the person's own starts its own thread.
+  const own = note("n", "2026-11-20T11:00:00Z", "person", "Morning.");
+  assert.ok(threads(withNote(after, own)).some((t) => t.id === "n"));
+});
+
+test("counts after a memory is let go: one fewer where it was, one more let go", () => {
+  const facts = { states: { active: 115, dormant: 6, archived: 3 } };
+  assert.deepEqual(afterLetGo(facts, "active").states, {
+    active: 114,
+    dormant: 6,
+    archived: 4,
+  });
+  assert.deepEqual(afterLetGo(facts, "dormant").states, {
+    active: 115,
+    dormant: 5,
+    archived: 4,
+  });
+  assert.equal(afterLetGo(facts, "archived"), facts);
+  assert.deepEqual(facts.states, { active: 115, dormant: 6, archived: 3 });
+});
+
+test("the four writes: one send each, in the notebook's shapes, failures by kind", async () => {
+  const sent = [];
+  const wireNote = {
+    id: "r",
+    kind: "reply",
+    text: "Keep them.",
+    author: "person",
+    model: null,
+    in_reply_to: "q",
+    created_at: "2026-11-20T10:00:00Z",
+    read_at: null,
+    delivered_at: null,
+  };
+  const writes = writesOf(async (write) => {
+    sent.push(write);
+    if (write.command === "reply" || write.command === "note")
+      return { kind: "note", note: wireNote };
+    if (write.command === "correct")
+      return {
+        kind: "corrected",
+        id: "new",
+        replaces: write.memory_id,
+        corrected: "2026-11-20T10:00:00Z",
+      };
+    return { kind: "forgotten", id: write.memory_id, forgotten: null };
+  });
+  assert.equal((await writes.reply("q", "Keep them.")).replyTo, "q");
+  assert.equal((await writes.note("Morning.")).author, "person");
+  assert.deepEqual(await writes.correct("m1", "Better words."), {
+    id: "new",
+    replaces: "m1",
+    corrected: "2026-11-20T10:00:00Z",
+  });
+  await writes.forget("m2");
+  assert.deepEqual(sent, [
+    { command: "reply", note_id: "q", text: "Keep them." },
+    { command: "note", text: "Morning." },
+    { command: "correct", memory_id: "m1", text: "Better words." },
+    { command: "forget", memory_id: "m2" },
+  ]);
+
+  const quiet =
+    "Nothing saved: A reply is the person's own words, and no one is in the room during one of the agent's hours.";
+  let tries = 0;
+  const refusing = writesOf(async () => {
+    tries++;
+    throw `mnemos_refused:${quiet}`;
+  });
+  await assert.rejects(
+    () => refusing.reply("q", "Hello"),
+    (failure) => failure.kind === "said" && failure.said === quiet,
+  );
+  assert.equal(tries, 1, "a refused write is never sent again by itself");
+  assert.deepEqual(writeFailure("mnemos_busy"), { kind: "busy" });
+  assert.deepEqual(writeFailure(new Error("not_shown")), {
+    kind: "failed",
+    code: "not_shown",
+  });
 });

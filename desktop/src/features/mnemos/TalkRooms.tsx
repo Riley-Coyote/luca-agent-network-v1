@@ -22,10 +22,12 @@ import {
   threads,
   titleOf,
   unread,
+  withNote,
   writtenWords,
 } from "./notebook";
 import { setRoomCounts } from "./placeStore";
 import { DIDNT_ANSWER, type RoomProps, useAddressItem } from "./roomKit";
+import { WriteField } from "./WriteField";
 
 /** How many entries the Journal lists (the notebook's whole journal, to the
  *  place's limit). */
@@ -53,6 +55,7 @@ export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
 
   return (
     <RoomFrame
+      addressed={item}
       backLabel="Journal"
       first={list[0]?.id ?? null}
       onOpenFirst={(id) => openItem(id, { replace: true })}
@@ -107,17 +110,24 @@ export function JournalRoom({ book, mind, item, openItem }: RoomProps) {
 }
 
 /**
- * Notes (WP-45, Decided 5): the notes both ways, gathered into threads by
- * what each answers; what's waiting on you first; a dot on a note of its
- * own you haven't read, by the engine's own record. Reading here marks
- * nothing read, and nothing here writes.
+ * Notes (WP-45, Decided 5; WP-47, Decided 1 and 2): first, a note of your
+ * own to leave; then the notes both ways, gathered into threads by what each
+ * answers, what's waiting on you first; a dot on a note of its own you
+ * haven't read, by the engine's own record. An opened thread ends in a field
+ * for your answer. Reading here marks nothing read; answering does, as the
+ * engine does.
  */
-export function NotesRoom({ book, mind, item, openItem }: RoomProps) {
+export function NotesRoom({ book, mind, item, openItem, writes }: RoomProps) {
   const notes = useLoad(() => book.notes(), [book]);
-  const all = React.useMemo(() => threads(notes.value ?? []), [notes.value]);
+  const sent = useSentNotes();
+  const list = React.useMemo(
+    () => sent.onto(notes.value),
+    [notes.value, sent.onto],
+  );
+  const all = React.useMemo(() => threads(list ?? []), [list]);
   React.useEffect(() => {
-    if (notes.value) setRoomCounts(mind.id, { notes: notes.value.length });
-  }, [notes.value, mind.id]);
+    if (list) setRoomCounts(mind.id, { notes: list.length });
+  }, [list, mind.id]);
   const waiting = all.filter((t) => t.waits);
   const rest = all.filter((t) => !t.waits);
   const opened = useAddressItem(
@@ -129,8 +139,8 @@ export function NotesRoom({ book, mind, item, openItem }: RoomProps) {
   );
   const thread = all.find((t) => t.id === opened) ?? null;
 
-  const rows = (list: Thread[]) =>
-    list.map((t) => (
+  const rows = (group: Thread[]) =>
+    group.map((t) => (
       <PlaceListRow
         aria-current={t.id === opened ? "true" : undefined}
         key={t.id}
@@ -160,52 +170,92 @@ export function NotesRoom({ book, mind, item, openItem }: RoomProps) {
 
   return (
     <RoomFrame
+      addressed={item}
       backLabel="Notes"
       first={(waiting[0] ?? rest[0])?.id ?? null}
       onOpenFirst={(id) => openItem(id, { replace: true })}
       openedKey={thread ? thread.id : null}
       list={
-        notes.failed ? (
-          <PlaceLine action={{ label: "Try again", run: notes.again }}>
-            {DIDNT_ANSWER}
-          </PlaceLine>
-        ) : !notes.value ? null : all.length === 0 ? (
-          <PlaceLine>
-            No notes yet. It leaves one only when it passes the room test:
-            something it would say if you walked in right now.
-          </PlaceLine>
-        ) : (
-          <>
-            {waiting.length ? (
-              <PlaceList
-                count={waiting.length}
-                label="Waiting on you"
-                testId="mnemos-notes-waiting"
-              >
-                {rows(waiting)}
-              </PlaceList>
-            ) : null}
-            {rest.length ? (
-              <PlaceList
-                count={rest.length}
-                label={waiting.length ? "Earlier" : "Notes"}
-                testId="mnemos-notes-earlier"
-              >
-                {rows(rest)}
-              </PlaceList>
-            ) : null}
-          </>
-        )
+        <>
+          {notes.value ? (
+            <div className="luca-mnemos-leave">
+              <WriteField
+                hint="It wakes with it, once, in its next session."
+                label={`Leave ${mind.name} a note`}
+                onSend={async (text) => {
+                  const note = await writes.note(text);
+                  sent.add(note);
+                  openItem(note.id);
+                }}
+                sendLabel="Leave note"
+                testId="mnemos-leave-note"
+              />
+            </div>
+          ) : null}
+          {notes.failed ? (
+            <PlaceLine action={{ label: "Try again", run: notes.again }}>
+              {DIDNT_ANSWER}
+            </PlaceLine>
+          ) : !notes.value ? null : all.length === 0 ? (
+            <PlaceLine>
+              No notes yet. It leaves one only when it passes the room test:
+              something it would say if you walked in right now.
+            </PlaceLine>
+          ) : (
+            <>
+              {waiting.length ? (
+                <PlaceList
+                  count={waiting.length}
+                  label="Waiting on you"
+                  testId="mnemos-notes-waiting"
+                >
+                  {rows(waiting)}
+                </PlaceList>
+              ) : null}
+              {rest.length ? (
+                <PlaceList
+                  count={rest.length}
+                  label={waiting.length ? "Earlier" : "Notes"}
+                  testId="mnemos-notes-earlier"
+                >
+                  {rows(rest)}
+                </PlaceList>
+              ) : null}
+            </>
+          )}
+        </>
       }
       onBack={() => openItem(null)}
       opened={
         thread ? (
-          <ThreadOpened mindName={mind.name} notes={thread.notes} />
+          <ThreadOpened
+            mindName={mind.name}
+            onAnswer={async (noteId, text) =>
+              sent.add(await writes.reply(noteId, text))
+            }
+            thread={thread}
+          />
         ) : null
       }
       testId="mnemos-notes"
     />
   );
+}
+
+/** The person's notes sent from this room, laid onto what the engine last
+ *  gave, so each is in its thread at once and kept once. */
+export function useSentNotes() {
+  const [sent, setSent] = React.useState<BookNote[]>([]);
+  const add = React.useCallback(
+    (note: BookNote) => setSent((before) => withNote(before, note)),
+    [],
+  );
+  const onto = React.useCallback(
+    (base: BookNote[] | null) =>
+      base ? sent.reduceRight((acc, note) => withNote(acc, note), base) : null,
+    [sent],
+  );
+  return { add, onto };
 }
 
 /** Whether the mind has woken with a note of yours (the notebook's own
@@ -218,23 +268,30 @@ export function wokenWords(note: Pick<BookNote, "delivered">): string {
 
 function ThreadOpened({
   mindName,
-  notes,
+  onAnswer,
+  thread,
 }: {
   mindName: string;
-  notes: BookNote[];
+  onAnswer: (noteId: string, text: string) => Promise<void>;
+  thread: Thread;
 }) {
+  // An answer answers the mind's last word here. Once you have answered,
+  // the thread waits on it, not you, so the field goes until it writes.
+  const answers = thread.last.author === "agent" ? thread.last : null;
   return (
     <article aria-label="Notes" data-testid="mnemos-thread-opened">
       <ol className="luca-mnemos-thread">
-        {notes.map((n) => (
-          <li key={n.id}>
+        {thread.notes.map((n) => (
+          <li data-note={n.id} key={n.id}>
             <p className="luca-mnemos-meta text-2xs">
               <span>{n.author === "agent" ? mindName : "You"}</span>
               <span> · {longDay(n.at)}</span>
               {n.author === "agent" && n.model ? (
                 <span> · signed {modelName(n.model)}</span>
               ) : null}
-              {n.author === "person" ? <span> · {wokenWords(n)}</span> : null}
+              {n.author === "person" ? (
+                <span data-testid="mnemos-note-woken"> · {wokenWords(n)}</span>
+              ) : null}
               {unread(n) ? (
                 <span
                   aria-label="not read yet"
@@ -247,6 +304,15 @@ function ThreadOpened({
           </li>
         ))}
       </ol>
+      {answers ? (
+        <WriteField
+          key={thread.id}
+          label="Your answer, in your own words"
+          onSend={(text) => onAnswer(answers.id, text)}
+          sendLabel="Send"
+          testId="mnemos-answer"
+        />
+      ) : null}
     </article>
   );
 }

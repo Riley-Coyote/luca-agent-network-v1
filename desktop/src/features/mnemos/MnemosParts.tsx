@@ -97,6 +97,7 @@ const SIDE_BY_SIDE = 721;
  * (the WP-43 way; mnemos-place.css measures by the room's own width).
  */
 export function RoomFrame({
+  addressed = null,
   backLabel,
   first,
   list,
@@ -106,6 +107,9 @@ export function RoomFrame({
   openedKey,
   testId,
 }: {
+  /** The item the address names, if any: while it names one that isn't
+   *  open (yet, or any more), nothing opens by itself. */
+  addressed?: string | null;
   backLabel: string;
   /** The newest item's key, once the list has it. */
   first: string | null;
@@ -131,18 +135,25 @@ export function RoomFrame({
     return () => observer.disconnect();
   }, []);
 
-  // Wide, nothing open: the newest opens by itself, once per list.
+  // Wide, nothing open: the newest opens by itself, once each time the
+  // card is left empty (a memory let go, say).
   const opener = React.useRef(onOpenFirst);
   opener.current = onOpenFirst;
   const autoFor = React.useRef<string | null>(null);
   const autoOpened = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!wide || openedKey !== null || !first || autoFor.current === first)
+    if (openedKey !== null) {
+      // Something the person opened: once it closes, the newest opens
+      // again. What opened by itself and was then refused stays closed.
+      if (openedKey !== autoFor.current) autoFor.current = null;
+      return;
+    }
+    if (!wide || addressed !== null || !first || autoFor.current === first)
       return;
     autoFor.current = first;
     autoOpened.current = first;
     opener.current(first);
-  }, [wide, openedKey, first]);
+  }, [wide, openedKey, first, addressed]);
 
   // Reading on: what the person opens takes focus, so a screen reader
   // starts there; what opened by itself leaves focus where it was. It isn't
