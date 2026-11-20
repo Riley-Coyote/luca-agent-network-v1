@@ -1,0 +1,143 @@
+{
+  "what": "Mnemos's own picture of a mind (The mind) and its memory drawings, copied unchanged.",
+  "source": {
+    "project": "Mnemos",
+    "commit": "33140b327c6a5bddb6ca27cce8002bebb36c6714",
+    "path": "mnemos/companion/page"
+  },
+  "license": "Apache-2.0",
+  "notice": "Copyright 2026 Riley Ralmuto. Licensed under the Apache License, Version 2.0 (LICENSE, beside this file); see NOTICE. The JetBrains Mono font is under the SIL Open Font License 1.1 (fonts/OFL-JetBrainsMono.txt).",
+  "patches": [],
+  "leftOut": {
+    "files": [
+      "fonts/inter-latin-wght-normal.woff2",
+      "fonts/inter-latin-ext-wght-normal.woff2",
+      "fonts/inter-tight-latin-wght-normal.woff2",
+      "fonts/inter-tight-latin-ext-wght-normal.woff2",
+      "fonts/newsreader-latin-opsz-normal.woff2",
+      "fonts/newsreader-latin-ext-opsz-normal.woff2",
+      "fonts/newsreader-latin-opsz-italic.woff2",
+      "fonts/newsreader-latin-ext-opsz-italic.woff2",
+      "fonts/silkscreen-400-normal.woff2"
+    ],
+    "why": "Faces for the page's own words; the place shows none of the page's words, so none is asked for."
+  },
+  "files": [
+    {
+      "path": "mind/index.html",
+      "bytes": 27145,
+      "sha256": "ad588257560861523f42348d1e07c50fd2abf00243679f302094bdbc1acf2b25"
+    },
+    {
+      "path": "mind/mind.js",
+      "bytes": 102191,
+      "sha256": "22ac48385f233cd150856197acc6d2d8ac5bb26a83830c117038bd094798a754"
+    },
+    {
+      "path": "mind/build.js",
+      "bytes": 20866,
+      "sha256": "f2b5c2cc6e3477dc1d58b7c1520e911e44a3b79f652cf622cab7f38c21660c61"
+    },
+    {
+      "path": "mind/keep.js",
+      "bytes": 884,
+      "sha256": "1a4f1da7295e1996e85ec44e5d981febe272557c5928a0bc1ef8b8a4c7ba5a8f"
+    },
+    {
+      "path": "engine/anatomy.js",
+      "bytes": 14276,
+      "sha256": "72800690e7fe0a3461f16024d5d514eaafb0aa85ec07e23c402fbb5af367231c"
+    },
+    {
+      "path": "engine/gl.js",
+      "bytes": 6298,
+      "sha256": "a217e64591a0b9aca2f8b09ce880fdfdf168fdb7691cb1db575e644b079f7e6d"
+    },
+    {
+      "path": "engine/glyphs.js",
+      "bytes": 7645,
+      "sha256": "69b4e98f3843698fc91f168c395109135ef971b56a006958fc832489783151a1"
+    },
+    {
+      "path": "engine/lens.js",
+      "bytes": 2678,
+      "sha256": "9ae0cb7f7c782bbf767a9e5a00553bf4145b4c274d09b302849f38bac462f43a"
+    },
+    {
+      "path": "engine/lens.worker.js",
+      "bytes": 358,
+      "sha256": "ed3c88da26c40ed54e8812493f2d09cd18bbc982ba8e54155d074f7f298577ab"
+    },
+    {
+      "path": "engine/motion.js",
+      "bytes": 6369,
+      "sha256": "a6735e8ff586f47db592064056988f6baa4cf8f9134ae9f9cb7fbed0f4543733"
+    },
+    {
+      "path": "engine/post.js",
+      "bytes": 6516,
+      "sha256": "116107bc1d4b93977bc75a91a14de5b3f11de47d3c7d6f9bda707140e706dfeb"
+    },
+    {
+      "path": "engine/tissue.js",
+      "bytes": 20552,
+      "sha256": "8f288d9437ccc9550f4a00ca8d0395d3b92d51e34e1543f36b65f9aba1852591"
+    },
+    {
+      "path": "shared/fonts.css",
+      "bytes": 3945,
+      "sha256": "cff6b0d36bfc21d77ceda3019e9506ace081d9b58ea6cb13ae30caedc2bb1708"
+    },
+    {
+      "path": "shared/regions.js",
+      "bytes": 5775,
+      "sha256": "ad11eb041ea3ae7c5ea907c5756e52804e9b81d9f4eea072d838cf9b5b50c796"
+    },
+    {
+      "path": "shared/room.css",
+      "bytes": 29790,
+      "sha256": "a5fca9251973e12934568b4c526233406da1371265cb19b8de9ba0bcd18dfb88"
+    },
+    {
+      "path": "shared/room.js",
+      "bytes": 64879,
+      "sha256": "d399f684f74df824c9ec135e0d0b83794c513d9a0522e158805623ddfb4acf45"
+    },
+    {
+      "path": "shared/specimens.js",
+      "bytes": 7609,
+      "sha256": "970a8d141777fea392afc0c020a672f8e85a0cb1db3b88c638e2f133186d3c36"
+    },
+    {
+      "path": "shared/tell.js",
+      "bytes": 2717,
+      "sha256": "70799539d756c981cfd90d1dfa5777a621e6c87e4bfb991db5caaa0aca9670fe"
+    },
+    {
+      "path": "shared/words.js",
+      "bytes": 11591,
+      "sha256": "1d36037b97f5a91bb2b82ef7bae18992ba8a376fc951673a2f417ed0939852ad"
+    },
+    {
+      "path": "shared/herbarium/figure.js",
+      "bytes": 8382,
+      "sha256": "1dd651eee1654460ccc5fde4ea6bc0751f934b653739ba17718f77fe8ca82e7f"
+    },
+    {
+      "path": "shared/herbarium/specimen.js",
+      "bytes": 17858,
+      "sha256": "a2eb77b0cbea6caec4f37299bc8d59b3cf10368ebd09c87d1476acc301056e4c"
+    },
+    {
+      "path": "fonts/jetbrains-mono-nl.woff",
+      "bytes": 53204,
+      "sha256": "bb82ce629311d27ffefa841c21f5cd1bacbeea91d142ee9d934659cc55acdea4"
+    },
+    {
+      "path": "fonts/OFL-JetBrainsMono.txt",
+      "bytes": 4398,
+      "sha256": "102a0db84dc6b456966d59a520c4c223721b65d1094c080420fb56fbf4dce273"
+    }
+  ],
+  "totalBytes": 425926
+}
