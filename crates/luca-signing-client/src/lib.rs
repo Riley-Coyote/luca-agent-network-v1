@@ -115,6 +115,15 @@ mod unix {
             &self.resident_pubkey
         }
 
+        /// Whether this session is closed for good, so that no later request
+        /// can be served and only a new session will do.
+        ///
+        /// `None` while a request is in flight: the session is held closed for
+        /// exactly that long, and the answer is not known until it ends.
+        pub fn is_closed_for_good(&self) -> Option<bool> {
+            self.state.try_lock().ok().map(|state| state.closed)
+        }
+
         /// Request one policy-bound NIP-42 or NIP-98 authentication event.
         pub async fn relay_auth(
             &self,
@@ -684,6 +693,44 @@ mod unix {
         }
 
         #[tokio::test]
+        async fn signing_vectors_closed_for_good_is_reported_only_once_it_is_final() {
+            let (client, mut server, _epoch, resident, _source) = fixture_client();
+            assert_eq!(client.is_closed_for_good(), Some(false));
+
+            let call_client = client.clone();
+            let call_resident = resident.clone();
+            let call = tokio::spawn(async move {
+                call_client
+                    .relay_auth(relay_request(&call_resident), NOW_MS)
+                    .await
+            });
+            let request: SigningFrameV1<RelayAuthSignRequestV1> = read_request(&mut server).await;
+            // In flight: held closed, but not yet for good.
+            assert_eq!(client.is_closed_for_good(), None);
+            write_response(
+                &mut server,
+                &request,
+                RelayAuthSignResultV1::Denied {
+                    code: opaque("answered"),
+                },
+            )
+            .await;
+            call.await.expect("call task").expect("answered exchange");
+            assert_eq!(client.is_closed_for_good(), Some(false));
+
+            let deadline = SafeU53::new(NOW_MS).expect("valid exact deadline");
+            client
+                .call_with_deadline::<_, RelayAuthSignResultV1>(
+                    relay_request(&resident),
+                    NOW_MS,
+                    deadline,
+                )
+                .await
+                .expect_err("zero-duration deadline must fail closed");
+            assert_eq!(client.is_closed_for_good(), Some(true));
+        }
+
+        #[tokio::test]
         async fn signing_vectors_resident_mismatch_never_uses_channel() {
             let (client, _server, _epoch, _resident, _source) = fixture_client();
             let other = hex('3');
@@ -707,6 +754,7 @@ mod unix {
             let _: SigningFrameV1<RelayAuthSignRequestV1> = read_request(&mut server).await;
             call.abort();
             let _ = call.await;
+            assert_eq!(client.is_closed_for_good(), Some(true));
 
             let error = client
                 .relay_auth(relay_request(&resident), NOW_MS)
@@ -836,6 +884,11 @@ mod unsupported {
         /// Return the resident public identity bound to this channel.
         pub fn resident_pubkey(&self) -> &Hex64 {
             &self.resident_pubkey
+        }
+
+        /// No request can ever be served on an unsupported platform.
+        pub fn is_closed_for_good(&self) -> Option<bool> {
+            Some(true)
         }
 
         /// Reject relay authentication on unsupported platforms.

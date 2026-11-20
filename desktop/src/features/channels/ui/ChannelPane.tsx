@@ -1,9 +1,12 @@
 import { useConversationActivityTraces } from "@/features/messages/activity/useActivityTrace";
 import { projectActivityTraceMessages } from "@/features/messages/activity/activityTraceProjection";
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Hash, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { managedAgentsQueryKey } from "@/features/agents/hooks";
+import { listManagedAgents } from "@/shared/api/tauri";
 import { useArtifactReceipts } from "@/features/artifacts/hooks";
 import { ArtifactReceiptChip } from "@/features/artifacts/ui/ArtifactReceiptChip";
 import { managedPresentationUiKey } from "@/features/messages/managedPresentationTypes";
@@ -585,6 +588,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     [activeChannel, contextChangesDisabled, projectContext],
   );
   const managedResponseSlots = useManagedResponseSlots(activeChannelId);
+  const queryClient = useQueryClient();
   const handleRetryResident = React.useCallback(
     async ({ residentPubkey, uiKey }: ActivityShelfRetryTarget) => {
       if (!activeChannelId) return;
@@ -599,6 +603,16 @@ export const ChannelPane = React.memo(function ChannelPane({
         return;
       }
       try {
+        // A resident whose reply could not be posted may have stopped itself
+        // since the list was last read. Read it fresh, so this send wakes the
+        // resident instead of speaking to nobody.
+        await queryClient
+          .fetchQuery({
+            queryKey: managedAgentsQueryKey,
+            queryFn: listManagedAgents,
+            staleTime: 0,
+          })
+          .catch(() => undefined);
         await handleSendMessage(
           retry.content,
           [retry.residentPubkey],
@@ -615,7 +629,7 @@ export const ChannelPane = React.memo(function ChannelPane({
         );
       }
     },
-    [activeChannelId, currentPubkey, handleSendMessage, messages],
+    [activeChannelId, currentPubkey, handleSendMessage, messages, queryClient],
   );
   const handleRetryRuntimeTaskSynthesis = React.useCallback(
     async (task: RuntimeTaskProjection) => {

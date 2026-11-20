@@ -2103,6 +2103,30 @@ async fn tokio_main() -> Result<()> {
         });
     }
 
+    // A managed resident whose signing channel has closed can neither reach
+    // the relay nor post a reply, and the channel never reopens: every later
+    // turn would spend a model call and then fail to post. Stop instead. The
+    // app then shows the resident as stopped and starts a fresh one, on a
+    // fresh channel, the next time its owner writes to it.
+    if let config::IdentityConfig::Managed { broker, .. } = &config.identity {
+        const WATCH_EVERY: Duration = Duration::from_millis(250);
+        let broker = Arc::clone(broker);
+        let tx = shutdown_tx.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(WATCH_EVERY);
+            loop {
+                tick.tick().await;
+                if broker.is_closed_for_good() == Some(true) {
+                    tracing::error!(
+                        "signing channel to the app is closed for good; stopping so the next message starts a fresh session"
+                    );
+                    let _ = tx.send(());
+                    return;
+                }
+            }
+        });
+    }
+
     // Track the newest membership notification timestamp per channel.
     // On reconnect the relay replays events newest-first, so the first event
     // per channel is authoritative. Any later event with ts < newest is stale.
