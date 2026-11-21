@@ -24,10 +24,12 @@ pub(crate) fn is_restart_request(code: Option<i32>) -> bool {
 ///   about to end either way, so one list wins over a special case.
 /// - It discarded a managed-agent stop failure silently. Both doors now log it.
 ///
-/// The last step, `local_relay::stop`, never waits on a relay that is still
-/// starting (on unix): that relay carries this app's process id and stops
-/// itself within about a second of the app going, so neither door has to sit
-/// through a start of up to 45 s.
+/// The last step is `local_relay::stop_for_quit`, not `local_relay::stop`: on
+/// unix it never waits on a relay that is still starting, so neither door sits
+/// through a start of up to 45 s. That is safe only here, because the app is
+/// about to be gone and the relay, which carries this app's process id, stops
+/// itself within about a second of that. Callers while the app lives keep
+/// `stop`, which waits.
 ///
 /// Left in `lib.rs`'s run loop, outside this list: `managed_permission::cancel_all`
 /// and the clipboard release. Both only touch state inside this process, which
@@ -51,7 +53,7 @@ pub(crate) fn shut_down_app(app: &tauri::AppHandle, shutdown_done: &std::sync::a
         shutdown_mesh_runtime(app);
         // WP-LOCAL1: the bundled single-node relay is our child. Stop it with
         // the app so a relaunch never inherits a stale loopback listener.
-        crate::local_relay::stop(&app.state::<crate::local_relay::RuntimeState>());
+        crate::local_relay::stop_for_quit(&app.state::<crate::local_relay::RuntimeState>());
     }
 }
 
