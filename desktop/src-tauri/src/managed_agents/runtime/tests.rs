@@ -1504,3 +1504,11 @@ fn agent_whose_owner_pid_was_recycled_by_a_non_desktop_is_reapable() {
         false
     ));
 }
+
+#[test]
+fn owner_pid_stamp_keeps_the_name_the_runner_reads() {
+    // buzz-acp reads this variable by this exact name (its `app_watch`
+    // module) to leave when the app that started it is gone. It cannot
+    // import this constant, so a rename here would silently turn that off.
+    assert_eq!(super::DESKTOP_OWNER_PID_ENV, "BUZZ_MANAGED_DESKTOP_PID");
+}
