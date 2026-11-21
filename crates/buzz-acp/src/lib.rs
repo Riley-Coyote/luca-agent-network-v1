@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 mod acp;
+mod app_watch;
 mod artifact_mcp;
 mod artifact_turn_gate;
 mod assay_runner;
@@ -1506,6 +1507,9 @@ async fn tokio_main() -> Result<()> {
     }
 
     tracing::info!("buzz-acp starting: {}", config.summary());
+    // Decided now, before any agent exists: whether this runner watches the
+    // app that started it (see app_watch).
+    let app_watch = app_watch::AppWatch::at_start();
 
     // Read the resident's inherited tools before any agent process exists. A
     // resident linked to a Mnemos mind remembers there alone: Claude Code's own
@@ -2102,6 +2106,9 @@ async fn tokio_main() -> Result<()> {
             let _ = tx.send(());
         });
     }
+
+    // The app that started this runner is gone (a crash or a force quit).
+    app_watch.spawn(shutdown_tx.clone());
 
     // A managed resident whose signing channel has closed can neither reach
     // the relay nor post a reply, and the channel never reopens: every later
@@ -3103,7 +3110,8 @@ async fn tokio_main() -> Result<()> {
     tracing::info!("shutdown: waiting for in-flight prompts");
     // 30 s is generous for in-flight prompts to be cancelled; using
     // max_turn_duration here would cause Ctrl+C to hang for up to an hour.
-    let grace = Duration::from_secs(30);
+    // None at all once the app that started this runner is gone (app_watch).
+    let grace = app_watch.shutdown_grace(Duration::from_secs(30));
     // Best-effort drain of both join_set and result_rx during the grace period.
     // Tasks that finish normally send their OwnedAgent through result_rx — we
     // explicitly shut them down here to reap child processes. If the grace
