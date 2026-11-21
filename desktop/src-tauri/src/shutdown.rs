@@ -24,6 +24,11 @@ pub(crate) fn is_restart_request(code: Option<i32>) -> bool {
 ///   about to end either way, so one list wins over a special case.
 /// - It discarded a managed-agent stop failure silently. Both doors now log it.
 ///
+/// The last step, `local_relay::stop`, never waits on a relay that is still
+/// starting (on unix): that relay carries this app's process id and stops
+/// itself within about a second of the app going, so neither door has to sit
+/// through a start of up to 45 s.
+///
 /// Left in `lib.rs`'s run loop, outside this list: `managed_permission::cancel_all`
 /// and the clipboard release. Both only touch state inside this process, which
 /// a signal exit ends anyway, so the signal door loses nothing without them.

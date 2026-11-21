@@ -203,8 +203,31 @@ pub(crate) fn ensure_started(
     Ok(url)
 }
 
+/// Stop the supervised relay, if one is running.
+///
+/// On unix this never waits for the state lock. `ensure_started` holds it for
+/// a whole start, up to 15 s per try and three tries, and a quit must not sit
+/// through that. Skipping is safe because every relay this app starts carries
+/// the app's own process id (`BUZZ_PARENT_PID`) and stops itself within about
+/// a second of the app going. Elsewhere there is no such watch, so `stop`
+/// waits for the lock. A poisoned lock is skipped, as it always was.
 pub(crate) fn stop(runtime: &RuntimeState) {
-    if let Ok(mut runtime) = runtime.lock() {
+    #[cfg(unix)]
+    let guard = match runtime.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            luca_log!(
+                info,
+                "buzz-desktop: local relay is still starting; it will stop itself once the app is gone"
+            );
+            None
+        }
+        Err(std::sync::TryLockError::Poisoned(_)) => None,
+    };
+    #[cfg(not(unix))]
+    let guard = runtime.lock().ok();
+
+    if let Some(mut runtime) = guard {
         if let Some(mut runtime) = runtime.take() {
             runtime.stop();
         }
@@ -505,6 +528,71 @@ mod tests {
         assert!(!other_owner);
         assert!(!other_endpoint);
         assert!(!runtime.owns_live_media_route("current-owner", "http://127.0.0.1:4317"));
+    }
+
+    #[cfg(unix)]
+    fn sleeping_runtime() -> super::LocalRelayRuntime {
+        super::LocalRelayRuntime {
+            child: Command::new("/bin/sleep").arg("30").spawn().unwrap(),
+            url: "ws://127.0.0.1:4317".to_string(),
+            owner_pubkey: "owner".to_string(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_returns_at_once_while_a_start_holds_the_state() {
+        let state: Arc<super::RuntimeState> = Arc::new(Mutex::new(Some(sleeping_runtime())));
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let holder_state = Arc::clone(&state);
+        // Stands in for `ensure_started`, which holds the lock for a whole start.
+        let holder = std::thread::spawn(move || {
+            let _guard = holder_state.lock().unwrap();
+            locked_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+        });
+        locked_rx.recv().unwrap();
+
+        let started = std::time::Instant::now();
+        super::stop(&state);
+        let waited = started.elapsed();
+
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        assert!(
+            waited < std::time::Duration::from_secs(1),
+            "stop waited {waited:?} on a held lock"
+        );
+        let mut guard = state.lock().unwrap();
+        let runtime = guard
+            .as_mut()
+            .expect("stop must leave the held state alone");
+        assert!(
+            runtime.is_running().unwrap(),
+            "the relay must be left running"
+        );
+        runtime.child.kill().unwrap();
+        runtime.child.wait().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_stops_a_running_relay_when_the_state_is_free() {
+        let runtime = sleeping_runtime();
+        let pid = runtime.child.id();
+        let state: super::RuntimeState = Mutex::new(Some(runtime));
+
+        super::stop(&state);
+
+        assert!(state.lock().unwrap().is_none(), "stop must take the relay");
+        let still_there = Command::new("/bin/ps")
+            .args(["-p", &pid.to_string()])
+            .stdout(Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        assert!(!still_there, "the relay child {pid} must be gone");
     }
 
     #[test]
