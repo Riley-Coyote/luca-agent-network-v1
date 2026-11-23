@@ -1607,7 +1607,6 @@ pub fn run() {
         }
         RunEvent::Exit => {
             crate::luca::managed_permission::cancel_all();
-            crate::commands::shut_down_mnemos_place();
             shut_down_app(app_handle, &run_shutdown_done);
             app_handle.state::<ClipboardState>().release();
 

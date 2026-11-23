@@ -51,6 +51,10 @@ pub(crate) fn shut_down_app(app: &tauri::AppHandle, shutdown_done: &std::sync::a
         }
         #[cfg(feature = "mesh-llm")]
         shutdown_mesh_runtime(app);
+        // The Mnemos place's own children: the open mind's `mnemos interface`
+        // and any `mnemos log` page it started. They are processes, so they
+        // belong on this list, where a signal ends them too.
+        crate::commands::shut_down_mnemos_place();
         // WP-LOCAL1: the bundled single-node relay is our child. Stop it with
         // the app so a relaunch never inherits a stale loopback listener.
         crate::local_relay::stop_for_quit(&app.state::<crate::local_relay::RuntimeState>());
