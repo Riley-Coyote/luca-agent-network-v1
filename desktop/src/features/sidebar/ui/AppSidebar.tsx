@@ -50,13 +50,10 @@ import {
 import { MoreUnreadButton } from "@/features/sidebar/ui/MoreUnreadButton";
 import { RailGlass } from "@/features/sidebar/ui/RailGlass";
 import {
-  assignRoomProject,
-  createEmptyRoomProject,
   useRoomProjectCatalog,
   useRoomProjects,
 } from "@/features/channels/lib/roomProjects";
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
-import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
 import {
   PENDING_NATIVE_IMPORT_PREFIX,
   usePendingNativeImports,
@@ -65,8 +62,7 @@ import { cn } from "@/shared/lib/cn";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
 import { buildChatListItems, ChatList } from "@/features/sidebar/ui/ChatList";
 import { CreateRoomProjectDialog } from "@/features/projects/ui/CreateRoomProjectDialog";
-import { runProjectCreationTransaction } from "@/features/projects/lib/projectCreationTransaction";
-import { addChannelMembers } from "@/shared/api/tauri";
+import { useRoomProjectCreation } from "@/features/projects/useRoomProjectCreation";
 import type { RuntimeConnectionStatusV1 } from "@/shared/api/tauriMcp";
 import { RuntimeRailSection } from "@/features/runtime-sessions/RuntimeRailSection";
 import { RuntimeSessionsPanel } from "@/features/runtime-sessions/RuntimeSessionsPanel";
@@ -732,6 +728,8 @@ export function AppSidebar({
     () => setIsCreateProjectOpen(true),
     [],
   );
+  // The rail's +: the same creation a resident's project card runs.
+  const createProject = useRoomProjectCreation();
   const createAgentFromRail = useStableCallback(() => onCreateAgent());
   const openingAgent = React.useRef(new Set<string>());
   const openAgentFromRail = useStableCallback((pubkey: string) => {
@@ -1294,40 +1292,7 @@ export function AppSidebar({
       />
       <CreateRoomProjectDialog
         isCreating={isCreatingChannel}
-        onCreate={async (draft, checkpoint) => {
-          if (!currentPubkey)
-            throw new Error("Your identity is still loading.");
-          // The rail's "+" makes a device-local RoomProject — a named grouping
-          // of rooms. Never useCreateProject/kind 30617: on a local relay that
-          // would publish a ghost git repository nothing can serve.
-          return runProjectCreationTransaction(draft, checkpoint, {
-            createProject: ({ label, sourceIds }) =>
-              createEmptyRoomProject(currentPubkey, activeCommunity?.relayUrl, {
-                label,
-                sourceIds,
-              }),
-            createRoom: (input, onCreated) =>
-              onCreateChannel(
-                {
-                  ...input,
-                  visibility: "private",
-                },
-                onCreated,
-              ),
-            assignRoom: (channelId, projectId) =>
-              assignRoomProject(
-                currentPubkey,
-                activeCommunity?.relayUrl,
-                channelId,
-                projectId,
-              ),
-            addResidents: (channelId, pubkeys) =>
-              addChannelMembers({ channelId, pubkeys, role: "bot" }),
-            requestNewResident: ({ channelId, channelName }) => {
-              requestOpenCreateAgent({ channelId, channelName });
-            },
-          });
-        }}
+        onCreate={createProject}
         onOpenChange={setIsCreateProjectOpen}
         open={isCreateProjectOpen}
         residentOptions={projectResidentOptions}

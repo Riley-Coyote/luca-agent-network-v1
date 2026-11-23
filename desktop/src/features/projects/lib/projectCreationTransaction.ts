@@ -8,6 +8,8 @@ export type ProjectCreationDraft = {
   roomName: string | null;
   sourceIds: string[];
   residents: ProjectResidentSelection;
+  /** The first chat's description; "<label> project room" when omitted. */
+  roomDescription?: string;
 };
 
 export type ProjectCreationCheckpoint = {
@@ -218,7 +220,8 @@ export async function runProjectCreationTransaction(
     await operations.createRoom(
       {
         name: draft.roomName,
-        description: `${draft.label} project room`,
+        description:
+          draft.roomDescription?.trim() || `${draft.label} project room`,
       },
       async (channelId) => {
         checkpoint.channelId = channelId;

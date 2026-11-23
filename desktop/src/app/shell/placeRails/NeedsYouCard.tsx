@@ -28,6 +28,11 @@ import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { ProposalAsk } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useRoomProjects } from "@/features/channels/lib/roomProjects";
+import {
+  ProjectProposalAsk,
+  ProjectProposalSettled,
+} from "@/features/projects/ui/ProjectProposalAsk";
+import { useSettledProjectRequests } from "@/features/projects/useProjectProposals";
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
   applyExchangeSnapshot,
@@ -42,6 +47,7 @@ import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { PendingManagedInput } from "@/shared/api/managedInputs";
 import { resolveExchange } from "@/shared/api/exchanges";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import type { ProjectProposalV1 } from "@/shared/api/tauriProjectProposals";
 import type { RuntimeTaskProposal } from "@/shared/api/tauriRuntimeTasks";
 import type { PendingManagedPermission } from "@/shared/api/types";
 import { EXCHANGE_BUCKET_CEILING } from "@/shared/constants/kinds";
@@ -60,6 +66,7 @@ type Item =
   | (NeedsYouEntry<PendingManagedPermission> & { kind: "permission" })
   | (NeedsYouEntry<PendingManagedInput> & { kind: "question" })
   | (NeedsYouEntry<RuntimeTaskProposal> & { kind: "proposal" })
+  | (NeedsYouEntry<ProjectProposalV1> & { kind: "project" })
   | (NeedsYouEntry<ExchangeEntry> & { kind: "exchange" });
 
 function ms(iso: string) {
@@ -115,6 +122,16 @@ export function NeedsYouCard() {
           value: proposal,
         }),
       ),
+      ...needs.projects.map(
+        (proposal): Item => ({
+          askedBy: normalizePubkey(proposal.residentPubkey),
+          at: ms(proposal.createdAt),
+          conversationId: proposal.conversationId,
+          key: `project:${proposal.requestId}`,
+          kind: "project",
+          value: proposal,
+        }),
+      ),
       ...needs.paused.map((entry): Item => {
         // When it paused: its latest turn, as the side conversations know it.
         const known =
@@ -141,6 +158,16 @@ export function NeedsYouCard() {
   const keys = React.useMemo(() => items.map((item) => item.key), [items]);
   const { listRef, onFocus } = useAskFocusHandoff(keys, emptyRef);
 
+  // A project answered here leaves its line here, until it is closed or the
+  // owner leaves the page; it no longer waits, so it is never counted.
+  const [answeredHere, setAnsweredHere] = React.useState<readonly string[]>([]);
+  const onAnswered = React.useCallback(
+    (requestId: string) =>
+      setAnsweredHere((current) => [...current, requestId]),
+    [],
+  );
+  const settled = useSettledProjectRequests(answeredHere);
+
   // The head's one line (WP-33, Decided 1): how many wait, and from whom,
   // in the order they ask.
   const askers = [...new Set(items.map((item) => side.nameOf(item.askedBy)))];
@@ -157,6 +184,18 @@ export function NeedsYouCard() {
         state={state}
         title="Needs you"
       />
+      {settled.lines.length > 0 ? (
+        <div className="luca-project-settled-lines">
+          {settled.lines.map((line) => (
+            <ProjectProposalSettled
+              key={line.requestId}
+              line={line}
+              onDismiss={() => settled.dismiss(line.requestId)}
+              onPage
+            />
+          ))}
+        </div>
+      ) : null}
       {items.length === 0 ? (
         <p
           className="luca-place-page-line"
@@ -179,6 +218,7 @@ export function NeedsYouCard() {
                 item={item}
                 key={item.key}
                 nameOf={side.nameOf}
+                onAnswered={onAnswered}
                 onOpen={() =>
                   void goChannel(
                     item.conversationId,
@@ -203,12 +243,15 @@ export function NeedsYouCard() {
 function NeedsYouItem({
   item,
   nameOf,
+  onAnswered,
   onOpen,
   projectSourceIds,
   roomOf,
 }: {
   item: Item;
   nameOf: (pubkey: string) => string;
+  /** A project ask answered here, to keep its line on the page. */
+  onAnswered: (requestId: string) => void;
   onOpen: () => void;
   projectSourceIds: string[];
   roomOf: (conversationId: string) => string;
@@ -250,6 +293,16 @@ function NeedsYouItem({
         proposal={item.value}
         summary={where(`${who} asks`)}
         who={who}
+      />
+    );
+  if (item.kind === "project")
+    return (
+      <ProjectProposalAsk
+        common={common}
+        nameOf={nameOf}
+        onAnswered={onAnswered}
+        proposal={item.value}
+        summary={where(`${who} asks`)}
       />
     );
   const names = namesAsList(item.value.record.members.map(nameOf));

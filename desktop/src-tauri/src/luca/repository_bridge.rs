@@ -475,6 +475,7 @@ fn handle_frame(
         frame.operation,
         RepositoryToolOperationV1::ProposeResident
             | RepositoryToolOperationV1::ProposeRepositoryConnection
+            | RepositoryToolOperationV1::ProposeProject
     ) {
         let mut probe = caller
             .try_clone()
@@ -491,7 +492,9 @@ fn handle_frame(
             active: Arc::clone(active),
         };
         let cancelled = move || crate::luca::resident_proposals::caller_disconnected(&mut probe);
-        let result = if frame.operation == RepositoryToolOperationV1::ProposeRepositoryConnection {
+        let result = if frame.operation == RepositoryToolOperationV1::ProposeProject {
+            crate::luca::project_proposals::propose_project(app, scope, frame.arguments, cancelled)
+        } else if frame.operation == RepositoryToolOperationV1::ProposeRepositoryConnection {
             crate::luca::repository_connection_proposals::propose_repository_connection(
                 app,
                 scope,

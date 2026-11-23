@@ -163,6 +163,14 @@ pub(crate) const LUCA_INSTRUCTIONS_BEFORE_DIRECT_ACCESS: &str = include_str!(
 pub(crate) const LUCA_AGENTS_BEFORE_DIRECT_ACCESS: &str =
     include_str!("../../resident-packs/luca/archive/AGENTS-2026-10-04-before-direct-access.md");
 
+/// Exact stock operating guidance before residents asked for projects with
+/// `propose_project` (WP-44). Only unchanged copies may be refreshed.
+pub(crate) const LUCA_INSTRUCTIONS_BEFORE_PROJECTS: &str = include_str!(
+    "../../resident-packs/luca/archive/instructions-2026-11-20-before-projects.md"
+);
+pub(crate) const LUCA_AGENTS_BEFORE_PROJECTS: &str =
+    include_str!("../../resident-packs/luca/archive/AGENTS-2026-11-20-before-projects.md");
+
 pub(crate) const FIFTY_2026_09_13: FoundingEdition = FoundingEdition {
     soul: include_str!("../../resident-packs/fifty/archive/soul-2026-09-13.md"),
     convictions: include_str!("../../resident-packs/fifty/archive/convictions-2026-09-13.md"),

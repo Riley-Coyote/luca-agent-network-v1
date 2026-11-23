@@ -1600,6 +1600,7 @@ pub(crate) fn plain_tool_label(update: &serde_json::Value) -> Option<&'static st
         ("luca-repositories", "propose_runtime_task") => Some("Preparing a delegated task"),
         ("luca-repositories", "get_runtime_task" | "list_runtime_tasks") => Some("Checking task progress"),
         ("luca-repositories", "propose_resident") => Some("Preparing an agent"),
+        ("luca-repositories", "propose_project") => Some("Asking to start a project"),
         (server, "list_inbox" | "read_inbox" | "inbox_list" | "inbox_read")
             if server == "luca-communications" || server.starts_with("luca-communications-") =>
             Some("Reading messages"),
@@ -2336,6 +2337,7 @@ mod tests {
             ("ToolSearch", "Finding the right tool"),
             ("mcp__luca-repositories__list_resident_runtimes", "Checking available agents"),
             ("mcp__luca-repositories__propose_runtime_task", "Preparing a delegated task"),
+            ("mcp__luca-repositories__propose_project", "Asking to start a project"),
             ("mcp__third-party__todo", "Using a tool"),
             ("mcp__unknown__tool PRIVATE_PAYLOAD", "Using a tool"),
         ] {

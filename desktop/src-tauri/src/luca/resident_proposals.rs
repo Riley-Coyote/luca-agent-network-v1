@@ -240,7 +240,8 @@ fn verify_local_origin(app: &AppHandle, scope: &ResidentProposalScope) -> Result
     validate_origin_snapshot(scope, &owner, &owned, &binding, &members)
 }
 
-fn current_conversation_event(
+/// Read one verified, current conversation record of `kind` (39000 or 39002).
+pub(crate) fn current_conversation_event(
     app: &AppHandle,
     conversation: &OpaqueId,
     kind: u16,
@@ -284,7 +285,8 @@ fn current_conversation_event(
     Ok(event)
 }
 
-fn current_members(app: &AppHandle, conversation: &OpaqueId) -> Result<BTreeSet<Hex64>, String> {
+/// The conversation's current members, from its verified membership record.
+pub(crate) fn current_members(app: &AppHandle, conversation: &OpaqueId) -> Result<BTreeSet<Hex64>, String> {
     let event = current_conversation_event(app, conversation, 39002)?;
     let response = crate::nostr_convert::channel_members_from_event(&event)?;
     response

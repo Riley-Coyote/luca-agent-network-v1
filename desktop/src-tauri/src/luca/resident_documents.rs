@@ -1258,14 +1258,20 @@ fn founding_slots(persona_id: &str) -> Vec<FoundingSlot> {
                     kind: DocumentKind::Instructions,
                 },
                 current: pack.instructions,
-                previous: vec![resident_packs::LUCA_INSTRUCTIONS_BEFORE_DIRECT_ACCESS],
+                previous: vec![
+                    resident_packs::LUCA_INSTRUCTIONS_BEFORE_DIRECT_ACCESS,
+                    resident_packs::LUCA_INSTRUCTIONS_BEFORE_PROJECTS,
+                ],
             },
             FoundingSlot {
                 target: DocumentTarget::RelPath {
                     rel_path: "AGENTS.md".to_owned(),
                 },
                 current: pack.agents,
-                previous: vec![resident_packs::LUCA_AGENTS_BEFORE_DIRECT_ACCESS],
+                previous: vec![
+                    resident_packs::LUCA_AGENTS_BEFORE_DIRECT_ACCESS,
+                    resident_packs::LUCA_AGENTS_BEFORE_PROJECTS,
+                ],
             },
         ]);
     }

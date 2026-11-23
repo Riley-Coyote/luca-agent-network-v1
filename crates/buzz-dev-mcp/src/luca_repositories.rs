@@ -398,6 +398,42 @@ impl ProposeRepositoryConnectionParams {
     }
 }
 
+/// Most other residents one project request may bring into its first chat.
+const MAX_PROJECT_RESIDENTS: usize = 8;
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProposeProjectParams {
+    /// The project's name in the owner's words: one line, at most 120 bytes.
+    name: String,
+    /// One short sentence saying what the project is for: one line, at most 200 bytes.
+    purpose: String,
+    /// Optional exact keys, from polyphonic_status, of this owner's other residents
+    /// who should join its first chat. At most 8. You always join; omit yourself.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    include_residents: Vec<String>,
+}
+
+impl ProposeProjectParams {
+    fn validate(&self) -> Result<(), ErrorData> {
+        let mut seen = std::collections::BTreeSet::new();
+        if !is_bounded_line(&self.name, 120)
+            || !is_bounded_line(&self.purpose, 200)
+            || self.include_residents.len() > MAX_PROJECT_RESIDENTS
+            || !self
+                .include_residents
+                .iter()
+                .all(|key| is_event_id(key) && seen.insert(key.as_str()))
+        {
+            return Err(ErrorData::invalid_params(
+                "Give the project a one-line name (120 bytes at most), one short purpose (200 at most), and at most 8 distinct exact resident keys",
+                None,
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProposeResidentParams {
@@ -774,6 +810,20 @@ impl LucaRepositoriesMcp {
     }
 
     #[tool(
+        name = "propose_project",
+        description = "Ask the owner to start a project when they ask for one. A project keeps the chats about one piece of work together. Supply its name and one short purpose; add include_residents with exact keys from polyphonic_status only for other residents the owner wants in it. You always join its first chat, general. The owner sees a card in this conversation and chooses Create or Not now; this call waits for that answer, up to 15 minutes, and returns what actually happened as JSON with a message. If this call ends before the owner answers, call it again with the same name to hear their answer. Say the project exists only after status project_created. Your reply stays in this conversation; you answer in the new chat when the owner writes there. Never try to make a project or chat any other way. One request at a time per conversation; refused in a turn another agent started."
+    )]
+    async fn propose_project(
+        &self,
+        Parameters(params): Parameters<ProposeProjectParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate()?;
+        self.client
+            .call_with_deadline("propose_project", params, RESIDENT_PROPOSAL_DEADLINE)
+            .await
+    }
+
+    #[tool(
         name = "list_resident_runtimes",
         description = "Read the runtimes this desktop can actually start a new specialist on, each with its real model IDs. Read-only: it creates nothing and changes nothing. Call it before proposing a specialist, offer the owner only runtimes marked available and only the exact model IDs listed here, and pass the chosen ID back verbatim as propose_resident's model. Never invent, abbreviate, or substitute a model ID; a runtime whose models could not be read reports that instead of a list."
     )]
@@ -1038,6 +1088,7 @@ mod tests {
                 "list_runtime_task_sessions",
                 "polyphonic_open",
                 "polyphonic_status",
+                "propose_project",
                 "propose_repository_connection",
                 "propose_resident",
                 "propose_runtime_task",
@@ -1825,6 +1876,154 @@ mod tests {
             assert_eq!(result.is_error.unwrap_or(false), !ok);
             let encoded = serde_json::to_value(result).expect("result");
             assert_eq!(encoded["content"][0]["text"], content);
+            broker.await.expect("broker");
+        }
+    }
+
+    #[test]
+    fn project_request_accepts_only_name_purpose_and_exact_residents() {
+        let tool = LucaRepositoriesMcp::tool_router()
+            .list_all()
+            .into_iter()
+            .find(|tool| tool.name == "propose_project")
+            .expect("project tool");
+        let schema = serde_json::to_value(tool.input_schema).expect("schema");
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(schema["required"], serde_json::json!(["name", "purpose"]));
+        let properties = schema["properties"].as_object().expect("properties");
+        let mut names = properties.keys().cloned().collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, vec!["include_residents", "name", "purpose"]);
+        let description = tool.description.as_deref().expect("description");
+        assert!(description.contains("Create or Not now"));
+        assert!(description.contains("Never try to make a project or chat any other way"));
+        assert!(description.contains(
+            "If this call ends before the owner answers, call it again with the same name to hear their answer."
+        ));
+
+        let key = "a".repeat(64);
+        let valid = serde_json::json!({"name":"Ghost app","purpose":"Build the Ghost app.","include_residents":[key]});
+        serde_json::from_value::<ProposeProjectParams>(valid)
+            .expect("valid shape")
+            .validate()
+            .expect("valid request");
+        for field in [
+            "owner",
+            "resident",
+            "conversation_id",
+            "project_id",
+            "chat_name",
+            "room",
+            "source_ids",
+            "path",
+            "visibility",
+        ] {
+            let mut value = serde_json::json!({"name":"Ghost app","purpose":"Build it."});
+            value[field] = serde_json::json!("injected");
+            assert!(
+                serde_json::from_value::<ProposeProjectParams>(value).is_err(),
+                "{field}"
+            );
+        }
+        let nine = (0..9)
+            .map(|index| format!("{index:064x}"))
+            .collect::<Vec<_>>();
+        for value in [
+            serde_json::json!({"name":"","purpose":"Build it."}),
+            serde_json::json!({"name":"  ","purpose":"Build it."}),
+            serde_json::json!({"name":"x".repeat(121),"purpose":"Build it."}),
+            serde_json::json!({"name":"two\nlines","purpose":"Build it."}),
+            serde_json::json!({"name":"Ghost app","purpose":""}),
+            serde_json::json!({"name":"Ghost app","purpose":"y".repeat(201)}),
+            serde_json::json!({"name":"Ghost app","purpose":"Build\tit."}),
+            serde_json::json!({"name":"Ghost app","purpose":"Build it.","include_residents":nine}),
+            serde_json::json!({"name":"Ghost app","purpose":"Build it.","include_residents":["Luca"]}),
+            serde_json::json!({"name":"Ghost app","purpose":"Build it.","include_residents":["A".repeat(64)]}),
+            serde_json::json!({"name":"Ghost app","purpose":"Build it.","include_residents":[key, key]}),
+        ] {
+            assert!(
+                serde_json::from_value::<ProposeProjectParams>(value.clone())
+                    .expect("shape")
+                    .validate()
+                    .is_err(),
+                "{value}"
+            );
+        }
+        let eight = (0..8)
+            .map(|index| format!("{index:064x}"))
+            .collect::<Vec<_>>();
+        assert!(serde_json::from_value::<ProposeProjectParams>(
+            serde_json::json!({"name":"x".repeat(120),"purpose":"y".repeat(200),"include_residents":eight})
+        )
+        .expect("shape")
+        .validate()
+        .is_ok());
+    }
+
+    #[tokio::test]
+    async fn project_request_waits_for_the_owner_and_returns_the_exact_outcome() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        for outcome in [
+            serde_json::json!({"status":"project_created","projectId":"ghost-app","chatId":"chat-1"}),
+            serde_json::json!({"status":"declined","message":"The owner chose Not now. Nothing was created. Don't ask again unless they raise it."}),
+        ] {
+            let directory = tempfile::tempdir().expect("fixture");
+            let endpoint = directory.path().join("broker.sock");
+            let listener = tokio::net::UnixListener::bind(&endpoint).expect("listener");
+            let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+            let sent = outcome.clone();
+            let broker = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.expect("one call");
+                let mut line = String::new();
+                BufReader::new(&mut stream)
+                    .read_line(&mut line)
+                    .await
+                    .expect("frame");
+                seen_tx
+                    .send(serde_json::from_str::<Value>(&line).expect("json"))
+                    .expect("seen");
+                release_rx.await.expect("owner answer");
+                let response = serde_json::json!({"protocol":BROKER_PROTOCOL,"ok":true,"content":sent.to_string()}).to_string() + "\n";
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("outcome");
+            });
+            let server = LucaRepositoriesMcp {
+                client: Arc::new(RepositoryBrokerClient {
+                    endpoint,
+                    capability: format!("sha256:{}", "a".repeat(64)),
+                    conversation_id: "luca-conversation".into(),
+                    turn_gate_endpoint: None,
+                }),
+                tool_router: LucaRepositoriesMcp::tool_router(),
+            };
+            let call = tokio::spawn(async move {
+                server
+                    .propose_project(Parameters(ProposeProjectParams {
+                        name: "Ghost app".into(),
+                        purpose: "Build the Ghost app.".into(),
+                        include_residents: Vec::new(),
+                    }))
+                    .await
+            });
+            let frame = seen_rx.await.expect("request");
+            assert_eq!(frame["operation"], "propose_project");
+            assert_eq!(frame["conversation_id"], "luca-conversation");
+            assert_eq!(
+                frame["arguments"],
+                serde_json::json!({"name":"Ghost app","purpose":"Build the Ghost app."})
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert!(!call.is_finished(), "showing the card is not an answer");
+            release_tx.send(()).expect("answer");
+            let result =
+                serde_json::to_value(call.await.expect("call").expect("result")).expect("encoding");
+            let actual: Value =
+                serde_json::from_str(result["content"][0]["text"].as_str().expect("text"))
+                    .expect("outcome");
+            assert_eq!(actual, outcome);
             broker.await.expect("broker");
         }
     }

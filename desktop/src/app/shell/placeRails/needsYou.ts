@@ -1,12 +1,18 @@
 /**
  * Needs you: everything waiting on you, in one list (NAVIGATION.md,
- * "Activity"; SHELL_BUILD.md WP-14, Decided 3 and 4). Four real lists feed
+ * "Activity"; SHELL_BUILD.md WP-14, Decided 3 and 4). Five real lists feed
  * it: permission requests and questions (app-wide already), Luca's proposals
- * to run Codex or Claude Code, and exchanges paused for your word. Pure, so
+ * to run Codex or Claude Code, a resident's ask to start a project (WP-44),
+ * and exchanges paused for your word. Pure, so
  * the order and the count are unit-tested under node.
  */
 
-export type NeedsYouKind = "permission" | "question" | "proposal" | "exchange";
+export type NeedsYouKind =
+  | "permission"
+  | "question"
+  | "proposal"
+  | "project"
+  | "exchange";
 
 export type NeedsYouEntry<T = unknown> = {
   kind: NeedsYouKind;
@@ -43,12 +49,15 @@ export function needsYouCount(lists: {
   permissions: number;
   questions: number;
   proposals: number;
+  /** Residents' asks to start a project (WP-44). */
+  projects?: number;
   pausedExchanges: number;
 }): number {
   return (
     lists.permissions +
     lists.questions +
     lists.proposals +
+    (lists.projects ?? 0) +
     lists.pausedExchanges
   );
 }

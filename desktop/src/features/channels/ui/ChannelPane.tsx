@@ -123,6 +123,7 @@ import { RuntimeTaskNotices } from "@/features/capabilities/ui/RuntimeTaskNotice
 import { taskNoticeScope } from "@/features/capabilities/lib/runtimeTaskNotices";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { RuntimeTaskProposalConfirmation } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
+import { useConversationProjectAsks } from "@/features/projects/ui/ConversationProjectAsks";
 import { useConversationEffort } from "@/features/thinking/useConversationEffort";
 import { ConversationAccessPicker } from "@/features/settings/ui/ConversationAccessPicker";
 import { ConversationEffortPicker } from "@/features/thinking/ui/ConversationEffortPicker";
@@ -267,6 +268,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     activeCommunity?.id ?? "",
   );
   const runtimeTaskProposalsQuery = useRuntimeTaskProposals(activeChannelId);
+  const projectAsks = useConversationProjectAsks(activeChannelId);
   const dragChannelIdRef = React.useRef(activeChannelId);
   React.useEffect(() => {
     if (dragChannelIdRef.current === activeChannelId) return;
@@ -1236,7 +1238,8 @@ export const ChannelPane = React.memo(function ChannelPane({
   const roomAskCount =
     activePermissionRequests.length +
     activeInputRequests.length +
-    (runtimeTaskProposalsQuery.data?.length ? 1 : 0);
+    (runtimeTaskProposalsQuery.data?.length ? 1 : 0) +
+    projectAsks.count;
   // Under the shell, "Jump to latest" sits above the room's stack, never
   // across it (WP-23, Decided 4): the overlay's height, for the pill.
   React.useLayoutEffect(() => {
@@ -1609,6 +1612,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                               />
                             ))}
                             {runtimeTaskProposal}
+                            {projectAsks.asks}
                           </>
                         }
                         held={holdPending}
@@ -1620,6 +1624,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                       >
                         {activityStrip}
                         {runtimeTaskReceipts}
+                        {projectAsks.settled}
                       </ConversationRoomStack>
                     ) : (
                       <>
@@ -1629,15 +1634,24 @@ export const ChannelPane = React.memo(function ChannelPane({
                         card renders but nothing on it can be clicked. */}
                         <div className="luca-measure pointer-events-auto">
                           {runtimeTaskProposal}
+                          {projectAsks.count > 0 ? (
+                            <ul className="luca-ask-list">
+                              {projectAsks.asks}
+                            </ul>
+                          ) : null}
                         </div>
                         {runtimeTaskReceipts}
+                        {projectAsks.settled}
                       </>
                     )}
                     {/* Height zero, so the composer's measured height (and
-                        the timeline's padding) never changes for the name. */}
+                        the timeline's padding) never changes for the name.
+                        An ask above the composer takes its place. */}
                     <div className="luca-measure luca-first-message-greeting-slot">
                       <AnimatePresence key={activeChannelId ?? "none"}>
-                        {firstMessage.open && firstMessage.subject ? (
+                        {firstMessage.open &&
+                        firstMessage.subject &&
+                        roomAskCount === 0 ? (
                           <FirstMessageGreeting
                             subject={firstMessage.subject}
                           />

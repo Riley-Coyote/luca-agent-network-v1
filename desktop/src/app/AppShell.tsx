@@ -70,6 +70,10 @@ import {
   useHomeFeedNotificationState,
 } from "@/features/notifications/hooks";
 import { PreventSleepProvider } from "@/features/agents/usePreventSleep";
+import {
+  type ProjectCreationEnvironment,
+  ProjectCreationProvider,
+} from "@/features/projects/useRoomProjectCreation";
 import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
 import { useAgentsDataRefresh } from "@/features/agents/lib/useAgentsDataRefresh";
 import { useAutoRestartPolicy } from "@/features/agents/lib/useAutoRestartPolicy";
@@ -713,6 +717,8 @@ export function AppShell() {
         templateId?: string;
       },
       onCreated?: (channelId: string) => void | Promise<void>,
+      // A resident's project card creates without leaving the conversation.
+      options?: { navigate?: boolean },
     ) => {
       const createdChannel = await createChannelMutation.mutateAsync({
         name,
@@ -736,7 +742,7 @@ export function AppShell() {
           );
         }
       }
-      await goChannel(createdChannel.id);
+      if (options?.navigate !== false) await goChannel(createdChannel.id);
       try {
         await onCreated?.(createdChannel.id);
       } finally {
@@ -751,6 +757,19 @@ export function AppShell() {
       createChannelMutation,
       createChannelProjectId,
       goChannel,
+      identityQuery.data?.pubkey,
+    ],
+  );
+
+  const projectCreation = React.useMemo(
+    () => ({
+      ownerPubkey: identityQuery.data?.pubkey,
+      relayUrl: communitiesHook.activeCommunity?.relayUrl,
+      createChat: handleCreateChannel,
+    }),
+    [
+      communitiesHook.activeCommunity?.relayUrl,
+      handleCreateChannel,
       identityQuery.data?.pubkey,
     ],
   );
@@ -1154,8 +1173,9 @@ export function AppShell() {
                         prefill={addCommunityDialog.prefill}
                       />
                     ) : null}
-                    <ConversationWorkspaceProvider
+                    <ConversationWorkspaceProviders
                       controller={conversationWorkspace}
+                      projectCreation={projectCreation}
                     >
                       <SidebarProvider
                         className="min-h-0 flex-1 flex-col overflow-hidden"
@@ -1520,7 +1540,7 @@ export function AppShell() {
                         />
                         <LiftedPane />
                       </SidebarProvider>
-                    </ConversationWorkspaceProvider>
+                    </ConversationWorkspaceProviders>
                   </div>
 
                   {/* In the frame the bar rises into the band beneath the
@@ -1553,5 +1573,26 @@ export function AppShell() {
         </AppShellProvider>
       </ChannelNavigationProvider>
     </PreventSleepProvider>
+  );
+}
+
+/** The conversation workspace, and the one way projects are created in it. */
+function ConversationWorkspaceProviders({
+  children,
+  controller,
+  projectCreation,
+}: {
+  children: React.ReactNode;
+  controller: React.ComponentProps<
+    typeof ConversationWorkspaceProvider
+  >["controller"];
+  projectCreation: ProjectCreationEnvironment;
+}) {
+  return (
+    <ConversationWorkspaceProvider controller={controller}>
+      <ProjectCreationProvider value={projectCreation}>
+        {children}
+      </ProjectCreationProvider>
+    </ConversationWorkspaceProvider>
   );
 }

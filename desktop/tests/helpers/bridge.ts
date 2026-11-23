@@ -319,6 +319,20 @@ type MockBridgeOptions = {
     summary: string;
     createdAt: string;
   }>;
+  /** Residents' asks to start a project (WP-44); a finish removes one and
+   *  records the answer on `__BUZZ_E2E_PROJECT_ANSWERS__`. */
+  /** Reject successive `finish_project_proposal` calls, then resume. */
+  finishProjectProposalErrors?: string[];
+  projectProposals?: Array<{
+    requestId: string;
+    conversationId?: string;
+    channelName?: string;
+    residentPubkey: string;
+    projectName: string;
+    purpose: string;
+    includeResidents?: string[];
+    createdAt: string;
+  }>;
   /** Pending permission requests, in the wire shape (`list_pending_managed_
    *  permissions`); `resolve_managed_permission` removes one. */
   managedPermissions?: Array<{

@@ -38,6 +38,7 @@
     {"id":"room.update_topic_or_purpose","area":"rooms","classification":"adapt_for_managed_agents","current_state":"missing","rationale":"Only a room-creating resident may request it and relay policy still applies."},
     {"id":"room.change_authority_metadata","area":"rooms","classification":"owner_approval_required","current_state":"missing","rationale":"Visibility, add policy, and membership policy alter authority."},
     {"id":"room.assign_project_local","area":"rooms","classification":"owner_only","current_state":"existing","rationale":"Project association is local organization and grants no authority."},
+    {"id":"project.create_owner_review","area":"rooms","classification":"owner_approval_required","current_state":"existing","rationale":"A resident may only ask, with propose_project; the owner sees a card and creates the project and its first chat, which the owner signs."},
     {"id":"activation.request_same_owner","area":"activation","classification":"adapt_for_managed_agents","current_state":"missing","rationale":"Explicit request only, with guarded causal limits and reservation."},
     {"id":"activation.from_non_message_event","area":"activation","classification":"explicitly_deferred","current_state":"denied","rationale":"Reactions, edits, deletes, read state, and metadata never activate."},
     {"id":"activation.background_society","area":"activation","classification":"explicitly_deferred","current_state":"denied","rationale":"No hidden autonomous chatter or recurring descendant turns."},

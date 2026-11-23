@@ -204,3 +204,31 @@ test("new resident handoff emits the exact room identity once", async () => {
     "channelName",
   ]);
 });
+
+test("the first chat's description is the + dialog's unless one is given", async () => {
+  const descriptions = [];
+  const ops = operations({
+    createRoom: async (input, onCreated) => {
+      descriptions.push(input.description);
+      await onCreated(`room-${descriptions.length}`);
+    },
+  });
+
+  await runProjectCreationTransaction(draft(), null, ops);
+  await runProjectCreationTransaction(
+    draft({ roomDescription: "  Build the Ghost app.  " }),
+    null,
+    ops,
+  );
+  await runProjectCreationTransaction(
+    draft({ roomDescription: " " }),
+    null,
+    ops,
+  );
+
+  assert.deepEqual(descriptions, [
+    "Launch Work project room",
+    "Build the Ghost app.",
+    "Launch Work project room",
+  ]);
+});

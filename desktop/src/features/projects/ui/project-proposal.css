@@ -1,0 +1,113 @@
+/* A resident's project card (ProjectProposalAsk.tsx): its one note (a project
+ * already so named) sits under the row in the faint ink of its extra line. */
+.luca-project-ask-notes {
+  display: grid;
+  gap: 2px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: hsl(var(--mn-ink-muted));
+}
+.luca-project-ask-notes p {
+  margin: 0;
+}
+
+/* The line a created project leaves: words, then the way in, then dismiss. */
+.luca-project-settled {
+  pointer-events: auto;
+}
+.luca-project-settled__words {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: hsl(var(--mn-ink));
+  overflow-wrap: anywhere;
+}
+.luca-project-settled .luca-ask-link {
+  font-size: 0.8125rem;
+}
+
+/* On a page (Needs you): the lines close up under the head where the page's
+ * own line would sit, on its axis, the way in right after the words; the
+ * page's line follows at its usual distance below them. */
+.luca-project-settled-lines {
+  display: grid;
+  gap: 2px;
+  margin: -14px 0 14px;
+}
+.luca-project-settled-lines + .luca-place-page-line {
+  margin-top: 0;
+}
+.luca-project-settled--page .luca-task-notice__row {
+  gap: 12px;
+}
+.luca-project-settled--page .luca-project-settled__words {
+  flex: 0 1 auto;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.luca-project-settled--page .luca-ask-link {
+  flex: none;
+  font-size: 0.875rem;
+}
+.luca-project-settled--page .luca-task-notice__dismiss {
+  flex: none;
+  margin-left: -4px;
+}
+.luca-project-settled--page svg {
+  width: 14px;
+  height: 14px;
+}
+.luca-project-settled--page button:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
+/* The card's title wraps anywhere it must, two lines at most, cut at the end;
+ * who asks always sits clear below it. */
+:root .luca-ask.luca-project-ask .luca-ask-row .luca-place-row-title {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
+/* The purpose on its own lines (three at most), then who joins, always whole;
+ * both wrap inside the card. */
+.luca-ask.luca-project-ask .luca-ask-extra {
+  display: block;
+  max-width: 100%;
+  width: auto;
+}
+.luca-project-ask__lines {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.luca-project-ask__purpose {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+.luca-project-ask__joins {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+/* Once a Create stops part-way, what exists takes their place, in the
+ * row's full ink: the situation is read before the answers. */
+.luca-project-ask__problem {
+  color: hsl(var(--mn-ink));
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

@@ -228,6 +228,19 @@ type MockRuntimeTaskProposalSeed = {
   createdAt: string;
 };
 
+/** One resident's ask to start a project (WP-44). */
+type MockProjectProposalSeed = {
+  requestId: string;
+  conversationId?: string;
+  channelName?: string;
+  residentPubkey: string;
+  projectName: string;
+  purpose: string;
+  /** Other residents it asked to bring, after itself. */
+  includeResidents?: string[];
+  createdAt: string;
+};
+
 /** One question a resident asks the owner (WP-14), in the wire shape. */
 type MockManagedInputSeed = {
   pendingId: string;
@@ -327,6 +340,10 @@ type E2eConfig = {
     runtimeTasks?: MockRuntimeTaskSeed[];
     /** Open runtime-task proposals across rooms (WP-14). */
     runtimeTaskProposals?: MockRuntimeTaskProposalSeed[];
+    /** Residents' asks to start a project (WP-44); a finish removes one. */
+    projectProposals?: MockProjectProposalSeed[];
+    /** Reject successive `finish_project_proposal` calls, then resume. */
+    finishProjectProposalErrors?: string[];
     /** Questions residents are asking the owner (WP-14). */
     managedInputs?: MockManagedInputSeed[];
     /** Body-free UX-203A restart outcomes returned for operational presentation. */
@@ -1175,6 +1192,15 @@ declare global {
     /** Add and publish one owner-authored exchange head after startup. */
     __BUZZ_E2E_EMIT_MOCK_EXCHANGE__?: (input: MockExchangeSeed) => string;
     __BUZZ_E2E_EMIT_TAURI_EVENT__?: (event: string, payload: unknown) => void;
+    /** A resident asks for a project while the app is open (WP-44). */
+    __BUZZ_E2E_PUSH_PROJECT_PROPOSAL__?: (
+      seed: MockProjectProposalSeed,
+    ) => void;
+    /** The owner's answers handed back to residents, in order (WP-44). */
+    __BUZZ_E2E_PROJECT_ANSWERS__?: Array<{
+      requestId: string;
+      answer: unknown;
+    }>;
     __BUZZ_E2E_SET_ARTIFACT_PREVIEW_STATUS__?: (
       status: "starting" | "ready" | "unreachable" | "stopped",
     ) => void;
@@ -3592,6 +3618,7 @@ function mockExchangeFromSeed(
 let mockRuntimeTasks: MockRuntimeTaskSeed[] = [];
 let mockRuntimeTaskProposals: MockRuntimeTaskProposalSeed[] = [];
 let mockManagedInputs: MockManagedInputSeed[] = [];
+let mockProjectProposals: MockProjectProposalSeed[] = [];
 
 function mockRoomId(seed: { conversationId?: string; channelName?: string }) {
   return (
@@ -3647,12 +3674,31 @@ function mockRuntimeTaskProposal(seed: MockRuntimeTaskProposalSeed) {
   };
 }
 
+function mockProjectProposal(
+  seed: MockProjectProposalSeed,
+  ownerPubkey: string,
+) {
+  return {
+    requestId: seed.requestId,
+    kind: "new_project",
+    ownerPubkey,
+    residentPubkey: seed.residentPubkey,
+    conversationId: mockRoomId(seed),
+    projectName: seed.projectName,
+    purpose: seed.purpose,
+    chatName: "general",
+    residentPubkeys: [seed.residentPubkey, ...(seed.includeResidents ?? [])],
+    createdAt: seed.createdAt,
+  };
+}
+
 function resetMockRuntimeWork(config?: E2eConfig) {
   mockRuntimeTasks = structuredClone(config?.mock?.runtimeTasks ?? []);
   mockRuntimeTaskProposals = structuredClone(
     config?.mock?.runtimeTaskProposals ?? [],
   );
   mockManagedInputs = structuredClone(config?.mock?.managedInputs ?? []);
+  mockProjectProposals = structuredClone(config?.mock?.projectProposals ?? []);
 }
 
 function resetMockExchanges(config?: E2eConfig) {
@@ -10682,6 +10728,23 @@ export function maybeInstallE2eTauriMocks() {
       }
     ).__TAURI_INTERNALS__.invoke("plugin:event|emit", { event, payload });
   };
+  window.__BUZZ_E2E_PROJECT_ANSWERS__ = [];
+  window.__BUZZ_E2E_PUSH_PROJECT_PROPOSAL__ = (seed) => {
+    mockProjectProposals = [
+      ...mockProjectProposals.filter(
+        (candidate) => candidate.requestId !== seed.requestId,
+      ),
+      seed,
+    ];
+    window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+      "luca://project-proposal",
+      mockProjectProposal(
+        seed,
+        getActiveIdentity(getConfig())?.pubkey ??
+          getMockMemberPubkey(getConfig()),
+      ),
+    );
+  };
   window.__BUZZ_E2E_SETTLE_RESIDENT_WAKE__ = ({ pubkey, error }) => {
     const resident = mockManagedAgents.find(
       (agent) => agent.pubkey.toLowerCase() === pubkey.toLowerCase(),
@@ -14006,6 +14069,46 @@ export function maybeInstallE2eTauriMocks() {
           { proposalId: seed.proposalId, conversationId: mockRoomId(seed) },
         );
         return null;
+      }
+      case "list_project_proposals":
+        return mockProjectProposals
+          .map((seed) =>
+            mockProjectProposal(
+              seed,
+              identity?.pubkey ?? getMockMemberPubkey(activeConfig),
+            ),
+          )
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      case "authorize_project_proposal": {
+        const requestId = (payload as { requestId?: string } | null)?.requestId;
+        if (!mockProjectProposals.some((seed) => seed.requestId === requestId))
+          throw new Error("This project request is no longer waiting.");
+        return null;
+      }
+      case "finish_project_proposal": {
+        const input = payload as {
+          requestId?: string;
+          answer?: unknown;
+        } | null;
+        const finishError =
+          activeConfig?.mock?.finishProjectProposalErrors?.shift();
+        if (finishError) throw new Error(finishError);
+        const seed = mockProjectProposals.find(
+          (candidate) => candidate.requestId === input?.requestId,
+        );
+        if (!seed) return false;
+        mockProjectProposals = mockProjectProposals.filter(
+          (candidate) => candidate !== seed,
+        );
+        window.__BUZZ_E2E_PROJECT_ANSWERS__?.push({
+          requestId: seed.requestId,
+          answer: input?.answer ?? null,
+        });
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+          "luca://project-proposal-resolved",
+          { requestId: seed.requestId, conversationId: mockRoomId(seed) },
+        );
+        return true;
       }
       // The proposal card's folder lookups: nothing resolved, nothing picked.
       case "resolve_runtime_task_project_folder":
