@@ -3,7 +3,9 @@ import {
   Activity,
   AppWindow,
   Bell,
+  Bookmark,
   Bot,
+  CircleHelp,
   Code,
   Download,
   FileText,
@@ -11,17 +13,25 @@ import {
   Info,
   Keyboard,
   LayoutGrid,
+  ListEnd,
+  MoonStar,
+  NotebookPen,
   Palette,
   Plug,
   Puzzle,
+  Scale,
+  ScrollText,
+  Settings2,
   ShieldCheck,
   SlidersHorizontal,
+  StickyNote,
   Smartphone,
   Sparkles,
   Stethoscope,
   Trash2,
   User,
   Users,
+  UsersRound,
   Waypoints,
 } from "lucide-react";
 
@@ -107,6 +117,23 @@ export type RailFaceKind = "agent" | "app" | "icon";
  * have no row in the lab: Connections wears the joined points, Activity the
  * pulse the lab gives "What they read".
  */
+/** A mind's rooms in the Mnemos place: the notebook's own glyphs where
+ *  WP-33 gave them (memory a bookmark, journal a pen), line drawings else. */
+const MNEMOS_ROOM_FACES: Record<string, typeof User> = {
+  glance: LayoutGrid,
+  mind: Waypoints,
+  log: ScrollText,
+  memories: Bookmark,
+  shared: UsersRound,
+  beliefs: Scale,
+  questions: CircleHelp,
+  journal: NotebookPen,
+  notes: StickyNote,
+  carrying: ListEnd,
+  hours: MoonStar,
+  settings: Settings2,
+};
+
 export function placeRowFace(
   place: RailPlace,
   rowId: string,
@@ -133,6 +160,7 @@ export function placeRowFace(
   if (place === "activity") return icon(Activity);
   if (place === "brain")
     return rowId === "connections" ? icon(Waypoints) : icon(Activity);
+  if (place === "mnemos") return icon(MNEMOS_ROOM_FACES[rowId] ?? LayoutGrid);
   if (rowId === "deleted") return icon(LIBRARY_DELETED_FACE);
   if (rowId === "skills:all") return icon(LIBRARY_SKILLS_FACE);
   if (rowId.startsWith("skills:"))

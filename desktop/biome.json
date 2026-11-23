@@ -1,6 +1,6 @@
 {
   "extends": ["../biome.json"],
   "files": {
-    "includes": ["**", "!tests/fixtures/original-72"]
+    "includes": ["**", "!tests/fixtures/original-72", "!public/mnemos-mind"]
   }
 }

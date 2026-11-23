@@ -66,6 +66,7 @@ const PLACES_ORDER: NavOrder = {
     ["/pulse", 3],
     ["/inbox", 3],
     ["/artifacts", 4],
+    ["/mnemos", 4],
     ["/settings", 5],
   ],
 };

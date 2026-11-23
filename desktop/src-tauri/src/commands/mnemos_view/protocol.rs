@@ -81,6 +81,19 @@ pub struct Item {
     pub clipped: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<&'static str>,
+    /// When it was kept or written, as the view sends it (ISO 8601).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    /// A belief's confidence, 0 to 1, as the view sends it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+}
+/// A date the view sent, kept only when it is short text.
+fn date_of(row: &Value, key: &str) -> Option<String> {
+    row.get(key)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty() && s.len() <= 64)
+        .map(str::to_owned)
 }
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -171,6 +184,18 @@ pub(super) fn project(
                 author: match (section, row.get("author").and_then(Value::as_str)) {
                     (Section::Notes, Some("agent")) => Some("agent"),
                     (Section::Notes, Some("person")) => Some("person"),
+                    _ => None,
+                },
+                at: if matches!(section, Section::Memories | Section::Standing) {
+                    date_of(row, "kept")
+                } else {
+                    date_of(row, "created_at")
+                },
+                confidence: match section {
+                    Section::Beliefs => row
+                        .get("confidence")
+                        .and_then(Value::as_f64)
+                        .filter(|c| (0.0..=1.0).contains(c)),
                     _ => None,
                 },
             })

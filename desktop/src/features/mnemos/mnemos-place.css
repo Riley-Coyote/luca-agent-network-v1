@@ -1,0 +1,1009 @@
+/* ── the Mnemos place (WP-45) ───────────────────────────────────────────
+ * The page kit's own card, wider: each room is a list about 360 wide beside
+ * the thing opened, so the axis holds both. Theme inks and plates only; the
+ * unread dot is the one accent. Sizes are the stock rem steps, set in the
+ * markup (text-base for the words, text-sm for rows, the small steps for
+ * dates, counts and labels). */
+
+.luca-mnemos-place .luca-place-page-axis {
+  max-width: 1040px;
+}
+
+/* The Quick Chat button never covers the place: the shell's one rule
+ * (shell-finish.css: the page's axis gives way by its right side alone,
+ * only as far as it reaches the button's column), for this wider axis. */
+:root[data-luca-frame]:has(.qc-launcher)
+  .luca-mnemos-place
+  .luca-place-page-axis {
+  padding-right: max(
+    0px,
+    calc(var(--luca-quickchat-clear) - 28px - max(0px, (100cqw - 1040px) / 2))
+  );
+}
+
+/* One rule for every piece of a mind's text, in lists and opened alike: it
+ * wraps anywhere it must, and never makes what holds it wider. A section
+ * added later is inside the place, so it can't forget it. */
+.luca-mnemos-place {
+  overflow-wrap: anywhere;
+}
+
+.luca-mnemos-place
+  :where(
+    .luca-mnemos-list,
+    .luca-mnemos-opened,
+    .luca-mnemos-push,
+    article,
+    li
+  ) {
+  min-width: 0;
+}
+
+.luca-mnemos-line {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  line-height: 1.5;
+  max-width: 560px;
+}
+
+.luca-mnemos-quiet {
+  color: hsl(var(--mn-ink-muted));
+  line-height: 1.5;
+}
+
+.luca-mnemos-meta {
+  color: hsl(var(--mn-ink-muted));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  margin-bottom: 8px;
+}
+
+/* ── a room: the list beside the thing opened ─────────────────────── */
+.luca-mnemos-room {
+  container: mnemos-room / inline-size;
+}
+
+.luca-mnemos-room-grid {
+  display: grid;
+  gap: 32px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container mnemos-room (min-width: 721px) {
+  .luca-mnemos-room-grid {
+    align-items: start;
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+
+  .luca-mnemos-opened {
+    position: sticky;
+    top: 0;
+  }
+
+  .luca-mnemos-room .luca-mnemos-back {
+    display: none;
+  }
+}
+
+/* Narrow: the opened thing slides over the list, with a back link to it;
+ * the push is the agent pages' own (WP-43): 22 and a fade, 340 ms. */
+@container mnemos-room (max-width: 720px) {
+  .luca-mnemos-room[data-open] .luca-mnemos-list,
+  .luca-mnemos-room:not([data-open]) .luca-mnemos-opened {
+    display: none;
+  }
+
+  .luca-mnemos-room[data-open] .luca-mnemos-push {
+    animation: luca-mnemos-push 340ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-mnemos-room[data-open] .luca-mnemos-push {
+    animation: none;
+  }
+}
+
+@keyframes luca-mnemos-push {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.luca-mnemos-opened {
+  border-radius: 10px;
+  padding: 4px 4px 32px;
+}
+
+.luca-mnemos-opened:focus {
+  outline: none;
+}
+
+.luca-mnemos-back {
+  align-items: center;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink));
+  display: inline-flex;
+  font-weight: 500;
+  gap: 2px;
+  margin: 0 0 14px -4px;
+  padding: 2px 4px;
+}
+
+.luca-mnemos-back svg {
+  height: 15px;
+  width: 15px;
+}
+
+.luca-mnemos-back:hover {
+  color: hsl(var(--mn-ink-muted));
+}
+
+/* Rows: one step smaller than the words, two lines at most; the opened
+ * one holds the plate's hover. */
+.luca-mnemos-place .luca-place-row-title {
+  -webkit-box-orient: vertical;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.luca-mnemos-place .luca-place-plate > .luca-place-row[aria-current] {
+  background: var(--luca-plate-hover);
+}
+
+.luca-mnemos-place .luca-place-group + .luca-place-group {
+  margin-top: 22px;
+}
+
+/* ── the words, the content ───────────────────────────────────────── */
+.luca-mnemos-words {
+  color: hsl(var(--mn-ink));
+  display: grid;
+  gap: 0.8em;
+  line-height: 1.6;
+  max-width: 68ch;
+  white-space: pre-line;
+}
+
+/* A memory's own drawing (the mind's herbarium), small, at the left above
+ * its words, in the ink of the words. */
+.luca-mnemos-memory-drawing {
+  color: hsl(var(--mn-ink));
+  height: 56px;
+  margin-bottom: 14px;
+  width: 56px;
+}
+
+.luca-mnemos-title {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+  line-height: 1.45;
+  margin-bottom: 10px;
+  max-width: 68ch;
+}
+
+/* What it changed: the one fact worth a label, under the words. */
+.luca-mnemos-impact {
+  color: hsl(var(--mn-ink-muted));
+  display: grid;
+  gap: 3px;
+  line-height: 1.5;
+  margin-top: 20px;
+  max-width: 68ch;
+}
+
+.luca-mnemos-label {
+  color: hsl(var(--mn-ink-faint));
+  letter-spacing: 0.02em;
+}
+
+/* The rest, in one quiet line, the way the notebook says it. */
+.luca-mnemos-quietline {
+  color: hsl(var(--mn-ink-muted));
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  margin-top: 18px;
+  max-width: 68ch;
+}
+
+.luca-mnemos-thread {
+  display: grid;
+  gap: 22px;
+}
+
+/* A note asked for by its address (a line in the Log): a quiet light
+ * under it for a moment, fading as it goes. It moves nothing. */
+.luca-mnemos-thread > li {
+  position: relative;
+}
+
+/* Its light reaches past the note by a shadow's spread, so it never
+ * widens what holds it. */
+.luca-mnemos-thread > li::before {
+  background: var(--luca-plate-hover);
+  border-radius: 2px;
+  box-shadow: 0 0 0 9px var(--luca-plate-hover);
+  content: "";
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity 700ms ease-out;
+  z-index: -1;
+}
+
+.luca-mnemos-thread > li[data-marked]::before {
+  opacity: 1;
+  transition-duration: 160ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-mnemos-thread > li::before {
+    transition: none;
+  }
+}
+
+.luca-mnemos-dot {
+  display: inline-block;
+  vertical-align: 0.1em;
+}
+
+.luca-mnemos-meta .luca-mnemos-dot {
+  margin-left: 6px;
+}
+
+/* In a row, the dot sits just before the date, on the first line. */
+.luca-place-row-note .luca-mnemos-dot {
+  margin-right: 6px;
+}
+
+/* ── search and the chips ─────────────────────────────────────────── */
+.luca-mnemos-search {
+  align-items: center;
+  background: var(--luca-plate-fill);
+  border-radius: 10px;
+  box-shadow: inset 0 0.5px 0 var(--luca-plate-edge);
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  gap: 8px;
+  height: 34px;
+  margin-bottom: 12px;
+  padding: 0 10px;
+}
+
+.luca-mnemos-search svg {
+  flex: none;
+  height: 15px;
+  width: 15px;
+}
+
+.luca-mnemos-search input {
+  background: transparent;
+  color: hsl(var(--mn-ink));
+  flex: 1;
+  min-width: 0;
+  outline: none;
+}
+
+.luca-mnemos-searching {
+  color: hsl(var(--mn-ink-muted));
+  flex: none;
+  white-space: nowrap;
+}
+
+.luca-mnemos-search input::placeholder {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-mnemos-search:focus-within {
+  box-shadow:
+    inset 0 0.5px 0 var(--luca-plate-edge),
+    0 0 0 1px hsl(var(--mn-ink) / 0.4);
+}
+
+.luca-mnemos-chips {
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.luca-mnemos-chip {
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-muted));
+  height: 26px;
+  padding: 0 10px;
+}
+
+.luca-mnemos-chip:hover {
+  background: hsl(var(--mn-ink) / 0.05);
+}
+
+.luca-mnemos-chip[aria-pressed="true"] {
+  background: hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+  font-weight: 500;
+}
+
+/* The place's one link: quiet, underlined, the ink it sits in, as the
+ * head's "Luca remembers with this". */
+.luca-mnemos-more,
+.luca-mnemos-link {
+  border-radius: 4px;
+  color: inherit;
+  text-decoration-color: hsl(var(--mn-ink) / 0.28);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.luca-mnemos-more {
+  color: hsl(var(--mn-ink-muted));
+  margin: 14px 0 0 2px;
+}
+
+.luca-mnemos-more:hover,
+.luca-mnemos-link:hover {
+  color: hsl(var(--mn-ink));
+}
+
+:is(
+  .luca-mnemos-chip,
+  .luca-mnemos-more,
+  .luca-mnemos-link,
+  .luca-mnemos-back,
+  .luca-mnemos-step,
+  .luca-mnemos-plate-open,
+  .luca-mnemos-lately-row
+):focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 1px;
+}
+
+/* ── At a glance: plates of real numbers ──────────────────────────── */
+.luca-mnemos-glance {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.luca-mnemos-plate {
+  background: var(--luca-plate-fill);
+  border-radius: 12px;
+  box-shadow: inset 0 0.5px 0 var(--luca-plate-edge);
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px 16px;
+  align-content: start;
+  min-width: 0;
+}
+
+.luca-mnemos-plate-label {
+  color: hsl(var(--mn-ink-muted));
+  font-weight: 600;
+}
+
+.luca-mnemos-clamp {
+  -webkit-box-orient: vertical;
+  color: hsl(var(--mn-ink));
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* Lately, on today's Mnemos: each memory's first line in at most two
+ * lines. A line ends on a whole word, and what doesn't fit is cut at the
+ * end of a whole line, never mid-word (no ellipsis to make room for); only
+ * a word longer than the line breaks, at its edge, so one very long word
+ * can't push the other plates off the first screen. */
+.luca-mnemos-lately .luca-mnemos-clamp {
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: calc(2 * 1.5em);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.luca-mnemos-plate-foot {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.luca-mnemos-steps {
+  align-items: center;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  gap: 2px;
+}
+
+.luca-mnemos-step {
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  display: grid;
+  height: 24px;
+  place-items: center;
+  width: 24px;
+}
+
+.luca-mnemos-step:disabled {
+  opacity: 0.35;
+}
+
+.luca-mnemos-step svg {
+  height: 15px;
+  width: 15px;
+}
+
+.luca-mnemos-count {
+  align-items: baseline;
+  color: hsl(var(--mn-ink));
+  display: flex;
+  gap: 6px;
+}
+
+.luca-mnemos-count > :first-child {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.luca-mnemos-count > :last-child {
+  color: hsl(var(--mn-ink-muted));
+}
+
+.luca-mnemos-plate-open,
+.luca-mnemos-lately-row {
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  margin: -6px -8px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.luca-mnemos-lately-row {
+  align-items: baseline;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0 -8px;
+}
+
+.luca-mnemos-lately-row > :last-child {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-mnemos-plate-open:hover,
+.luca-mnemos-lately-row:hover {
+  background: hsl(var(--mn-ink) / 0.04);
+}
+
+.luca-mnemos-lately {
+  display: grid;
+  gap: 2px;
+}
+
+.luca-mnemos-strip {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.luca-mnemos-strip-days {
+  align-items: flex-end;
+  display: flex;
+  gap: 1px;
+  height: 36px;
+}
+
+.luca-mnemos-strip-days > span {
+  background: hsl(var(--mn-ink) / 0.5);
+  border-radius: 1px;
+  flex: 1;
+  min-width: 1px;
+}
+
+.luca-mnemos-strip-days > span[data-count="0"] {
+  background: hsl(var(--mn-ink) / 0.14);
+}
+
+/* ── the rail: Settings at its foot ─────────────────────────────── */
+/* The rail and the two wrappers it sits in grow to the scroll area's
+ * height, so the foot is the area's foot; a rail taller than it scrolls. */
+:root[data-luca-shell] :has(> nav > [data-place-rail="mnemos"]),
+:root[data-luca-shell] nav:has(> [data-place-rail="mnemos"]),
+:root[data-luca-shell] [data-place-rail="mnemos"] {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+
+:root[data-luca-shell] [data-place-rail="mnemos"] [data-place-section="foot"] {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+/* ── the rail's head: the mind in view, and the minds on this Mac ─── */
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind {
+  margin: 0 0 6px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-head,
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-row {
+  border-radius: 8px;
+  display: grid;
+  gap: 1px;
+  padding: 6px 28px 6px 10px;
+  position: relative;
+  text-align: left;
+  width: 100%;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-head:hover,
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-row:hover {
+  background: var(--rail-plate);
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-mnemos-railmind-head:focus-visible,
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-row:focus-visible {
+  outline: 1px solid var(--rail-muted);
+  outline-offset: -1px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-name {
+  color: var(--rail-ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-line {
+  color: var(--rail-faint);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-chev {
+  color: var(--rail-faint);
+  height: 14px;
+  position: absolute;
+  right: 8px;
+  top: 10px;
+  transition: transform 160ms;
+  width: 14px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-mnemos-railmind-head[aria-expanded="true"]
+  .luca-mnemos-railmind-chev {
+  transform: rotate(180deg);
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds {
+  border-bottom: 0.5px solid var(--rail-plate);
+  display: grid;
+  gap: 1px;
+  margin: 2px 0 4px;
+  padding: 0 0 6px 8px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-mnemos-minds-row[aria-current]
+  .luca-mnemos-railmind-name::after {
+  color: var(--rail-faint);
+  content: " · in view";
+  font-weight: 400;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-none {
+  display: grid;
+  gap: 1px;
+  margin-top: 6px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-none > p {
+  padding: 2px 10px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-mnemos-minds-none
+  .luca-mnemos-railmind-name {
+  color: var(--rail-muted);
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-chev {
+    transition: none;
+  }
+}
+
+/* ── the person's own words (WP-47) ───────────────────────────────── */
+.luca-mnemos-write {
+  display: grid;
+  gap: 8px;
+  max-width: 68ch;
+}
+
+.luca-mnemos-opened .luca-mnemos-write {
+  margin-top: 28px;
+}
+
+/* Its label is a section label, as the page kit sets one. */
+.luca-mnemos-write-label {
+  margin: 0;
+}
+
+.luca-mnemos-write-row {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.luca-mnemos-write[data-layout="inline"] .luca-mnemos-write-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* A well in the page: a step of ink below it and a hairline round it, so
+ * an empty field still reads as a place to write. It grows with its words
+ * (WriteField measures it): one line, to about five for an answer. */
+.luca-mnemos-write-text {
+  background: hsl(var(--mn-ink) / 0.04);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.12);
+  color: hsl(var(--mn-ink));
+  line-height: 1.5;
+  max-height: 24rem;
+  min-height: 2.5rem;
+  outline: none;
+  overflow-y: auto;
+  padding: 7px 12px;
+  resize: none;
+  transition: box-shadow 140ms;
+  width: 100%;
+}
+
+.luca-mnemos-write[data-layout="inline"] .luca-mnemos-write-text {
+  max-height: calc(7.5em + 14px);
+}
+
+/* Send sits by the field's last line, as tall as one line of it. */
+.luca-mnemos-write[data-layout="inline"] .luca-mnemos-write-row > button {
+  height: 2.5rem;
+}
+
+.luca-mnemos-write-text:focus-visible {
+  box-shadow:
+    inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.12),
+    0 0 0 1px hsl(var(--mn-ink) / 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-mnemos-write-text {
+    transition: none;
+  }
+}
+
+.luca-mnemos-write-foot {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.luca-mnemos-write-count {
+  color: hsl(var(--mn-ink-muted));
+  margin-right: auto;
+}
+
+.luca-mnemos-write-count[data-over] {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+}
+
+.luca-mnemos-write-said {
+  align-items: center;
+  color: hsl(var(--mn-ink));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  line-height: 1.5;
+}
+
+/* Correct it and Let it go, under an opened memory. */
+.luca-mnemos-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+/* Let it go asks first, in place, before anything is sent. */
+.luca-mnemos-ask {
+  background: var(--luca-plate-fill);
+  border-radius: 12px;
+  box-shadow: inset 0 0.5px 0 var(--luca-plate-edge);
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+  max-width: 60ch;
+  padding: 14px 16px 16px;
+}
+
+.luca-mnemos-ask-title {
+  color: hsl(var(--mn-ink));
+  font-weight: 600;
+}
+
+.luca-mnemos-ask-text {
+  color: hsl(var(--mn-ink-muted));
+  line-height: 1.5;
+}
+
+.luca-mnemos-ask-foot {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* After an answer on a plate: where it went, said once. */
+.luca-mnemos-sent {
+  color: hsl(var(--mn-ink-muted));
+  line-height: 1.5;
+}
+
+/* ── the notebook's memories: its filters, its order, its readings ── */
+/* One quiet row: the filter's menu, the order's, the count at the end. */
+.luca-mnemos-tools {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  margin: 0 0 12px 2px;
+}
+
+.luca-mnemos-menu {
+  align-items: center;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  cursor: pointer;
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px 0;
+  position: relative;
+}
+
+.luca-mnemos-menu:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-mnemos-menu svg {
+  flex: none;
+  height: 12px;
+  width: 12px;
+}
+
+/* The platform's menu lies over what it reads as. */
+.luca-mnemos-menu select {
+  appearance: none;
+  cursor: pointer;
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.luca-mnemos-menu:has(select:focus-visible) {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
+.luca-mnemos-count {
+  color: hsl(var(--mn-ink-faint));
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.luca-mnemos-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin-top: 28px;
+}
+
+/* The detail's own gap sets its groups apart, not the kit's margins. */
+.luca-mnemos-place .luca-mnemos-detail > .luca-place-group {
+  margin: 0;
+}
+
+.luca-mnemos-readings {
+  color: hsl(var(--mn-ink));
+  display: flex;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+  gap: 4px 16px;
+  letter-spacing: 0.01em;
+}
+
+.luca-mnemos-readings i {
+  color: hsl(var(--mn-ink-faint));
+  font-style: normal;
+  margin-right: 6px;
+}
+
+/* How firmly a belief is held: one hairline, filled as far as it is. */
+.luca-mnemos-held {
+  background: hsl(var(--mn-ink) / 0.1);
+  border-radius: 1px;
+  height: 2px;
+  margin: 14px 0 10px;
+  max-width: 240px;
+  overflow: hidden;
+}
+
+.luca-mnemos-held i {
+  background: hsl(var(--mn-ink) / 0.7);
+  display: block;
+  height: 100%;
+}
+
+[aria-label="A belief"] > .luca-place-group,
+[aria-label="A question"] > .luca-place-group,
+[aria-label="An answered question"] > .luca-place-group {
+  margin-top: 18px;
+}
+
+/* ── the Log ──────────────────────────────────────────────────────── */
+/* A day's summary in the list of days: the row's whole width; it and a
+ * memory's tags wrap between words, never cut. */
+[data-testid="mnemos-log-list"]
+  .luca-place-plate
+  > .luca-place-row:has(> .luca-place-row-note:empty) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+[data-testid="mnemos-log-list"]
+  .luca-place-row:has(> .luca-place-row-note:empty)
+  > :is(.luca-place-row-middle, .luca-place-row-note) {
+  display: none;
+}
+
+[data-testid="mnemos-log-list"] .luca-place-row-summary,
+[data-testid="mnemos-memories-list"] .luca-place-row-summary {
+  overflow: visible;
+  overflow-wrap: normal;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+/* A memory in the list: its first line beside its day, its tags under
+ * both, on the row's whole width (every row alike, tags or not). */
+[data-testid="mnemos-memories-list"]
+  .luca-place-plate
+  > .luca-place-row
+  > .luca-place-row-what {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+[data-testid="mnemos-memories-list"]
+  .luca-place-plate
+  > .luca-place-row
+  .luca-place-row-title {
+  padding-right: calc(84px + 12px);
+}
+
+[data-testid="mnemos-memories-list"]
+  .luca-place-plate
+  > .luca-place-row
+  > .luca-place-row-note {
+  grid-column: -2;
+  grid-row: 1;
+  pointer-events: none;
+}
+
+[data-testid="mnemos-memories-list"]
+  .luca-place-plate
+  > .luca-place-row
+  > .luca-place-row-middle:empty {
+  display: none;
+}
+
+/* Each tag whole; the separator sits in the gap before a tag, so the one
+ * before the first tag on a line falls outside the row and is never seen,
+ * and none is ever left at a line's end. */
+.luca-mnemos-tags {
+  column-gap: 1.25em;
+  display: flex;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.luca-mnemos-tags > span {
+  position: relative;
+}
+
+.luca-mnemos-tags > span::before {
+  content: "·" / "";
+  position: absolute;
+  right: 100%;
+  text-align: center;
+  width: 1.25em;
+}
+
+/* An hour holds what it wrote: the hour's line, its span on a line of its
+ * own, and under it, one step in on a hairline, what it wrote in it. */
+.luca-mnemos-log-hour {
+  display: grid;
+  position: relative;
+}
+
+.luca-mnemos-log-hour > .luca-place-row,
+.luca-mnemos-log-inside > .luca-place-row {
+  --luca-text-start: 10px;
+  align-items: start;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto 84px;
+  margin: 0;
+  padding: 11px 10px;
+}
+
+.luca-mnemos-log-hour > .luca-place-row:has(> .luca-place-row-open):hover,
+.luca-mnemos-log-inside > .luca-place-row:has(> .luca-place-row-open):hover {
+  background: var(--luca-plate-hover);
+}
+
+.luca-mnemos-log-kind,
+.luca-mnemos-log-span {
+  display: block;
+}
+
+.luca-mnemos-log-span {
+  color: hsl(var(--mn-ink-faint));
+  font-variant-numeric: tabular-nums;
+}
+
+.luca-mnemos-log-inside {
+  border-left: 1px solid var(--luca-plate-thread);
+  display: grid;
+  margin: 0 0 8px 20px;
+  padding: 0;
+}
+
+/* The plate's hairlines, around and inside an hour too. */
+.luca-place-plate > .luca-place-row + .luca-mnemos-log-hour::before,
+.luca-place-plate > .luca-mnemos-log-hour + .luca-mnemos-log-hour::before,
+.luca-place-plate > .luca-mnemos-log-hour + .luca-place-row::before,
+.luca-mnemos-log-inside > .luca-place-row + .luca-place-row::before {
+  background: var(--luca-plate-rule);
+  content: "";
+  height: 0.5px;
+  left: 10px;
+  pointer-events: none;
+  position: absolute;
+  right: 10px;
+  top: 0;
+}

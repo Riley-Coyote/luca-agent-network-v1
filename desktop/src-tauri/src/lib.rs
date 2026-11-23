@@ -1344,6 +1344,16 @@ pub fn run() {
             connect_mnemos_view,
             disconnect_mnemos_view,
             read_mnemos_view,
+            mnemos_place_minds,
+            open_mnemos_mind,
+            read_mnemos_place,
+            write_mnemos_place,
+            mnemos_place_hello,
+            mnemos_place_picture,
+            mnemos_place_item,
+            close_mnemos_place,
+            mnemos_place_shown,
+            open_mnemos_own_page,
             get_resident_notebook_item,
             get_resident_notebook_revision_history,
             create_resident_journal_page,
@@ -1597,6 +1607,7 @@ pub fn run() {
         }
         RunEvent::Exit => {
             crate::luca::managed_permission::cancel_all();
+            crate::commands::shut_down_mnemos_place();
             shut_down_app(app_handle, &run_shutdown_done);
             app_handle.state::<ClipboardState>().release();
 

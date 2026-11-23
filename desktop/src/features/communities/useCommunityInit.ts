@@ -35,6 +35,7 @@ import { resetActivityTraceStore } from "@/features/messages/activity/activityTr
 import { resetFailedSendRetryState } from "@/features/messages/lib/failedSendRetryState";
 import { resetRuntimeSessionContextHandoff } from "@/features/runtime-sessions/runtimeSessionHandoff";
 import { resetShellStatus } from "@/app/shell/shellStatus";
+import { resetMnemosPlace } from "@/features/mnemos/placeStore";
 
 import {
   initFirstCommunity,
@@ -75,6 +76,7 @@ function resetCommunityState(): void {
   resetShellStatus();
   resetMindVisits();
   resetMindPageTitle();
+  resetMnemosPlace();
 }
 
 type CommunityInitResult =

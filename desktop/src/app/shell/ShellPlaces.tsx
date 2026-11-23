@@ -6,6 +6,7 @@ import {
   House,
   Library,
   MessagesSquare,
+  NotebookText,
   Settings,
 } from "lucide-react";
 
@@ -14,6 +15,7 @@ import {
   preloadAgentsSurface,
   preloadArtifactsSurface,
   preloadBrainSurface,
+  preloadMnemosSurface,
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
 import { needsYouNote } from "@/app/shell/placeRails/needsYou";
@@ -52,6 +54,7 @@ type PlacesView =
   | "messages"
   | "agents"
   | "brain"
+  | "mnemos"
   | "artifacts"
   | "workflows"
   | "pulse"
@@ -67,6 +70,7 @@ type PlaceId =
   | "activity"
   | "library"
   | "brain"
+  | "mnemos"
   | "settings";
 
 /** Which place a view belongs to (SHELL_BUILD.md WP-10, Decided 2): Chats
@@ -92,6 +96,8 @@ export function placeOfView(view: PlacesView): PlaceId | null {
       return "agents";
     case "brain":
       return "brain";
+    case "mnemos":
+      return "mnemos";
     case "pulse":
       return "activity";
     case "settings":
@@ -266,6 +272,8 @@ export type ShellPlacesProps = {
   onSelectBrain: () => void;
   onSelectConversations: () => void;
   onSelectDashboard?: () => void;
+  /** Mnemos, the notebook of a mind, its own place (WP-45). */
+  onSelectMnemos?: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
   search: {
@@ -292,6 +300,7 @@ export function ShellPlaces({
   onSelectBrain,
   onSelectConversations,
   onSelectDashboard,
+  onSelectMnemos,
   onSelectPulse,
   onSelectSettings,
   search,
@@ -399,6 +408,17 @@ export function ShellPlaces({
         >
           <Brain />
         </PlaceTile>
+        {onSelectMnemos ? (
+          <PlaceTile
+            current={here === "mnemos"}
+            label="Mnemos"
+            onClick={onSelectMnemos}
+            onPreload={() => void preloadMnemosSurface()}
+            testId="open-mnemos-place"
+          >
+            <NotebookText />
+          </PlaceTile>
+        ) : null}
       </div>
       <div className="luca-places-group luca-places-end">
         <PlaceTile

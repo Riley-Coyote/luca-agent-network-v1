@@ -1,19 +1,6 @@
 import * as React from "react";
-import { ChevronLeft } from "lucide-react";
-import type {
-  MnemosPage,
-  MnemosSection,
-  ViewScope,
-} from "@/shared/api/mnemosView";
+import type { ViewScope } from "@/shared/api/mnemosView";
 
-export const labels: Record<MnemosSection, string> = {
-  memories: "Memories",
-  standing: "Standing memories",
-  journal: "Journal",
-  notes: "Notes",
-  handoffs: "Handoffs",
-  beliefs: "Beliefs",
-};
 export const emptyScope: ViewScope = {
   agent_id: "",
   person_id: "",
@@ -107,107 +94,5 @@ export function MnemosConnectForm({
         </button>
       </div>
     </form>
-  );
-}
-
-export function MnemosReading({
-  section,
-  page,
-  number,
-  failed,
-  onBack,
-  onPrevious,
-  onNext,
-}: {
-  section: MnemosSection;
-  page: Extract<MnemosPage, { kind: "items" }> | null;
-  number: number;
-  failed: boolean;
-  onBack: () => void;
-  onPrevious: () => void;
-  onNext: (cursor: string) => void;
-}) {
-  const heading = React.useId();
-  const next = page?.nextCursor;
-  const paged = number > 1 || Boolean(next);
-  return (
-    <section aria-labelledby={heading} className="luca-mnemos-reading">
-      <div className="luca-mnemos-heading">
-        <h2
-          id={heading}
-          className="luca-mind-part-title"
-          data-mnemos-focus={page ? "reading" : undefined}
-          tabIndex={-1}
-        >
-          {labels[section]}
-          {paged ? (
-            <span className="luca-mnemos-page-number"> Page {number}</span>
-          ) : null}
-        </h2>
-        <button type="button" className="luca-mind-back" onClick={onBack}>
-          <ChevronLeft aria-hidden />
-          All sections
-        </button>
-      </div>
-      {page ? (
-        <>
-          {page.items.length ? (
-            <ol className="luca-mind-rows luca-mnemos-items">
-              {page.items.map((item, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: fixed read-only page; items have no controls or state.
-                <li key={index}>
-                  {item.author ? (
-                    <small className="luca-mind-help">
-                      {item.author === "agent"
-                        ? "From the resident"
-                        : "From the person"}
-                    </small>
-                  ) : null}
-                  <p>{item.text}</p>
-                  {item.clipped ? (
-                    <small className="luca-mind-help">Excerpt</small>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="luca-mind-quiet">
-              {number > 1
-                ? "No more entries on this page."
-                : "Nothing in this section yet."}
-            </p>
-          )}
-          {paged ? (
-            <nav
-              aria-label={`${labels[section]} pages`}
-              className="luca-mnemos-pages"
-            >
-              {number > 1 ? (
-                <button
-                  type="button"
-                  className="luca-mind-inline"
-                  onClick={onPrevious}
-                >
-                  Previous page
-                </button>
-              ) : null}
-              {next ? (
-                <button
-                  type="button"
-                  className="luca-mind-inline"
-                  onClick={() => onNext(next)}
-                >
-                  Next page
-                </button>
-              ) : null}
-            </nav>
-          ) : null}
-        </>
-      ) : !failed ? (
-        <p className="luca-mind-quiet" role="status">
-          Reading…
-        </p>
-      ) : null}
-    </section>
   );
 }

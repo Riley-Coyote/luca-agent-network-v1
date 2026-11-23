@@ -5,6 +5,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import "@/app/shell/shell-rail.css";
 import "@/app/shell/shell-place-rails.css";
 import { placeRowFace } from "@/app/shell/placeRails/placeFaces";
+import { MnemosRailMind } from "@/features/mnemos/MnemosRailMind";
 import {
   type RailPlace,
   searchForPick,
@@ -33,12 +34,13 @@ import {
 
 export const PLACE_ROUTE: Record<
   RailPlace,
-  "/agents" | "/pulse" | "/artifacts" | "/brain"
+  "/agents" | "/pulse" | "/artifacts" | "/brain" | "/mnemos"
 > = {
   agents: "/agents",
   activity: "/pulse",
   library: "/artifacts",
   brain: "/brain",
+  mnemos: "/mnemos",
 };
 
 /** Words a new pick in Agents starts without: the open tab, a profile
@@ -163,6 +165,7 @@ function PlaceRailBody({
         data-testid={`place-rail-${place}`}
         onKeyDown={railKeys}
       >
+        {place === "mnemos" ? <MnemosRailMind /> : null}
         {sections.map((section) => (
           <RailSection
             key={section.key}

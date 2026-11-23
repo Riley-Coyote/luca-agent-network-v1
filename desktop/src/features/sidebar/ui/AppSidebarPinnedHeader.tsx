@@ -37,6 +37,8 @@ type SidebarSelectedView =
   | "messages"
   | "agents"
   | "brain"
+  /** The shell's Mnemos place (WP-45); never drawn by this menu. */
+  | "mnemos"
   | "artifacts"
   | "workflows"
   | "pulse"

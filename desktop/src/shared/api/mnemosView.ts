@@ -35,6 +35,10 @@ export type ViewItem = {
   text: string;
   clipped: boolean;
   author?: "agent" | "person";
+  /** When it was kept or written, where the reader gives a day. */
+  at?: string;
+  /** A belief's confidence, 0 to 1. */
+  confidence?: number;
 };
 export type ViewCounts = {
   memories: { active: number; dormant: number; archived: number };

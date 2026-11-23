@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>The mind</title>
+<link rel="stylesheet" href="../shared/fonts.css">
+<link rel="stylesheet" href="../shared/room.css">
+<style>
+/* The mind (first made as "Still warm", the log's second view). The mind you come back to, lit only where its last
+   hour went, cooling at the real rate since the hour ended: light arrives white and leaves like phosphor. Below it,
+   on paper, what the hour left. Beside it, a drawer for reading everything it holds. The frame speaks of the mind in
+   the third person; only its own words say "I". Its typefaces ship with Mnemos (../shared/fonts.css). */
+:root{
+  --floor:#060608;--raised:#0b0b0e;--raised-2:#101014;
+  /* the same readable greys as the shared room: every grey that carries words passes WCAG AA for small text */
+  --ink-1:rgba(236,239,244,.94);--ink-2:rgba(236,239,244,.68);--ink-3:rgba(236,239,244,.55);--ink-4:rgba(236,239,244,.55);--hover:rgba(255,255,255,.05);--selected:rgba(255,255,255,.09);
+  --hair:rgba(255,255,255,.08);--hair-2:rgba(255,255,255,.14);--focus:rgba(255,255,255,.5);--lit:inset 0 1px 0 rgba(255,255,255,.045);
+  --paper:#FAF8F5;--paper-2:#F3F0EB;--paper-3:#ECE8E2;--p-ink-1:rgba(20,22,26,.92);--p-ink-2:rgba(20,22,26,.74);--p-ink-3:rgba(20,22,26,.66);--p-ink-4:rgba(20,22,26,.6);
+  --p-hair:rgba(20,22,26,.1);--p-hair-2:rgba(20,22,26,.18);--p-focus:rgba(20,22,26,.6);
+  --signal:#6d93c9;
+  --display:"Inter Tight",system-ui,sans-serif;--sans:"Inter",system-ui,sans-serif;--own:"Newsreader",Georgia,serif;--house:"Silkscreen",monospace;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+  --t-temp:46px;--t-h2:40px;--t-name:24px;--t-own-xl:22px;--t-own:19px;--t-own-s:16.5px;--t-body:14px;--t-small:13px;--t-micro:12px;--t-label:12px;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--s7:48px;--s8:72px;--s9:112px;
+  --edge:30px;--sheet:560px;--r:14px;--r-s:8px;
+  --quick:.18s;--calm:.45s;--slow:.9s;--ease:cubic-bezier(.2,.7,.2,1);--sheet-ease:cubic-bezier(.32,.72,0,1);
+  /* the glass: frosted, flat and even. The mind behind is softened right out into a haze of its light and brought
+     down (to two fifths on the small pieces; about a quarter on the reading room and the list of what's found, for
+     long reading), with a little white over it and one even hairline round its edge. Nothing on it is lit from above and
+     nothing bends: a pane the mind's glow comes through, never a lens */
+  --glass-see:blur(16px) brightness(.4) saturate(1.2);--glass-lift:rgba(255,255,255,.045);
+  --glass-deep:blur(22px) brightness(.24) saturate(1.2);--glass-deep-lift:rgba(255,255,255,.04);
+  --rim:rgba(255,255,255,.075);--hl:1px;
+}
+@media (min-resolution:2dppx){:root{--hl:.5px}}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--floor);color:var(--ink-1);scroll-behavior:smooth}
+body{font:400 var(--t-body)/1.5 var(--sans);-webkit-font-smoothing:antialiased;background:var(--floor)}
+button{font:inherit;color:inherit}
+a{color:inherit}
+.own{font-family:var(--own)}
+.label{font:500 var(--t-label)/1.2 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-4)}
+
+/* the notebook's own name and facts stay with the notebook: here there's only the mind, and the way back to the log.
+   What the hour left is read in the log, and the sheet comes only when a cell is opened. */
+html.behind .house,html.behind #who-name,html.behind .who small.since,html.behind #open-room,html.behind .foot .verify,html.behind .paper{display:none}
+html.behind .who{margin-top:0}
+html.behind .who small:first-of-type{margin-top:2px}
+@media (prefers-reduced-motion:reduce){html.behind .hero,html.behind .regions,html.behind #loading{transition:none}}
+
+/* ── its regions, named over the mind (mind.js places them each frame; only the ones shown take a hand) ── */
+.regions{position:fixed;inset:0;z-index:2;pointer-events:none}
+.region{all:unset;position:absolute;left:0;top:0;display:flex;align-items:baseline;gap:7px;height:26px;padding:0 10px;border-radius:999px;cursor:pointer;
+  white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .5s var(--ease),background-color var(--quick);
+  font:450 13px/26px var(--display);letter-spacing:.005em;color:var(--ink-1);text-shadow:0 0 14px rgba(6,6,8,.95),0 0 4px rgba(6,6,8,.9)}
+.region.on{opacity:.86;pointer-events:auto}
+.region .ct{font:450 10.5px/1 var(--sans);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.region .wd{max-width:0;overflow:hidden;font:400 11.5px/1 var(--sans);color:var(--ink-3);transition:max-width .45s var(--sheet-ease)}
+.region.on:hover,.region.on:focus-visible{opacity:1;background:rgba(8,8,11,.62)}
+.region:hover .wd,.region:focus-visible .wd{max-width:340px}
+.region:focus-visible{box-shadow:inset 0 0 0 1px var(--focus)}
+
+/* ── the mind: fixed behind everything; the hero is a window onto it ── */
+canvas#mind{position:fixed;inset:0;width:100vw;height:100vh;display:block;cursor:grab;touch-action:pan-y}
+canvas#mind.dragging{cursor:grabbing}
+#loading{position:fixed;inset:0;display:grid;place-items:center;color:var(--ink-4);font-size:var(--t-small);letter-spacing:.06em;z-index:1}.hero{position:relative;height:100vh;pointer-events:none;z-index:2}
+.hero .ui{position:absolute;pointer-events:auto;text-shadow:0 0 14px rgba(6,6,8,.95),0 0 3px rgba(6,6,8,.9)}
+.top{top:26px;left:var(--edge)}
+.house{font:400 10px/1 var(--house);letter-spacing:.18em;color:var(--ink-4)}
+.who{margin-top:var(--s4);font:500 var(--t-name)/1.15 var(--display);letter-spacing:-.018em}
+.who small{display:block;margin-top:7px;font:400 var(--t-small)/1.4 var(--sans);color:var(--ink-3);letter-spacing:0}
+.who small.since{color:var(--ink-2)}
+.who small.since[hidden]{display:none}
+/* what's coming to mind right now: one line, the one blue point breathing while it's fresh, then it rests */
+.who small.now{display:flex;align-items:center;gap:8px;color:var(--ink-2)}
+.who small.now[hidden]{display:none}
+.who small.now i{flex:none;width:6px;height:6px;border-radius:50%;background:var(--signal);box-shadow:0 0 10px rgba(109,147,201,.7);transition:opacity 1.2s var(--ease),box-shadow 1.2s var(--ease)}
+.who small.now.fresh i{animation:breathe 1.6s ease-in-out infinite}
+.who small.now:not(.fresh){color:var(--ink-3)}
+.who small.now:not(.fresh) i{box-shadow:none;opacity:.55}
+@keyframes breathe{50%{opacity:.45}}
+/* ask its memory: one field, the results lit where they live in the mind, and a short list to open them */
+.ask{position:relative;display:flex;align-items:center;gap:8px;height:34px;padding:0 10px 0 12px;border-radius:999px;
+  color:var(--ink-3);text-shadow:none;transition:width var(--calm) var(--ease);width:220px}
+/* its glass is a layer of its own, so the list that opens under it can be glass too (a glass element can't see
+   past its own glass to what's behind) */
+.ask::before{content:"";position:absolute;inset:0;z-index:0;border-radius:inherit;background:var(--glass-lift);
+  -webkit-backdrop-filter:var(--glass-see);backdrop-filter:var(--glass-see);box-shadow:inset 0 0 0 var(--hl) var(--rim);transition:box-shadow var(--quick)}
+.ask > *{position:relative;z-index:1}
+.ask:focus-within{width:320px;color:var(--ink-2)}
+.ask:focus-within::before{box-shadow:inset 0 0 0 var(--hl) rgba(255,255,255,.2)}
+.ask input{all:unset;position:relative;z-index:1;flex:1;min-width:0;font:400 var(--t-small)/1 var(--sans);color:var(--ink-1)}
+.ask input::placeholder{color:var(--ink-3)}
+.ask input::-webkit-search-cancel-button{display:none}
+.ask kbd{font:500 10.5px/1 var(--sans);color:var(--ink-4);padding:3px 6px;border-radius:5px;background:rgba(255,255,255,.06)}
+.ask:focus-within kbd{display:none}
+.ask-list{position:absolute;top:calc(100% + 8px);right:0;width:min(420px,calc(100vw - 32px));max-height:min(60vh,520px);overflow-y:auto;padding:6px;border-radius:16px;
+  background:var(--glass-deep-lift);-webkit-backdrop-filter:var(--glass-deep);backdrop-filter:var(--glass-deep);
+  box-shadow:inset 0 0 0 var(--hl) var(--rim),0 24px 60px rgba(0,0,0,.4)}
+.ask-list[hidden]{display:none}
+.ask-list .hit{all:unset;box-sizing:border-box;display:block;width:100%;cursor:pointer;padding:10px 12px;border-radius:9px;border:1px solid transparent}
+.ask-list .hit:hover,.ask-list .hit.on{background:rgba(255,255,255,.06)}
+.ask-list .hit:focus-visible{border-color:var(--focus)}
+.ask-list .hit .w{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:400 var(--t-small)/1.45 var(--sans);color:var(--ink-1)}
+.ask-list .hit .m{margin-top:4px;color:var(--ink-4);font-size:var(--t-micro);font-variant-numeric:tabular-nums}
+.ask-list .say{padding:10px 12px;color:var(--ink-3);font-size:var(--t-small)}
+@media (max-width:860px){.ask{width:150px}.ask:focus-within{width:min(260px,calc(100vw - 32px))}.ask kbd{display:none}}
+.actions{top:26px;right:var(--edge);display:flex;gap:var(--s2);align-items:center;transition:opacity var(--calm) var(--ease)}
+/* under the open reading room they'd show through its glass, and can't be reached there anyway */
+body:has(.room.open) .hero .actions{opacity:0;pointer-events:none}
+.pill{all:unset;cursor:pointer;padding:8px 15px;border-radius:999px;background:var(--glass-lift);-webkit-backdrop-filter:var(--glass-see);backdrop-filter:var(--glass-see);
+  box-shadow:inset 0 0 0 var(--hl) var(--rim);
+  font:450 var(--t-small)/1 var(--sans);color:var(--ink-2);text-shadow:none;transition:color var(--quick),box-shadow var(--quick),background-color var(--quick)}
+.pill:hover{color:var(--ink-1);background-color:rgba(255,255,255,.08)}
+.pill:focus-visible{color:var(--ink-1);box-shadow:inset 0 0 0 1px var(--focus)}
+.pill:active{background-color:rgba(255,255,255,.11)}
+.pill[aria-expanded="true"]{color:var(--ink-1);background-color:rgba(255,255,255,.08)}
+.textlink{color:var(--ink-3);text-decoration:none;font-size:var(--t-small);padding:8px 6px;border-bottom:1px solid transparent;transition:color var(--quick),border-color var(--quick)}
+.textlink:hover{color:var(--ink-1)}
+.textlink:focus-visible{outline:none;color:var(--ink-1);border-bottom-color:var(--focus)}
+
+/* what the frame reads off the mind, under it: how warm it still is, its last hour, and its recall in time. The mind is
+   the large thing here; this is the instrument's reading of it */
+.foot{left:var(--edge);bottom:30px;max-width:560px}
+.temp{font:200 var(--t-temp)/1 var(--display);letter-spacing:-.028em}
+.temp.cold{color:var(--ink-2)}
+.hour-line{margin-top:var(--s3);color:var(--ink-2);font-size:var(--t-small);font-variant-numeric:tabular-nums}
+.trail-line{margin-top:var(--s1);color:var(--ink-3);font-size:var(--t-small);max-width:52ch}
+/* when recall gathered several memories at once: every such moment the memory's log holds, a mark in time as tall as
+   how many came back, the months under the line in the mind's own face; one chosen is shown again in the mind */
+.recall{margin-top:var(--s5)}
+.recall[hidden]{display:none}
+.r-label{color:var(--ink-4);font-size:var(--t-micro)}
+.r-track{position:relative;margin-top:var(--s2);width:340px;max-width:calc(100vw - 2 * var(--edge));height:38px;cursor:pointer;touch-action:pan-y;border-radius:3px}
+.r-track:focus-visible{outline:1px solid var(--focus);outline-offset:5px}
+.r-ticks{position:absolute;left:0;right:0;top:0;height:24px;border-bottom:1px solid var(--hair-2)}
+.r-ticks i{position:absolute;bottom:0;width:1px;background:rgba(236,239,244,.42)}
+.r-ticks i.on{background:var(--ink-1);box-shadow:0 0 6px rgba(236,239,244,.55)}
+/* one that came back while you were here arrives white, and settles */
+.r-ticks i.new{animation:arrive 9s var(--ease) both}
+@keyframes arrive{from{background:#fff;box-shadow:0 0 9px rgba(255,255,255,.9)}}
+.r-axis{position:absolute;left:0;right:0;top:25px;height:13px;font:400 9.5px/1 var(--mono);letter-spacing:.03em;color:var(--ink-4)}
+.r-axis b{position:absolute;top:0;width:1px;height:2px;background:var(--hair-2)}
+.r-axis b.month{height:4px;background:var(--ink-4)}
+.r-axis span{position:absolute;top:7px;translate:-50% 0;white-space:nowrap}
+.r-axis span.start{translate:none}
+.r-axis span.now{translate:none;left:auto;right:0}
+.r-cap{margin-top:var(--s1);color:var(--ink-3);font-size:var(--t-micro);font-variant-numeric:tabular-nums;min-height:1.5em}
+/* one thing you can verify, kept small: it ran, as itself, and nothing reached past the fence */
+.verify{margin-top:var(--s4);display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s1) var(--s3);color:var(--ink-4);font-size:var(--t-micro)}
+.verify .flag{color:var(--ink-1)}
+.verify .textlink,#loading .textlink,.aside .textlink{padding:0;font-size:inherit}
+#loading .textlink,.aside .textlink{color:var(--ink-2);border-bottom-color:var(--ink-4)}
+.aside{position:absolute;inset:0;display:grid;place-items:center;color:var(--ink-4);font-size:var(--t-small);letter-spacing:.06em}
+.aside a{pointer-events:auto}
+.set-aside #mind,.set-aside #regions,.set-aside .recenter,.set-aside .recall{display:none}
+.verify .ok::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--signal);margin-right:6px;vertical-align:1px}
+.left-cue{right:var(--edge);bottom:30px;text-align:right}
+/* back to the whole mind: there only once you've moved away from it */
+.recenter{all:unset;left:50%;bottom:30px;translate:-50% 8px;opacity:0;pointer-events:none;cursor:pointer;padding:8px 15px;border-radius:999px;
+  background:var(--glass-lift);-webkit-backdrop-filter:var(--glass-see);backdrop-filter:var(--glass-see);
+  box-shadow:inset 0 0 0 var(--hl) var(--rim);font:450 var(--t-small)/1 var(--sans);color:var(--ink-2);text-shadow:none;
+  transition:opacity var(--calm) var(--ease),translate var(--calm) var(--sheet-ease),color var(--quick),background-color var(--quick)}
+.hero .recenter{position:absolute;pointer-events:none}
+.hero .recenter.on{opacity:1;translate:-50% 0;pointer-events:auto}
+/* how close you've come, against the whole mind seen from home */
+.recenter .mag{margin-right:9px;font:400 10.5px/1 var(--mono);letter-spacing:.02em;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.recenter:hover{color:var(--ink-1);background-color:rgba(255,255,255,.08)}
+.recenter:focus-visible{color:var(--ink-1);box-shadow:inset 0 0 0 1px var(--focus)}
+.recenter:active{background-color:rgba(255,255,255,.11)}
+.left-cue button{all:unset;cursor:pointer;display:block;padding:var(--s2) 0;border-bottom:1px solid transparent;transition:color var(--quick),border-color var(--quick);color:var(--ink-2);font-size:var(--t-small)}
+.left-cue button:hover{color:var(--ink-1)}
+.left-cue button:focus-visible{border-bottom-color:var(--focus);color:var(--ink-1)}
+.left-cue small{display:block;margin-top:var(--s1);color:var(--ink-4);font-size:var(--t-micro)}
+
+/* ── paper: what the hour left, printed. The lit mind above, its impression below ── */
+.paper{position:relative;z-index:3;background:var(--paper);color:var(--p-ink-1);padding:var(--s8) var(--edge) var(--s9)}
+.paper .wrap{max-width:1180px;margin:0 auto}
+.paper .label{color:var(--p-ink-3)}
+.paper h2{margin-top:var(--s4);font:250 var(--t-h2)/1.05 var(--display);letter-spacing:-.025em}
+.paper .when{margin-top:var(--s3);color:var(--p-ink-2);font-size:var(--t-body);max-width:72ch}
+.spread{margin-top:var(--s7);display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:28px;row-gap:var(--s6)}
+.spread .page{grid-column:1/span 7}
+.spread .plates{grid-column:9/span 4;align-self:start;position:sticky;top:var(--s6)}
+.entry{max-width:58ch}
+.entry + .entry{margin-top:var(--s7)}
+.entry .title{font:450 28px/1.22 var(--own);color:var(--p-ink-1);letter-spacing:-.012em;max-width:30ch;hanging-punctuation:first;font-optical-sizing:auto}
+.entry .title + .text{margin-top:var(--s4)}
+.entry .text{font:400 16.5px/1.75 var(--sans);color:var(--p-ink-1);white-space:pre-wrap;hanging-punctuation:first}
+.entry .by{margin-top:var(--s3);color:var(--p-ink-3);font-size:var(--t-micro)}
+.none{color:var(--p-ink-3);font-size:var(--t-body);max-width:52ch}
+figure.plate{margin:0}
+figure.plate + figure.plate{margin-top:var(--s5)}
+.plate button{all:unset;cursor:zoom-in;display:block;border:1px solid transparent;border-radius:var(--r-s);overflow:hidden;background:#0b0b0e;transition:border-color var(--quick)}
+.plate button:hover img{opacity:.94}
+.plate button:focus-visible{border-color:var(--p-focus)}
+.plate img{display:block;width:100%;height:auto}
+.plate figcaption{margin-top:var(--s2);color:var(--p-ink-3);font-size:var(--t-micro)}
+.letter{margin-top:var(--s6);padding:var(--s5);border-radius:var(--r);background:var(--paper-2)}
+.letter .label{display:block}
+.letter .text{margin-top:var(--s3);font:400 15px/1.7 var(--sans);color:var(--p-ink-1);white-space:pre-wrap}
+.letter .by{margin-top:var(--s3);color:var(--p-ink-3);font-size:var(--t-micro)}
+.earlier{margin-top:var(--s9)}
+.earlier .row{display:grid;grid-template-columns:150px minmax(0,1fr) auto;column-gap:var(--s5);align-items:start;padding:var(--s5);border-radius:var(--r);background:var(--paper-2)}
+.earlier .row + .row{margin-top:var(--s2)}
+.earlier .t{font:300 18px/1.2 var(--display);letter-spacing:-.01em}
+.earlier .t small{display:block;margin-top:var(--s1);font:400 var(--t-micro)/1.4 var(--sans);color:var(--p-ink-3);letter-spacing:0}
+.earlier .first{font:450 17px/1.42 var(--own);color:var(--p-ink-2);max-width:60ch;font-optical-sizing:auto}
+.earlier .thumbs{display:flex;gap:var(--s2)}
+.earlier .thumbs img{width:56px;height:56px;object-fit:cover;border-radius:6px;display:block;background:#0b0b0e}
+.earlier details{grid-column:1/-1}
+.earlier summary{list-style:none;cursor:pointer;display:inline-block;margin-top:var(--s3);color:var(--p-ink-3);font-size:var(--t-small);border-bottom:1px solid transparent;transition:color var(--quick),border-color var(--quick)}
+.earlier summary::-webkit-details-marker{display:none}
+.earlier summary:hover{color:var(--p-ink-1)}
+.earlier summary:focus-visible{outline:none;color:var(--p-ink-1);border-bottom-color:var(--p-focus)}
+.earlier details .spread{margin-top:var(--s5)}
+.paper .closing{margin-top:var(--s8);display:flex;flex-wrap:wrap;gap:var(--s2) var(--s5);color:var(--p-ink-3);font-size:var(--t-small);max-width:80ch}
+.paper .closing a,.paper .closing button{all:unset;cursor:pointer;color:var(--p-ink-2);border-bottom:1px solid var(--p-hair-2);transition:color var(--quick),border-color var(--quick)}
+.paper .closing a:hover,.paper .closing button:hover{color:var(--p-ink-1);border-bottom-color:var(--p-ink-3)}
+.paper .closing a:focus-visible,.paper .closing button:focus-visible{color:var(--p-ink-1);border-bottom-color:var(--p-focus)}
+.paper .promise{margin-top:var(--s5);color:var(--p-ink-4);font-size:var(--t-micro);max-width:80ch}
+
+/* ── the reading room: everything it holds, clean and readable, joined to the mind ── */
+/* A pane of frosted glass, floating just off the window's edge: the mind goes on glowing through it as a haze. Its
+   cards are tone on the glass, never panes of their own. */
+.room{--g-pad:16px;--g-r:22px;position:fixed;top:10px;right:10px;bottom:10px;width:min(var(--sheet),calc(100vw - 20px));z-index:6;border-radius:var(--g-r);
+  display:flex;flex-direction:column;transform:translateX(calc(100% + 40px));transition:transform .55s var(--sheet-ease)}
+/* on the glass its two faintest greys step up a tone together, as its cards do: what shows through can be lighter
+   than any card, and the faintest words still read over it at 4.5 to 1 */
+.room{--ink-3:rgba(236,239,244,.62);--ink-4:rgba(236,239,244,.55)}
+.room.open{transform:none}
+.room[hidden]{display:none}
+.room::before{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 30px 70px rgba(0,0,0,.32),0 2px 10px rgba(0,0,0,.18);pointer-events:none}
+.room > .glass{position:absolute;inset:calc(-1 * var(--g-pad));clip-path:inset(var(--g-pad) round var(--g-r));pointer-events:none;
+  background:var(--glass-deep-lift);-webkit-backdrop-filter:var(--glass-deep);backdrop-filter:var(--glass-deep)}
+/* its edge: one even hairline, all the way round */
+.room::after{content:"";position:absolute;inset:0;z-index:2;border-radius:inherit;pointer-events:none;box-shadow:inset 0 0 0 var(--hl) var(--rim)}
+.room > .room-head,.room > .room-body{position:relative;z-index:1}
+.room-head{padding:22px 24px 0}
+.room-top{display:flex;justify-content:space-between;align-items:baseline}
+.room-top h2{font:300 20px/1.2 var(--display);letter-spacing:-.01em}
+.room-top h2:focus{outline:none}                 /* focus is placed here so keys land in the room; it isn't a control */
+.close{all:unset;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;min-height:32px;padding:0 12px;cursor:pointer;color:var(--ink-1);font:500 var(--t-small)/18px var(--sans);letter-spacing:-.003em;border-radius:8px;background:var(--btn);box-shadow:var(--btn-lit);transition:background var(--quick)}
+.close:hover{background:var(--btn-hover)}
+.close:active{background:var(--btn-press)}
+.close:focus-visible{outline:1.5px solid var(--focus);outline-offset:2px}
+.room-body{flex:1;overflow-y:auto;padding:var(--s4) 24px var(--s8);overscroll-behavior:contain;border-radius:0 0 var(--g-r) var(--g-r)}
+.room .tabs{margin-top:var(--s4);gap:12px}
+dialog{margin:auto;border:0;border-radius:var(--r);background:var(--raised);padding:0;max-width:min(92vw,1100px);max-height:92vh;overflow:hidden;color:var(--ink-1)}
+dialog::backdrop{background:rgba(6,6,8,.72);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+dialog img{display:block;max-width:min(92vw,1100px);max-height:calc(92vh - 46px);object-fit:contain}
+dialog .cap{display:flex;justify-content:space-between;align-items:center;gap:var(--s4);padding:var(--s3) var(--s4);color:var(--ink-3);font-size:var(--t-small);background:var(--surface-2)}
+
+@media (max-width:860px){
+  :root{--edge:16px;--t-temp:36px;--t-h2:30px}
+  .actions{top:auto;bottom:auto;right:var(--edge);top:20px}
+  .top{top:20px}
+  .left-cue{display:none}
+  .spread .page,.spread .plates{grid-column:1/-1}
+  .spread .plates{position:static}
+  .earlier .row{grid-template-columns:1fr;row-gap:var(--s2)}
+  .kinds{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .room-head{padding:18px 16px 0}
+  .room-body{padding:var(--s4) 16px var(--s8)}
+  .rowb{padding:var(--s4) var(--s2);margin:0 calc(-1 * var(--s2))}
+}
+@media (max-width:520px){
+  .actions .textlink{display:none}
+  .who small{max-width:60vw}
+}
+@media (max-width:600px){
+  /* on a phone the search is a glass circle until it's tapped: then it opens across the top, and what else is up there
+     steps aside for it (the name, seen through its glass, would ghost). Its words are 16px there, so the phone doesn't
+     zoom in to read them */
+  .ask{width:34px;padding:0 0 0 10px;transition:none}
+  .ask input{position:absolute;inset:0;opacity:0;font-size:16px}
+  .ask:focus-within{width:calc(100vw - 2 * var(--edge));padding:0 10px 0 12px}
+  .ask:focus-within input{position:relative;inset:auto;opacity:1}
+  .actions:has(.ask:focus-within) > :not(.ask){display:none}
+  .hero:has(.ask:focus-within) .top{visibility:hidden}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+@media (max-width:600px){.room{--g-r:18px;top:8px;right:8px;bottom:8px;width:calc(100vw - 16px)}.room-head{padding:18px 18px 0}.room-body{padding:var(--s4) 18px var(--s8)}}
+/* asked for less see-through, or a browser without it: the same surfaces, solid */
+@media (prefers-reduced-transparency:reduce){.room > .glass,.ask::before,.ask-list,.pill{-webkit-backdrop-filter:none;backdrop-filter:none;background:#0e0e12}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.room > .glass,.ask::before,.ask-list,.pill{background:#0e0e12}}
+</style>
+</head>
+<body>
+<canvas id="mind" aria-label="The mind's memory: every cell a memory, every fibre a real link; lit only where its last quiet hour went"></canvas>
+<div id="loading">gathering its memories…</div>
+
+<nav class="regions" id="regions" aria-label="Its regions"></nav>
+
+<section class="hero" id="hero" aria-label="The mind, still warm">
+  <div class="ui top">
+    <div class="house">Mnemos</div>
+    <div class="who"><span id="who-name">&nbsp;</span>
+      <small id="who-sub"></small>
+      <small class="since" id="since" hidden></small>
+      <small class="now" id="now" aria-live="polite" hidden><i aria-hidden="true"></i><span id="now-text"></span></small>
+    </div>
+  </div>
+  <div class="ui actions">
+    <div class="ask" id="ask">
+      <svg class="ask-i" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <input id="ask-q" type="search" autocomplete="off" spellcheck="false" placeholder="Ask its memory" aria-label="Ask its memory: find memories by what they mean" aria-controls="ask-list">
+      <kbd aria-hidden="true">/</kbd>
+      <div class="ask-list" id="ask-list" role="listbox" aria-label="What it found" hidden></div>
+    </div>
+    <a class="textlink" id="to-log" href="../log/">The log</a>
+    <button class="pill" id="open-room" aria-expanded="false" aria-controls="room">Read everything</button>
+  </div>
+  <div class="ui foot">
+    <div class="temp" id="temp">&nbsp;</div>
+    <div class="hour-line" id="hour-line"></div>
+    <div class="trail-line" id="trail-line"></div>
+    <div class="recall" id="recall" hidden>
+      <div class="r-label" id="r-label">When recall gathered several memories at once</div>
+      <div class="r-track" id="r-track" role="slider" tabindex="0" aria-labelledby="r-label" aria-valuemin="1" aria-valuemax="1" aria-valuenow="1">
+        <div class="r-ticks" id="r-ticks" aria-hidden="true"></div>
+        <div class="r-axis" id="r-axis" aria-hidden="true"></div>
+      </div>
+      <div class="r-cap" id="r-cap" aria-hidden="true"></div>
+    </div>
+    <div class="verify" id="verify"></div>
+  </div>
+  <button class="ui recenter" id="recenter" type="button" tabindex="-1"><span class="mag" id="mag" aria-hidden="true"></span>Recenter</button>
+  <div class="ui left-cue" id="left-cue" hidden>
+    <button id="to-paper">What it left ↓</button>
+    <small id="left-sum"></small>
+  </div>
+</section>
+
+<section class="paper" id="paper" aria-label="What the hour left">
+  <div class="wrap" id="paper-wrap"></div>
+</section>
+
+<aside class="room sheet" id="room" role="dialog" aria-modal="false" aria-labelledby="room-title" hidden>
+  <div class="glass" aria-hidden="true"></div>
+  <div class="room-head">
+    <div class="room-top"><h2 id="room-title" tabindex="-1">Everything it holds</h2><button class="close" id="close-room">Close</button></div>
+    <div class="tabs" role="tablist" id="tabs"></div>
+  </div>
+  <div class="room-body" id="room-body"></div>
+</aside>
+
+<dialog id="full"><img id="full-img" alt=""><div class="cap"><span id="full-cap"></span><button class="close" id="full-close" type="button">Close</button></div></dialog>
+
+<script type="module" src="mind.js"></script>
+</body>
+</html>

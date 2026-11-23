@@ -126,6 +126,7 @@ const RAIL_PLACES: Partial<Record<AppSidebarProps["selectedView"], RailPlace>> =
     agents: "agents",
     // Brain is a place again, with its own rail (WP-38).
     brain: "brain",
+    mnemos: "mnemos",
     pulse: "activity",
     artifacts: "library",
   };

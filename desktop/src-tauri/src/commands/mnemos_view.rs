@@ -2,7 +2,7 @@
 //! foreground view: no MCP registration, memory mutation or resident turn.
 //! Linked (`link`), the resident remembers with it, the same way the person's
 //! other apps do.
-mod link;
+pub(crate) mod link;
 mod protocol;
 mod reader;
 #[cfg(test)]

@@ -543,7 +543,7 @@ function MindPlace({
       {managedAgent?.backend.type === "local" ? (
         <MindRow
           label="Mnemos"
-          help="Read this resident’s memory."
+          help="Which memory they remember with."
           onOpen={() => onGo({ kind: "mnemos" })}
           testId="mind-open-mnemos"
         />

@@ -11,6 +11,7 @@ import { Route as remindersRouteImport } from "./routes/reminders";
 import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
 import { Route as needsYouRouteImport } from "./routes/needs-you";
+import { Route as mnemosRouteImport } from "./routes/mnemos";
 import { Route as inboxRouteImport } from "./routes/inbox";
 import { Route as dashboardRouteImport } from "./routes/dashboard";
 import { Route as brainRouteImport } from "./routes/brain";
@@ -54,6 +55,11 @@ const projectsRoute = projectsRouteImport.update({
 const needsYouRoute = needsYouRouteImport.update({
   id: "/needs-you",
   path: "/needs-you",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const mnemosRoute = mnemosRouteImport.update({
+  id: "/mnemos",
+  path: "/mnemos",
   getParentRoute: () => rootRouteImport,
 } as any);
 const inboxRoute = inboxRouteImport.update({
@@ -137,6 +143,7 @@ export interface FileRoutesByFullPath {
   "/brain": typeof brainRoute;
   "/dashboard": typeof dashboardRoute;
   "/inbox": typeof inboxRoute;
+  "/mnemos": typeof mnemosRoute;
   "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -159,6 +166,7 @@ export interface FileRoutesByTo {
   "/brain": typeof brainRoute;
   "/dashboard": typeof dashboardRoute;
   "/inbox": typeof inboxRoute;
+  "/mnemos": typeof mnemosRoute;
   "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -182,6 +190,7 @@ export interface FileRoutesById {
   "/brain": typeof brainRoute;
   "/dashboard": typeof dashboardRoute;
   "/inbox": typeof inboxRoute;
+  "/mnemos": typeof mnemosRoute;
   "/needs-you": typeof needsYouRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -206,6 +215,7 @@ export interface FileRouteTypes {
     | "/brain"
     | "/dashboard"
     | "/inbox"
+    | "/mnemos"
     | "/needs-you"
     | "/projects"
     | "/pulse"
@@ -228,6 +238,7 @@ export interface FileRouteTypes {
     | "/brain"
     | "/dashboard"
     | "/inbox"
+    | "/mnemos"
     | "/needs-you"
     | "/projects"
     | "/pulse"
@@ -250,6 +261,7 @@ export interface FileRouteTypes {
     | "/brain"
     | "/dashboard"
     | "/inbox"
+    | "/mnemos"
     | "/needs-you"
     | "/projects"
     | "/pulse"
@@ -273,6 +285,7 @@ export interface RootRouteChildren {
   brainRoute: typeof brainRoute;
   dashboardRoute: typeof dashboardRoute;
   inboxRoute: typeof inboxRoute;
+  mnemosRoute: typeof mnemosRoute;
   needsYouRoute: typeof needsYouRoute;
   projectsRoute: typeof projectsRoute;
   pulseRoute: typeof pulseRoute;
@@ -331,6 +344,13 @@ declare module "@tanstack/react-router" {
       path: "/needs-you";
       fullPath: "/needs-you";
       preLoaderRoute: typeof needsYouRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/mnemos": {
+      id: "/mnemos";
+      path: "/mnemos";
+      fullPath: "/mnemos";
+      preLoaderRoute: typeof mnemosRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/inbox": {
@@ -441,6 +461,7 @@ const rootRouteChildren: RootRouteChildren = {
   brainRoute: brainRoute,
   dashboardRoute: dashboardRoute,
   inboxRoute: inboxRoute,
+  mnemosRoute: mnemosRoute,
   needsYouRoute: needsYouRoute,
   projectsRoute: projectsRoute,
   pulseRoute: pulseRoute,

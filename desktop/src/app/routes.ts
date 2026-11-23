@@ -10,6 +10,7 @@ export const routes = rootRoute("root.tsx", [
   ),
   route("/agents", "agents.tsx"),
   route("/brain", "brain.tsx"),
+  route("/mnemos", "mnemos.tsx"),
   route("/artifacts", "artifacts.tsx"),
   route("/pulse", "pulse.tsx"),
   route("/needs-you", "needs-you.tsx"),

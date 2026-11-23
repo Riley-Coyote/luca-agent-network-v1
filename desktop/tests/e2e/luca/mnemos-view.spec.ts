@@ -13,11 +13,8 @@ type Probe = {
   memoryProbe: {
     calls: string[];
     release?: () => void;
-    fault?: "reader_busy" | "stale_page";
     cancelPicker?: boolean;
     holdPicker?: boolean;
-    longEntry?: boolean;
-    rotate?: () => void;
     cancelLink?: boolean;
     busyResident?: boolean;
     reads: { section: unknown; cursor: unknown; grant: unknown }[];
@@ -45,9 +42,6 @@ async function openView(
         state === "connected" || state === "damaged" ? "exact-grant" : null;
       let linked = false;
       let mind = "wren";
-      probe.rotate = () => {
-        grant = "new-grant";
-      };
       window.localStorage.setItem(key, JSON.stringify({ "shell-frame": true }));
       // Install before the real test bridge; all other app commands pass through.
       Object.defineProperty(bridge, "invoke", {
@@ -143,60 +137,13 @@ async function openView(
               linked = false;
               return;
             }
-            if (state === "damaged") throw "store_changed";
+            // The page reads nothing of the memory itself (WP-48, 0e).
             probe.reads.push({
               section: args.section,
               cursor: args.cursor,
               grant,
             });
-            if (probe.fault) {
-              const fault = probe.fault;
-              probe.fault = undefined;
-              throw fault;
-            }
-            if (args.section === "summary")
-              return {
-                kind: "summary",
-                counts: {
-                  memories: { active: 2, dormant: 0, archived: 1 },
-                  notes: { all: 1, unread: 1 },
-                  standing: 1,
-                  journal: 0,
-                  handoffs: 0,
-                  beliefs: 0,
-                },
-              };
-            if (args.section === "notes") {
-              await new Promise<void>((resolve) => {
-                probe.release = resolve;
-              });
-              return {
-                kind: "items",
-                items: [{ text: "Late synthetic note", clipped: false }],
-                nextCursor: null,
-              };
-            }
-            if (
-              args.section === "journal" ||
-              args.section === "beliefs" ||
-              args.section === "handoffs"
-            ) {
-              return { kind: "items", items: [], nextCursor: null };
-            }
-            return {
-              kind: "items",
-              items: [
-                {
-                  text: probe.longEntry
-                    ? `<em>literal</em> ${"w".repeat(600)}`
-                    : args.cursor
-                      ? "Second synthetic memory"
-                      : "First synthetic memory",
-                  clipped: Boolean(probe.longEntry),
-                },
-              ],
-              nextCursor: args.cursor ? null : "p2",
-            };
+            throw Error("this page reads no memory");
           },
       });
     },
@@ -217,25 +164,27 @@ async function openView(
   return page.getByTestId("mind-mnemos");
 }
 
-test("the resident can read pages, discard late hidden results, and disconnect without changing memory", async ({
+/** Anything this page read of the memory itself: it reads none (WP-48, 0e). */
+const memoryReads = (page: Page) =>
+  page.evaluate(() =>
+    (window as unknown as Probe).memoryProbe.calls.filter((c) =>
+      c.startsWith("read_mnemos_view:"),
+    ),
+  );
+
+test("a read-only connection is the relationship and a way into the notebook; it disconnects without changing memory", async ({
   page,
 }) => {
   const view = await openView(page, "connected");
-  await view.getByRole("button", { name: "Memories 2" }).click();
-  await expect(view.getByText("First synthetic memory")).toBeVisible();
-  await view.getByRole("button", { name: "Next page" }).click();
-  await expect(view.getByText("Second synthetic memory")).toBeVisible();
-  await expect(
-    view.getByRole("heading", { name: /Memories.*Page 2/ }),
-  ).toBeFocused();
-  await view.getByRole("button", { name: "Previous page" }).click();
-  await expect(view.getByText("First synthetic memory")).toBeVisible();
-  await view.getByRole("button", { name: "All sections" }).click();
-  await expect(view.getByRole("button", { name: "Memories 2" })).toBeFocused();
-  await view.getByRole("button", { name: "Notes 1" }).click();
-  await page.waitForFunction(() =>
-    Boolean((window as unknown as Probe).memoryProbe.release),
+  const memory = view.getByRole("region", { name: "Memory", exact: true });
+  await expect(memory.getByText("Wren", { exact: true })).toBeVisible();
+  await expect(memory.getByText("Read only", { exact: true })).toBeVisible();
+  await expect(view.getByTestId("mind-open-notebook")).toContainText(
+    "Open Luca’s notebook",
   );
+  // The lists are the notebook's now: none here, and nothing of it read.
+  await expect(view.getByRole("button", { name: /^Memories/ })).toHaveCount(0);
+  expect(await memoryReads(page)).toEqual([]);
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
@@ -246,18 +195,15 @@ test("the resident can read pages, discard late hidden results, and disconnect w
   await expect(
     view.getByText("Memory is only shown while this view is open."),
   ).toBeVisible();
-  await page.evaluate(() => {
-    (window as unknown as Probe).memoryProbe.release?.();
-  });
-  await expect(view.getByText("Late synthetic note")).toHaveCount(0);
   await page.reload();
-  await expect(view.getByRole("button", { name: "Memories 2" })).toBeVisible();
+  await expect(view.getByTestId("mind-open-notebook")).toBeVisible();
   await view.locator("summary").focus();
   await page.keyboard.press("Enter");
   await view.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(
     view.getByRole("button", { name: "Only view a memory" }),
   ).toBeVisible();
+  await expect(view.getByTestId("mind-open-notebook")).toHaveCount(0);
   // A view is not the resident's memory: nothing restarts it.
   expect(
     await page.evaluate(() =>
@@ -267,27 +213,31 @@ test("the resident can read pages, discard late hidden results, and disconnect w
     ),
   ).toBe(false);
 });
+
+test("Open Luca’s notebook opens the Mnemos place at that mind", async ({
+  page,
+}) => {
+  const view = await openView(page, "connected");
+  await view.getByTestId("mind-open-notebook").click();
+  await expect(page).toHaveURL(/#\/mnemos\?.*mind=wren/);
+});
 for (const state of ["missing", "disconnected", "damaged"] as const) {
   test(`memory view handles ${state} without broadening access`, async ({
     page,
   }) => {
     const view = await openView(page, state);
     if (state === "damaged") {
-      await expect(view.getByRole("alert")).toContainText(
-        "store moved or was replaced",
-      );
-      const calls = () =>
-        page.evaluate(() => (window as unknown as Probe).memoryProbe.calls);
-      const before = await calls();
-      await view.getByRole("button", { name: "Review connection" }).click();
-      await expect(view.locator("summary")).toBeFocused();
+      // Nothing of the memory is read here, so a moved store is the
+      // notebook's to say; here the connection stays reviewable.
+      await expect(view.getByTestId("mind-open-notebook")).toBeVisible();
+      await view.locator("summary").click();
       await expect(
         view.locator("details[open]").getByText("wren"),
       ).toBeVisible();
       await expect(
         view.getByRole("button", { name: "Disconnect", exact: true }),
       ).toBeVisible();
-      expect(await calls()).toEqual(before);
+      expect(await memoryReads(page)).toEqual([]);
     } else {
       await expect(view.getByText("Mnemos isn’t on this Mac")).toBeVisible();
       await expect(
@@ -303,59 +253,6 @@ for (const state of ["missing", "disconnected", "damaged"] as const) {
     }
   });
 }
-
-test("a temporary error retries the same page; a rejected cursor goes back to the overview", async ({
-  page,
-}) => {
-  const view = await openView(page, "connected");
-  await view.getByRole("button", { name: "Memories 2" }).click();
-  await view.getByText("First synthetic memory").waitFor();
-  await page.evaluate(() => {
-    (window as unknown as Probe).memoryProbe.fault = "reader_busy";
-  });
-  await view.getByRole("button", { name: "Next page" }).click();
-  await expect(view.getByRole("alert")).toBeFocused();
-  await view.getByRole("button", { name: "Try again" }).click();
-  await expect(view.getByText("Second synthetic memory")).toBeVisible();
-  await expect(
-    view.getByRole("heading", { name: /Memories.*Page 2/ }),
-  ).toBeFocused();
-  expect(
-    await page.evaluate(() =>
-      (window as unknown as Probe).memoryProbe.reads
-        .slice(-2)
-        .map((x) => x.cursor),
-    ),
-  ).toEqual(["p2", "p2"]);
-  await page.evaluate(() => {
-    (window as unknown as Probe).memoryProbe.fault = "stale_page";
-  });
-  await view.getByRole("button", { name: "Refresh", exact: true }).click();
-  await view.getByRole("button", { name: "Open overview" }).click();
-  await expect(view.getByRole("button", { name: "Memories 2" })).toBeVisible();
-});
-
-test("changing connections does not carry a page, another grant, or old text into the new view", async ({
-  page,
-}) => {
-  const view = await openView(page, "connected");
-  await view.getByRole("button", { name: "Memories 2" }).click();
-  await view.getByRole("button", { name: "Next page" }).click();
-  await view.getByText("Second synthetic memory").waitFor();
-  await page.evaluate(() => {
-    (window as unknown as Probe).memoryProbe.rotate?.();
-  });
-  await view.getByRole("button", { name: "Refresh", exact: true }).click();
-  await expect(view.getByRole("button", { name: "Memories 2" })).toBeVisible();
-  await expect(view.getByText("Second synthetic memory")).toHaveCount(0);
-  expect(
-    await page.evaluate(() =>
-      (window as unknown as Probe).memoryProbe.reads.filter(
-        (r) => r.grant === "new-grant",
-      ),
-    ),
-  ).toEqual([{ section: "summary", cursor: null, grant: "new-grant" }]);
-});
 
 test("setup identifies a bad ID and preserves valid entries when the picker is cancelled", async ({
   page,
@@ -410,7 +307,7 @@ test("setup identifies a bad ID and preserves valid entries when the picker is c
     (window as unknown as Probe).memoryProbe.holdPicker = false;
   });
   await choose.click();
-  await expect(view.getByRole("button", { name: "Memories 2" })).toBeVisible();
+  await expect(view.getByTestId("mind-open-notebook")).toBeVisible();
   await view.locator("summary").click();
   await view.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(
@@ -444,7 +341,9 @@ test("the owner gives a resident one of their minds, and it restarts into it", a
       "Luca remembers with this memory, here and in your other apps.",
     ),
   ).toBeVisible();
-  await expect(view.getByRole("button", { name: "Memories 2" })).toBeVisible();
+  await expect(view.getByTestId("mind-open-notebook")).toContainText(
+    "Open Luca’s notebook",
+  );
   expect(await restarts(page)).toEqual([
     "try_stop_managed_agent_for_auto_restart:",
     "start_managed_agent:",
@@ -510,77 +409,4 @@ test("without Mnemos on the Mac the tab says so plainly", async ({ page }) => {
       ),
     ),
   ).toBe(false);
-});
-
-test("empty sections stay navigable and a late response does not take focus back", async ({
-  page,
-}) => {
-  const view = await openView(page, "connected");
-  await view.getByRole("button", { name: "Journal 0" }).click();
-  await expect(view.getByText("Nothing in this section yet.")).toBeVisible();
-  await expect(
-    view.getByRole("navigation", { name: "Journal pages" }),
-  ).toHaveCount(0);
-  await view.getByRole("button", { name: "All sections" }).click();
-  await expect(view.getByRole("button", { name: "Journal 0" })).toBeFocused();
-  await view.getByRole("button", { name: "Notes 1" }).click();
-  await page.waitForFunction(() =>
-    Boolean((window as unknown as Probe).memoryProbe.release),
-  );
-  await view.locator("summary").focus();
-  await page.evaluate(() => {
-    (window as unknown as Probe).memoryProbe.release?.();
-  });
-  await expect(view.getByText("Late synthetic note")).toBeVisible();
-  await expect(view.locator("summary")).toBeFocused();
-});
-
-test("long excerpts render as plain text and the reader still works at large type", async ({
-  page,
-}) => {
-  const view = await openView(page, "connected");
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = "24px";
-    (window as unknown as Probe).memoryProbe.longEntry = true;
-  });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await view.getByRole("button", { name: "Memories 2" }).click();
-  const words = view.getByText(/^<em>literal<\/em>/);
-  await expect(words).toBeVisible();
-  await expect(view.locator(".luca-mnemos-items em")).toHaveCount(0);
-  await expect(view.getByText("Excerpt", { exact: true })).toBeVisible();
-  expect(
-    await words.evaluate((el) =>
-      Number.parseFloat(getComputedStyle(el).fontSize),
-    ),
-  ).toBeGreaterThanOrEqual(24);
-  expect(
-    await view.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
-  ).toBe(true);
-  await view.getByRole("button", { name: "All sections" }).click();
-  await expect(view.getByRole("button", { name: "Memories 2" })).toBeFocused();
-});
-
-test("disconnect discards an in-flight read without returning its text", async ({
-  page,
-}) => {
-  const view = await openView(page, "connected");
-  await view.getByRole("button", { name: "Notes 1" }).click();
-  await page.waitForFunction(() =>
-    Boolean((window as unknown as Probe).memoryProbe.release),
-  );
-  await view.locator("summary").click();
-  await view.getByRole("button", { name: "Disconnect", exact: true }).click();
-  await expect(
-    view.getByRole("button", { name: "Only view a memory" }),
-  ).toBeVisible();
-  await page.evaluate(() =>
-    (window as unknown as Probe).memoryProbe.release?.(),
-  );
-  await expect(view.getByText("Late synthetic note")).toHaveCount(0);
-  expect(
-    await page.evaluate(() =>
-      (window as unknown as Probe).memoryProbe.calls.slice(-2),
-    ),
-  ).toEqual(["disconnect_mnemos_view:", "mnemos_view_status:"]);
 });
