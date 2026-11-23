@@ -861,6 +861,12 @@ mod tests {
         use crate::relay_admission::MAX_HINT_SECONDS;
         use std::io::{Read as _, Write as _};
 
+        // This test arms the process-wide rate-limit gate at 300 s. Hold the
+        // gate tests' lock for the whole body and leave the gate reset, as the
+        // tests in `relay_admission` do, so the window never leaks into them.
+        let _serial = crate::relay_admission::tests::TEST_SERIAL.lock().await;
+        crate::relay_admission::reset_rate_limit_gate();
+
         // Use a std::net listener on a std::thread — the same pattern as the
         // relay_admission loopback tests. This avoids two races that cause CI
         // failures with tokio::net + into_std():
@@ -908,6 +914,7 @@ mod tests {
             !msg.contains(&oversized.to_string()),
             "raw oversized hint must not appear in the message string"
         );
+        crate::relay_admission::reset_rate_limit_gate();
     }
 
     // ── effective_agent_relay_url: per-agent override precedence ─────────────

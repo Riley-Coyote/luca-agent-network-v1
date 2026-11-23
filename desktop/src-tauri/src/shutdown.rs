@@ -11,6 +11,29 @@ pub(crate) fn is_restart_request(code: Option<i32>) -> bool {
     code == Some(tauri::RESTART_EXIT_CODE)
 }
 
+/// The one list of work that ends the app, shared by both ways of quitting:
+/// the normal quit (`RunEvent::ExitRequested` / `RunEvent::Exit` in `lib.rs`)
+/// and a signal (`install_signal_handler`). Add a shutdown step here and both
+/// doors take it; never repeat the list by hand at either door.
+///
+/// It runs at most once per process: `shutdown_done` lets whichever door comes
+/// first do the work, and the other only marks shutdown as started.
+///
+/// Two differences the signal door used to have, settled on purpose:
+/// - It skipped `prevent_sleep::release`. Releasing is cheap and the process is
+///   about to end either way, so one list wins over a special case.
+/// - It discarded a managed-agent stop failure silently. Both doors now log it.
+///
+/// The last step is `local_relay::stop_for_quit`, not `local_relay::stop`: on
+/// unix it never waits on a relay that is still starting, so neither door sits
+/// through a start of up to 45 s. That is safe only here, because the app is
+/// about to be gone and the relay, which carries this app's process id, stops
+/// itself within about a second of that. Callers while the app lives keep
+/// `stop`, which waits.
+///
+/// Left in `lib.rs`'s run loop, outside this list: `managed_permission::cancel_all`
+/// and the clipboard release. Both only touch state inside this process, which
+/// a signal exit ends anyway, so the signal door loses nothing without them.
 pub(crate) fn shut_down_app(app: &tauri::AppHandle, shutdown_done: &std::sync::atomic::AtomicBool) {
     use std::sync::atomic::Ordering;
 
@@ -30,30 +53,20 @@ pub(crate) fn shut_down_app(app: &tauri::AppHandle, shutdown_done: &std::sync::a
         shutdown_mesh_runtime(app);
         // WP-LOCAL1: the bundled single-node relay is our child. Stop it with
         // the app so a relaunch never inherits a stale loopback listener.
-        crate::local_relay::stop(&app.state::<crate::local_relay::RuntimeState>());
+        crate::local_relay::stop_for_quit(&app.state::<crate::local_relay::RuntimeState>());
     }
 }
 
 /// Install SIGINT/SIGTERM/SIGHUP cleanup on ctrlc's dedicated handler thread.
+/// The handler runs the same shutdown as a normal quit (`shut_down_app`), then
+/// ends the process itself, because a signal never reaches `RunEvent::Exit`.
 #[cfg(unix)]
 pub(crate) fn install_signal_handler(
     app: tauri::AppHandle,
     shutdown_done: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
-    use std::sync::atomic::Ordering;
-
     if let Err(error) = ctrlc::set_handler(move || {
-        app.state::<AppState>()
-            .shutdown_started
-            .store(true, Ordering::SeqCst);
-        if !shutdown_done.swap(true, Ordering::SeqCst) {
-            app.state::<AppState>().companion_coordinator.shutdown();
-            app.state::<AppState>().companion_browser.shutdown();
-            app.state::<AppState>().companion_sources.shutdown();
-            let _ = shutdown_managed_agents(&app);
-            #[cfg(feature = "mesh-llm")]
-            shutdown_mesh_runtime(&app);
-        }
+        shut_down_app(&app, &shutdown_done);
         #[cfg(all(feature = "mesh-llm", target_os = "macos"))]
         hard_exit_after_mesh_shutdown();
         #[cfg(not(all(feature = "mesh-llm", target_os = "macos")))]

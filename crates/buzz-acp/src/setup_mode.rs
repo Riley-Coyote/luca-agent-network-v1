@@ -72,6 +72,7 @@ pub(crate) enum AcpAvailabilityStatus {
 }
 
 use crate::{
+    app_watch::AppWatch,
     classify_author,
     config::{Config, IdentityConfig},
     event_mentions_agent, filter,
@@ -308,7 +309,21 @@ impl SetupPayload {
 /// pool. Reconnects on relay close (mirroring normal mode) so the nudge
 /// listener survives transient disconnects; `nudged_event_ids` deduplication
 /// guards against replay on reconnect.
-pub(crate) async fn run_setup_listener(config: Config, payload: SetupPayload) -> Result<()> {
+///
+/// When `app_watch` sees the app that started this runner go, the listener
+/// returns at once instead (it has no agent program to stop).
+pub(crate) async fn run_setup_listener(
+    config: Config,
+    payload: SetupPayload,
+    app_watch: &AppWatch,
+) -> Result<()> {
+    tokio::select! {
+        result = listen(config, payload) => result,
+        () = app_watch.gone() => Ok(()),
+    }
+}
+
+async fn listen(config: Config, payload: SetupPayload) -> Result<()> {
     tracing::info!(
         agent = %payload.agent_name,
         requirements = payload.requirements.len(),

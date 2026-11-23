@@ -1211,7 +1211,7 @@ async fn run_single_node(config: Config, tracer_init: telemetry::TracerInit) -> 
     let state_for_fanout = Arc::clone(&state);
     let mut events = state.pubsub.subscribe_local();
     tokio::spawn(async move {
-        while let Ok(event) = events.recv().await {
+        while let Some(event) = recv_single_node_fanout_event(&mut events).await {
             buzz_relay::handlers::event::fan_out_pubsub_event(&state_for_fanout, event).await;
         }
     });
@@ -1229,6 +1229,22 @@ async fn run_single_node(config: Config, tracer_init: telemetry::TracerInit) -> 
         let _ = tp.shutdown();
     }
     Ok(())
+}
+
+/// The next event for the single-node fan-out. A receiver that fell behind
+/// skips what it missed and keeps delivering; only a closed channel ends it.
+async fn recv_single_node_fanout_event<T: Clone>(
+    events: &mut tokio::sync::broadcast::Receiver<T>,
+) -> Option<T> {
+    loop {
+        match events.recv().await {
+            Ok(event) => return Some(event),
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                warn!(skipped, "Single-node fan-out lagged; skipped events");
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+        }
+    }
 }
 
 /// ```
@@ -1258,17 +1274,30 @@ async fn serve(
         axum::serve(health_listener, health_router).await.ok();
     });
 
+    #[cfg(unix)]
+    let parent_pid = watched_parent_pid(std::env::var(PARENT_PID_ENV).ok().as_deref())
+        .map_err(|e| anyhow::anyhow!(e))?;
+
     let (shutdown_tx, _) = tokio::sync::watch::channel(false);
     let shutdown_flag = Arc::clone(&state.shutting_down);
     let tx = shutdown_tx.clone();
+    let grace = pre_drain_grace(config.profile);
     tokio::spawn(async move {
-        shutdown_signal().await;
-        shutdown_flag.store(true, Ordering::Relaxed);
-        info!("Shutdown signal received — readiness now returns 503");
-        // 5s grace: let K8s stop routing new traffic before we close listeners.
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        info!("Starting graceful drain (30s timeout)");
-        let _ = tx.send(true);
+        // A supervising app's departure ends the relay exactly as SIGTERM does.
+        #[cfg(unix)]
+        let requested = async move {
+            tokio::select! {
+                _ = shutdown_signal() => {},
+                _ = parent_departed(
+                    parent_pid,
+                    PARENT_WATCH_INTERVAL,
+                    std::os::unix::process::parent_id,
+                ) => {},
+            }
+        };
+        #[cfg(not(unix))]
+        let requested = shutdown_signal();
+        announce_shutdown_then_drain(requested, shutdown_flag, grace, tx).await;
         // Hard timeout: force exit if connections don't drain within 30s.
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         tracing::error!("Drain timeout exceeded — forcing exit");
@@ -1359,6 +1388,85 @@ async fn shutdown_signal() {
     {
         tokio::signal::ctrl_c().await.ok();
     }
+}
+
+/// Set by a supervising app (Buzz desktop's local relay) to its own process
+/// id. When present, the relay shuts down as for SIGTERM once its parent is no
+/// longer that process, so an app that ends without a normal quit never leaves
+/// the relay running on its data. Absent, the relay never looks.
+#[cfg(unix)]
+const PARENT_PID_ENV: &str = "BUZZ_PARENT_PID";
+
+/// How often the relay checks who its parent is while `BUZZ_PARENT_PID` is set.
+#[cfg(unix)]
+const PARENT_WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Parse `BUZZ_PARENT_PID`: `None` when unset, an error when set to anything
+/// but a positive process id.
+#[cfg(unix)]
+fn watched_parent_pid(raw: Option<&str>) -> Result<Option<u32>, String> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    match raw.trim().parse::<u32>() {
+        Ok(pid) if pid > 0 => Ok(Some(pid)),
+        _ => Err(format!(
+            "{PARENT_PID_ENV} must be a positive process id, got {raw:?}"
+        )),
+    }
+}
+
+/// Resolve once `current_parent` stops reporting `expected`, checking every
+/// `interval`. With no `expected` pid this never resolves and never looks.
+#[cfg(unix)]
+async fn parent_departed(
+    expected: Option<u32>,
+    interval: std::time::Duration,
+    current_parent: impl Fn() -> u32,
+) {
+    let Some(expected) = expected else {
+        return std::future::pending().await;
+    };
+    loop {
+        let parent = current_parent();
+        if parent != expected {
+            info!(
+                expected_parent = expected,
+                parent, "Supervising parent process is gone — shutting down"
+            );
+            return;
+        }
+        tokio::time::sleep(interval).await;
+    }
+}
+
+/// Readiness-503 time before the drain starts. Production waits so a load
+/// balancer can stop routing new traffic first; a single-node relay on a
+/// person's own machine has no such router, so it drains at once.
+fn pre_drain_grace(profile: RelayProfile) -> std::time::Duration {
+    match profile {
+        RelayProfile::Production => std::time::Duration::from_secs(5),
+        RelayProfile::SingleNode => std::time::Duration::ZERO,
+    }
+}
+
+/// Wait for `requested`, mark the relay shutting down (readiness returns 503),
+/// wait `grace`, then tell the listeners to drain.
+async fn announce_shutdown_then_drain(
+    requested: impl std::future::Future<Output = ()>,
+    shutting_down: Arc<std::sync::atomic::AtomicBool>,
+    grace: std::time::Duration,
+    drain: tokio::sync::watch::Sender<bool>,
+) {
+    requested.await;
+    shutting_down.store(true, Ordering::Relaxed);
+    info!("Shutdown signal received — readiness now returns 503");
+    if !grace.is_zero() {
+        // Let K8s stop routing new traffic before we close listeners.
+        tokio::time::sleep(grace).await;
+    }
+    info!("Starting graceful drain (30s timeout)");
+    let _ = drain.send(true);
 }
 /// Reconstruct a `nostr::Event` from a [`DueReminder`] row for Redis pub/sub.
 fn reminder_to_event(reminder: &buzz_db::event::DueReminder) -> nostr::Event {
@@ -1910,6 +2018,14 @@ mod tests {
         assert_eq!(recv_single_node_fanout_event(&mut receiver).await, Some(2));
     }
 
+    #[tokio::test]
+    async fn single_node_fanout_ends_when_the_channel_closes() {
+        let (sender, mut receiver) = tokio::sync::broadcast::channel::<u8>(1);
+        drop(sender);
+
+        assert_eq!(recv_single_node_fanout_event(&mut receiver).await, None);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn periodic_loop_exits_immediately_on_cancellation() {
         let cancel = CancellationToken::new();
@@ -2021,5 +2137,137 @@ mod tests {
     fn test_idle_timeout_is_at_least_three_usage_intervals() {
         assert_eq!(idle_timeout_secs(None, 300), 900);
         assert_eq!(idle_timeout_secs(Some(10), 1_000), 3_000);
+    }
+
+    // ── shutdown: parent watch and pre-drain grace ───────────────────────────
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_pid_is_read_only_when_set_to_a_positive_pid() {
+        use super::watched_parent_pid;
+        assert_eq!(watched_parent_pid(None), Ok(None));
+        assert_eq!(watched_parent_pid(Some("4242")), Ok(Some(4242)));
+        assert_eq!(watched_parent_pid(Some(" 4242\n")), Ok(Some(4242)));
+        assert!(watched_parent_pid(Some("0")).is_err());
+        assert!(watched_parent_pid(Some("-1")).is_err());
+        assert!(watched_parent_pid(Some("app")).is_err());
+        assert!(watched_parent_pid(Some("")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn parent_watch_resolves_once_the_parent_changes() {
+        use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+        let parent = Arc::new(AtomicU32::new(4242));
+        let looks = Arc::new(AtomicUsize::new(0));
+        let (reader_parent, reader_looks) = (Arc::clone(&parent), Arc::clone(&looks));
+        let watch = tokio::spawn(super::parent_departed(
+            Some(4242),
+            Duration::from_millis(5),
+            move || {
+                reader_looks.fetch_add(1, Ordering::SeqCst);
+                reader_parent.load(Ordering::SeqCst)
+            },
+        ));
+        // Still the app: the watch keeps looking and does not resolve.
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        assert!(
+            !watch.is_finished(),
+            "resolved while the parent was unchanged"
+        );
+        assert!(
+            looks.load(Ordering::SeqCst) >= 2,
+            "the watch must keep looking"
+        );
+        // The app is gone and the relay was reparented (to launchd on macOS).
+        parent.store(1, Ordering::SeqCst);
+        tokio::time::timeout(Duration::from_secs(2), watch)
+            .await
+            .expect("watch must resolve after the parent changes")
+            .expect("watch task");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn parent_watch_never_resolves_or_looks_when_unset() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let looks = Arc::new(AtomicUsize::new(0));
+        let reader_looks = Arc::clone(&looks);
+        // The reader reports a different parent on every look, so any look at
+        // all would resolve the watch.
+        let watched = super::parent_departed(None, Duration::from_millis(1), move || {
+            reader_looks.fetch_add(1, Ordering::SeqCst);
+            1
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), watched)
+                .await
+                .is_err(),
+            "an unset parent pid must never end the relay"
+        );
+        assert_eq!(
+            looks.load(Ordering::SeqCst),
+            0,
+            "an unset watch must never look"
+        );
+    }
+
+    #[test]
+    fn only_production_waits_before_draining() {
+        use buzz_relay::config::RelayProfile;
+        assert_eq!(
+            super::pre_drain_grace(RelayProfile::Production),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            super::pre_drain_grace(RelayProfile::SingleNode),
+            Duration::ZERO
+        );
+    }
+
+    #[tokio::test]
+    async fn single_node_shutdown_goes_straight_to_the_drain() {
+        use buzz_relay::config::RelayProfile;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let flag = Arc::new(AtomicBool::new(false));
+        let (tx, mut rx) = tokio::sync::watch::channel(false);
+        tokio::spawn(super::announce_shutdown_then_drain(
+            std::future::ready(()),
+            Arc::clone(&flag),
+            super::pre_drain_grace(RelayProfile::SingleNode),
+            tx,
+        ));
+        tokio::time::timeout(Duration::from_millis(500), rx.changed())
+            .await
+            .expect("single-node drain must start without a grace pause")
+            .expect("drain sender");
+        assert!(*rx.borrow());
+        assert!(
+            flag.load(Ordering::Relaxed),
+            "readiness must report shutting down"
+        );
+    }
+
+    #[tokio::test]
+    async fn production_shutdown_holds_the_drain_for_its_grace() {
+        use buzz_relay::config::RelayProfile;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let flag = Arc::new(AtomicBool::new(false));
+        let (tx, mut rx) = tokio::sync::watch::channel(false);
+        let task = tokio::spawn(super::announce_shutdown_then_drain(
+            std::future::ready(()),
+            Arc::clone(&flag),
+            super::pre_drain_grace(RelayProfile::Production),
+            tx,
+        ));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), rx.changed())
+                .await
+                .is_err(),
+            "production must not drain before its grace ends"
+        );
+        assert!(flag.load(Ordering::Relaxed), "readiness flips at once");
+        assert!(!*rx.borrow());
+        task.abort();
     }
 }

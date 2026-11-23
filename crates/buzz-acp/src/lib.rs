@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 mod acp;
+mod app_watch;
 mod artifact_mcp;
 mod artifact_turn_gate;
 mod assay_runner;
@@ -1492,6 +1493,9 @@ async fn tokio_main() -> Result<()> {
         .init();
 
     let mut config = Config::from_cli().map_err(|e| anyhow::anyhow!("configuration error: {e}"))?;
+    // Decided now, before setup mode or any agent: whether this runner
+    // watches the app that started it (see app_watch).
+    let app_watch = app_watch::AppWatch::at_start();
 
     // ── Setup-mode early branch ───────────────────────────────────────────────
     //
@@ -1502,7 +1506,7 @@ async fn tokio_main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("setup payload error: {e}"))?
     {
         tracing::info!("buzz-acp: setup payload present, entering setup-listener mode");
-        return setup_mode::run_setup_listener(config, payload).await;
+        return setup_mode::run_setup_listener(config, payload, &app_watch).await;
     }
 
     tracing::info!("buzz-acp starting: {}", config.summary());
@@ -1589,7 +1593,15 @@ async fn tokio_main() -> Result<()> {
         match spawn_result {
             Ok(mut acp) => {
                 acp.set_observer(observer.clone(), i);
-                match tokio::time::timeout(Duration::from_secs(60), acp.initialize()).await {
+                let initialize = tokio::time::timeout(Duration::from_secs(60), acp.initialize());
+                let initialized = tokio::select! {
+                    initialized = initialize => initialized,
+                    () = app_watch.gone() => {
+                        acp.shutdown().await;
+                        return leave_during_startup(&mut agent_slots).await;
+                    }
+                };
+                match initialized {
                     Ok(Ok(init_result)) => {
                         tracing::info!(agent = i, "agent initialized: {init_result}");
                         let protocol_version =
@@ -1675,24 +1687,30 @@ async fn tokio_main() -> Result<()> {
             .and_then(|s| buzz_sdk::nip_oa::parse_auth_tag(&s).ok())
     };
 
-    let mut relay = match &config.identity {
-        config::IdentityConfig::Legacy(keys) => {
-            HarnessRelay::connect(&config.relay_url, keys, &pubkey_hex, relay_auth_tag).await
+    let connect = async {
+        match &config.identity {
+            config::IdentityConfig::Legacy(keys) => {
+                HarnessRelay::connect(&config.relay_url, keys, &pubkey_hex, relay_auth_tag).await
+            }
+            config::IdentityConfig::Managed {
+                resident_pubkey,
+                broker,
+                owner_attestation,
+                ..
+            } => {
+                HarnessRelay::connect_managed(
+                    &config.relay_url,
+                    resident_pubkey.clone(),
+                    Arc::clone(broker),
+                    owner_attestation.clone(),
+                )
+                .await
+            }
         }
-        config::IdentityConfig::Managed {
-            resident_pubkey,
-            broker,
-            owner_attestation,
-            ..
-        } => {
-            HarnessRelay::connect_managed(
-                &config.relay_url,
-                resident_pubkey.clone(),
-                Arc::clone(broker),
-                owner_attestation.clone(),
-            )
-            .await
-        }
+    };
+    let mut relay = tokio::select! {
+        relay = connect => relay,
+        () = app_watch.gone() => return leave_during_startup(pool.agents_mut()).await,
     }
     .map_err(|e| anyhow::anyhow!("relay connect error: {e}"))?;
 
@@ -2102,6 +2120,9 @@ async fn tokio_main() -> Result<()> {
             let _ = tx.send(());
         });
     }
+
+    // The app that started this runner is gone (a crash or a force quit).
+    app_watch.stop_runner_when_gone(shutdown_tx.clone());
 
     // A managed resident whose signing channel has closed can neither reach
     // the relay nor post a reply, and the channel never reopens: every later
@@ -3103,7 +3124,8 @@ async fn tokio_main() -> Result<()> {
     tracing::info!("shutdown: waiting for in-flight prompts");
     // 30 s is generous for in-flight prompts to be cancelled; using
     // max_turn_duration here would cause Ctrl+C to hang for up to an hour.
-    let grace = Duration::from_secs(30);
+    // None at all once the app that started this runner is gone (app_watch).
+    let grace = app_watch.shutdown_grace(Duration::from_secs(30));
     // Best-effort drain of both join_set and result_rx during the grace period.
     // Tasks that finish normally send their OwnedAgent through result_rx — we
     // explicitly shut them down here to reap child processes. If the grace
@@ -3199,6 +3221,19 @@ async fn tokio_main() -> Result<()> {
     // for the background task to finish, rather than aborting immediately (#40).
     relay.shutdown().await;
 
+    tracing::info!("buzz-acp stopped");
+    Ok(())
+}
+
+/// The app that started this runner went while it was still starting: stop
+/// the agents it has already started, as the start-up's own failure paths
+/// do, and leave.
+async fn leave_during_startup(slots: &mut [Option<OwnedAgent>]) -> Result<()> {
+    for slot in slots.iter_mut() {
+        if let Some(mut agent) = slot.take() {
+            agent.acp.shutdown().await;
+        }
+    }
     tracing::info!("buzz-acp stopped");
     Ok(())
 }
