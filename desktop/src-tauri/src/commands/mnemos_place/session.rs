@@ -94,6 +94,9 @@ pub(crate) enum Fail {
     UnknownItem,
     /// Mnemos refused the request; for a write, in its own words.
     Refused(Option<String>),
+    /// The place refused a write before sending it, in one plain sentence
+    /// of its own: nothing reached the engine.
+    Unfit(&'static str),
 }
 
 impl Fail {
@@ -110,14 +113,17 @@ impl Fail {
             Self::Busy => "mnemos_busy",
             Self::UnknownItem => "unknown_item",
             Self::Refused(_) => "mnemos_refused",
+            Self::Unfit(_) => wire::INVALID,
         }
     }
 
     /// What the page is told: the code, and for a write's refusal the
-    /// engine's own sentence after it ("mnemos_refused:<sentence>").
+    /// engine's own sentence after it ("mnemos_refused:<sentence>"), or the
+    /// place's own for one it never sent ("invalid_request:<sentence>").
     pub(crate) fn told(&self) -> String {
         match self {
             Self::Refused(Some(said)) => format!("{}:{said}", self.code()),
+            Self::Unfit(why) => format!("{}:{why}", self.code()),
             _ => self.code().to_owned(),
         }
     }
@@ -126,7 +132,12 @@ impl Fail {
     fn ends_session(&self) -> bool {
         !matches!(
             self,
-            Self::Refused(_) | Self::NotOpen | Self::Busy | Self::UnknownItem | Self::Unanswered
+            Self::Refused(_)
+                | Self::Unfit(_)
+                | Self::NotOpen
+                | Self::Busy
+                | Self::UnknownItem
+                | Self::Unanswered
         )
     }
 }
@@ -346,7 +357,13 @@ impl Place {
         exchange: &E,
         limit: Duration,
     ) -> Result<E::Answer, Fail> {
-        exchange.check().map_err(|_| Fail::Invalid)?;
+        exchange.check().map_err(|why| {
+            if why == wire::INVALID {
+                Fail::Invalid
+            } else {
+                Fail::Unfit(why)
+            }
+        })?;
         let mut guard = self.session.lock().await;
         let Some(session) = guard.as_mut().filter(|s| s.mind.agent == agent) else {
             return Err(Fail::NotOpen);

@@ -201,6 +201,16 @@ export function kestrelNotebook(now: number) {
         waiting: ["kes-m04"],
         reached: ["kes-m05", "kes-m01"],
       },
+      // It went online (Mnemos 0.7.0): two pages read, one of them not a
+      // web address, and one search, as the hour recorded them.
+      online: true,
+      web: {
+        read: [
+          "https://tides.example.org/north-harbour/spring?week=48",
+          "ftp://charts.example.net/old-sandbar.pdf",
+        ],
+        searched: ["spring tide times north harbour"],
+      },
     },
     {
       id: "kes-h2",
@@ -224,6 +234,7 @@ export function kestrelNotebook(now: number) {
       said: "A dream over the old charts. Nothing kept but a picture of the sky.",
       refused: [],
       trail: { woke: ["kes-m10"], waiting: [], reached: [] },
+      online: false,
     },
     {
       id: "kes-h3",
@@ -262,6 +273,18 @@ export function kestrelNotebook(now: number) {
       store: "~/.mnemos/kestrel.db",
     },
     hours,
+    // Each quiet hour as it is set now (Mnemos 0.7.0, `export.py`
+    // `quiet_hours`): its own hour on and online, our hour on and offline,
+    // the dream off.
+    quietHours: {
+      where: "here",
+      hours: {
+        mine: { on: true, at: "08:00", minutes: 60, online: true },
+        ours: { on: true, at: "19:00", minutes: 30, online: false },
+        dream: { on: false, at: "03:30", minutes: 20, online: false },
+      },
+      cant: null as string | null,
+    },
     // The engine's shape (`export.py` `schedule`): a LaunchAgent that runs
     // its own hour at three.
     schedule: [

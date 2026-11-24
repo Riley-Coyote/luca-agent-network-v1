@@ -8,8 +8,12 @@
 //! the webview. A notebook part passes through as JSON once its envelope is
 //! checked: the page guards its shapes.
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::{collections::BTreeMap, path::PathBuf};
+
+/// What `check` says of a request outside the place's limits that has no
+/// sentence of its own.
+pub(crate) const INVALID: &str = "invalid_request";
 
 /// The longest id the place accepts from the engine.
 pub(crate) const MAX_ID: usize = 128;
@@ -159,7 +163,7 @@ impl Exchange for Request {
         if fine {
             Ok(())
         } else {
-            Err("invalid_request")
+            Err(INVALID)
         }
     }
 
@@ -422,17 +426,12 @@ pub enum Write {
     Forget { memory_id: String },
     /// Mark the mind's notes read: the person saw them.
     Read { note_ids: Vec<String> },
-    /// Turn the quiet hours on (with their times, `HH:MM` or empty for the
-    /// default) or off. This writes a real job into the Mac's scheduler.
-    Hours {
-        on: bool,
-        #[serde(default)]
-        mine: Option<String>,
-        #[serde(default)]
-        ours: Option<String>,
-        #[serde(default)]
-        dream: Option<String>,
-    },
+    /// Change the quiet hours, each by itself (Mnemos 0.7.0): any of
+    /// `mine`, `ours` and `dream`, each with `on` as it will be and only what
+    /// else changes (`at`, `minutes`, `online`). Checked by `hours_unfit`
+    /// before anything is sent: turning an hour on writes a real job into the
+    /// Mac's scheduler, and turning one off removes it.
+    Hours { hours: Map<String, Value> },
     /// Add to the shared notebook, correct a row, or let one go (asked twice:
     /// `confirmed`).
     Shared {
@@ -455,15 +454,75 @@ pub enum SharedAction {
     Forget,
 }
 
-/// A quiet hour's time as the notebook takes one: `HH:MM`, or empty.
-fn clock(at: &Option<String>) -> bool {
-    at.as_deref().is_none_or(|t| {
-        t.is_empty()
-            || (t.len() == 5
-                && t.as_bytes()[2] == b':'
-                && t[..2].parse::<u8>().is_ok_and(|h| h < 24)
-                && t[3..].parse::<u8>().is_ok_and(|m| m < 60))
-    })
+/// The quiet hours, by the names the engine knows them.
+const HOUR_KINDS: [&str; 3] = ["mine", "ours", "dream"];
+/// What one changed hour may carry.
+const HOUR_FIELDS: [&str; 4] = ["on", "at", "minutes", "online"];
+/// How long an hour may last, in minutes (the engine's own range).
+const HOUR_MINUTES: std::ops::RangeInclusive<u64> = 5..=120;
+
+/// A start time as the engine takes one: `HH:MM`, from 00:00 to 23:59.
+fn clock(at: &str) -> bool {
+    let bytes = at.as_bytes();
+    bytes.len() == 5
+        && bytes[2] == b':'
+        && bytes[..2].iter().chain(&bytes[3..]).all(u8::is_ascii_digit)
+        && at[..2].parse::<u8>().is_ok_and(|h| h < 24)
+        && at[3..].parse::<u8>().is_ok_and(|m| m < 60)
+}
+
+/// Why this change of the quiet hours can't be sent, in one plain sentence,
+/// or None when it names at least one hour, only hours the engine knows,
+/// each with `on` and only what the engine takes: a start from 00:00 to
+/// 23:59, a whole number of minutes from 5 to 120, and whether it can go
+/// online (never for the dream). An hour being turned off carries nothing
+/// else.
+pub(crate) fn hours_unfit(hours: &Map<String, Value>) -> Option<&'static str> {
+    if hours.is_empty() {
+        return Some("Nothing was sent: no quiet hour was changed.");
+    }
+    for (kind, change) in hours {
+        if !HOUR_KINDS.contains(&kind.as_str()) {
+            return Some(
+                "Nothing was sent: the quiet hours are its own hour, our hour and the dream.",
+            );
+        }
+        let Some(change) = change.as_object() else {
+            return Some("Nothing was sent: each quiet hour that changes says whether it's on.");
+        };
+        if change.keys().any(|k| !HOUR_FIELDS.contains(&k.as_str())) {
+            return Some("Nothing was sent: a quiet hour has only its switch, its start, its length and whether it can go online.");
+        }
+        let Some(on) = change.get("on").and_then(Value::as_bool) else {
+            return Some("Nothing was sent: each quiet hour that changes says whether it's on.");
+        };
+        if !on && change.len() > 1 {
+            return Some("Nothing was sent: an hour being turned off carries nothing else.");
+        }
+        if change
+            .get("at")
+            .is_some_and(|at| !at.as_str().is_some_and(clock))
+        {
+            return Some("Nothing was sent: an hour starts at a time from 00:00 to 23:59.");
+        }
+        if change
+            .get("minutes")
+            .is_some_and(|m| !m.as_u64().is_some_and(|m| HOUR_MINUTES.contains(&m)))
+        {
+            return Some(
+                "Nothing was sent: an hour lasts a whole number of minutes, from 5 to 120.",
+            );
+        }
+        if let Some(online) = change.get("online") {
+            if kind == "dream" {
+                return Some("Nothing was sent: the dream never goes online.");
+            }
+            if !online.is_boolean() {
+                return Some("Nothing was sent: whether an hour can go online is on or off.");
+            }
+        }
+    }
+    None
 }
 
 fn words_fit(text: &str) -> bool {
@@ -483,17 +542,10 @@ impl Exchange for Write {
             Self::Read { note_ids } => {
                 (1..=MAX_READ).contains(&note_ids.len()) && note_ids.iter().all(|id| valid_id(id))
             }
-            Self::Hours {
-                on,
-                mine,
-                ours,
-                dream,
-            } => {
-                clock(mine)
-                    && clock(ours)
-                    && clock(dream)
-                    && (*on || (mine.is_none() && ours.is_none() && dream.is_none()))
-            }
+            Self::Hours { hours } => match hours_unfit(hours) {
+                Some(why) => return Err(why),
+                None => true,
+            },
             Self::Shared {
                 action,
                 text,
@@ -516,7 +568,7 @@ impl Exchange for Write {
         if fine {
             Ok(())
         } else {
-            Err("invalid_request")
+            Err(INVALID)
         }
     }
 
@@ -546,19 +598,7 @@ impl Exchange for Write {
             }
             Self::Forget { memory_id } => body["memory_id"] = json!(memory_id),
             Self::Read { note_ids } => body["note_ids"] = json!(note_ids),
-            Self::Hours {
-                on,
-                mine,
-                ours,
-                dream,
-            } => {
-                body["on"] = json!(on);
-                if *on {
-                    body["mine"] = json!(mine.as_deref().unwrap_or(""));
-                    body["ours"] = json!(ours.as_deref().unwrap_or(""));
-                    body["dream"] = json!(dream.as_deref().unwrap_or(""));
-                }
-            }
+            Self::Hours { hours } => body["hours"] = Value::Object(hours.clone()),
             Self::Shared {
                 action,
                 text,

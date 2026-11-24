@@ -30,7 +30,7 @@ async function sendOnce(
   return written.said;
 }
 
-/** Turn the quiet hours on at these times, or off: what the scheduler said. */
+/** Change the quiet hours that changed, each by itself: what Mnemos said. */
 export const sendHours = (mind: string, write: HoursWrite) =>
   sendOnce(mind, write);
 

@@ -108,6 +108,23 @@ export type PlaceReply =
       pictures: string[];
     };
 
+/** The three quiet hours, by the engine's names for them. */
+export type HourKind = "mine" | "ours" | "dream";
+
+/** One quiet hour that changes: `on` as it will be, and only what else
+ *  differs. An hour turned off carries `on: false` alone; the dream never
+ *  carries `online`. */
+export type HourChange = {
+  on: boolean;
+  /** HH:MM. */
+  at?: string;
+  /** 5 to 120. */
+  minutes?: number;
+  online?: boolean;
+};
+
+export type HoursChange = Partial<Record<HourKind, HourChange>>;
+
 /** One of the person's own writes: exactly these seven. */
 export type PlaceWrite =
   | { command: "reply"; note_id: string; text: string }
@@ -117,11 +134,8 @@ export type PlaceWrite =
   | { command: "read"; note_ids: string[] }
   | {
       command: "hours";
-      on: boolean;
-      /** HH:MM, or "" for the notebook's own default. */
-      mine?: string;
-      ours?: string;
-      dream?: string;
+      /** Only the hours that change, each by itself (Mnemos 0.7.0). */
+      hours: HoursChange;
     }
   | {
       command: "shared";

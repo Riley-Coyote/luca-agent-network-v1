@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronDown, ChevronLeft } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
 
@@ -259,4 +259,47 @@ export function useLoad<T>(
     };
   }, [...deps, n]);
   return { value, failed, again: () => setN((x) => x + 1) };
+}
+
+/** A menu that reads as its choice and a chevron ("Lessons ▾"): the
+ *  platform's own menu over it, so the keyboard, the type-ahead and the
+ *  list are the system's. */
+export function QuietMenu({
+  disabled,
+  label,
+  onChange,
+  options,
+  shown,
+  testId,
+  value,
+}: {
+  disabled?: boolean;
+  label: string;
+  onChange: (id: string) => void;
+  options: { id: string; label: string; disabled?: boolean }[];
+  shown: string;
+  testId: string;
+  value: string;
+}) {
+  return (
+    <label className="luca-mnemos-menu text-xs">
+      <span aria-hidden className="luca-mnemos-menu-shown">
+        {shown}
+      </span>
+      <ChevronDown aria-hidden />
+      <select
+        aria-label={label}
+        disabled={disabled}
+        data-testid={testId}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {options.map((o) => (
+          <option disabled={o.disabled} key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }

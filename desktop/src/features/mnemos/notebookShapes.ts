@@ -5,6 +5,7 @@
  * becomes its plain empty value, and an item that isn't one is left out, so
  * one odd row never empties a section. Nothing here invents a word.
  */
+import type { HourKind } from "./api";
 import type {
   BookAnswered,
   BookAsked,
@@ -12,12 +13,16 @@ import type {
   BookEntry,
   BookHandoff,
   BookHello,
+  BookHermesHour,
   BookHour,
+  BookHourSetting,
+  BookHourWeb,
   BookIdentity,
   BookLife,
   BookMemory,
   BookMemoryFacts,
   BookNote,
+  BookQuietHours,
   BookSharedRow,
   BookStudioItem,
   BookSummary,
@@ -243,8 +248,70 @@ const hourOf = (o: Loose): BookHour | null => {
       waiting: strings(trail.waiting),
       reached: strings(trail.reached),
     },
+    online: typeof o.online === "boolean" ? o.online : null,
+    web: webOf(o.web),
   };
 };
+
+/** What an hour read and searched online, each a non-empty string as the
+ *  hour wrote it (room.js `webHTML`). */
+function webOf(v: unknown): BookHourWeb {
+  const web = obj(v);
+  const said = (x: unknown) => strings(x).filter((s) => s !== "");
+  return { read: said(web.read), searched: said(web.searched) };
+}
+
+/** `life.quietHours`, as Settings reads it (room.js `savedHours`); null
+ *  from a Mnemos before 0.7.0, which gives none. */
+export function quietHoursOf(v: unknown): BookQuietHours | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const q = v as Loose;
+  const read = q.hours !== null && typeof q.hours === "object";
+  const hours = obj(q.hours);
+  if (q.where === "hermes") {
+    const job = (x: unknown): BookHermesHour | null => {
+      if (typeof x !== "object" || x === null) return null;
+      const j = obj(x);
+      return {
+        on: bool(j.on),
+        at: str(j.at),
+        online: bool(j.online),
+        limited: bool(j.limited),
+      };
+    };
+    return {
+      where: "hermes",
+      hours: read
+        ? {
+            mine: job(hours.mine),
+            ours: job(hours.ours),
+            dream: job(hours.dream),
+          }
+        : null,
+    };
+  }
+  if (q.where !== "here") return null;
+  const setting = (kind: HourKind): BookHourSetting => {
+    const h = obj(hours[kind]);
+    return {
+      on: bool(h.on),
+      at: str(h.at),
+      minutes: num(h.minutes),
+      online: kind !== "dream" && bool(h.online),
+    };
+  };
+  return {
+    where: "here",
+    hours: read
+      ? {
+          mine: setting("mine"),
+          ours: setting("ours"),
+          dream: setting("dream"),
+        }
+      : null,
+    cant: strOrNull(q.cant),
+  };
+}
 
 const beliefOfNotebook = (o: Loose): BookBelief | null =>
   typeof o.text === "string" && o.text !== ""
@@ -360,6 +427,7 @@ export function lifeOf(document: unknown): BookLife {
     missing: bool(d.missing),
     identity: identityOf(d.identity),
     hours: items(d.hours, hourOf),
+    quietHours: quietHoursOf(d.quietHours),
     schedule: list(d.schedule).map(obj),
     jev:
       typeof jev.on === "boolean"

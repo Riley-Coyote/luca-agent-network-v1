@@ -4,7 +4,7 @@
 //! to a real engine, because a real one puts a job in the Mac's scheduler.
 use super::{
     session::{self, Fail, MindKey, Place, Spawn},
-    wire::{self, Part, Reply, Request, SharedAction, Write, Written},
+    wire::{self, Exchange, Part, Reply, Request, SharedAction, Write, Written},
 };
 use serde_json::json;
 use std::{
@@ -383,12 +383,10 @@ async fn the_three_new_writes_go_once_with_only_known_ids() {
     };
     assert_eq!(ids, ["note_9"]);
     // The quiet hours, against this fake only.
-    let hours = Write::Hours {
-        on: true,
-        mine: Some("03:00".into()),
-        ours: Some(String::new()),
-        dream: None,
-    };
+    let hours: Write = serde_json::from_value(
+        json!({"command": "hours", "hours": {"mine": {"on": true, "at": "03:00"}}}),
+    )
+    .unwrap();
     let Written::Hours { said } = rig.place.ask("wren", &hours, LIMIT).await.unwrap() else {
         panic!("not hours");
     };
@@ -421,7 +419,7 @@ async fn the_three_new_writes_go_once_with_only_known_ids() {
     assert_eq!(writes.len(), 3, "each sent once");
     assert_eq!(
         writes[1],
-        json!({"id": writes[1]["id"], "command": "hours", "on": true, "mine": "03:00", "ours": "", "dream": ""})
+        json!({"id": writes[1]["id"], "command": "hours", "hours": {"mine": {"on": true, "at": "03:00"}}})
     );
     assert_eq!(
         writes[2],
@@ -672,4 +670,202 @@ async fn the_newer_engine_through_the_test_seam() {
         "a note read"
     );
     place.end().await;
+}
+
+/// A change of the quiet hours as the webview sends one.
+fn hours_write(hours: serde_json::Value) -> Write {
+    serde_json::from_value(json!({"command": "hours", "hours": hours})).unwrap()
+}
+
+#[test]
+fn the_older_all_at_once_hours_no_longer_parse() {
+    for older in [
+        json!({"command": "hours", "on": true, "mine": "08:00", "ours": "19:00", "dream": "03:30"}),
+        json!({"command": "hours", "on": true, "mine": "", "ours": "", "dream": ""}),
+        json!({"command": "hours", "on": false}),
+        json!({"command": "hours", "on": false, "hours": {"mine": {"on": false}}}),
+        json!({"command": "hours"}),
+    ] {
+        assert!(
+            serde_json::from_value::<Write>(older.clone()).is_err(),
+            "{older}"
+        );
+    }
+}
+
+#[test]
+fn every_unfit_hours_change_is_refused_by_name() {
+    let refused = |hours: serde_json::Value| wire::hours_unfit(hours.as_object().unwrap());
+    // Only `mine`, `ours` and `dream`, and at least one of them.
+    assert_eq!(
+        refused(json!({})),
+        Some("Nothing was sent: no quiet hour was changed.")
+    );
+    for name in ["nap", "Mine", "", "dreams"] {
+        assert_eq!(
+            refused(json!({name: {"on": true}})),
+            Some("Nothing was sent: the quiet hours are its own hour, our hour and the dream."),
+            "{name}"
+        );
+    }
+    // Each has `on`, as true or false.
+    for change in [
+        json!({}),
+        json!({"at": "08:00"}),
+        json!({"on": "yes"}),
+        json!(true),
+        json!(null),
+    ] {
+        assert_eq!(
+            refused(json!({"mine": change})),
+            Some("Nothing was sent: each quiet hour that changes says whether it's on."),
+            "{change}"
+        );
+    }
+    // Nothing unknown.
+    for change in [
+        json!({"on": true, "length": 30}),
+        json!({"on": true, "mine": "08:00"}),
+        json!({"on": false, "when": "08:00"}),
+    ] {
+        assert_eq!(
+            refused(json!({"ours": change})),
+            Some("Nothing was sent: a quiet hour has only its switch, its start, its length and whether it can go online."),
+            "{change}"
+        );
+    }
+    // An hour turned off carries nothing else.
+    for change in [
+        json!({"on": false, "at": "08:00"}),
+        json!({"on": false, "minutes": 30}),
+        json!({"on": false, "online": false}),
+    ] {
+        assert_eq!(
+            refused(json!({"mine": change})),
+            Some("Nothing was sent: an hour being turned off carries nothing else."),
+            "{change}"
+        );
+    }
+    // `at` is HH:MM from 00:00 to 23:59.
+    for at in [
+        json!("24:00"),
+        json!("23:60"),
+        json!("8:00"),
+        json!("08:00:00"),
+        json!("3am"),
+        json!(""),
+        json!("+8:00"),
+        json!(800),
+        json!(null),
+    ] {
+        assert_eq!(
+            refused(json!({"dream": {"on": true, "at": at}})),
+            Some("Nothing was sent: an hour starts at a time from 00:00 to 23:59."),
+            "{at}"
+        );
+    }
+    // `minutes` is a whole number from 5 to 120.
+    for minutes in [
+        json!(4),
+        json!(121),
+        json!(0),
+        json!(-10),
+        json!(30.5),
+        json!(30.0),
+        json!("30"),
+        json!(true),
+        json!(null),
+    ] {
+        assert_eq!(
+            refused(json!({"ours": {"on": true, "minutes": minutes}})),
+            Some("Nothing was sent: an hour lasts a whole number of minutes, from 5 to 120."),
+            "{minutes}"
+        );
+    }
+    // `online` is refused for the dream, on or off, and is true or false.
+    for online in [json!(true), json!(false)] {
+        assert_eq!(
+            refused(json!({"dream": {"on": true, "online": online}})),
+            Some("Nothing was sent: the dream never goes online."),
+            "{online}"
+        );
+    }
+    for online in [json!("yes"), json!(1), json!(null)] {
+        assert_eq!(
+            refused(json!({"mine": {"on": true, "online": online}})),
+            Some("Nothing was sent: whether an hour can go online is on or off."),
+            "{online}"
+        );
+    }
+    // One bad hour refuses the whole request.
+    assert!(
+        refused(json!({"mine": {"on": true}, "dream": {"on": true, "online": true}})).is_some()
+    );
+    // What fits.
+    for fine in [
+        json!({"mine": {"on": true}}),
+        json!({"mine": {"on": false}}),
+        json!({"ours": {"on": true, "at": "00:00", "minutes": 5, "online": true}}),
+        json!({"dream": {"on": true, "at": "23:59", "minutes": 120}}),
+        json!({"mine": {"on": true, "online": false}, "ours": {"on": false}, "dream": {"on": true, "minutes": 10}}),
+    ] {
+        assert_eq!(refused(fine.clone()), None, "{fine}");
+        assert!(hours_write(fine).check().is_ok());
+    }
+    // `check` says the same sentence.
+    assert_eq!(
+        hours_write(json!({"dream": {"on": true, "online": true}})).check(),
+        Err("Nothing was sent: the dream never goes online.")
+    );
+}
+
+#[tokio::test]
+async fn an_hours_change_is_sent_exactly_once_and_an_unfit_one_never() {
+    let rig = rig();
+    rig.open("plain").await.unwrap();
+    // Refused here, in the place's own words, and never sent.
+    let unfit = hours_write(json!({"mine": {"on": false, "at": "08:00"}}));
+    let fail = rig.place.ask("wren", &unfit, LIMIT).await.unwrap_err();
+    assert_eq!(
+        fail,
+        Fail::Unfit("Nothing was sent: an hour being turned off carries nothing else.")
+    );
+    assert_eq!(
+        fail.told(),
+        "invalid_request:Nothing was sent: an hour being turned off carries nothing else."
+    );
+    assert!(
+        rig.lines("writes.log").is_empty(),
+        "nothing reached the engine"
+    );
+    assert!(
+        !rig.lines("sent.log").iter().any(|c| c == "hours"),
+        "no hours line at all"
+    );
+    // The session is still open: a good change goes, once, with exactly its body.
+    let change = json!({
+        "mine": {"on": true, "online": true},
+        "ours": {"on": false},
+        "dream": {"on": true, "at": "04:15", "minutes": 10},
+    });
+    let Written::Hours { said } = rig
+        .place
+        .ask("wren", &hours_write(change.clone()), LIMIT)
+        .await
+        .unwrap()
+    else {
+        panic!("not hours");
+    };
+    assert_eq!(said, "Quiet hours are on, a made-up answer.");
+    let writes = rig.lines("writes.log");
+    assert_eq!(writes.len(), 1, "sent once");
+    let body: serde_json::Value = serde_json::from_str(&writes[0]).unwrap();
+    assert_eq!(
+        body,
+        json!({"id": body["id"], "command": "hours", "hours": change})
+    );
+    let mut keys: Vec<_> = body.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(keys, ["command", "hours", "id"], "nothing more");
+    rig.place.end().await;
 }

@@ -562,6 +562,11 @@ fn written(rig: &Rig) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// A change of the quiet hours, as the webview sends one.
+fn hours(hours: serde_json::Value) -> Write {
+    serde_json::from_value(json!({"command": "hours", "hours": hours})).unwrap()
+}
+
 #[test]
 fn the_person_can_write_exactly_seven_things() {
     for write in [
@@ -570,7 +575,7 @@ fn the_person_can_write_exactly_seven_things() {
         json!({"command": "correct", "memory_id": "engram_A", "text": "new words"}),
         json!({"command": "forget", "memory_id": "engram_A"}),
         json!({"command": "read", "note_ids": ["note_1"]}),
-        json!({"command": "hours", "on": true, "mine": "03:00", "ours": "", "dream": "04:30"}),
+        json!({"command": "hours", "hours": {"mine": {"on": true, "at": "03:00"}}}),
         json!({"command": "shared", "action": "add", "text": "We keep the lantern lit."}),
     ] {
         assert!(
@@ -581,6 +586,10 @@ fn the_person_can_write_exactly_seven_things() {
     for other in [
         json!({"command": "read", "note_ids": ["note_1"], "all": true}),
         json!({"command": "hours", "on": true, "at": "03:00"}),
+        // The older all-at-once shape no longer parses.
+        json!({"command": "hours", "on": true, "mine": "03:00", "ours": "", "dream": "04:30"}),
+        json!({"command": "hours", "on": false}),
+        json!({"command": "hours", "hours": {"mine": {"on": true}}, "on": true}),
         json!({"command": "shared", "action": "delete", "memory_id": "engram_A"}),
         json!({"command": "shared", "action": "add", "text": "x", "as": "agent"}),
         json!({"command": "hello"}),
@@ -622,24 +631,9 @@ fn the_person_can_write_exactly_seven_things() {
         Write::Read {
             note_ids: vec!["note\n1".into()],
         },
-        Write::Hours {
-            on: true,
-            mine: Some("25:00".into()),
-            ours: None,
-            dream: None,
-        },
-        Write::Hours {
-            on: true,
-            mine: Some("3am".into()),
-            ours: None,
-            dream: None,
-        },
-        Write::Hours {
-            on: false,
-            mine: Some("03:00".into()),
-            ours: None,
-            dream: None,
-        },
+        hours(json!({"mine": {"on": true, "at": "25:00"}})),
+        hours(json!({"mine": {"on": true, "at": "3am"}})),
+        hours(json!({"mine": {"on": false, "at": "03:00"}})),
         Write::Shared {
             action: wire::SharedAction::Forget,
             text: None,
@@ -668,18 +662,8 @@ fn the_person_can_write_exactly_seven_things() {
         assert!(write.check().is_err(), "{write:?}");
     }
     for write in [
-        Write::Hours {
-            on: false,
-            mine: None,
-            ours: None,
-            dream: None,
-        },
-        Write::Hours {
-            on: true,
-            mine: Some("23:59".into()),
-            ours: Some(String::new()),
-            dream: None,
-        },
+        hours(json!({"mine": {"on": false}})),
+        hours(json!({"mine": {"on": true, "at": "23:59"}, "ours": {"on": true}})),
         Write::Shared {
             action: wire::SharedAction::Forget,
             text: None,

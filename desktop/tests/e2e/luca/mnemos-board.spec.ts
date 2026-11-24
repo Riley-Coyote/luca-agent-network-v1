@@ -29,8 +29,6 @@ type Call = { cmd: string; args?: Record<string, unknown> };
 type Probe = {
   calls: Call[];
   open: string | null;
-  /** How the next `hours` write goes. */
-  hoursMode: "ok" | "refuse";
   /** How the next own-page start goes. */
   ownPage: "ok" | "fail";
   token: string;
@@ -43,10 +41,6 @@ test.use({
   viewport: { width: 1440, height: 900 },
 });
 test.describe.configure({ timeout: 120_000 });
-
-/** The engine's own sentence for the quiet hours inside Hermes. */
-const HERMES =
-  "The quiet hours run through Claude Code on your own account, so they're set from Claude Code, not from inside Hermes.";
 
 async function boot(
   page: Page,
@@ -71,16 +65,7 @@ async function boot(
   });
   if (reducedMotion) await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(
-    ({
-      kestrel,
-      wren,
-      hello,
-      pictures,
-      broken,
-      sharedStatus,
-      hermes,
-      longWords,
-    }) => {
+    ({ kestrel, wren, hello, pictures, broken, sharedStatus, longWords }) => {
       type Invoke = (
         cmd: string,
         args?: Record<string, unknown>,
@@ -95,7 +80,6 @@ async function boot(
       const probe: Probe = {
         calls: [],
         open: null,
-        hoursMode: "ok",
         ownPage: "ok",
         token: "bt1",
       };
@@ -228,13 +212,13 @@ async function boot(
         );
         if (named.some((id) => !seen.has(id))) return fail("unknown_item");
         if (write.command === "hours") {
-          if (probe.hoursMode === "refuse")
-            return fail(`mnemos_refused:${hermes}`);
+          // Only the newer request, each hour by itself (WP-54).
+          const hours = write.hours as Record<string, { on: boolean }>;
+          if (!hours || typeof hours !== "object" || "on" in write)
+            return fail("invalid_request");
           return {
             kind: "hours",
-            said: write.on
-              ? `Installed: three quiet hours for kestrel, made-up times ${String(write.mine)}, ${String(write.ours)}, ${String(write.dream)}.`
-              : "Uninstalled: the quiet hours for kestrel, made up.",
+            said: `Changed, made up: ${Object.keys(hours).join(", ")}.`,
           };
         }
         if (write.command === "shared") {
@@ -396,7 +380,6 @@ async function boot(
       pictures: BOARD_PICTURES,
       broken: BROKEN_PICTURE,
       sharedStatus,
-      hermes: HERMES,
       longWords,
     },
   );
@@ -824,7 +807,7 @@ test("(4) Hours: the list, an hour opened, and every way out of it", async ({
   const opened = page.getByTestId("mnemos-hour-opened");
   await expect(opened).toBeVisible();
   await expect(page.getByTestId("mnemos-hour-head")).toHaveText(
-    /^Today, \d{1,2}:\d\d [ap]m to \d{1,2}:\d\d [ap]m · Still warm · ran as Opus 5\.5 · nothing refused$/,
+    /^Today, \d{1,2}:\d\d [ap]m to \d{1,2}:\d\d [ap]m · Still warm · ran as Opus 5\.5 · nothing refused · online$/,
   );
   await expect(page.getByTestId("mnemos-hour-name")).toHaveText("Its own hour");
   await expect(opened).toContainText("What it wrote in its journal");
@@ -905,90 +888,6 @@ test("(4) Hours in the light", async ({ page }) => {
     page.getByTestId("mnemos-hour-thumb").locator("img"),
   ).toHaveCount(1);
   await shot(page, "12-hours-light");
-  expect(consoleClean(errors)).toEqual([]);
-});
-
-test("(5a) quiet hours: said back first, one request on the yes, the scheduler's words", async ({
-  page,
-}) => {
-  const errors = await boot(page, {
-    hash: "/mnemos?mind=kestrel&room=settings",
-  });
-  await expect(page.getByTestId("mnemos-hours-switch")).toBeChecked();
-  await expect(page.getByTestId("mnemos-hours-mine")).toHaveValue("08:00");
-  await expect(page.getByTestId("mnemos-hours-ours")).toHaveValue("19:00");
-  await expect(page.getByTestId("mnemos-hours-dream")).toHaveValue("03:30");
-  await expect(page.getByTestId("mnemos-hours-hint")).toHaveText(
-    "Scheduled on this Mac.",
-  );
-  await shot(page, "06-settings-dark");
-  // Typing sends nothing.
-  await page.getByTestId("mnemos-hours-ours").fill("20:30");
-  await expect(page.getByTestId("mnemos-hours-hint")).toHaveText(
-    "Not saved yet.",
-  );
-  await page.waitForTimeout(500);
-  expect(await writes(page, "hours")).toEqual([]);
-  await page.getByTestId("mnemos-hours-save").click();
-  await expect(page.getByTestId("mnemos-hours-ask-text")).toHaveText(
-    "This changes the small job on this Mac that wakes Kestrel: at 8:00 am for its own hour, 8:30 pm for our hour and 3:30 am to dream.",
-  );
-  expect(await writes(page, "hours")).toEqual([]);
-  await shot(page, "07-settings-confirm-dark");
-  // Not now: nothing.
-  await page.getByTestId("mnemos-hours-ask-no").click();
-  expect(await writes(page, "hours")).toEqual([]);
-  // Yes: one request, the right fields, the scheduler's words as given.
-  await page.getByTestId("mnemos-hours-save").click();
-  await page.getByTestId("mnemos-hours-ask-yes").dblclick();
-  await expect(page.getByTestId("mnemos-hours-said")).toHaveText(
-    "Installed: three quiet hours for kestrel, made-up times 08:00, 20:30, 03:30.",
-  );
-  expect(await writes(page, "hours")).toEqual([
-    {
-      command: "hours",
-      on: true,
-      mine: "08:00",
-      ours: "20:30",
-      dream: "03:30",
-    },
-  ]);
-  // Off is asked the same way, and sends on: false.
-  await page.getByTestId("mnemos-hours-switch").click();
-  await expect(page.getByTestId("mnemos-hours-mine")).toBeDisabled();
-  expect((await writes(page, "hours")).length).toBe(1);
-  await page.getByTestId("mnemos-hours-save").click();
-  await expect(page.getByTestId("mnemos-hours-ask")).toContainText(
-    "Turn off its quiet hours?",
-  );
-  await page.getByTestId("mnemos-hours-ask-yes").click();
-  await expect(page.getByTestId("mnemos-hours-said")).toHaveText(
-    "Uninstalled: the quiet hours for kestrel, made up.",
-  );
-  const sent = await writes(page, "hours");
-  expect(sent).toHaveLength(2);
-  expect(sent[1]).toEqual({ command: "hours", on: false });
-  measure("hours-writes", sent);
-  expect(consoleClean(errors)).toEqual([]);
-});
-
-test("(5a) the engine's refusal is shown in its own words", async ({
-  page,
-}) => {
-  const errors = await boot(page, {
-    hash: "/mnemos?mind=kestrel&room=settings",
-  });
-  await page.evaluate(() => {
-    (window as unknown as { boardProbe: Probe }).boardProbe.hoursMode =
-      "refuse";
-  });
-  await page.getByTestId("mnemos-hours-dream").fill("04:00");
-  await page.getByTestId("mnemos-hours-save").click();
-  await page.getByTestId("mnemos-hours-ask-yes").click();
-  await expect(page.getByTestId("mnemos-hours-refused")).toHaveText(HERMES);
-  expect(await writes(page, "hours")).toHaveLength(1);
-  // The person's change is still there, unsaved.
-  await expect(page.getByTestId("mnemos-hours-dream")).toHaveValue("04:00");
   expect(consoleClean(errors)).toEqual([]);
 });
 
@@ -1308,11 +1207,12 @@ test("(keyboard) the board, a picture, Hours, Settings and Shared by keyboard al
   await expect(page.getByTestId("mnemos-picture-step")).toHaveText("2 of 4");
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("mnemos-made-thumb-0")).toBeFocused();
-  // Settings: the switch, a time, Save, the ask, Not now: all by keys.
+  // Settings: an hour's switch, Save, the ask, Not now: all by keys (each
+  // hour's own controls by keyboard: mnemos-hours.spec.ts).
   await rail(page).getByTestId("place-row-settings").click();
-  await page.getByTestId("mnemos-hours-switch").focus();
+  await page.getByTestId("mnemos-set-mine-on").focus();
   await page.keyboard.press("Space");
-  await expect(page.getByTestId("mnemos-hours-switch")).not.toBeChecked();
+  await expect(page.getByTestId("mnemos-set-mine-on")).not.toBeChecked();
   await page.getByTestId("mnemos-hours-save").focus();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("mnemos-hours-ask-yes")).toBeFocused();
@@ -1471,43 +1371,6 @@ test("(2) the rail's state line is never cut: it wraps", async ({ page }) => {
   expect(fit.cut).toBe(false);
   expect(fit.overflow).not.toBe("ellipsis");
   expect(fit.wraps).toBe("normal");
-  expect(consoleClean(errors)).toEqual([]);
-});
-
-test("(5a) the confirm sits directly under the group it speaks for", async ({
-  page,
-}) => {
-  const errors = await boot(page, {
-    hash: "/mnemos?mind=kestrel&room=settings",
-  });
-  const gaps = async () =>
-    page.getByTestId("mnemos-settings-hours").evaluate((el) => {
-      const group = el.querySelector(".luca-place-group") as HTMLElement;
-      const next = group.nextElementSibling as HTMLElement;
-      const rows = group.querySelectorAll("li");
-      return {
-        under: Math.round(
-          next.getBoundingClientRect().top -
-            group.getBoundingClientRect().bottom,
-        ),
-        rows:
-          rows.length > 1
-            ? Math.round(
-                (rows[1] as HTMLElement).getBoundingClientRect().top -
-                  (rows[0] as HTMLElement).getBoundingClientRect().bottom,
-              )
-            : 0,
-        what: next.dataset.testid ?? next.className,
-      };
-    });
-  await page.getByTestId("mnemos-hours-ours").fill("20:30");
-  await page.getByTestId("mnemos-hours-save").click();
-  await expect(page.getByTestId("mnemos-hours-ask")).toBeVisible();
-  const asked = await gaps();
-  measure("confirm-gap", asked);
-  expect(asked.what).toBe("mnemos-hours-ask");
-  expect(asked.under).toBeLessThanOrEqual(8);
-  expect(asked.under).toBeGreaterThanOrEqual(0);
   expect(consoleClean(errors)).toEqual([]);
 });
 

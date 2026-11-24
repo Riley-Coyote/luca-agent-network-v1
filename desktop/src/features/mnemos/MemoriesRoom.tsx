@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronDown, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 import {
   PlaceList,
@@ -14,6 +14,7 @@ import {
   longDay,
   PlaceLine,
   QuietLine,
+  QuietMenu,
   RoomFrame,
   useLoad,
   Words,
@@ -1004,45 +1005,5 @@ function NotebookTools({
           : `${count.toLocaleString("en-US")} of ${memories(total)}`}
       </span>
     </div>
-  );
-}
-
-/** A menu that reads as its choice and a chevron ("Lessons ▾"): the
- *  platform's own menu over it, so the keyboard, the type-ahead and the
- *  list are the system's. */
-function QuietMenu({
-  label,
-  onChange,
-  options,
-  shown,
-  testId,
-  value,
-}: {
-  label: string;
-  onChange: (id: string) => void;
-  options: { id: string; label: string; disabled?: boolean }[];
-  shown: string;
-  testId: string;
-  value: string;
-}) {
-  return (
-    <label className="luca-mnemos-menu text-xs">
-      <span aria-hidden className="luca-mnemos-menu-shown">
-        {shown}
-      </span>
-      <ChevronDown aria-hidden />
-      <select
-        aria-label={label}
-        data-testid={testId}
-        onChange={(event) => onChange(event.target.value)}
-        value={value}
-      >
-        {options.map((o) => (
-          <option disabled={o.disabled} key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }

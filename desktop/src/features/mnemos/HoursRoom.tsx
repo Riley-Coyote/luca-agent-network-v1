@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type * as React from "react";
 
 import "./mnemos-board.css";
@@ -11,6 +12,7 @@ import type { BookHour, BookMemory } from "./book";
 import { clock, tempWord, temperature, when } from "./boardWords";
 import { picturesMadeBy } from "./glance/boardFacts";
 import { HoursDial } from "./HoursDial";
+import { webOfHour } from "./hourWeb";
 import { ItemsRoom } from "./ItemsRoom";
 import { NeedsNewer } from "./MnemosParts";
 import { firstLine, modelName, threads, titleOf } from "./notebook";
@@ -31,8 +33,8 @@ function stateOf(hour: BookHour, now: number): string {
  * and the notebook's own sentence for what they are. An hour opened says
  * when it ran, how warm it still is, what it ran as and what it refused;
  * its name, what it did, what it wrote, the notes it left, what it made,
- * what it said as it ended, and the memories on its trail, each a way to
- * where it lives.
+ * what it read and searched online (WP-54), what it said as it ended, and
+ * the memories on its trail, each a way to where it lives.
  */
 export function HoursRoom(props: RoomProps) {
   const { goTo, mind, notebook, openItem } = props;
@@ -133,7 +135,9 @@ function HourOpened({
       ? `${plural(refused.length, "tool")} refused`
       : "nothing refused",
     hour.practice ? "practice, on a copy of its memory" : null,
+    hour.online === true ? "online" : hour.online === false ? "offline" : null,
   ].filter(Boolean);
+  const web = webOfHour(hour.web);
   return (
     <article aria-label="A quiet hour" data-testid="mnemos-hour-opened">
       <p className="luca-mnemos-meta text-xs" data-testid="mnemos-hour-head">
@@ -195,6 +199,51 @@ function HourOpened({
             pictures={made}
             testId="mnemos-hour-thumb"
           />
+        </HourPart>
+      ) : null}
+
+      {web.read.length ? (
+        <HourPart label="Read online">
+          <ul className="luca-mnemos-web" data-testid="mnemos-hour-read">
+            {web.read.map((page, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the hour's own list, in its order; an address may repeat.
+              <li key={i}>
+                {page.href ? (
+                  <button
+                    className="luca-mnemos-web-page"
+                    data-testid="mnemos-hour-read-page"
+                    onClick={() => {
+                      if (page.href) void openUrl(page.href).catch(() => {});
+                    }}
+                    title={page.href}
+                    type="button"
+                  >
+                    {page.shown}
+                  </button>
+                ) : (
+                  <span
+                    className="luca-mnemos-web-page luca-mnemos-web-written"
+                    data-testid="mnemos-hour-read-written"
+                  >
+                    {page.written}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </HourPart>
+      ) : null}
+
+      {web.searched.length ? (
+        <HourPart label="Searched">
+          <ul className="luca-mnemos-web" data-testid="mnemos-hour-searched">
+            {web.searched.map((query, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the hour's own list, in its order; a search may repeat.
+              <li className="luca-mnemos-web-query" key={i}>
+                {query}
+              </li>
+            ))}
+          </ul>
         </HourPart>
       ) : null}
 

@@ -424,6 +424,17 @@ test("the four writes: one send each, in the notebook's shapes, failures by kind
   );
   assert.equal(tries, 1, "a refused write is never sent again by itself");
   assert.deepEqual(writeFailure("mnemos_busy"), { kind: "busy" });
+  // What the app refused before sending, in its own one sentence.
+  assert.deepEqual(
+    writeFailure(
+      "invalid_request:Nothing was sent: the dream never goes online.",
+    ),
+    { kind: "said", said: "Nothing was sent: the dream never goes online." },
+  );
+  assert.deepEqual(writeFailure("invalid_request"), {
+    kind: "failed",
+    code: "invalid_request",
+  });
   assert.deepEqual(writeFailure(new Error("not_shown")), {
     kind: "failed",
     code: "not_shown",
