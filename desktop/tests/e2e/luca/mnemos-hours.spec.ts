@@ -374,6 +374,18 @@ function measure(key: string, value: unknown) {
   );
 }
 
+// The two gaps between an hour's three line labels, label top to label top.
+async function linePitch(page: Page, kind: string) {
+  return page.getByTestId(`mnemos-set-${kind}-lines`).evaluate((el) => {
+    const tops = [
+      ...el.querySelectorAll(
+        ":scope > .luca-mnemos-hour-line > .luca-mnemos-hour-k",
+      ),
+    ].map((k) => k.getBoundingClientRect().top);
+    return tops.slice(1).map((t, i) => Math.round((t - tops[i]) * 100) / 100);
+  });
+}
+
 async function shot(page: Page, name: string) {
   // A double click's stray text selection is the test's, not the page's.
   await page.evaluate(() => window.getSelection()?.removeAllRanges());
@@ -520,7 +532,10 @@ test("(1, 2, 8) all off: a row for each hour, its own switch, and no switch for 
       }).length,
     };
   });
-  measure("layout", look);
+  const pitch = await linePitch(page, "mine");
+  measure("layout", { ...look, linePitch: pitch });
+  expect(pitch).toHaveLength(2);
+  expect(pitch[0]).toBe(pitch[1]);
   expect(look.labelLeft).toBe(look.titleLeft);
   expect(look.labelSize).toBe(look.summarySize);
   expect(look.labelColor).not.toBe(look.titleColor);
@@ -1065,6 +1080,17 @@ for (const [mode, size, name] of [
     });
     measure(`overflow-${name}`, over);
     expect(over).toEqual([]);
+    // The three lines under each hour that's on fall at one even pitch.
+    const pitches: Record<string, number[]> = {};
+    for (const kind of ["mine", "ours"]) {
+      if ((await lines(page, kind).count()) === 0) continue;
+      pitches[kind] = await linePitch(page, kind);
+    }
+    measure(`pitch-${name}`, pitches);
+    for (const pitch of Object.values(pitches)) {
+      expect(pitch).toHaveLength(2);
+      expect(pitch[0]).toBe(pitch[1]);
+    }
     await shot(page, name);
     expect(consoleClean(errors)).toEqual([]);
   });

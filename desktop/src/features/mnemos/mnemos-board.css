@@ -614,6 +614,9 @@
   grid-template-areas:
     "label control"
     "say say";
+  /* Its label and switch sit in a line as tall as the others, so the three
+     labels fall at one pitch. */
+  grid-template-rows: 28px auto;
 }
 
 .luca-mnemos-hour-online > .luca-mnemos-hour-k {
@@ -629,6 +632,8 @@
   color: hsl(var(--mn-ink-faint));
   grid-area: say;
   grid-column: 1 / -1;
+  /* As close under its label as before the line grew to 28. */
+  margin-top: -4px;
   max-width: 60ch;
 }
 
