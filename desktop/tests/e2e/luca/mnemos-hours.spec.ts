@@ -788,6 +788,94 @@ test("(5) a refusal is shown as given; a failure is one plain line; the change s
   expect(consoleClean(errors)).toEqual([]);
 });
 
+// Where the keyboard is once the confirm has closed: its test id, or the
+// tag of what has focus when nothing with an id does (BODY: lost).
+const focusedId = (page: Page) =>
+  page.evaluate(() => {
+    const a = document.activeElement;
+    return a?.getAttribute("data-testid") ?? a?.tagName ?? null;
+  });
+
+async function askByKeys(page: Page, mode: Probe["hoursMode"] = "ok") {
+  const errors = await boot(page, { quiet: "all-off" });
+  await page.evaluate((mode) => {
+    (window as unknown as { hoursProbe: Probe }).hoursProbe.hoursMode = mode;
+  }, mode);
+  await on(page, "mine").focus();
+  await page.keyboard.press("Space");
+  await expect(on(page, "mine")).toBeChecked();
+  await page.getByTestId("mnemos-hours-save").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("mnemos-hours-ask-yes")).toBeFocused();
+  return errors;
+}
+
+test("(keyboard) Not now: the keyboard is back on the foot's Save", async ({
+  page,
+}) => {
+  const errors = await askByKeys(page);
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByTestId("mnemos-hours-ask-no")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("mnemos-hours-ask")).toHaveCount(0);
+  await expect.poll(() => focusedId(page)).toBe("mnemos-hours-save");
+  expect(await hoursSent(page)).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+// Escape never closed the confirm; it still doesn't, and the keyboard
+// stays on it.
+test("(keyboard) Escape on the confirm leaves it open, with the keyboard in it", async ({
+  page,
+}) => {
+  const errors = await askByKeys(page);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("mnemos-hours-ask")).toBeVisible();
+  await expect.poll(() => focusedId(page)).toBe("mnemos-hours-ask-yes");
+  expect(await hoursSent(page)).toEqual([]);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+test("(keyboard) Save, taken: the keyboard is on the first hour's switch, and the engine's words are said", async ({
+  page,
+}) => {
+  const errors = await askByKeys(page);
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("mnemos-hours-ask")).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-hours-save")).toHaveCount(0);
+  await expect(page.getByTestId("mnemos-hours-hint")).toHaveAttribute(
+    "aria-live",
+    "polite",
+  );
+  await expect(page.getByTestId("mnemos-hours-hint")).not.toHaveText(
+    "Not saved yet.",
+  );
+  await expect.poll(() => focusedId(page)).toBe("mnemos-set-mine-on");
+  expect(await hoursSent(page)).toHaveLength(1);
+  expect(consoleClean(errors)).toEqual([]);
+});
+
+for (const mode of ["refuse", "fail"] as const)
+  test(`(keyboard) Save, ${mode === "refuse" ? "refused" : "failed"}: the keyboard is back on the foot's Save, and the line is said`, async ({
+    page,
+  }) => {
+    const errors = await askByKeys(page, mode);
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("mnemos-hours-ask")).toHaveCount(0);
+    await expect(page.getByTestId("mnemos-hours-refused")).toHaveAttribute(
+      "role",
+      "status",
+    );
+    await expect(page.getByTestId("mnemos-hours-refused")).toHaveText(
+      mode === "refuse"
+        ? REFUSAL
+        : "The quiet hours couldn’t be changed just now.",
+    );
+    await expect.poll(() => focusedId(page)).toBe("mnemos-hours-save");
+    expect(await hoursSent(page)).toHaveLength(1);
+    expect(consoleClean(errors)).toEqual([]);
+  });
+
 test("(3) inside Hermes: the rows only to read, no switches, and where they're changed", async ({
   page,
 }) => {

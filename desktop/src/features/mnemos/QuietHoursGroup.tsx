@@ -124,6 +124,20 @@ function HoursHere({
   React.useEffect(() => {
     if (asking) yesRef.current?.focus();
   }, [asking]);
+  // When the ask closes, the keyboard goes back to where the person is:
+  // the foot's Save while the change is still there, else the first hour's
+  // switch. Set on close, used once the ask has left the page.
+  const [returnTo, setReturnTo] = React.useState<"save" | "first" | null>(null);
+  React.useEffect(() => {
+    if (asking || !returnTo) return;
+    const target = groupRef.current?.querySelector<HTMLElement>(
+      returnTo === "save"
+        ? "[data-testid='mnemos-hours-save']"
+        : "[data-hour-on]",
+    );
+    target?.focus({ preventScroll: true });
+    setReturnTo(null);
+  }, [asking, returnTo]);
 
   const plan = scheduleOf(schedule);
   const notLoaded = plan.filter((p) => !p.loaded).length;
@@ -174,9 +188,11 @@ function HoursHere({
         setAfterSave({ from: quiet, hours: shown });
         setEdit(null);
         setSaid(sent.said);
+        setReturnTo("first");
       }
     } catch (error) {
       const failure = error as WriteFailure;
+      setReturnTo("save");
       setOutcome(
         failure.kind === "said"
           ? { kind: "refused", said: failure.said }
@@ -278,6 +294,7 @@ function HoursHere({
               onClick={() => {
                 confirm.no();
                 setAsking(false);
+                setReturnTo("save");
               }}
               size="quiet"
               type="button"
