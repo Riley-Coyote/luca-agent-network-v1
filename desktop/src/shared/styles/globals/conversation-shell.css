@@ -106,6 +106,27 @@
    * The per-palette twin of this value lives in `shared/theme/adaptive-theme.ts`;
    * both obey the same rule. */
   --mn-focus: var(--mn-ink-faint);
+  /* A CONTROL AT REST. The shape of a control that is doing nothing and must
+   * still be seen: the track of a switch that is off. Never text.
+   *
+   * It is the midpoint of the two quietest inks, because neither is right
+   * alone. The ghost ink is solved to about 3:1 against the page itself, so
+   * it falls under the non-text floor (WCAG 2.2 SC 1.4.11) on anything laid
+   * over the page: 2.5:1 on a hovered row. The faint ink is focus's, and
+   * bright enough that a switch that is off stands within 2.2x of one that
+   * is on. The border role this replaced on the switch was a hairline's
+   * tone asked to draw a whole control: 1.2 to 1.4:1 on Paper.
+   *
+   * Halfway holds 3.2:1 or better on every surface of the ladder in every
+   * palette, authored or derived (3.8 to 4.4:1 in Vitesse Black and Paper),
+   * and leaves on at least 2.7x off. `control-tone.test.mjs` asserts it from
+   * the builders, and `switch-contrast.spec.ts` from the drawn pixels.
+   * A colour, not a triplet: use `var(--mn-control)`, or `bg-control`. */
+  --mn-control: color-mix(
+    in srgb,
+    hsl(var(--mn-ink-faint)) 50%,
+    hsl(var(--mn-ink-ghost))
+  );
   /* The one signal colour. Slate, used only where a mark must mean "live" or
      "new" — an unread dot, a rare emphasis. Never a fill, never a surface. */
   --mn-signal: 214 45% 61%;

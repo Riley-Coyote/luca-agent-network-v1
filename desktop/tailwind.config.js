@@ -79,6 +79,11 @@ export default {
           hover: "var(--mn-plate-hover)",
           opaque: "var(--mn-plate-opaque)",
         },
+        // A control at rest (a switch that is off): the quietest tone that
+        // still clears 3:1 on every surface. Defined in conversation-shell.css
+        // beside the focus role. Outside the Luca shell there is no ink
+        // ladder to take it from, so it is the input border it always was.
+        control: "var(--mn-control, hsl(var(--input)))",
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
