@@ -8,6 +8,8 @@
  * adapter (`adapt.ts`) fills these from what it does give.
  */
 
+import type { HourKind } from "./api";
+
 /** How a memory stands: one it can reach, one gone quiet, one let go. */
 export type MemoryState = "active" | "dormant" | "archived";
 
@@ -151,7 +153,49 @@ export type BookHour = {
   said: string;
   refused: string[];
   trail: BookTrail;
+  /** Whether the hour was given the web, as its record says; null for an
+   *  hour from before Mnemos 0.7.0. */
+  online: boolean | null;
+  /** What it read and searched online, as the hour recorded them. */
+  web: BookHourWeb;
 };
+
+/** What an hour that went online read (addresses) and searched (queries),
+ *  each as the hour wrote it. */
+export type BookHourWeb = { read: string[]; searched: string[] };
+
+/** One quiet hour as it is set now, on this Mac. */
+export type BookHourSetting = {
+  on: boolean;
+  /** HH:MM, or "" where the engine gave none. */
+  at: string;
+  minutes: number | null;
+  online: boolean;
+};
+
+/** One quiet hour as Hermes has it scheduled. */
+export type BookHermesHour = {
+  on: boolean;
+  at: string;
+  online: boolean;
+  /** Limited to its memory, or run with every tool Hermes gives a job. */
+  limited: boolean;
+};
+
+/** Each quiet hour as Settings shows it (`life.quietHours`, Mnemos 0.7.0):
+ *  here, each by itself, with why none can be turned on (`cant`), when
+ *  none can; or inside Hermes, as its own scheduled jobs. `hours` is null
+ *  when they couldn't be read; inside Hermes, an hour with no job is null. */
+export type BookQuietHours =
+  | {
+      where: "here";
+      hours: Record<HourKind, BookHourSetting> | null;
+      cant: string | null;
+    }
+  | {
+      where: "hermes";
+      hours: Record<HourKind, BookHermesHour | null> | null;
+    };
 
 /** A question its memory asked it about itself, still open. */
 export type BookAsked = {
@@ -224,6 +268,8 @@ export type BookLife = {
   missing: boolean;
   identity: BookIdentity;
   hours: BookHour[];
+  /** Each quiet hour as it is set now; null from a Mnemos before 0.7.0. */
+  quietHours: BookQuietHours | null;
   /** What wakes the hours on their own (shown, never changed here). */
   schedule: Record<string, unknown>[];
   jev: BookJev | null;

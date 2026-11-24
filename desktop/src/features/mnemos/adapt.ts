@@ -113,7 +113,8 @@ export type Send = (write: PlaceWrite) => Promise<WireWritten>;
 
 /** Why a write didn't happen, as the field says it. */
 export type WriteFailure =
-  /** Mnemos said no in its own words (a quiet hour, a note too long). */
+  /** Mnemos said no in its own words (a quiet hour, a note too long), or
+   *  the app refused it before sending, in its own. */
   | { kind: "said"; said: string }
   /** Someone else is writing to the store just now. */
   | { kind: "busy" }
@@ -126,9 +127,9 @@ export type WriteFailure =
 /** A write's error, as the place's command gives it. */
 export function writeFailure(error: unknown): WriteFailure {
   const told = error instanceof Error ? error.message : String(error);
-  const refused = "mnemos_refused:";
-  if (told.startsWith(refused))
-    return { kind: "said", said: told.slice(refused.length) };
+  for (const refused of ["mnemos_refused:", "invalid_request:"])
+    if (told.startsWith(refused))
+      return { kind: "said", said: told.slice(refused.length) };
   if (told === "mnemos_busy") return { kind: "busy" };
   return { kind: "failed", code: told };
 }
