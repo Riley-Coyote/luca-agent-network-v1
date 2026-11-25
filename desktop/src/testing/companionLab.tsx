@@ -717,7 +717,7 @@ function LabSelect({
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input/40 bg-background px-2 text-xs"
+        className="h-9 w-full rounded-lg border border-input bg-background px-2 text-xs"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

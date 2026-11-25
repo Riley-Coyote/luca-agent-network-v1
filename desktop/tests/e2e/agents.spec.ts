@@ -614,7 +614,7 @@ test("custom personas share with people and keep export separate", async ({
   expect(
     Math.abs((linkDividerBox?.width ?? 0) - (linkRowBox?.width ?? 0)),
   ).toBeLessThanOrEqual(1);
-  await expect(linkDivider).toHaveClass(/my-4.*bg-input\/40/);
+  await expect(linkDivider).toHaveClass(/my-4.*bg-border-strong\/40/);
   expect(
     Math.abs(
       (linkCopyBox?.y ?? 0) +

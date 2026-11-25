@@ -778,7 +778,7 @@ export function NostrBindConsentDialog() {
                                 "bg-muted",
                                 hasCodeMismatch
                                   ? "border-destructive focus-visible:border-destructive focus-visible:ring-2 focus-visible:ring-destructive/25"
-                                  : "border-input/60 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
+                                  : "border-input focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30",
                               )}
                               data-testid={`nostr-bind-code-digit-${index + 1}`}
                               disabled={isSigning}

@@ -612,7 +612,7 @@ export function SnapshotShareDialog({
                 />
               </div>
               <Separator
-                className="my-4 bg-input/40"
+                className="my-4 bg-border-strong/40"
                 data-testid={`${testIdPrefix}-link-divider`}
               />
               <div className="flex justify-end">

@@ -79,10 +79,11 @@ export default {
           hover: "var(--mn-plate-hover)",
           opaque: "var(--mn-plate-opaque)",
         },
-        // A control at rest (a switch that is off): the quietest tone that
-        // still clears 3:1 on every surface. Defined in conversation-shell.css
-        // beside the focus role. Outside the Luca shell there is no ink
-        // ladder to take it from, so it is the input border it always was.
+        // A control at rest: the track of a switch that is off, the edge of
+        // a text box or a picker. The quietest tone that still clears 3:1 on
+        // every surface. Defined in conversation-shell.css beside the focus
+        // role. Outside the Luca shell there is no ink ladder to take it
+        // from, so it is the input border it always was.
         control: "var(--mn-control, hsl(var(--input)))",
         card: {
           DEFAULT: "hsl(var(--card))",
@@ -113,7 +114,16 @@ export default {
           foreground: "hsl(var(--destructive-foreground))",
         },
         border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
+        // The strong hairline, for an outline that is not what tells you a
+        // thing is a control: a labelled button, a chip, a rule. It is the
+        // tone `border-input` used to draw.
+        "border-strong": "hsl(var(--mn-border-strong, var(--input)))",
+        // THE EDGE OF A FIELD is the control tone, not a hairline. The edge
+        // is the only thing that says "you can type here", so it has to hold
+        // 3:1 where a hairline never will. Write `border-input` whole: an
+        // alpha on it (`border-input/40`) walks it back under the floor, and
+        // control-tone.test.mjs fails on one.
+        input: "var(--mn-control, hsl(var(--input)))",
         ring: "hsl(var(--ring))",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",

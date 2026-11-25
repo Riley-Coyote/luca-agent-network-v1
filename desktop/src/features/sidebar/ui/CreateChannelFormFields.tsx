@@ -11,7 +11,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import type { CreateChannelFormState } from "@/features/sidebar/lib/useCreateChannelForm";
 
 const CREATE_FIELD_SHELL_CLASS =
-  "rounded-xl border border-input bg-muted/40 transition-colors duration-150 ease-out hover:border-muted-foreground/40 focus-within:border-muted-foreground/50";
+  "rounded-xl border border-input bg-muted/40 transition-colors duration-150 ease-out hover:border-ring focus-within:border-ring focus-within:ring-1 focus-within:ring-ring";
 const CREATE_FIELD_CONTROL_CLASS =
   "border-0 bg-transparent text-ink-faint shadow-none outline-none ring-0 transition-colors duration-150 ease-out placeholder:text-ink-faint focus:bg-transparent focus:text-foreground focus:outline-hidden focus-visible:ring-0";
 const CREATE_LABEL_OPTIONAL_CLASS = "ml-1 text-xs font-normal text-ink-faint";
@@ -137,7 +137,7 @@ export function CreateChannelFormFields({
             <span className={CREATE_LABEL_OPTIONAL_CLASS}>Optional</span>
           </label>
           <select
-            className="flex min-h-11 w-full rounded-xl border border-input bg-muted/40 px-3 py-2 text-sm text-ink-faint shadow-none transition-colors duration-150 ease-out hover:border-muted-foreground/40 focus:border-muted-foreground/50 focus:text-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex min-h-11 w-full rounded-xl border border-input bg-muted/40 px-3 py-2 text-sm text-ink-faint shadow-none transition-colors duration-150 ease-out hover:border-ring focus:border-ring focus:text-foreground focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="create-channel-template"
             disabled={isCreating}
             id="create-channel-template"
@@ -269,7 +269,7 @@ function ChannelDurationOption({
       />
       <span
         className={cn(
-          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40",
+          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-input",
           checked && "border-foreground",
         )}
         aria-hidden="true"
