@@ -42,6 +42,18 @@ test.use({
 });
 test.describe.configure({ timeout: 120_000 });
 
+/** Kestrel for the board, its own hour as the fixture first wrote it when
+ *  asked (see `hourAsWritten`). */
+function kestrelOf(now: number, hourAsWritten: boolean) {
+  const kestrel = kestrelBoard(now);
+  const hour = kestrel.life.hours[0];
+  if (hourAsWritten && hour) {
+    hour.start = new Date(now - 5 * 3_600_000).toISOString();
+    hour.end = new Date(now - 4 * 3_600_000 - 20 * 60_000).toISOString();
+  }
+  return kestrel;
+}
+
 async function boot(
   page: Page,
   {
@@ -50,12 +62,17 @@ async function boot(
     sharedStatus = "ready",
     reducedMotion = false,
     longWords = false,
+    hourAsWritten = false,
   }: {
     hash?: string;
     mode?: Mode;
     sharedStatus?: string;
     reducedMotion?: boolean;
     longWords?: boolean;
+    /** Its own hour exactly 5 h to 4 h 20 min ago, even just after midnight
+     *  (when the fixture otherwise keeps it today), for the tests that read
+     *  how long ago it ended rather than on which day. */
+    hourAsWritten?: boolean;
   } = {},
 ) {
   const errors: string[] = [];
@@ -374,7 +391,7 @@ async function boot(
       });
     },
     {
-      kestrel: kestrelBoard(Date.now()),
+      kestrel: kestrelOf(Date.now(), hourAsWritten),
       wren: wrenOld(Date.now()),
       hello: KESTREL_HELLO,
       pictures: BOARD_PICTURES,
@@ -726,7 +743,7 @@ test("(1) beliefs: a bar each, one picked, stepped by pointer and by key", async
 test("(2, 3) the rail's state line; the dial and its one-sentence alternative", async ({
   page,
 }) => {
-  const errors = await boot(page);
+  const errors = await boot(page, { hourAsWritten: true });
   // Its own hour ended four hours and twenty minutes ago: still warm.
   await expect(page.getByTestId("mnemos-rail-state")).toHaveText(
     "Still warm · its own hour ended 4.3 h ago",
@@ -1355,7 +1372,7 @@ test("(1) the strip of days spans six months in thin ticks, months named under i
 });
 
 test("(2) the rail's state line is never cut: it wraps", async ({ page }) => {
-  const errors = await boot(page);
+  const errors = await boot(page, { hourAsWritten: true });
   const line = page.getByTestId("mnemos-rail-state");
   await expect(line).toHaveText("Still warm · its own hour ended 4.3 h ago");
   const fit = await line.evaluate((el) => ({
