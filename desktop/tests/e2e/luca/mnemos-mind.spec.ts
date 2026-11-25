@@ -151,7 +151,7 @@ async function boot(
                 id: "heron",
                 name: "Heron",
                 memories: notebook.memories.length,
-                newest: new Date().toISOString().slice(0, 10),
+                newest: new Date().toISOString(),
                 linked: [{ pubkey: luca, name: "Luca" }],
               },
               ...(second
@@ -160,7 +160,7 @@ async function boot(
                       id: "egret",
                       name: "Egret",
                       memories: notebook.memories.length,
-                      newest: new Date().toISOString().slice(0, 10),
+                      newest: new Date().toISOString(),
                       linked: [],
                     },
                   ]

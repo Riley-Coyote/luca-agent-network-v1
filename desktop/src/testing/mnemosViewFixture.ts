@@ -8,12 +8,17 @@ const seeded: ViewScope = {
   project_scope: "lighthouse",
 };
 const minds: MindChoice[] = [
-  { id: "wren", name: "Wren", memories: 2431, newest: "2026-11-16" },
+  {
+    id: "wren",
+    name: "Wren",
+    memories: 2431,
+    newest: "2026-11-16T12:00:00+00:00",
+  },
   {
     id: "field-notes",
     name: "Field Notes",
     memories: 86,
-    newest: "2026-10-02",
+    newest: "2026-10-02T12:00:00+00:00",
   },
 ];
 const examples: Record<string, string[]> = {

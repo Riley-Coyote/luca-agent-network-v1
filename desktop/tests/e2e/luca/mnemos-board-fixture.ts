@@ -5,7 +5,11 @@
  * two more pictures (one newest, one that can't be read), and an older
  * mind on Mnemos 0.6.7 to keep today's board honest. Every word invented.
  */
-import { kestrelNotebook, PICTURES } from "./mnemos-newer-fixture";
+import {
+  earlierToday,
+  kestrelNotebook,
+  PICTURES,
+} from "./mnemos-newer-fixture";
 
 /** Its pictures by notebook path: the fixture's two, one more, and a file
  *  that isn't a picture at all (`broken.png`). */
@@ -53,7 +57,7 @@ export function kestrelBoard(now: number) {
         {
           path: "studies/harbour-dawn.png",
           bytes: 500,
-          at: iso(now - 2 * hour),
+          at: iso(earlierToday(now, 2 * hour)),
           picture: "data/studio/studies/harbour-dawn.png",
         },
         ...life.studio,
@@ -96,7 +100,7 @@ export function wrenOld(now: number) {
       mood: "steady",
       written: "between_sessions",
       model: "claude-opus-5-5",
-      created_at: iso(now - 2 * 3_600_000),
+      created_at: iso(earlierToday(now, 2 * 3_600_000)),
     },
   ];
   const notes = [
@@ -107,9 +111,9 @@ export function wrenOld(now: number) {
       author: "agent",
       model: "claude-opus-5-5",
       in_reply_to: null,
-      created_at: iso(now - 5 * 3_600_000),
+      created_at: iso(earlierToday(now, 5 * 3_600_000)),
       read_at: null,
-      delivered_at: iso(now - 5 * 3_600_000),
+      delivered_at: iso(earlierToday(now, 5 * 3_600_000)),
     },
   ];
   return { memories, journal, notes };

@@ -19,7 +19,8 @@ export type PlaceMind = {
   id: string;
   name: string;
   memories: number;
-  /** The day of its newest memory, YYYY-MM-DD. */
+  /** The moment of its newest memory, as the store holds it, in world time;
+   *  the page names the day (`newestDay`). */
   newest: string | null;
   linked: LinkedResident[];
 };

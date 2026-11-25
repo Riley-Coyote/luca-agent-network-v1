@@ -128,12 +128,28 @@ export function dayLine(
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 
+/**
+ * The day of a mind's newest memory, in the viewer's own time zone, from
+ * what the app hands over: the moment as the store holds it, in world time
+ * (read as every other time from the store is read), or, from an app before
+ * Nov 24 2026, only a calendar day (`YYYY-MM-DD`), which means that day.
+ * Null for nothing, or for what can't be read.
+ */
+export function newestDay(newest: string | null | undefined): Date | null {
+  if (!newest) return null;
+  const only = /^(\d{4})-(\d{2})-(\d{2})$/.exec(newest);
+  if (only) {
+    const day = new Date(Number(only[1]), Number(only[2]) - 1, Number(only[3]));
+    return dayKey(day) === newest ? day : null;
+  }
+  const at = Date.parse(newest);
+  return Number.isNaN(at) ? null : new Date(at);
+}
+
 /** The day of a mind's newest memory, said as the head says it. */
 export function newestWords(newest: string | null, today = new Date()) {
-  if (!newest) return null;
-  const [y, m, d] = newest.split("-").map(Number);
-  const day = new Date(y as number, (m as number) - 1, d as number);
-  if (Number.isNaN(day.getTime())) return null;
+  const day = newestDay(newest);
+  if (!day) return null;
   if (dayKey(day) === dayKey(today)) return "newest today";
   const yesterday = new Date(
     today.getFullYear(),

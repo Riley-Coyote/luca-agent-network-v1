@@ -17,8 +17,10 @@ import {
   dayLine,
   foundWords,
   goneQuiet,
+  newestDay,
   newestFirst,
   newestFirstPage,
+  newestWords,
   railLine,
   signedBy,
   stateLine,
@@ -160,6 +162,61 @@ test("the head's state line and the rail's line, from real numbers only", () => 
   assert.equal(
     railLine({ memories: 86, newest: "2026-03-02" }, today),
     "86 memories · newest Mar 2",
+  );
+});
+
+test("the newest memory's day is the viewer's own, from the stamp the app hands over", () => {
+  // Built from local parts, so each line means the same in any time zone:
+  // a memory made at half past seven this evening, as the store stamps it
+  // (world time, Mnemos's own form, with its microseconds).
+  const evening = new Date(2026, 10, 24, 19, 30);
+  const stamp = evening.toISOString().replace("Z", "678+00:00");
+  const day = newestDay(stamp);
+  assert.equal(day?.getTime(), evening.getTime());
+  assert.equal(newestDay(evening.toISOString())?.getTime(), evening.getTime());
+  const tonight = new Date(2026, 10, 24, 23, 50);
+  const tomorrow = new Date(2026, 10, 25, 9);
+  assert.equal(newestWords(stamp, tonight), "newest today");
+  assert.equal(newestWords(stamp, tomorrow), "newest yesterday");
+  assert.equal(newestWords(stamp, new Date(2026, 10, 27, 9)), "newest Nov 24");
+  assert.equal(
+    newestWords(stamp, new Date(2027, 0, 3, 9)),
+    "newest Nov 24, 2026",
+  );
+  // Both of the place's lines name the same day.
+  const mind = { memories: 12, newest: stamp, linked: [] };
+  assert.equal(
+    stateLine(mind, tonight),
+    "12 memories it can reach · newest today",
+  );
+  assert.equal(railLine(mind, tonight), "12 memories · newest today");
+  assert.equal(railLine(mind, tomorrow), "12 memories · newest yesterday");
+
+  // Only a calendar day, as the app handed over before: still that day.
+  assert.equal(
+    newestDay("2026-11-16")?.getTime(),
+    new Date(2026, 10, 16).getTime(),
+  );
+  assert.equal(
+    newestWords("2026-11-16", new Date(2026, 10, 16, 23, 59)),
+    "newest today",
+  );
+  assert.equal(
+    newestWords("2026-11-16", new Date(2026, 10, 17, 0, 1)),
+    "newest yesterday",
+  );
+
+  // What can't be read, or nothing: the newest part is left out.
+  for (const value of ["soon", "2026-13-45", "2026-02-30", "", null, undefined])
+    assert.equal(newestDay(value), null, String(value));
+  assert.equal(newestWords("soon", tonight), null);
+  assert.equal(
+    railLine({ memories: 3, newest: "soon" }, tonight),
+    "3 memories",
+  );
+  assert.equal(
+    stateLine({ memories: 3, newest: "2026-02-30", linked: [] }, tonight),
+    "3 memories it can reach",
   );
 });
 

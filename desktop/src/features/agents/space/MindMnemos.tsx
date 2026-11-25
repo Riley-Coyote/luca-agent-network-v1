@@ -2,6 +2,7 @@ import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { managedAgentsQueryKey } from "@/features/agents/hooks";
+import { newestDay } from "@/features/mnemos/notebook";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import {
   type MindChoice,
@@ -72,11 +73,10 @@ export function mindName(agentId: string) {
 /** "2,431 memories · newest Nov 17", from what the app found in a store. */
 export function describeMind(mind: MindChoice) {
   const count = `${mind.memories.toLocaleString()} ${mind.memories === 1 ? "memory" : "memories"}`;
-  if (!mind.newest) return count;
-  const day = new Date(`${mind.newest}T12:00:00`);
-  return Number.isNaN(day.getTime())
-    ? count
-    : `${count} · newest ${day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  const day = newestDay(mind.newest);
+  return day
+    ? `${count} · newest ${day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+    : count;
 }
 
 /** A running resident starts again so it wakes with (or without) the linked

@@ -245,7 +245,7 @@ async function boot(
                 id: "kestrel",
                 name: "Kestrel",
                 memories: 12,
-                newest: iso(Date.now()).slice(0, 10),
+                newest: iso(Date.now()),
                 linked: [],
               },
             ],

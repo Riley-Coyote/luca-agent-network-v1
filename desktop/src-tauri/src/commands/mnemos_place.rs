@@ -51,7 +51,8 @@ pub struct PlaceMind {
     id: String,
     name: String,
     memories: u64,
-    /// The day of its newest memory, YYYY-MM-DD.
+    /// The moment of its newest memory, as the store holds it, in world
+    /// time; the page names the day.
     newest: Option<String>,
     /// The owner's residents that remember with it.
     linked: Vec<LinkedResident>,

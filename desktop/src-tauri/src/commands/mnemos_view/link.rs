@@ -103,6 +103,8 @@ pub(crate) struct Mind {
     pub(crate) file: PathBuf,
     pub(crate) scope: Scope,
     pub(crate) memories: u64,
+    /// The moment of its newest memory, as the store holds it, in world
+    /// time; the page names the day.
     pub(crate) newest: Option<String>,
 }
 
@@ -114,6 +116,8 @@ pub struct MindChoice {
     id: String,
     name: String,
     memories: u64,
+    /// The moment of its newest memory, as the store holds it, in world
+    /// time; the page names the day.
     newest: Option<String>,
 }
 
@@ -184,8 +188,9 @@ pub(crate) fn minds(home: &Path) -> Vec<Mind> {
         .collect()
 }
 
-/// How many memories the agent keeps in this store, and the day of the newest.
-/// Read-only; never creates, migrates or waits long on a store.
+/// How many memories the agent keeps in this store, and the moment of the
+/// newest, as the store holds it, in world time: the page names its day, in
+/// the person's own time. Read-only; never creates, migrates or waits long on a store.
 fn census(file: &Path, agent: &str) -> Option<(u64, Option<String>)> {
     use rusqlite::{Connection, OpenFlags};
     let conn = Connection::open_with_flags(
@@ -212,10 +217,7 @@ fn census(file: &Path, agent: &str) -> Option<(u64, Option<String>)> {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .ok()?;
-    Some((
-        u64::try_from(count).ok()?,
-        newest.map(|day| day.chars().take(10).collect()),
-    ))
+    Some((u64::try_from(count).ok()?, newest))
 }
 
 /// A path as the person would write it, with their home folder as `~`.
@@ -318,7 +320,7 @@ mod tests {
         assert_eq!(mind.scope.person_id, "user");
         assert_eq!(mind.scope.project_scope, "global");
         assert_eq!(mind.memories, 2);
-        assert_eq!(mind.newest.as_deref(), Some("2026-11-16"));
+        assert_eq!(mind.newest.as_deref(), Some("2026-11-16T22:30:00Z"));
         assert_eq!(mind.file, dir.join("wren.db"));
         let choice = serde_json::to_value(mind.choice()).unwrap();
         assert_eq!(choice["id"], "wren");

@@ -319,14 +319,14 @@ async function boot(
           id: "wren",
           name: "Wren",
           memories: 124,
-          newest: iso(now).slice(0, 10),
+          newest: iso(now),
           linked: [{ pubkey: luca, name: "Luca" }],
         },
         {
           id: "field-notes",
           name: "Field Notes",
           memories: 9,
-          newest: iso(now).slice(0, 10),
+          newest: iso(now),
           linked: [],
         },
         ...(kestrel
@@ -335,7 +335,7 @@ async function boot(
                 id: "kestrel",
                 name: "Kestrel",
                 memories: 12,
-                newest: iso(now).slice(0, 10),
+                newest: iso(now),
                 linked: [] as { pubkey: string; name: string }[],
               },
             ]
@@ -4025,3 +4025,50 @@ for (const which of ["newer", "today"] as const)
     }
     expect(consoleClean(errors)).toEqual([]);
   });
+
+/* ── WP-55: the newest memory's day, in the person's own time ───────── */
+
+/**
+ * A place whose date is never the world-time date at this moment: twelve
+ * hours behind while the world-time hour is before 11, fourteen ahead
+ * after. So the test below fails, at any hour, on an app that names the
+ * world-time day.
+ */
+const FAR_ZONE = new Date().getUTCHours() < 11 ? "Etc/GMT+12" : "Etc/GMT-14";
+const SHOTS55 = process.env.WP55_SHOTS ?? "test-results/wp55";
+
+test.describe("(55) far from world time", () => {
+  test.use({ timezoneId: FAR_ZONE });
+
+  test("(55) a memory made this minute is newest today, in the head and in the rail", async ({
+    page,
+  }) => {
+    const errors = await boot(page, { hash: "/mnemos?mind=wren&room=glance" });
+    const where = await page.evaluate(() => ({
+      zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      day: new Date().getDate(),
+      worldDay: new Date().getUTCDate(),
+    }));
+    expect(where.zone).toBe(FAR_ZONE);
+    // The page's own day is not the world-time day here.
+    expect(where.day).not.toBe(where.worldDay);
+    // Soft, so a wrong day shows in every place it is said at once.
+    await expect
+      .soft(page.getByTestId("place-page-state"))
+      .toHaveText(
+        "124 memories it can reach · newest today · Luca remembers with this",
+      );
+    // The rail's list of the minds on this Mac: each one's newest day.
+    await page.getByTestId("mnemos-rail-mind-button").click();
+    await expect
+      .soft(page.getByTestId("mnemos-mind-wren"))
+      .toContainText("124 memories · newest today");
+    await expect
+      .soft(page.getByTestId("mnemos-mind-field-notes"))
+      .toContainText("9 memories · newest today");
+    await waitForAnimations(page);
+    mkdirSync(SHOTS55, { recursive: true });
+    await page.screenshot({ path: `${SHOTS55}/01-newest-today-far-zone.png` });
+    expect(consoleClean(errors)).toEqual([]);
+  });
+});

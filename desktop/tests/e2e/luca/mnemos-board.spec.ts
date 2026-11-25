@@ -115,14 +115,14 @@ async function boot(
           id: "kestrel",
           name: "Kestrel",
           memories: 12,
-          newest: iso(now).slice(0, 10),
+          newest: iso(now),
           linked: [] as { pubkey: string; name: string }[],
         },
         {
           id: "wren",
           name: "Wren",
           memories: 24,
-          newest: iso(now).slice(0, 10),
+          newest: iso(now),
           linked: [] as { pubkey: string; name: string }[],
         },
       ];

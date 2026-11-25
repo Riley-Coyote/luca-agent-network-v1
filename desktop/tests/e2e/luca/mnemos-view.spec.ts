@@ -100,7 +100,7 @@ async function openView(
                   id: "wren",
                   name: "Wren",
                   memories: 2431,
-                  newest: "2026-11-16",
+                  newest: "2026-11-16T12:00:00+00:00",
                 },
                 {
                   id: "field-notes",

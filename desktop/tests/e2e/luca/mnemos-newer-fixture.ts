@@ -62,14 +62,44 @@ const LINES = [
   "When the wind backs south, the swell follows by evening.",
 ];
 
+/**
+ * When Pat's sandbar thread begins: three days back, at nine in the
+ * morning of that day in the test's own time zone. Its sixteen notes (the
+ * note, its answer, and `growKestrel`'s fourteen replies, five hours and
+ * twenty minutes in all) then fall on one calendar day whatever hour the
+ * test runs, and the Log, which groups by the person's day, keeps them as one.
+ */
+function sandbarStart(now: number) {
+  const at = new Date(now - 3 * 24 * 3_600_000);
+  at.setHours(9, 0, 0, 0);
+  return at.getTime();
+}
+
+/**
+ * A moment `back` ms before `now` that is still today, in the test's own
+ * time zone. What Kestrel did today reaches five hours back at most; in the
+ * first five hours after midnight that would land on yesterday, so then
+ * each moment is drawn into the time since midnight, in the same order, and
+ * the tests that say "Today" mean it at any hour they run.
+ */
+export function earlierToday(now: number, back: number) {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const since = now - midnight.getTime();
+  const reach = 5 * 3_600_000;
+  return now - (since > reach ? back : (back * 0.9 * since) / reach);
+}
+
 /** Kestrel's notebook: `life`, and its memories oldest first. */
 export function kestrelNotebook(now: number) {
   const hour = 3_600_000;
   const day = 24 * hour;
   const iso = (ms: number) => new Date(ms).toISOString();
+  /** A moment earlier today, `back` ms before now. */
+  const today = (back: number) => iso(earlierToday(now, back));
   const memories = LINES.map((content, i) => ({
     id: `kes-m${String(i).padStart(2, "0")}`,
-    born: iso(now - (11 - i) * 2 * day - 5 * hour),
+    born: i === 11 ? today(5 * hour) : iso(now - (11 - i) * 2 * day - 5 * hour),
     touched: iso(now - (11 - i) * day),
     kind: i === 5 ? "lesson" : "semantic",
     lesson: i === 5,
@@ -109,8 +139,8 @@ export function kestrelNotebook(now: number) {
   const journal = [
     {
       id: "kes-j1",
-      // Written in its hour (5 h to 4 h 20 min ago).
-      at: iso(now - 4 * hour - 35 * 60_000),
+      // Written in its hour (5 h to 4 h 20 min ago; nearer, just after midnight).
+      at: today(4 * hour + 35 * 60_000),
       text: "The fog lifted by nine. I wrote the tide first and the rest came easily.",
       mood: "clear",
       written: "between_sessions",
@@ -139,7 +169,7 @@ export function kestrelNotebook(now: number) {
   const notes = [
     {
       id: "kes-n1",
-      at: iso(now - 4 * hour - 25 * 60_000),
+      at: today(4 * hour + 25 * 60_000),
       kind: "question",
       text: "Should the morning note lead with the tide even on calm days?",
       author: "agent",
@@ -151,19 +181,19 @@ export function kestrelNotebook(now: number) {
     },
     {
       id: "kes-n2",
-      at: iso(now - 3 * day),
+      at: iso(sandbarStart(now)),
       kind: "",
       text: "The sandbar is further south than the old chart says.",
       author: "person",
       model: "",
       replyTo: "",
       hour: "",
-      delivered: iso(now - 3 * day + hour),
-      read: iso(now - 3 * day + hour),
+      delivered: iso(sandbarStart(now) + hour),
+      read: iso(sandbarStart(now) + hour),
     },
     {
       id: "kes-n3",
-      at: iso(now - 3 * day + 2 * hour),
+      at: iso(sandbarStart(now) + 2 * hour),
       kind: "reply",
       text: "Thank you. I corrected it, and kept the old line in its history.",
       author: "agent",
@@ -181,8 +211,8 @@ export function kestrelNotebook(now: number) {
       practice: false,
       status: "done",
       reason: "",
-      start: iso(now - 5 * hour),
-      end: iso(now - 4 * hour - 20 * 60_000),
+      start: today(5 * hour),
+      end: today(4 * hour + 20 * 60_000),
       minutes: 40,
       model: "claude-opus-5-5",
       modelName: "Opus 5.5",
@@ -325,7 +355,7 @@ export function kestrelNotebook(now: number) {
       {
         path: "tide-chart.png",
         bytes: 800,
-        at: iso(now - 4 * hour - 30 * 60_000),
+        at: today(4 * hour + 30 * 60_000),
         picture: "data/studio/tide-chart.png",
       },
       {
@@ -419,7 +449,7 @@ export function kestrelNotebook(now: number) {
     handoffs: [
       {
         text: "Ask Pat whether calm days still lead with the tide.",
-        at: iso(now - 4 * hour),
+        at: today(4 * hour),
         model: "claude-opus-5-5",
       },
       {
@@ -432,8 +462,8 @@ export function kestrelNotebook(now: number) {
   // Each time a memory came back, and when (`export.py` `recalled`).
   const recalled = [
     ["kes-m05", iso(now - 2 * day)],
-    ["kes-m01", iso(now - 5 * hour)],
-    ["kes-m05", iso(now - 4 * hour - 40 * 60_000)],
+    ["kes-m01", today(5 * hour)],
+    ["kes-m05", today(4 * hour + 40 * 60_000)],
   ];
   return { life, memories, version: "kv1", recalled };
 }
@@ -457,7 +487,7 @@ export function growKestrel(
     const agent = i % 2 === 1;
     life.notes.push({
       id,
-      at: iso(now - 3 * day + 3 * hour + i * 10 * 60_000),
+      at: iso(sandbarStart(now) + 3 * hour + i * 10 * 60_000),
       kind: "reply",
       text: `Reply ${i} about the sandbar. The old chart puts it a cable further north, and the buoy on the spit has drifted since the spring tides. Worth a look on the next calm morning, before the fog.`,
       author: agent ? "agent" : "person",
