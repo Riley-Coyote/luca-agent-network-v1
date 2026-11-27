@@ -7,6 +7,7 @@ import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { railGlassAtRest } from "./flagOffSettle";
+import { chooseRailAgents } from "../helpers/railAgents";
 
 /**
  * WP-18, one state and one mark for each mind
@@ -199,6 +200,7 @@ async function boot(
     managedAgents: AGENTS.map((agent) => ({ ...agent })),
     ...(seeds ? SEEDS : {}),
   });
+  await chooseRailAgents(page);
   await expect(async () => {
     await page.goto(`${origin ?? ""}/#${hash}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({

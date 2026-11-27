@@ -5,6 +5,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
+import { chooseRailAgents } from "../../helpers/railAgents";
 
 /**
  * The nav's state grid, captured for review by eye.
@@ -84,6 +85,7 @@ for (const width of WIDTHS) {
         window.localStorage.setItem("buzz:text-scale", textScale);
       }, scale);
       await installMockBridge(page, { managedAgents: [ATLAS, BEX] });
+      await chooseRailAgents(page);
       await page.goto("/?e2e=mock&projectDemo=1");
       await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
 
@@ -163,6 +165,7 @@ test("phone 390px: the sheet with and without a resident's column, on every rout
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installMockBridge(page, { managedAgents: [ATLAS, BEX] });
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock&projectDemo=1");
 
   const sheet = page.getByRole("dialog", { name: "Sidebar", exact: true });

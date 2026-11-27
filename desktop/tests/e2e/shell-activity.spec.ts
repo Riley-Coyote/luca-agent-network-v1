@@ -7,6 +7,7 @@ import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { railGlassAtRest } from "./flagOffSettle";
+import { chooseRailAgents } from "../helpers/railAgents";
 
 /**
  * WP-14, what agents say to each other, and what needs you
@@ -255,6 +256,7 @@ async function boot(
       : {}),
     ...(runtime ? RUNTIME_SEEDS : {}),
   });
+  await chooseRailAgents(page);
   // No query of the page's own, so Back and the picks read the address as
   // the app's own window does. Retry a blank first load.
   await expect(async () => {
@@ -1165,6 +1167,7 @@ test("the count past 99 reads 99+, on the icon and the row", async ({
       },
     })),
   });
+  await chooseRailAgents(page);
   await expect(async () => {
     await page.goto(`/#/channels/${GENERAL}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({

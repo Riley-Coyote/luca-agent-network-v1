@@ -6,6 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
+import { chooseRailAgents } from "../helpers/railAgents";
 
 /**
  * WP-16, the first screen and one ask everywhere
@@ -206,6 +207,7 @@ async function boot(
     managedPermissions: asks ? [PERMISSION] : [],
     runtimeTaskProposals: asks ? [PROPOSAL] : [],
   } as never);
+  await chooseRailAgents(page);
   const at = `${baseURL ?? ""}/#${hash}`;
   await expect(async () => {
     await page.goto(at);

@@ -12,6 +12,7 @@ import {
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
+import { chooseRailAgents } from "../../helpers/railAgents";
 
 /**
  * WP-11, the Chats rail (docs/luca/rail-system/SHELL_BUILD.md; SPEC.md as
@@ -168,6 +169,7 @@ async function boot(
       { name: "Codex", pubkey: CODEX, status: "running" },
     ],
   });
+  await chooseRailAgents(page);
   // Boot on a conversation, so the rail is Chats' (/pulse is Activity's
   // place now: NAVIGATION.md). Bob's 1:1 is in every scene, and the bare
   // /#/ route keeps Back clean. Retry a blank first load: the machine runs
@@ -442,7 +444,8 @@ test.describe("the Chats rail", () => {
     expect(headings).toEqual([
       { heading: "Chats", plus: "Message Luca" },
       { heading: "Projects", plus: "New project" },
-      { heading: "Agents", plus: null },
+      // Agents offers Browse agents since 468075227 (the rail shows the chosen).
+      { heading: "Agents", plus: "Browse agents" },
       { heading: "Apps", plus: "Connect an app" },
     ]);
     checks.heading_plus = headings[0];
@@ -511,7 +514,7 @@ test.describe("the Chats rail", () => {
     expect((rail ?? []).slice(browse, browse + 3)).toEqual([
       { tail: "Browse rooms…" },
       { tail: "Archived" },
-      { heading: "Agents", plus: null },
+      { heading: "Agents", plus: "Browse agents" },
     ]);
     const projectsAt = (rail ?? []).findIndex(
       (each) => each.heading === "Projects",
@@ -1630,6 +1633,7 @@ test("flag off draws the base build exactly", async ({ browser }, info) => {
     await context.clock.install({ time: new Date("2026-10-26T09:30:00") });
     const page = await context.newPage();
     await installMockBridge(page);
+    await chooseRailAgents(page);
     await expect(async () => {
       await page.goto(`${origin}/?e2e=mock#/`);
       await expect(page.getByTestId("app-sidebar")).toBeVisible({

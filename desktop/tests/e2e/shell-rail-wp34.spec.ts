@@ -7,6 +7,7 @@ import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { railGlassAtRest } from "./flagOffSettle";
+import { chooseRailAgents } from "../helpers/railAgents";
 
 /**
  * WP-34, the rail (docs/luca/BETA14_RELEASE.md): what needs you tops Chats,
@@ -307,6 +308,7 @@ async function boot(
       : {}),
     ...(waiting ? WAITING : {}),
   });
+  await chooseRailAgents(page);
   await page.addInitScript(
     ({ key, light, on }) => {
       let overrides: Record<string, boolean> = {};
