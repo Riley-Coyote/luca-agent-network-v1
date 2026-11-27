@@ -634,6 +634,13 @@
   font-weight: 500;
 }
 
+/* Who remembers with a mind, in the head and in the list, is never cut:
+ * three names wrap at a space onto a second line (WP-56). */
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-who {
+  text-overflow: clip;
+  white-space: normal;
+}
+
 /* A row's numbers in the list (WP-56): the count and the day each whole,
  * never cut. Where both don't fit, the day wraps to a line of its own; its
  * dot then sits left of the line and the line's own clip hides it. The

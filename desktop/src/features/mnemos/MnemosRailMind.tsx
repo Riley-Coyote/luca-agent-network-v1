@@ -78,7 +78,7 @@ export function MnemosRailMind() {
           </span>
         ) : null}
         {linkedWords(mind) ? (
-          <span className="luca-mnemos-railmind-line text-2xs">
+          <span className="luca-mnemos-railmind-line luca-mnemos-railmind-who text-2xs">
             {linkedWords(mind)}
           </span>
         ) : null}
@@ -111,7 +111,7 @@ export function MnemosRailMind() {
                   </span>
                   <RowNumbers line={railLine(each)} />
                   {who ? (
-                    <span className="luca-mnemos-railmind-line text-2xs">
+                    <span className="luca-mnemos-railmind-line luca-mnemos-railmind-who text-2xs">
                       {who}
                     </span>
                   ) : null}

@@ -101,6 +101,7 @@ async function boot(
     newer = false,
     grown = false,
     listMinds = [],
+    wrenLinked,
   }: {
     hash?: string;
     mode?: Mode;
@@ -114,6 +115,8 @@ async function boot(
     grown?: boolean;
     /** More rows for the list of minds, with numbers of their own (WP-56). */
     listMinds?: ListMind[];
+    /** Who remembers with Wren, in place of Luca alone (WP-56). */
+    wrenLinked?: { pubkey: string; name: string }[];
   } = {},
 ) {
   const errors: string[] = [];
@@ -123,7 +126,17 @@ async function boot(
   });
   // Before the test bridge, so every Mnemos command is this spec's.
   await page.addInitScript(
-    ({ luca, ori, fault, decline, kestrel, hello, pictures, extra }) => {
+    ({
+      luca,
+      ori,
+      fault,
+      decline,
+      kestrel,
+      hello,
+      pictures,
+      extra,
+      wrenLinked,
+    }) => {
       type Call = (
         cmd: string,
         args?: Record<string, unknown>,
@@ -334,7 +347,7 @@ async function boot(
           name: "Wren",
           memories: 124,
           newest: iso(now),
-          linked: [{ pubkey: luca, name: "Luca" }],
+          linked: wrenLinked ?? [{ pubkey: luca, name: "Luca" }],
         },
         {
           id: "field-notes",
@@ -896,6 +909,7 @@ async function boot(
       hello: KESTREL_HELLO,
       pictures: PICTURES,
       extra: listMinds,
+      wrenLinked,
     },
   );
   await installMockBridge(page, {
@@ -4277,6 +4291,72 @@ function readRow(page: Page, id: string): Promise<RowRead> {
   });
 }
 
+type WhoRead = {
+  text: string;
+  /** What the eye reads of it, one string per drawn line. */
+  seen: string[];
+  scrollWidth: number;
+  clientWidth: number;
+  ellipsis: boolean;
+  box: Box;
+};
+
+/** Reads a "… remembers with this" line as it is drawn (WP-56). */
+function readWho(el: import("@playwright/test").Locator): Promise<WhoRead> {
+  return el.evaluate((line) => {
+    const clip = line.getBoundingClientRect();
+    const glyphs: { ch: string; r: DOMRect }[] = [];
+    const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+      const text = node.textContent ?? "";
+      for (let i = 0; i < text.length; i++) {
+        const range = document.createRange();
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        const r = range.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue;
+        if (
+          r.left < clip.left - 0.5 ||
+          r.right > clip.right + 0.5 ||
+          r.top < clip.top - 0.5 ||
+          r.bottom > clip.bottom + 0.5
+        )
+          continue;
+        glyphs.push({ ch: text[i], r });
+      }
+    }
+    const rows = new Map<number, string[]>();
+    for (const g of glyphs) {
+      const key = Math.round(g.r.top);
+      rows.set(key, [...(rows.get(key) ?? []), g.ch]);
+    }
+    const el = line as HTMLElement;
+    return {
+      text: el.textContent ?? "",
+      seen: [...rows.values()].map((cs) => cs.join("").trim()),
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      ellipsis: getComputedStyle(el).textOverflow === "ellipsis",
+      box: {
+        left: clip.left,
+        top: clip.top,
+        right: clip.right,
+        bottom: clip.bottom,
+      },
+    };
+  });
+}
+
+/** A who line is drawn whole: every word in its box, nothing cut. */
+function expectWhole(who: WhoRead, words: string, where: string) {
+  expect.soft(who.text, `${where}: its words`).toBe(words);
+  expect.soft(who.seen.join(" "), `${where}: what the eye reads`).toBe(words);
+  expect.soft(who.ellipsis, `${where}: an ellipsis in play`).toBe(false);
+  expect
+    .soft(who.scrollWidth, `${where}: cut`)
+    .toBeLessThanOrEqual(who.clientWidth);
+}
+
 /** How wide the rail is, and whether anything offers to resize it. */
 function railWidth(page: Page) {
   return page.evaluate(() => {
@@ -4314,6 +4394,7 @@ function dayOf(m: ListMind) {
 
 async function checkRows(page: Page, where: string) {
   const read: Record<string, RowRead> = {};
+  const whoRead: Record<string, WhoRead> = {};
   for (const id of ROWS56) read[id] = await readRow(page, id);
   const spoken: Record<string, string> = {};
   for (const id of ROWS56)
@@ -4354,11 +4435,25 @@ async function checkRows(page: Page, where: string) {
         .soft(p.scrollWidth, `${where} ${id}: ${p.name} cut`)
         .toBeLessThanOrEqual(p.clientWidth);
     expect.soft(r.ellipsis, `${where} ${id}: an ellipsis in play`).toEqual([]);
+    // Who remembers with it: the whole sentence, on two lines if need be.
+    const who = page
+      .getByTestId(`mnemos-mind-${id}`)
+      .locator(".luca-mnemos-railmind-line")
+      .nth(1);
+    if (await who.count()) {
+      const w = await readWho(who);
+      whoRead[id] = w;
+      expectWhole(w, w.text, `${where} ${id} who`);
+    }
     // The ear: still a sentence.
     expect
       .soft(spoken[id], `${where} ${id}: what a screen reader hears`)
       .toContain(`${count}, newest ${day}`);
   }
+  measure56(`${RUN56}-${where}-who`, whoRead);
+  expect
+    .soft(whoRead["lamp-room"]?.seen, `${where}: three names, on two lines`)
+    .toHaveLength(2);
   return read;
 }
 
@@ -4450,4 +4545,40 @@ for (const mode of ["dark", "light"] as const)
       });
       await close.close();
     }
+  });
+
+for (const mode of ["dark", "light"] as const)
+  test(`(56) the head names three who remember, whole, ${mode}`, async ({
+    page,
+  }) => {
+    const three = "Luca, Sable and Opus remember with this";
+    const errors = await boot(page, {
+      hash: "/mnemos?mind=wren&room=glance",
+      mode,
+      wrenLinked: [
+        { pubkey: LUCA, name: "Luca" },
+        { pubkey: "e".repeat(64), name: "Sable" },
+        { pubkey: "f".repeat(64), name: "Opus" },
+      ],
+    });
+    const head = page.getByTestId("mnemos-rail-mind-button");
+    await expect(head).toContainText(three);
+    const inHead = await readWho(head.locator(".luca-mnemos-railmind-who"));
+    expectWhole(inHead, three, `${mode} head`);
+    expect.soft(inHead.seen, `${mode} head: on two lines`).toHaveLength(2);
+    await head.click();
+    const row = page
+      .getByTestId("mnemos-mind-wren")
+      .locator(".luca-mnemos-railmind-who");
+    await expect(row).toBeVisible();
+    const inRow = await readWho(row);
+    expectWhole(inRow, three, `${mode} row`);
+    measure56(`${RUN56}-${mode}-head-three`, { inHead, inRow });
+    if (mode === "dark") {
+      await waitForAnimations(page);
+      await page
+        .getByTestId("mnemos-rail-mind")
+        .screenshot({ path: `${SHOTS56}/${RUN56}-dark-head-three.png` });
+    }
+    expect(consoleClean(errors)).toEqual([]);
   });
