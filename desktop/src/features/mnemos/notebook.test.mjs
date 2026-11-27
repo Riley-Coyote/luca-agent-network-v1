@@ -15,6 +15,7 @@ import {
   fieldState,
   MAX_TEXT,
   dayLine,
+  dayWords,
   foundWords,
   goneQuiet,
   newestDay,
@@ -159,10 +160,10 @@ test("the head's state line and the rail's line, from real numbers only", () => 
     ),
     "2 memories it can reach · newest yesterday · Luca and Wren remember with this",
   );
-  assert.equal(
-    railLine({ memories: 86, newest: "2026-03-02" }, today),
-    "86 memories · newest Mar 2",
-  );
+  assert.deepEqual(railLine({ memories: 86, newest: "2026-03-02" }, today), {
+    count: "86 memories",
+    day: "Mar 2",
+  });
 });
 
 test("the newest memory's day is the viewer's own, from the stamp the app hands over", () => {
@@ -189,8 +190,14 @@ test("the newest memory's day is the viewer's own, from the stamp the app hands 
     stateLine(mind, tonight),
     "12 memories it can reach · newest today",
   );
-  assert.equal(railLine(mind, tonight), "12 memories · newest today");
-  assert.equal(railLine(mind, tomorrow), "12 memories · newest yesterday");
+  assert.deepEqual(railLine(mind, tonight), {
+    count: "12 memories",
+    day: "today",
+  });
+  assert.deepEqual(railLine(mind, tomorrow), {
+    count: "12 memories",
+    day: "yesterday",
+  });
 
   // Only a calendar day, as the app handed over before: still that day.
   assert.equal(
@@ -210,13 +217,43 @@ test("the newest memory's day is the viewer's own, from the stamp the app hands 
   for (const value of ["soon", "2026-13-45", "2026-02-30", "", null, undefined])
     assert.equal(newestDay(value), null, String(value));
   assert.equal(newestWords("soon", tonight), null);
-  assert.equal(
-    railLine({ memories: 3, newest: "soon" }, tonight),
-    "3 memories",
-  );
+  assert.deepEqual(railLine({ memories: 3, newest: "soon" }, tonight), {
+    count: "3 memories",
+    day: null,
+  });
   assert.equal(
     stateLine({ memories: 3, newest: "2026-02-30", linked: [] }, tonight),
     "3 memories it can reach",
+  );
+});
+
+test("a row of the list of minds says its day without the word newest (WP-56)", () => {
+  // The clock pinned, and every moment built from local parts, so each line
+  // means the same in any time zone: the viewer's own day.
+  const now = new Date(2026, 10, 27, 9, 15);
+  const at = (y, m, d, h = 12) => new Date(y, m, d, h).toISOString();
+  const row = (memories, newest) => railLine({ memories, newest }, now);
+  assert.deepEqual(row(9347, at(2026, 10, 27, 1)), {
+    count: "9,347 memories",
+    day: "today",
+  });
+  assert.deepEqual(row(300, at(2026, 10, 26, 23)), {
+    count: "300 memories",
+    day: "yesterday",
+  });
+  assert.deepEqual(row(1, at(2026, 0, 4)), { count: "1 memory", day: "Jan 4" });
+  assert.deepEqual(row(123456, at(2025, 10, 26)), {
+    count: "123,456 memories",
+    day: "Nov 26, 2025",
+  });
+  // No memories, no day: the count alone.
+  assert.deepEqual(row(0, null), { count: "0 memories", day: null });
+  assert.equal(dayWords(null, now), null);
+  // The head and the agent page keep their words.
+  assert.equal(newestWords(at(2026, 10, 26), now), "newest yesterday");
+  assert.equal(
+    stateLine({ memories: 300, newest: at(2026, 10, 26), linked: [] }, now),
+    "300 memories it can reach · newest yesterday",
   );
 });
 

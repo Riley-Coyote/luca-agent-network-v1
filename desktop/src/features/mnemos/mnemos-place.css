@@ -634,6 +634,38 @@
   font-weight: 500;
 }
 
+/* A row's numbers in the list (WP-56): the count and the day each whole,
+ * never cut. Where both don't fit, the day wraps to a line of its own; its
+ * dot then sits left of the line and the line's own clip hides it. The
+ * unseen gap after the count is the dot's width, so one line spaces as
+ * plain text does. */
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-count,
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-day {
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-gap {
+  visibility: hidden;
+  white-space: pre;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-day {
+  position: relative;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-mnemos-minds-dot {
+  position: absolute;
+  right: 100%;
+  white-space: pre;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell] [data-shell-rail] .luca-mnemos-railmind-chev {
     transition: none;

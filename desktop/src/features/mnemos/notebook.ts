@@ -146,22 +146,30 @@ export function newestDay(newest: string | null | undefined): Date | null {
   return Number.isNaN(at) ? null : new Date(at);
 }
 
-/** The day of a mind's newest memory, said as the head says it. */
-export function newestWords(newest: string | null, today = new Date()) {
+/** The day of a mind's newest memory in a word or a date, in the viewer's
+ *  own time: "today", "yesterday", "Nov 26", or "Nov 26, 2025" for a day in
+ *  another year. Null for nothing, or for what can't be read. */
+export function dayWords(newest: string | null, today = new Date()) {
   const day = newestDay(newest);
   if (!day) return null;
-  if (dayKey(day) === dayKey(today)) return "newest today";
+  if (dayKey(day) === dayKey(today)) return "today";
   const yesterday = new Date(
     today.getFullYear(),
     today.getMonth(),
     today.getDate() - 1,
   );
-  if (dayKey(day) === dayKey(yesterday)) return "newest yesterday";
-  return `newest ${day.toLocaleDateString("en-US", {
+  if (dayKey(day) === dayKey(yesterday)) return "yesterday";
+  return day.toLocaleDateString("en-US", {
     day: "numeric",
     month: "short",
     year: day.getFullYear() === today.getFullYear() ? undefined : "numeric",
-  })}`;
+  });
+}
+
+/** The day of a mind's newest memory, said as the head says it. */
+export function newestWords(newest: string | null, today = new Date()) {
+  const day = dayWords(newest, today);
+  return day ? `newest ${day}` : null;
 }
 
 /** Who remembers with a mind, in a breath: "Luca remembers with this". */
@@ -190,17 +198,18 @@ export function stateLine(
     .join(" · ");
 }
 
-/** The rail's one line under the mind's name: its numbers. */
+/** A row of the rail's list of minds, under the mind's name: how many
+ *  memories, and the day of its newest, kept apart so the row can keep each
+ *  whole (WP-56): "9,347 memories" and "yesterday"; no day when there is
+ *  none to say. */
 export function railLine(
   mind: Pick<PlaceMind, "memories" | "newest">,
   today = new Date(),
-): string {
-  return [
-    plural(mind.memories, "memory", "memories"),
-    newestWords(mind.newest, today),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+): { count: string; day: string | null } {
+  return {
+    count: plural(mind.memories, "memory", "memories"),
+    day: dayWords(mind.newest, today),
+  };
 }
 
 /** An entry's title is its own first sentence (or first line); what follows
