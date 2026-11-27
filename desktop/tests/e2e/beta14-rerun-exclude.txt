@@ -495,8 +495,9 @@
  shell-room-flows\.spec\.ts flag off matches the base$
  shell-settings-agents\.spec\.ts flag off: Settings > Agents the same as the base build$
  shell-top-edge\.spec\.ts flag off matches the base$
-# needs the real app built (1): launches the native debug app
+# needs the real app built (2): they launch the native debug app
  luca/f11\.spec\.ts F11: real Tauri recovers a generated owner identity into a private Luca home$
+ luca/f11\.spec\.ts F11: native debug failpoint renders Luca personal-home retry state$
 # known in the app (1)
  luca/continuous-motion\.spec\.ts production video glow rests paused and hidden, and follows real seek/play/resume$
 # waiting on Riley's call (4, and one more that shares their setup)
@@ -505,7 +506,7 @@
  luca/polyphonic-production-onboarding-v3\.spec\.ts an import that fails says so on its own row and stops nothing$
  luca/polyphonic-production-onboarding-v3\.spec\.ts one agent is ticked, and arrives behind the first conversation$
  luca/luca-creates-resident\.spec\.ts an ordinary running resident's row carries no bring-up word$
-# left with a cause: each needs a rewrite or a decision (47)
+# left with a cause: each needs a rewrite or a decision (48)
  luca/chat-agent-mark\.spec\.ts sphere stays on the composer; glyph and pixel marks accompany replies$
  luca/composer-refinement\.spec\.ts obsidian: chat keeps the preview capsule and anchored expanded row$
  luca/composer-refinement\.spec\.ts obsidian: new-chat keeps the preview capsule and anchored expanded row$
@@ -553,3 +554,12 @@
  shell-settings-agents\.spec\.ts d2: Add agent and a connected app open their homes$
  shell-walkthrough\.spec\.ts Claude Code's page head, and its New conversation is the \+, dark$
  shell-walkthrough\.spec\.ts Claude Code's page head, and its New conversation is the \+, light$
+ luca/shell-runtime\.spec\.ts connected 800: its sessions are its card on the one card; no column opens$
+# never run: they follow "connected 800" in its one-after-another group, which stops at the first failure (7)
+ luca/shell-runtime\.spec\.ts New conversation opens no column under the frame$
+ luca/shell-runtime\.spec\.ts connected light: Paper, the card lies on the one card$
+ luca/shell-runtime\.spec\.ts rail closed: the card folds the rail away and the connected card meets the places$
+ luca/shell-runtime\.spec\.ts text zoom: back, forward and the name keep to the connected card$
+ luca/shell-runtime\.spec\.ts by day on the glass: one shadow on the floor, the one card's$
+ luca/shell-runtime\.spec\.ts narrow: under 768 the connected card still opens, and no sheet of the column$
+ luca/shell-runtime\.spec\.ts flag off: the column draws exactly the base build$

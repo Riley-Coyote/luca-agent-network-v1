@@ -3,11 +3,59 @@
 Riley, 2026-10-26: "Yes, go with the plan: call it beta.14, the shell on by default with the old layout as a switch for
 one release, leave the Obsidian WIP out, cut the five Buzz ties and keep the license notice."
 
-## Current finish gates — November 5, 2026
+## Current finish gates — November 27, 2026
 
-This section is the active closeout; dated implementation records below are
+This section is the active closeout. It replaces the November 5 section below, which is kept
+as a record. Mnemos is in scope: Riley, November 20, "i want to just get it all integrated".
+
+- **Frozen source.** The app's code is `6e2779c33` on `claude/native-rail-glass`. Every commit
+  after it changes tests and docs only.
+- **Checks at the frozen source.** Types: no errors. `pnpm run check`: clean. Frontend units:
+  4,730 of 4,730. Rust: desktop library 3,185 passed, 0 failed, 18 ignored; `buzz-dev-mcp`
+  118 and 1; `luca-protocol` 3, 11 and 5. Mnemos browser specs: 140 of 140 in Chromium. The
+  list-of-minds tests: 6 of 6 in Playwright's WebKit as well.
+- **The browser suite.** `BETA14_BROWSER_TESTS.md` has the count. Of 2,051 tests, 556 are left
+  out by name, each with its cause: 455 old (they fail the same way at beta.13), 38 need a
+  second build to compare against, 2 need the real app, 1 is known in the app, 5 wait on
+  Riley, 55 need a rewrite. Of the other 1,495, every one passed in the final sweep or alone,
+  except two timing tests that should be run once more on a quiet Mac.
+- **Release-mode practice compile.** `tauri build --no-bundle` with the beta overlay finished
+  at `6e2779c33` in its own worktree: version 0.5.0-beta.14, the new layout on, arm64,
+  minimum macOS 14.0, Apple's glass classes weak-linked, the six helpers staged. It carries
+  only the linker's ad-hoc signature. Nothing was bundled, signed, notarized or launched.
+- **The test app.** Rebuilt once from the release line plus the candidate's own two files
+  (`claude/mnemos-link-candidate`, 65a8b72b8) and launched on November 27 at 5:45 am. It is
+  waiting at the macOS keychain prompt, which is Riley's to answer. **The hands-on pass on
+  the final build has not been done.** Seen in passing: stopping the earlier build's main
+  process took its relay and its three agent programs with it within seconds.
+- **Known in the app; ships as it is.**
+  - With Reduce Motion on, the glow behind a short looping video shifts a little at every
+    loop (150bebb86).
+  - In a conversation with no messages, an open question form gets about half the window and
+    scrolls inside its own area. Nothing is out of reach; checked at three window sizes in
+    both layouts, in the browser build.
+- **Riley's calls.**
+  - An agent created on his yes, or ticked during setup, does not show in the Chats rail until
+    he messages it (468075227), and a failed bring-up has no row to say so. Five tests wait on
+    this. Changing it needs one more test build.
+  - "Mnemos isn't on this Mac." offers no way to get it.
+  - The release notes say nothing about Living Ink, and are still headed Draft.
+- **Open since November 5, and not something these checks can force.** Remembered approvals
+  on the Claude API route need an Anthropic API key. Proactive return has never produced an
+  unsolicited return in the real app; quiet hours and budgets must not be reset to get one.
+  A Codex-run agent, for delegation or a linked memory, has not been run in the app. The
+  profile preserved on November 3 (`2026-11-03-first-meeting`) is no longer in
+  `~/Documents/Polyphonic-Candidates/`, so its recheck cannot be done as written.
+- **Owner and release gates, unchanged.** Riley's walkthrough. Fresh install and the beta.13
+  upgrade in a disposable macOS account, with the real release-mode app. Developer ID
+  signing, updater signing, notarization, the tag and the uploads. None of these is done or
+  authorized by the checks above.
+
+## Finish gates — November 5, 2026 (superseded by the section above)
+
+Kept as the record of that day; dated implementation records below are
 historical evidence, not fresh release clearance. The new public/shared-agent
-idea is deferred. Mnemos, Ghost and new harness integrations remain out of scope.
+idea is deferred. On November 5 Mnemos was still out of scope.
 
 - **Verified in the isolated native candidate:** approved shell/conversation/mini
   chat work; chat-led reviewed setup; authorized recent-work sample; encrypted

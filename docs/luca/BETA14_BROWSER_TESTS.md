@@ -9,10 +9,26 @@ the release line at `90cba11d8`, every failure run again alone, each sorted by e
 |---|---|---|---|---|
 | Base `90cba11d8` | 2046 | 1362 | 644 (634 steady, 9 loose, 1 fixed before its rerun) | 40 |
 | End, without the lists below | 1547 | 1452 | 59: 47 named here, 10 loose, 2 now on the lists | 36 |
+| Final sweep, joined line `842100973` | 1504 | 1454 | 21: 17 pass alone, 2 now on the lists, 2 loose | 29 |
 
 The 634 steady ones split in two. **446 are old**: they fail the same way at beta.13. **188
 are since beta.13**, and 9 of those turned out old too, so the old list holds 455. The beta.13
 copy was run with the same server as this line. No test was skipped, given retries or more time.
+
+**The final sweep (Nov 27, 7:27 to 8:01 am)** ran every test outside the lists once, on the
+joined line (app code `6e2779c33`), while the Mac was busy with another job (load about 15 on 14
+cores). Each file with a failure was then run again alone: 89 passed. What was left:
+- Two more for the lists. `luca/f11` "native debug failpoint…" needs the real app built.
+  `luca/shell-runtime` "connected 800" fails as its 1440 twin does (the connected-app card is
+  gone, 8e4693bfe); the seven tests after it in the same one-after-another group never run.
+- Two that still fail alone while the Mac is loaded, on app code that passed them earlier the
+  same day: `image-attachment-gallery` "hidden spoiler images…" (passed on this very build at
+  7:28) and `luca/quickchat-lens` "a reader stays put…". Both race the page: one opens the
+  picture the instant a spoiler is revealed, one expects the mini chat to follow new content
+  at once. Run them once more on a quiet Mac before calling the gate closed.
+
+With those named, the rerun below keeps 1495 of 2051 tests, and each either passed in the
+sweep or passed alone, apart from those two.
 
 ## The old ones (455, untouched)
 
@@ -50,7 +66,8 @@ copy was run with the same server as this line. No test was skipped, given retri
 - Reduce Motion is set through the context, so specs in an empty chat are not starved by the
   film on a software GPU (44e26e22e). Two earlier fixes: 23809b108, 510b48e7d.
 
-**Left with a cause (47).** Each needs a real rewrite or a decision, not a small fix:
+**Left with a cause (47; the final sweep added one, and seven that never run).** Each needs a
+real rewrite or a decision, not a small fix:
 - 12 · The Claude and Codex app page is now the harness workspace (8e4693bfe), so the
   connected-app card is gone: `shell-activity`, `shell-brain`, `shell-huddle`, `shell-rail`,
   `shell-runtime`, `shell-place-rails` ×3, `shell-rail-wp34`, `shell-settings-agents`,
@@ -92,7 +109,8 @@ Each variable is `WP<n>_BASE_URL` unless named; ? means the base commit was not 
 | 4334 | `shell-room-flows` (WP27, cfb442813); `shell-top-edge` (WP29, 91f962074) |
 | 4419 | `luca/living-ink-field` ×6: this build, plus the shell lab (`scripts/build-shell-lab.mjs`) at `/_shell-lab` |
 
-Also outside a browser run: `luca/f11` "real Tauri recovers…" launches the built native app.
+Also outside a browser run: `luca/f11` "real Tauri recovers…" and "native debug failpoint…"
+launch the built native app.
 
 ## Loose (pass alone)
 
@@ -128,7 +146,7 @@ An agent you agree to in chat, or tick in onboarding, does not appear in the rai
 ## Rerun
 
 Every test outside the lists above, by name (`desktop/tests/e2e/beta14-rerun-exclude.txt`). The
-file also names the 47 left with a cause, so a clean run is no failures; one that fails under
+file also names the tests left with a cause, so a clean run is no failures; one that fails under
 load and passes alone belongs on the loose list. Each name in the file matches exactly one test.
 
 ```sh
