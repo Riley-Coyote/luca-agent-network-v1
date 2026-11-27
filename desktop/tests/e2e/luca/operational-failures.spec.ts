@@ -160,7 +160,10 @@ test("typed failures preserve sibling text and retry only the exact resident", a
 test("restart hydration is body-free, deduplicated, compact, and accessible", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 800, height: 500 });
+  // The shelf folds to "N residents working" only when it is 34rem (544px)
+  // wide or less. At 800px the conversation's shelf is now 562px wide, so
+  // this narrower window keeps the fold this test is about.
+  await page.setViewportSize({ width: 776, height: 500 });
   await openConversation(page);
   const receiptId = await send(page, "Keep this restart-safe.");
   await emitFrame(page, {

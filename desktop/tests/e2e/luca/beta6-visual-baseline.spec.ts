@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
+import { chooseRailAgents } from "../../helpers/railAgents";
 
 for (const theme of ["buzz-dark", "paper"]) {
   test(`baseline surfaces and keyboard focus in ${theme}`, async ({
@@ -19,6 +20,11 @@ for (const theme of ["buzz-dark", "paper"]) {
         { name: "Luca", pubkey: "a".repeat(64), status: "running" },
       ],
     });
+    await chooseRailAgents(page);
+    // Luca's conversation is empty, and on this software GPU its film runs
+    // at a few frames a second, which every click waits on. Still motion
+    // shows its settled moment; the moving film needs a real GPU to judge.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/?e2e=mock");
     const shot = async (name: string) => {
       await page.evaluate(
@@ -35,8 +41,12 @@ for (const theme of ["buzz-dark", "paper"]) {
       theme,
     );
     const rail = page.getByTestId("agent-rail-luca");
+    // Since 6dbb49a64 the row unfolds the agent's sessions in the rail (the
+    // chats column it used to open is gone); the conversation is one of them.
     await rail.click();
-    await page.getByTestId("agent-column-new-chat").click();
+    await page
+      .getByRole("button", { name: "Chat with Luca", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Open conversation details", exact: true })
       .click();
@@ -100,6 +110,7 @@ test("onboarding uses the default baseline", async ({ page }, info) => {
     {},
     { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock&machineOnboarding=1");
   await page.getByRole("button", { name: "Begin setup" }).click();
   await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();

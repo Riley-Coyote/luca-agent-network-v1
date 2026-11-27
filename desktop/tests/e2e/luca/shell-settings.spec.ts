@@ -302,8 +302,9 @@ test("Settings in the frame", async ({ page }, info) => {
       lip?.h === 36 &&
       lip.w === W &&
       places?.w === 44 &&
-      // WP-38 restores Brain as its own place: seven places and the avatar.
-      iconCentres.length === 8 &&
+      // Search, eight places (Home since 8e4693bfe, Mnemos since 77f4258c3)
+      // and the avatar.
+      iconCentres.length === 10 &&
       iconCentres.every((cx) => cx === 22) &&
       current.join(",") === "open-settings-view" &&
       // No native lights in a browser: the toggle on the places' axis, its

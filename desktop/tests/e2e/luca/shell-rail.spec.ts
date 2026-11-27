@@ -6,6 +6,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
+import { chooseRailAgents } from "../../helpers/railAgents";
 
 /**
  * WP-02, the rail ironed out (docs/luca/rail-system/SHELL_BUILD.md): the
@@ -76,6 +77,7 @@ async function boot(page: Page, { shell }: { shell: boolean }) {
       { name: "Codex", pubkey: CODEX, status: "running" },
     ],
   });
+  await chooseRailAgents(page);
   await page.goto(`/#/channels/${ALICE_DM}`);
   await expect(page.getByTestId("app-sidebar")).toBeVisible({
     timeout: 20000,
@@ -798,6 +800,7 @@ async function bootDefault(page: Page, init?: (page: Page) => Promise<void>) {
   }, FEATURE_OVERRIDES_STORAGE_KEY);
   await init?.(page);
   await installMockBridge(page);
+  await chooseRailAgents(page);
   await page.goto(`/#/channels/${GENERAL_ID}`);
   await expect(page.locator("[data-shell-rail]")).toBeVisible({
     timeout: 20000,
@@ -1100,6 +1103,7 @@ test.describe("the rail, finished (WP-02b)", () => {
         { name: "Codex", pubkey: CODEX, status: "stopped", waking: true },
       ],
     });
+    await chooseRailAgents(page);
     await page.goto(`/#/channels/${ALICE_DM}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({
       timeout: 20000,

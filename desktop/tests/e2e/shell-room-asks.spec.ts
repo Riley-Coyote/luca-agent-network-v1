@@ -451,7 +451,8 @@ for (const [width, height] of [
         expect(shown.stack.height).toBeLessThanOrEqual(
           shown.conversation * 0.4 + 1,
         );
-      expect(shown?.labelFont ?? "").toContain("Fragment Mono");
+      // Instrument Sans again since c0fb16ae4 (the Apple face and the mono labels retired).
+      expect(shown?.labelFont ?? "").toContain("Instrument Sans");
       for (const row of shown?.askRows ?? []) {
         expect(row.paint?.shadow).toBe("none");
         expect(row.paint?.background).toBe("rgba(0, 0, 0, 0)");

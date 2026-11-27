@@ -6,6 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
+import { chooseRailAgents } from "../helpers/railAgents";
 
 /**
  * WP-37, what the walkthrough found (docs/luca/BETA14_RELEASE.md): a new
@@ -253,6 +254,7 @@ async function boot(
       { name: "Atlas", pubkey: ATLAS, status: "running" },
     ],
   } as never);
+  await chooseRailAgents(page);
   await expect(async () => {
     await page.goto(`/#${hash}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({

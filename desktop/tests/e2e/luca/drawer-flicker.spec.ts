@@ -23,7 +23,6 @@ import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 const RESIDENT = TEST_IDENTITIES.alice.pubkey;
 const DM_CHANNEL_ID = "f48efb06-0c93-5025-aac9-2e646bb6bfa8";
 const SHOT_DIR = "/private/tmp/luca-beta7-flicker/.wp-flicker-shots";
-const EXCHANGE_ID = "b".repeat(64);
 
 type Rect = [number, number, number, number];
 
@@ -217,7 +216,10 @@ test("bringing a resident in and letting them go never transitions the shell", a
     page.getByTestId("agent-session-thread-panel").first(),
   ).toBeVisible();
 
-  // The resident arrives: the room's exchange goes live and takes the drawer.
+  // The resident arrives. Since 740409ae7 a live exchange no longer takes the
+  // drawer, and the visit notes of the owner's own exchange stay out of the
+  // timeline (delegationPresentation), so this visit carries no exchange of
+  // the owner's: its notes are the visible arrival and departure.
   const join = await phase("join", 10, async () => {
     await page.evaluate((resident) => {
       window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
@@ -231,21 +233,6 @@ test("bringing a resident in and letting them go never transitions the shell", a
         kind: 40099,
       });
     }, RESIDENT);
-    await page.evaluate(
-      ({ conversationId, exchangeId, resident }) => {
-        window.__BUZZ_E2E_EMIT_MOCK_EXCHANGE__?.({
-          conversationId,
-          exchangeId,
-          members: [resident],
-          openedBy: resident,
-        });
-      },
-      {
-        conversationId: DM_CHANNEL_ID,
-        exchangeId: EXCHANGE_ID,
-        resident: RESIDENT,
-      },
-    );
     await expect(page.getByText("alice stepped in")).toBeVisible();
   });
 

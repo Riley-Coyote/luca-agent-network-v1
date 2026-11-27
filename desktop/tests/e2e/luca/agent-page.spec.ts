@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { chooseRailAgents } from "../../helpers/railAgents";
 
 /**
  * A resident's page is a status strip and three sections — Documents,
@@ -35,6 +36,7 @@ async function openAlice(page: import("@playwright/test").Page) {
     },
     searchProfiles: [{ displayName: "alice", isAgent: true, pubkey: RESIDENT }],
   });
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock#/agents");
   await page.getByTestId(`agent-library-row-${RESIDENT}`).click();
   await expect(page.getByRole("heading", { name: "alice" })).toBeVisible();
@@ -99,6 +101,7 @@ test("a persisted runtime logo resolves to a character, not a saved photo", asyn
       },
     ],
   });
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock#/agents");
   const row = page.getByTestId(`agent-library-row-${RESIDENT}`);
   await expect(row.locator(".agent-character")).toHaveCount(1);
@@ -134,6 +137,7 @@ test("a saved agent photo can yield to a character and be restored", async ({
       },
     ],
   });
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock#/agents");
   await page.getByTestId(`agent-library-row-${RESIDENT}`).click();
   await page
@@ -284,10 +288,12 @@ test("the conversation drawer's Open lands on Documents", async ({ page }) => {
     residentDocuments: { [RESIDENT]: { "soul.md": SOUL } },
     searchProfiles: [{ displayName: "alice", isAgent: true, pubkey: RESIDENT }],
   });
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock");
   await page.getByTestId("agent-rail-alice").click();
+  // Since 6dbb49a64 the agent's sessions open inline under its rail row.
   await page
-    .getByTestId("agent-chats-column")
+    .locator(`#agent-sessions-${RESIDENT.toLowerCase()}`)
     .getByText("alice-tyler", { exact: true })
     .click();
   await page.getByRole("button", { name: "Open conversation details" }).click();
@@ -327,6 +333,7 @@ test("a native resident's Documents are the runtime's own files", async ({
       },
     },
   });
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock#/agents");
   await page.getByTestId(`agent-library-row-${HERMES}`).click();
   await expect(page.getByRole("heading", { name: "ziggy" })).toBeVisible();

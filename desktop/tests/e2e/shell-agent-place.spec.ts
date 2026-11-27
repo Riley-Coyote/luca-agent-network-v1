@@ -1123,7 +1123,9 @@ for (const light of [false, true]) {
     await expect(page.getByTestId("mind-row-config")).toContainText("values");
     const read = await readSettings(page);
     measure(`settings-${time}`, read);
+    // Appearance (the chat picture) leads since 67a93cba3.
     expect(read.groups.map((group) => group.title)).toEqual([
+      "Appearance",
       "Who Luca is",
       "Their page",
       "Companion",

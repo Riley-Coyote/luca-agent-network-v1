@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 import { openSettings } from "../../helpers/settings";
+import { LIVING_INK } from "../../../src/shared/lib/livingInkMath";
 
 const CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const CLAUDE = TEST_IDENTITIES.alice.pubkey;
@@ -926,24 +927,37 @@ test.describe("streamed words", () => {
       await expect(page.locator("[data-md-stream-effect]")).toHaveCount(0, {
         timeout: 20_000,
       });
+      // Since Living Ink (50c6cfaa6) the settled line hands its paint to its
+      // parts: once the field is ready, each painted part carries the
+      // gradient through its own glyphs.
+      await expect(
+        page.locator("[data-expression-gradient][data-ink-field-ready]"),
+      ).toHaveCount(1);
       const settled = await page.evaluate(() => {
         const line = document.querySelector<HTMLElement>(
           "[data-expression-gradient]",
         );
         if (!line) return null;
-        const computed = getComputedStyle(line);
-        return {
-          clip:
-            computed.webkitBackgroundClip ??
-            computed.getPropertyValue("background-clip"),
-          color: computed.color,
-          image: computed.backgroundImage.slice(0, 16),
-          text: line.textContent,
-        };
+        const parts = [
+          ...line.querySelectorAll<HTMLElement>("[data-ink-painted]"),
+        ].map((part) => {
+          const computed = getComputedStyle(part);
+          return {
+            clip:
+              computed.webkitBackgroundClip ??
+              computed.getPropertyValue("background-clip"),
+            color: computed.color,
+            image: computed.backgroundImage.slice(0, 16),
+          };
+        });
+        return { parts, text: line.textContent };
       });
-      expect(settled?.clip).toBe("text");
-      expect(settled?.color).toBe("rgba(0, 0, 0, 0)");
-      expect(settled?.image).toContain("linear-gradient");
+      expect(settled?.parts.length).toBeGreaterThan(0);
+      for (const part of settled?.parts ?? []) {
+        expect(part.clip).toBe("text");
+        expect(part.color).toBe("rgba(0, 0, 0, 0)");
+        expect(part.image).toContain("linear-gradient");
+      }
       expect(settled?.text).toBe(
         "So what is the draft actually claiming here?",
       );
@@ -981,7 +995,9 @@ test.describe("streamed words", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  test("a settled row does no further work", async ({ page }) => {
+  test("a settled row's ink paints slowly, and not at all when hidden or still", async ({
+    page,
+  }) => {
     await seedEffect(page, "bloom");
     await openChannel(page);
     const receiptId = await streamReplyChunked(
@@ -999,25 +1015,25 @@ test.describe("streamed words", () => {
       timeout: 20_000,
     });
 
-    // The prose is a settled row's prose again: nothing animating, nothing
-    // rewriting style, no frame loop left running over it. Scoped to the
-    // markdown, since the row's own entrance animation is not this work's.
-    const quiet = await page.evaluate(
-      () =>
-        new Promise<{ animations: string[]; mutations: string[] }>(
-          (resolve) => {
+    // Living Ink (50c6cfaa6) keeps a settled coloured line alive on purpose:
+    // LIVING_INK.frameRate paints a second while it is young, restRate after,
+    // and none while the page is hidden, under Reduce Motion or forced
+    // colours. One paint writes all its parts in one task, so it reaches a
+    // MutationObserver as one batch: batches are paints.
+    const paints = (seconds: number) =>
+      page.evaluate(
+        (seconds) =>
+          new Promise<{ animations: string[]; paints: number }>((resolve) => {
             const rows = document.querySelectorAll(
               "[data-managed-response-ui-key]",
             );
             const prose =
               rows[rows.length - 1]?.querySelector(".message-markdown");
             if (!prose)
-              return resolve({ animations: ["no prose"], mutations: [] });
-            const mutations: string[] = [];
-            const observer = new MutationObserver((records) => {
-              for (const record of records) {
-                mutations.push(`${record.type}:${record.attributeName ?? ""}`);
-              }
+              return resolve({ animations: ["no prose"], paints: -1 });
+            let paints = 0;
+            const observer = new MutationObserver(() => {
+              paints += 1;
             });
             observer.observe(prose, {
               attributes: true,
@@ -1030,14 +1046,38 @@ test.describe("streamed words", () => {
                 animations: prose
                   .getAnimations({ subtree: true })
                   .map((animation) => String(animation.constructor.name)),
-                mutations,
+                paints,
               });
-            }, 1_200);
-          },
-        ),
-    );
-    expect(quiet.mutations).toEqual([]);
-    expect(quiet.animations).toEqual([]);
+            }, seconds * 1000);
+          }),
+        seconds,
+      );
+
+    // Alive, never at the display's frame rate: within its own budget.
+    const alive = await paints(3);
+    expect(alive.animations).toEqual([]);
+    expect(alive.paints).toBeGreaterThan(0);
+    // +1: a window can open just before one paint and close just after another.
+    expect(alive.paints).toBeLessThanOrEqual(LIVING_INK.frameRate * 3 + 1);
+
+    // Hidden: no paints at all.
+    const setHidden = (hidden: boolean) =>
+      page.evaluate((hidden) => {
+        Object.defineProperty(document, "hidden", {
+          configurable: true,
+          value: hidden,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }, hidden);
+    await setHidden(true);
+    expect((await paints(2)).paints).toBe(0);
+    await setHidden(false);
+    await expect.poll(async () => (await paints(1)).paints).toBeGreaterThan(0);
+
+    // Reduce Motion: one still repaint for the change is allowed, then none.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.waitForTimeout(300);
+    expect((await paints(2)).paints).toBe(0);
   });
 
   test("a short reply keeps its lines through the whole stream", async ({

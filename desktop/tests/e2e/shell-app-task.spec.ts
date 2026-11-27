@@ -7,6 +7,7 @@ import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { railGlassAtRest } from "./flagOffSettle";
+import { chooseRailAgents } from "../helpers/railAgents";
 
 /**
  * WP-35, an app's task, as the work (docs/luca/BETA14_RELEASE.md): a task
@@ -358,6 +359,7 @@ async function boot(
   await installMockBridge(page, {
     managedAgents: AGENTS.map((agent) => ({ ...agent })),
   });
+  await chooseRailAgents(page);
   await page.addInitScript(
     ({ key, light, on }) => {
       let overrides: Record<string, boolean> = {};

@@ -477,6 +477,10 @@ test("Tauri, dark, native glass: Liquid Glass and the reporter's messages", asyn
   await fakeReducedTransparency(page);
   await fakeNativeGlass(page);
   await fakeTauri(page);
+  // An owner who chose Black: new frames default to Glass since fd8b9b8a6.
+  await page.addInitScript(() =>
+    window.localStorage.setItem("polyphonic-frame", "solid"),
+  );
   await installMockBridge(page);
   await setShellFrame(page, true);
   await openAppearance(page);
@@ -681,6 +685,10 @@ test("native glass announced, flag on: the rail's reporter stands aside", async 
 }) => {
   await fakeNativeGlass(page);
   await fakeTauri(page);
+  // An owner who chose Black: new frames default to Glass since fd8b9b8a6.
+  await page.addInitScript(() =>
+    window.localStorage.setItem("polyphonic-frame", "solid"),
+  );
   await installMockBridge(page);
   await setShellFrame(page, true);
   await page.goto(`/#/channels/${GENERAL_CHANNEL_ID}`);
@@ -1876,6 +1884,10 @@ test("WP-05b: under Reduce Transparency Liquid Glass stays chosen, drawn solid",
 
 test("WP-05b: the sentence describes the Frame choice", async ({ page }) => {
   await fakeTauri(page);
+  // An owner who chose Black: new frames default to Glass since fd8b9b8a6.
+  await page.addInitScript(() =>
+    window.localStorage.setItem("polyphonic-frame", "solid"),
+  );
   await installMockBridge(page);
   await setShellFrame(page, true);
   await openAppearance(page);
@@ -2052,6 +2064,10 @@ test("WP-05b: the Frame row's choice holds still when it changes, at the smalles
   await fakeReducedTransparency(page);
   await fakeNativeGlass(page);
   await fakeTauri(page);
+  // An owner who chose Black: new frames default to Glass since fd8b9b8a6.
+  await page.addInitScript(() =>
+    window.localStorage.setItem("polyphonic-frame", "solid"),
+  );
   await installMockBridge(page);
   await setShellFrame(page, true);
   await openAppearance(page);

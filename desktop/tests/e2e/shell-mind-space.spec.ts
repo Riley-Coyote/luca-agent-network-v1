@@ -952,7 +952,9 @@ test("Self and Settings: who they are; how they run", async ({ page }) => {
         };
       }),
     );
+  // Appearance (the chat picture) leads since 67a93cba3.
   expect(settingRows.map((group) => group.title)).toEqual([
+    "Appearance",
     "Who Luca is",
     "Their page",
     "Companion",

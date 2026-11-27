@@ -6,6 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
+import { chooseRailAgents } from "../helpers/railAgents";
 
 /**
  * WP-27, three from the final flows check (docs/luca/rail-system/
@@ -226,6 +227,7 @@ async function boot(
     ],
     ...SEEDS,
   } as never);
+  await chooseRailAgents(page);
   await expect(async () => {
     await page.goto(`${baseURL ?? ""}/#${hash}`);
     await expect(page.getByTestId("app-sidebar")).toBeVisible({

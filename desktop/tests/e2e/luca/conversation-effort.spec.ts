@@ -165,6 +165,10 @@ test("conversation picker controls its own choice and waits for the exact runtim
     page.getByTestId("conversation-thinking-effort"),
   ).toHaveAttribute("aria-valuetext", "Extra high");
   await expect(popover).not.toContainText("Applied by runtime");
+  // A person closes the picker before writing; left open, it sits over the
+  // composer and the mention list.
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
 
   const eventId = await sendMention(page, "Luca", LUCA, "Use the chosen level");
   await expect

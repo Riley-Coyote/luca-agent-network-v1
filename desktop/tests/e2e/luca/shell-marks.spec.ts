@@ -7,6 +7,7 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
+import { chooseRailAgents } from "../../helpers/railAgents";
 
 /**
  * WP-03, where you are: the solid marks (docs/luca/rail-system/
@@ -166,6 +167,7 @@ async function boot(
       { name: "Codex", pubkey: CODEX, status: "running" },
     ],
   });
+  await chooseRailAgents(page);
   // Boot on a conversation, so the rail is Chats' (/pulse is Activity's
   // place now: NAVIGATION.md). Alice's 1:1 stays in the scene; the bare
   // /#/ route keeps Back clean.
@@ -1171,6 +1173,7 @@ test("flag off draws the base build exactly", async ({ browser }, info) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
     await installMockBridge(page);
+    await chooseRailAgents(page);
     await page.addInitScript(
       ({ key }) => {
         let overrides: Record<string, boolean> = {};

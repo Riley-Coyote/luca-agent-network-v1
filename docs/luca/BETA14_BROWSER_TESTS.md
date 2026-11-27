@@ -1,0 +1,133 @@
+# Beta.14 browser tests: the true count (WP-57, 2026-11-27)
+
+The desktop browser suite (`desktop/playwright.config.ts`, project `smoke`), run headless on
+the release line at `90cba11d8`, every failure run again alone, each sorted by evidence.
+
+## Counts
+
+| | Listed | Passed | Failed | Skipped or not run |
+|---|---|---|---|---|
+| Base `90cba11d8` | 2046 | 1362 | 644 (634 steady, 9 loose, 1 fixed before its rerun) | 40 |
+| End, without the lists below | 1547 | 1452 | 59: 47 named here, 10 loose, 2 now on the lists | 36 |
+
+The 634 steady ones split in two. **446 are old**: they fail the same way at beta.13. **188
+are since beta.13**, and 9 of those turned out old too, so the old list holds 455. The beta.13
+copy was run with the same server as this line. No test was skipped, given retries or more time.
+
+## The old ones (455, untouched)
+
+| What changed in the app | Tests | Commit |
+|---|---|---|
+| "/" opens Home, not the inbox | 33 | f858fa596 |
+| The profile panel's test id is on the page twice | 19 | 1e72ef328 |
+| The sidebar's sections were replaced by the rail | 16 | 3682db66a |
+| The agents library is no longer mounted | 9 | fb3c581fd, b3778c8d1 |
+| The members bar left the conversation header | 1 | db684d2e8 |
+| Each waits for a control that is gone (identity, project, workflow and channel controls…) | 377 | at beta.13 too |
+
+## Since beta.13 (188): where each one ended
+
+| State | Tests | What |
+|---|---|---|
+| Fixed | 87 | below |
+| Needs a second build | 38 | table below; no change made |
+| Known in the app | 1 | heading below |
+| Waiting on Riley's call | 5 | heading below |
+| Removed | 1 | `luca/a2a-drawer-projection.spec.ts`: the drawer no longer opens itself for an exchange (740409ae7) |
+| Old after all | 9 | `config-bridge-screenshots` ×5, `channel-sort` 03, `identity-archive-hide` members, `thread-unread` 04 and 13 |
+| Left with a cause | 47 | below |
+
+**Fixed (87), commits on `claude/wp57-old-tests`:**
+- The rail shows only agents the owner chose (468075227): a helper chooses the specs' agents
+  (`tests/helpers/railAgents.ts`); the rail heading is Agents. f162fae2d.
+- Design changes since beta.13 (9b51cc6e2): Instrument Sans again (c0fb16ae4); ten places with
+  Home (8e4693bfe) and Mnemos (77f4258c3); Settings opens on Appearance and the composer
+  sphere is opt-in (67a93cba3); an agent's sessions unfold in the rail (6dbb49a64); new frames
+  are Glass (fd8b9b8a6); starters Luca, Honey, Bumble (f692daedb), all three awake (740409ae7).
+- What the app does on purpose (b3c9a456f): Living Ink paints settled lines slowly and boundedly
+  (50c6cfaa6), never when hidden or still; the owner's own visit notes stay out of the timeline
+  (740409ae7); the effort menu closes before typing; the shelf folds only under 34rem.
+- Reduce Motion is set through the context, so specs in an empty chat are not starved by the
+  film on a software GPU (44e26e22e). Two earlier fixes: 23809b108, 510b48e7d.
+
+**Left with a cause (47).** Each needs a real rewrite or a decision, not a small fix:
+- 12 · The Claude and Codex app page is now the harness workspace (8e4693bfe), so the
+  connected-app card is gone: `shell-activity`, `shell-brain`, `shell-huddle`, `shell-rail`,
+  `shell-runtime`, `shell-place-rails` ×3, `shell-rail-wp34`, `shell-settings-agents`,
+  `shell-walkthrough` ×2.
+- 12 · Exchange and task rows in the rail need the native inbox's say-so (6aee43288), which the
+  mock never gives: `shell-activity` ×4, `shell-one-state` ×5, `shell-rail-wp34` ×2,
+  `shell-app-task`.
+- 6 · An agent's chats column is gone (6dbb49a64): `nav-state-grid` ×5; `chat-agent-mark`
+  "sphere stays on the composer" (also needs the sphere opt-in).
+- 7 · Study measurements of the composer and frame under Glass; cause not proven (likely
+  fd8b9b8a6 and the composer's Nov 2 work, ce7ffa30f / eaee02830): `composer-refinement` ×4,
+  `shell-frame` "Black, dark", `shell-light` "Paper by day", `shell-glass` "page under glass".
+- 3 · `shell-agent-place`: Settings now also lists Appearance's colour button (67a93cba3) ×2; the
+  Inbox button (6aee43288) wraps the status line.
+- 2 · `exchange-strip` "counted owner return": the receipt opens the task window, so its
+  history panel is out of reach (740409ae7, 6aee43288).
+- 3 · `shell-first-screen-asks` d2: the room's ask became the temporary surface (02226ec1c), on
+  purpose with fuller words ("Allow once") and its answers on the right; Needs you keeps "Once".
+- 2 · `shell-first-screen-asks` "full-card film follows agent switches": the film is the
+  subject and needs a real GPU; on this software GPU it starves the page.
+
+**Not checked on a real GPU:** the question card over the empty-chat film (`managed-input-card`,
+run with Reduce Motion) and the moving film itself. The coordinator will look in the real app.
+
+## Needs a second build (38)
+
+Each compares this build with an older one on another port: build that commit (`pnpm build:e2e`
+in a worktree there), serve it with `python3 desktop/scripts/serve-dist.py <port> <dist>`, set the variable.
+
+Each variable is `WP<n>_BASE_URL` unless named; ? means the base commit was not recorded.
+
+| Port | Spec (variable, base commit) |
+|---|---|
+| 4300 | `shell-glass` ×3 (WP07A, c43649156); `shell-glass-themes` ×4 (WP08D, ?); `shell-place-rails` (WP10, 2e3c04dd1); `shell-mind-space` (WP13, ?); `shell-activity` (WP14, ?); `shell-one-state` (WP18, af41a1604); `shell-motion-keys` ×10 (WP20 and `WP20_FILM_BASE_URL`, ea78fb0a3); `shell-pages` (WP33, ?); `shell-rail-wp34` (WP34) and `shell-project-rooms` (`PROJECT_ROOMS_BASE_URL`), 2cb995202; `shell-app-task` (WP35, d2d1d9d5c); `shell-brain` (WP38, f72b1cbee); `shell-agents-pages` (WP40, ea3576004) |
+| 4320 | `shell-first-screen-asks` (WP16, 32b61d4e7) |
+| 4330 | `shell-room-asks` (WP23, 605ccf500); `shell-settings-agents` (WP24, ac8084c61) |
+| 4334 | `shell-room-flows` (WP27, cfb442813); `shell-top-edge` (WP29, 91f962074) |
+| 4419 | `luca/living-ink-field` ×6: this build, plus the shell lab (`scripts/build-shell-lab.mjs`) at `/_shell-lab` |
+
+Also outside a browser run: `luca/f11` "real Tauri recovers…" launches the built native app.
+
+## Loose (pass alone)
+
+Base: `image-attachment-gallery` copy image; `blackout-messaging-controls`; `f15` safe creation;
+`quickchat-lens` reader; `runtime-task-card` ×4 (follow-up, failed, interrupted, quiet notice);
+`shell-top-edge` stuck day. End, under load: `agent-rail` Quick Chat; `chat-agent-mark` visible
+sphere; `exchange-strip` jump to latest; `operator-forge` retained group; `runtime-task-card`
+Run waits for a folder; `shell-settings` review's fixes; `task-motion` light; `popout-shell`
+opening choices; `video-attachment` right-click menus; `continuous-motion` video glow (below).
+
+## Known in the app
+
+**The glow behind a looping video, under Reduce Motion.**
+- What a person sees: with Reduce Motion on, the soft light around a looping video changes a
+  little each time the video starts over, instead of resting.
+- Cause: the glow repaints on a seek or "ready to play" even under Reduce Motion, and a
+  looping video sends both at every wrap.
+- Commit: 150bebb86 (`videoGlowScheduler.ts`). Small; ships as is.
+- By hand: Reduce Motion on in macOS, open a conversation with a short looping video, and
+  watch its glow at the moment it loops. Test: `luca/continuous-motion`, left as it is.
+
+## Waiting on Riley's call
+
+An agent you agree to in chat, or tick in onboarding, does not appear in the rail.
+- Cause: since 468075227 the rail shows only agents the owner chose; creating one does not choose it.
+- What a person sees: you say yes and nothing new shows under Agents until you message it.
+  If its bring-up fails, there is no row to say so.
+- Tests, left exactly as they are: `luca/luca-creates-resident` "a resident the owner agreed
+  to…" and "a bring-up that fails…"; `luca/polyphonic-production-onboarding-v3` "one agent
+  is ticked…" and "an import that fails…". With them, "an ordinary running resident's row…"
+  shares their setup, which waits for Luca in the rail.
+
+## Rerun
+
+Every test outside the lists above, by name (`desktop/tests/e2e/beta14-rerun-exclude.txt`):
+
+```sh
+cd desktop && export pnpm_config_verify_deps_before_run=false && pnpm exec playwright test \
+  --project=smoke --grep-invert "$(grep -v '^#' tests/e2e/beta14-rerun-exclude.txt | paste -sd'|' -)"
+```

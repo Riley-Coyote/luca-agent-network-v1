@@ -608,7 +608,12 @@ test("supports multiline drafts with Ctrl+Enter and sends with Enter", async ({
   const expandedInputHeight = await input.evaluate(
     (element) => (element as HTMLElement).clientHeight,
   );
-  expect(expandedInputHeight).toBeLessThanOrEqual(130);
+  // Five lines of the composer's own type and no more (the fixed 130px this
+  // used to say is under five lines at today's 16px × 1.68 composer line).
+  const lineHeight = await input.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).lineHeight),
+  );
+  expect(expandedInputHeight).toBeLessThanOrEqual(Math.ceil(lineHeight * 5));
   await expect(page.getByTestId("message-timeline")).not.toContainText(
     firstLine,
   );

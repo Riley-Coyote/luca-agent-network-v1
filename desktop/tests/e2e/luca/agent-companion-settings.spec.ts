@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 
 const LUCA = "11".repeat(32);
 const MARA = "22".repeat(32);
@@ -124,6 +125,12 @@ async function openSettings(
   resident = MARA,
   beforeSelect?: (page: Page) => Promise<void>,
 ) {
+  // The places rail (place-row-*) is the shell's, the shipped look; the e2e
+  // build draws it only behind its preview switch.
+  await page.addInitScript(
+    (key) => localStorage.setItem(key, JSON.stringify({ "shell-frame": true })),
+    FEATURE_OVERRIDES_STORAGE_KEY,
+  );
   await installMockBridge(page, {
     managedAgents: [
       {

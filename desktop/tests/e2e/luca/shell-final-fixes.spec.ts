@@ -517,7 +517,10 @@ test("d4 the rail's pill reads N unread", async ({ browser }) => {
     await open(page, {
       mode,
       route: "/#/",
-      size: { width: 800, height: 500 },
+      // At 500px every room the Chats rail lists today fits above the fold
+      // (measured: the last row's top is 388px), so nothing unread is out
+      // of view. A shorter window puts the last unread rooms past it again.
+      size: { width: 800, height: 360 },
     });
     await raiseRailPill(page);
     const pill = page.locator(
@@ -862,7 +865,8 @@ test("d10 the default runtime picker reads at 4.5:1 in both modes", async ({
       expect(reading.tiles).toBeGreaterThan(0);
       expect(reading.min).toBeGreaterThanOrEqual(4.5);
       const recommended = reading.texts.find((t) => t.text === "Recommended");
-      if (recommended) expect(recommended.font).toContain("Fragment Mono");
+      // Instrument Sans again since c0fb16ae4 (the Apple face and the mono labels retired).
+      if (recommended) expect(recommended.font).toContain("Instrument Sans");
       if (size.width === 1440 || mode === "light") {
         out[`${size.width}-${mode}-shot`] = (
           await shoot(page, `d10-${size.width}-${mode}-default-runtime`)

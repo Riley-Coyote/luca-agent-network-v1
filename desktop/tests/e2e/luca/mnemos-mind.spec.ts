@@ -1021,6 +1021,51 @@ async function shot51(page: Page, name: string) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+/** A change a person could see: more than this many levels of 255. */
+const VISIBLE_LEVELS = 8;
+
+/**
+ * How many pixels of two same-sized PNG captures differ by more than
+ * VISIBLE_LEVELS in any colour. Decoded in the page on a canvas that reads
+ * back exactly (no graphics card in between).
+ */
+async function pixelsMovedBetween(page: Page, a: Buffer, b: Buffer) {
+  return page.evaluate(
+    async ({ first, second, levels }) => {
+      const read = async (base64: string) => {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        const bitmap = await createImageBitmap(
+          new Blob([bytes], { type: "image/png" }),
+          { colorSpaceConversion: "none", premultiplyAlpha: "none" },
+        );
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) throw new Error("no canvas to read the picture on");
+        context.drawImage(bitmap, 0, 0);
+        return context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      };
+      const [x, y] = await Promise.all([read(first), read(second)]);
+      if (x.length !== y.length) return Number.POSITIVE_INFINITY;
+      let moved = 0;
+      for (let i = 0; i < x.length; i += 4) {
+        if (
+          Math.abs(x[i] - y[i]) > levels ||
+          Math.abs(x[i + 1] - y[i + 1]) > levels ||
+          Math.abs(x[i + 2] - y[i + 2]) > levels ||
+          Math.abs(x[i + 3] - y[i + 3]) > levels
+        )
+          moved++;
+      }
+      return moved;
+    },
+    {
+      first: a.toString("base64"),
+      second: b.toString("base64"),
+      levels: VISIBLE_LEVELS,
+    },
+  );
+}
+
 /** The engine's own pick, in the frame: whether it is this memory. */
 const pickedInFrame = (frame: Frame, id: string) =>
   frame.evaluate((id) => {
@@ -1112,11 +1157,15 @@ test.describe("The place, joined (WP-51)", () => {
     await expect.poll(looping, { timeout: 40_000 }).toBe(false);
     const answeredForMs = Date.now() - arrived;
     // After it, nothing turns or pulses on its own: the same picture
-    // seconds apart.
+    // seconds apart. Not the same bytes: two captures of a still canvas on
+    // the Mac's graphics card come back in one of two encodings, a few
+    // thousandths apart (at most 3 of 255 on one pixel in seventy, with no
+    // frame drawn between them; WP-57). A frame drawn, a glow that moves, a
+    // cell that turns all move pixels far more than that.
     const a = await picture();
     const between = await over(4000);
     const b = await picture();
-    const samePicture = a.equals(b);
+    const pixelsMoved = await pixelsMovedBetween(page, a, b);
     // And measured at rest, once the glow has cooled (40 s): no frames.
     await page.waitForTimeout(Math.max(0, 41_000 - (Date.now() - arrived)));
     const atRest = await over(5000);
@@ -1127,12 +1176,12 @@ test.describe("The place, joined (WP-51)", () => {
       framesIn3sAnsweringARecall: answering,
       answerDrawnForMs: answeredForMs,
       framesIn4sAfterTheAnswer: between,
-      samePictureAfterTheAnswer: samePicture,
+      pixelsMovedAfterTheAnswer: pixelsMoved,
       framesIn5sAtRest41sAfter: atRest,
     });
     expect(settled).toBe(0);
     expect(between).toBe(0);
-    expect(samePicture).toBe(true);
+    expect(pixelsMoved).toBe(0);
     expect(atRest).toBe(0);
     expect(errors).toEqual([]);
   });

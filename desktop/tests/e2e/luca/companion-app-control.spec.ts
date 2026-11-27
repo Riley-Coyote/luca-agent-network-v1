@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 
 const CHANNEL = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const LUCA = TEST_IDENTITIES.bob.pubkey;
@@ -9,6 +10,12 @@ const REQUEST = "daaa5f62-adfa-46c0-83b0-6812b643a2e5";
 // Real production components with fixture IPC. Rust tests separately exercise
 // native lease authority; a browser response is not native end-to-end proof.
 async function openChat(page: Page) {
+  // The shell this checks (its lip, its places) is the shipped look; the
+  // e2e build draws it only behind its preview switch.
+  await page.addInitScript(
+    (key) => localStorage.setItem(key, JSON.stringify({ "shell-frame": true })),
+    FEATURE_OVERRIDES_STORAGE_KEY,
+  );
   await installMockBridge(page, {
     managedAgents: [
       {

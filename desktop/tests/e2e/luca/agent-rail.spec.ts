@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
+import { chooseRailAgents } from "../../helpers/railAgents";
 const LUCA = "a".repeat(64),
   ATLAS = "b".repeat(64),
   LOWER = "c".repeat(64);
@@ -27,6 +28,7 @@ test.beforeEach(async ({ page }) => {
       { name: "luca", pubkey: LOWER, status: "running" },
     ],
   });
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock");
   await expect(page.getByTestId("agent-rail-atlas")).toBeVisible({
     timeout: 20000,

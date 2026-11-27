@@ -189,19 +189,17 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
           }
         ).input,
     );
+  // The starters are the honey and bumble packs since f692daedb.
   expect(creations.map((input) => input.personaId)).toEqual([
     "builtin:fizz",
-    "builtin:fifty",
-    "builtin:trinity",
+    "builtin:honey",
+    "builtin:bumble",
   ]);
-  expect(creations[0]).toMatchObject({
-    spawnAfterCreate: true,
-    startOnAppLaunch: true,
-  });
-  for (const input of creations.slice(1)) {
+  // All three wake with the app since 740409ae7.
+  for (const input of creations) {
     expect(input).toMatchObject({
-      spawnAfterCreate: false,
-      startOnAppLaunch: false,
+      spawnAfterCreate: true,
+      startOnAppLaunch: true,
     });
   }
   expect(
@@ -582,7 +580,7 @@ test("a large inventory is rows, none ticked, and first chat is not delayed", as
     created.map(
       (entry) => (entry.payload as { input: { name: string } }).input.name,
     ),
-  ).toEqual(["Luca", "Fifty", "Trinity"]);
+  ).toEqual(["Luca", "Honey", "Bumble"]);
 });
 
 test("one agent is ticked, and arrives behind the first conversation", async ({

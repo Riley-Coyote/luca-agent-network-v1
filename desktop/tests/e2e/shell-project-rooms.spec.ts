@@ -7,6 +7,7 @@ import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { railGlassAtRest } from "./flagOffSettle";
+import { chooseRailAgents } from "../helpers/railAgents";
 
 /**
  * A project's rooms in the shell's Chats rail. Riley, 2026-10-27: "they
@@ -122,6 +123,7 @@ async function boot(
       { name: "Atlas", pubkey: ATLAS, status: "running" },
     ],
   });
+  await chooseRailAgents(page);
   await page.addInitScript(
     ({ key, light, on }) => {
       let overrides: Record<string, boolean> = {};
