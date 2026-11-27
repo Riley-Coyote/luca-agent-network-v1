@@ -21,11 +21,13 @@ cores). Each file with a failure was then run again alone: 89 passed. What was l
 - Two more for the lists. `luca/f11` "native debug failpoint…" needs the real app built.
   `luca/shell-runtime` "connected 800" fails as its 1440 twin does (the connected-app card is
   gone, 8e4693bfe); the seven tests after it in the same one-after-another group never run.
-- Two that still fail alone while the Mac is loaded, on app code that passed them earlier the
-  same day: `image-attachment-gallery` "hidden spoiler images…" (passed on this very build at
-  7:28) and `luca/quickchat-lens` "a reader stays put…". Both race the page: one opens the
-  picture the instant a spoiler is revealed, one expects the mini chat to follow new content
-  at once. Run them once more on a quiet Mac before calling the gate closed.
+- Two that still failed alone. Both were settled later the same morning (11:41 to 11:46 am):
+  - `luca/quickchat-lens` "a reader stays put…" is **a fault in the app**, not in the test.
+    It is under "Known in the app" below. It failed 3 of 3 again at a load of 9.
+  - `image-attachment-gallery` "hidden spoiler images…" is an old timing edge: it opens a
+    picture in the same instant a spoiler is revealed, and the open picture never learns it
+    has a neighbour. The reveal and gallery code is unchanged since beta.13. It passed in the
+    sweep at 7:28 and 2 of 3 at a load of 9. It belongs on the loose list.
 
 With those named, the rerun below keeps 1495 of 2051 tests, and each either passed in the
 sweep or passed alone, apart from those two.
@@ -120,6 +122,7 @@ Base: `image-attachment-gallery` copy image; `blackout-messaging-controls`; `f15
 sphere; `exchange-strip` jump to latest; `operator-forge` retained group; `runtime-task-card`
 Run waits for a folder; `shell-settings` review's fixes; `task-motion` light; `popout-shell`
 opening choices; `video-attachment` right-click menus; `continuous-motion` video glow (below).
+Final sweep: `image-attachment-gallery` hidden spoiler images.
 
 ## Known in the app
 
@@ -131,6 +134,29 @@ opening choices; `video-attachment` right-click menus; `continuous-motion` video
 - Commit: 150bebb86 (`videoGlowScheduler.ts`). Small; ships as is.
 - By hand: Reduce Motion on in macOS, open a conversation with a short looping video, and
   watch its glow at the moment it loops. Test: `luca/continuous-motion`, left as it is.
+
+**The mini chat stops following a reply that grows fast (found November 27).**
+- What a person sees: the mini chat is at the newest message and a reply is streaming in.
+  Part way through, it stops scrolling along, the "Newest message" arrow comes back, and the
+  rest of the reply arrives out of sight. Pressing the arrow while the reply is still growing
+  can leave it short again. It is worse the busier the Mac is.
+- Cause: when the mini chat scrolls itself to the end, the browser reports that scroll one
+  frame later. If the reply has grown again by then, the report reads as "the reader moved
+  away", and following is switched off (`useQuickChatTranscript.ts`: `update()` sets
+  `following` from the distance to the end on every scroll event, its own included).
+- New in beta.14: the file arrived with e52aaba46 (October 31); beta.13 has no such code.
+- Proof, in the browser build at `842100973` (a throwaway spec, kept out of the repository):
+  - "Newest", then growth in the same moment: 216 px short of the end, arrow back. With three
+    frames between them: 0.
+  - At the end and following, growth in two frames running: 56 px short, arrow back.
+  - A reply growing by one line every 16 ms fell behind at line 4 and ended 858 px short;
+    every 50 ms, behind at line 17 and 572 px short; every 120 ms, it kept up. (Load 16.)
+- Test: `luca/quickchat-lens` "a reader stays put while content grows, then newest resumes
+  following". It is right and stays in the rerun. It passes only when the Mac is idle enough
+  for a frame to land between the arrow and the growth; until the app is fixed, expect it to
+  fail in a run on a busy Mac.
+- The fix is small: only a reader moving up should switch following off. It is app code, so
+  it waits on Riley, and it needs one more test build to try by hand.
 
 ## Waiting on Riley's call
 
@@ -147,7 +173,9 @@ An agent you agree to in chat, or tick in onboarding, does not appear in the rai
 
 Every test outside the lists above, by name (`desktop/tests/e2e/beta14-rerun-exclude.txt`). The
 file also names the tests left with a cause, so a clean run is no failures; one that fails under
-load and passes alone belongs on the loose list. Each name in the file matches exactly one test.
+load and passes alone belongs on the loose list. The one exception is the mini chat test under
+"Known in the app": it stays in the run on purpose and fails on a busy Mac until the app is
+fixed. Each name in the file matches exactly one test.
 
 ```sh
 cd desktop && export pnpm_config_verify_deps_before_run=false && pnpm exec playwright test \

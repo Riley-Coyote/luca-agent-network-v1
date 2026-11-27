@@ -18,16 +18,60 @@ as a record. Mnemos is in scope: Riley, November 20, "i want to just get it all 
   out by name, each with its cause: 455 old (they fail the same way at beta.13), 38 need a
   second build to compare against, 2 need the real app, 1 is known in the app, 5 wait on
   Riley, 55 need a rewrite. Of the other 1,495, every one passed in the final sweep or alone,
-  except two timing tests that should be run once more on a quiet Mac.
+  except two. One is a real fault in the app (the mini chat, under "Found in the hands-on
+  pass" below). The other is an old timing edge in the picture gallery, unchanged since
+  beta.13, which passes when the Mac is not busy.
 - **Release-mode practice compile.** `tauri build --no-bundle` with the beta overlay finished
   at `6e2779c33` in its own worktree: version 0.5.0-beta.14, the new layout on, arm64,
   minimum macOS 14.0, Apple's glass classes weak-linked, the six helpers staged. It carries
   only the linker's ad-hoc signature. Nothing was bundled, signed, notarized or launched.
 - **The test app.** Rebuilt once from the release line plus the candidate's own two files
-  (`claude/mnemos-link-candidate`, 65a8b72b8) and launched on November 27 at 5:45 am. It is
-  waiting at the macOS keychain prompt, which is Riley's to answer. **The hands-on pass on
-  the final build has not been done.** Seen in passing: stopping the earlier build's main
-  process took its relay and its three agent programs with it within seconds.
+  (`claude/mnemos-link-candidate`, 65a8b72b8) and launched on November 27 at 5:45 am. It sat
+  at the macOS keychain prompt until Riley answered it at 10:46 am, and then showed a blank
+  window (see below). Restarted at 11:34 am, same build, no rebuild: it came up in seconds
+  with no prompt. Seen in passing: stopping the earlier build's main process took its relay
+  and its three agent programs with it within seconds.
+- **The hands-on pass (November 27, 11:35 to 11:45 am), by clicks only, in the background.**
+  Looked at and working: Home; Settings, every section; Classic layout switched on and off
+  again; a conversation with history; the mini chat (it opens where it was left, the "Newest
+  message" arrow jumps to the end, scrolling up brings the arrow back); an empty conversation
+  (the film moving on the real graphics chip, the agent's face and name, the message box
+  clean on top of it); Agents, Activity, Library and Brain. The app's log shows one warning
+  for the whole pass, the expected "updater unavailable" of a test build.
+  **Not done, because it needs typing or sending**, and macOS only gives keys to the window
+  in front (the pass did not take Riley's keyboard): the message box growing as you type, a
+  sent message and a streamed reply, a question card, and the Mnemos place. These are for
+  Riley's walkthrough.
+  One thing to know when testing in the background: a window that is fully covered pauses its
+  motion, so the lit row in a list can look stuck. With part of the window in view it follows.
+- **Found in the hands-on pass. Both are app code and new since beta.13, so they are Riley's
+  call: fix them (one more test build) or ship them as known.**
+  - **The mini chat stops following a reply that grows fast.** It stops scrolling along part
+    way through, the "Newest message" arrow comes back, and the rest arrives out of sight; it
+    is worse on a busy Mac. Proven in the browser build, with the numbers, in
+    `BETA14_BROWSER_TESTS.md` under "Known in the app". The fix is a few lines in
+    `useQuickChatTranscript.ts`: only a reader moving up should switch following off.
+  - **Coloured phrases show as raw markup wherever a message is shown as plain text.** Seen
+    in the real app on the Activity page: `[The update worked.](ink:hope?land) The Ghost app
+    project is created…`. By reading the code (not seen on screen), the same raw text goes to
+    desktop notifications (direct messages, thread replies, mentions, needs-action, reminders:
+    `notificationFormat.ts`), both search result views, the quote above a reply, the signed
+    record rows, the Pulse reply line, the reminders list and Copy message. The conversation
+    itself, the mini chat, drafts and the Home inbox draw them properly. There is no shared
+    place to fix it: each of about six sites cuts the text itself, and the words have to be
+    taken out of the markup before the cut. The `ink:` links arrived on October 17 (36d6e70a7).
+- **Seen in the pass; small; ships as it is.**
+  - Left blocked at the macOS keychain prompt for five hours at start, the app came up with a
+    blank window and stayed blank until it was restarted. The Mac's log says why: the page's
+    helper processes "took 18046 seconds to launch", then "web process failed to launch". The
+    app reads the keychain on its main thread while the page is starting. How long a wait is
+    too long was not measured. A test build re-asks for the keychain after every rebuild; an
+    update signed with the same identity should not ask at all (not checked here).
+  - Right after Classic layout is switched on from the new Settings, "Back to app" steps back
+    through the Settings sections opened before the switch, one press each, before it leaves.
+    Opened afresh in Classic layout, it leaves in one press.
+  - Classic layout's Settings says "Choose a theme for Luca." and "About Luca", where the new
+    layout says Polyphonic.
 - **Known in the app; ships as it is.**
   - With Reduce Motion on, the glow behind a short looping video shifts a little at every
     loop (150bebb86).
