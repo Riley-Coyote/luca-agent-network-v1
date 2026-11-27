@@ -544,10 +544,14 @@ for (const light of [false, true]) {
       if (place.id !== "brain")
         expect(rail.heads.length, `${place.id} heads`).toBeGreaterThan(0);
       for (const head of rail.heads) {
-        expect(head.family, `${place.id} ${head.text}`).toMatch(/mono/i);
+        // Instrument Sans again since c0fb16ae4 (the Apple face and the mono labels retired).
+        expect(head.family, `${place.id} ${head.text}`).toMatch(
+          /Instrument Sans/,
+        );
         expect(head.size).toBe("11px");
         expect(head.transform).toBe("uppercase");
-        expect(head.tracking).toBeCloseTo(0.99, 1);
+        // The eyebrow tracking (0.14em, 1.54px at 11px) since c0fb16ae4.
+        expect(head.tracking).toBeCloseTo(1.54, 1);
         expect(head.h).toBe(28);
         expect(head.above).toBe("6px");
       }

@@ -240,12 +240,15 @@ test("the column: Search; Chats, Agents, Activity, Library, Brain; Settings and 
   await expect(tooltip).toBeVisible({ timeout: 5_000 });
   const tooltipText = (await tooltip.innerText()).trim();
   measure("places_column", { column, tooltip: tooltipText });
+  // Home leads since 8e4693bfe; Mnemos follows Brain since 77f4258c3.
   expect(column.groups[1]).toEqual([
+    "open-home-dashboard",
     "shell-place-conversations",
     "open-agents-view",
     "open-activity-view",
     "open-artifacts-view",
     "open-brain-setup",
+    "open-mnemos-place",
   ]);
   expect(column.groups[2]?.[0]).toBe("open-settings-view");
   expect(column.brain?.icon).toContain("lucide-brain");

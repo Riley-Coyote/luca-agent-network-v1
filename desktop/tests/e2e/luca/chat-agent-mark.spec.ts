@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
+import { chooseRailAgents } from "../../helpers/railAgents";
 
 const ATLAS = {
   name: "Atlas",
@@ -18,6 +19,7 @@ const BEX = {
 
 test.beforeEach(async ({ page }) => {
   await installMockBridge(page, { managedAgents: [ATLAS, BEX] });
+  await chooseRailAgents(page);
   await page.goto("/?e2e=mock&projectDemo=1");
 });
 
@@ -25,12 +27,20 @@ test("agent DMs keep the title and remove the header companion", async ({
   page,
 }) => {
   await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
+  // Since 6dbb49a64 the agent's sessions open inline in the rail; its
+  // chats column is gone.
+  await page
+    .getByRole("button", { name: "Chat with Atlas", exact: true })
+    .click();
   await expect(page.getByTestId("chat-title")).toContainText("Atlas");
   await expect(page.getByTestId("resident-header-mote")).toHaveCount(0);
 
   await page.getByTestId("agent-rail-bex").click();
-  await page.getByTestId("agent-column-new-chat").click();
+  // Since 6dbb49a64 the agent's sessions open inline in the rail; its
+  // chats column is gone.
+  await page
+    .getByRole("button", { name: "Chat with Bex", exact: true })
+    .click();
   await expect(page.getByTestId("chat-title")).toContainText("Bex");
   await expect(page.getByTestId("resident-header-mote")).toHaveCount(0);
 });
@@ -44,7 +54,11 @@ test("sphere stays on the composer; glyph and pixel marks accompany replies", as
   await expect(railMark).toHaveAttribute("data-resident-mark-kind", "glyph");
   await expect(railMark.locator("canvas")).toHaveCount(1);
   await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
+  // Since 6dbb49a64 the agent's sessions open inline in the rail; its
+  // chats column is gone.
+  await page
+    .getByRole("button", { name: "Chat with Atlas", exact: true })
+    .click();
   const ledge = page.getByTestId("composer-agent-ledge");
   const mark = ledge.getByTestId("chat-agent-mark");
   await expect(mark).toBeVisible();
@@ -131,8 +145,26 @@ test("sphere stays on the composer; glyph and pixel marks accompany replies", as
 test("a visible chat sphere follows the pointer and blinks without hover", async ({
   page,
 }) => {
+  // The composer sphere is the owner's choice since 67a93cba3 (Settings,
+  // hidden by default); this owner has turned it on.
+  await page.evaluate((owner) => {
+    localStorage.setItem(
+      `luca.chat-mark-appearance.v1:${owner}`,
+      JSON.stringify({
+        version: 1,
+        visible: true,
+        style: "sphere",
+        composerVisible: true,
+      }),
+    );
+  }, "deadbeef".repeat(8));
+  await page.reload();
   await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
+  // Since 6dbb49a64 the agent's sessions open inline in the rail; its
+  // chats column is gone.
+  await page
+    .getByRole("button", { name: "Chat with Atlas", exact: true })
+    .click();
   const mark = page
     .getByTestId("composer-agent-ledge")
     .getByTestId("chat-agent-mark");
@@ -179,7 +211,11 @@ test("a visible chat sphere follows the pointer and blinks without hover", async
 
 test("composer focus leaves the flat surface unchanged", async ({ page }) => {
   await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
+  // Since 6dbb49a64 the agent's sessions open inline in the rail; its
+  // chats column is gone.
+  await page
+    .getByRole("button", { name: "Chat with Atlas", exact: true })
+    .click();
   const composer = page.getByTestId("message-composer");
   await expect(composer).toHaveCSS("box-shadow", "none");
   await expect(composer).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
