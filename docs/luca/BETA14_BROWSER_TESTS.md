@@ -60,9 +60,11 @@ copy was run with the same server as this line. No test was skipped, given retri
   `shell-app-task`.
 - 6 · An agent's chats column is gone (6dbb49a64): `nav-state-grid` ×5; `chat-agent-mark`
   "sphere stays on the composer" (also needs the sphere opt-in).
-- 7 · Study measurements of the composer and frame under Glass; cause not proven (likely
-  fd8b9b8a6 and the composer's Nov 2 work, ce7ffa30f / eaee02830): `composer-refinement` ×4,
-  `shell-frame` "Black, dark", `shell-light` "Paper by day", `shell-glass` "page under glass".
+- 7 · Study measurements that changed on purpose in early November (traced on the joined line):
+  the message box is glass at 70% of its approved fill, where the tests expect it solid
+  (ce7ffa30f, eaee02830): `composer-refinement` ×4. The main card's lit top rim was removed
+  (2a5be8a75): `shell-frame` "Black, dark", `shell-glass` "page under glass". The day label is
+  plain glass with no cast shadow (ce7ffa30f): `shell-light` "Paper by day".
 - 3 · `shell-agent-place`: Settings now also lists Appearance's colour button (67a93cba3) ×2; the
   Inbox button (6aee43288) wraps the status line.
 - 2 · `exchange-strip` "counted owner return": the receipt opens the task window, so its
@@ -125,7 +127,9 @@ An agent you agree to in chat, or tick in onboarding, does not appear in the rai
 
 ## Rerun
 
-Every test outside the lists above, by name (`desktop/tests/e2e/beta14-rerun-exclude.txt`):
+Every test outside the lists above, by name (`desktop/tests/e2e/beta14-rerun-exclude.txt`). The
+file also names the 47 left with a cause, so a clean run is no failures; one that fails under
+load and passes alone belongs on the loose list. Each name in the file matches exactly one test.
 
 ```sh
 cd desktop && export pnpm_config_verify_deps_before_run=false && pnpm exec playwright test \

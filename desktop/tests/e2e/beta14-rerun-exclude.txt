@@ -505,3 +505,51 @@
  luca/polyphonic-production-onboarding-v3\.spec\.ts an import that fails says so on its own row and stops nothing$
  luca/polyphonic-production-onboarding-v3\.spec\.ts one agent is ticked, and arrives behind the first conversation$
  luca/luca-creates-resident\.spec\.ts an ordinary running resident's row carries no bring-up word$
+# left with a cause: each needs a rewrite or a decision (47)
+ luca/chat-agent-mark\.spec\.ts sphere stays on the composer; glyph and pixel marks accompany replies$
+ luca/composer-refinement\.spec\.ts obsidian: chat keeps the preview capsule and anchored expanded row$
+ luca/composer-refinement\.spec\.ts obsidian: new-chat keeps the preview capsule and anchored expanded row$
+ luca/composer-refinement\.spec\.ts paper: chat keeps the preview capsule and anchored expanded row$
+ luca/composer-refinement\.spec\.ts paper: new-chat keeps the preview capsule and anchored expanded row$
+ luca/exchange-strip\.spec\.ts counted owner return is ordinary chat with complete history: head first$
+ luca/exchange-strip\.spec\.ts counted owner return is ordinary chat with complete history: return first$
+ luca/nav-state-grid\.spec\.ts desktop 1280px at text scale 0\.8: every rail × column × route state$
+ luca/nav-state-grid\.spec\.ts desktop 1280px at text scale 1: every rail × column × route state$
+ luca/nav-state-grid\.spec\.ts desktop 1280px at text scale 1\.25: every rail × column × route state$
+ luca/nav-state-grid\.spec\.ts desktop 900px at text scale 1: every rail × column × route state$
+ luca/nav-state-grid\.spec\.ts phone 390px: the sheet with and without a resident's column, on every route$
+ luca/shell-frame\.spec\.ts the frame, Black, dark$
+ luca/shell-huddle\.spec\.ts with a huddle live a connected app's card ends where the cards do$
+ luca/shell-light\.spec\.ts Paper by day, 1440 × 900$
+ luca/shell-rail\.spec\.ts the shell's rail the apps are Chats' Apps, and Project rooms is a setting$
+ luca/shell-runtime\.spec\.ts connected 1440: its sessions are its card on the one card; no column opens$
+ shell-activity\.spec\.ts a connected app: what Luca did with it$
+ shell-activity\.spec\.ts all activity: one thread, by day; exchanges hang in the rail$
+ shell-activity\.spec\.ts landing on an exchange: its message in view, named for you$
+ shell-activity\.spec\.ts now: retired; live work is in the rail$
+ shell-activity\.spec\.ts the work under whoever does it, in the Chats rail$
+ shell-agent-place\.spec\.ts Settings in full, then its panes, by day$
+ shell-agent-place\.spec\.ts Settings in full, then its panes, by night$
+ shell-agent-place\.spec\.ts their page: one header, one status, three sections built alike$
+ shell-app-task\.spec\.ts Open in Codex hands off to the app's own session$
+ shell-brain\.spec\.ts every way into Brain opens the Brain place$
+ shell-first-screen-asks\.spec\.ts d2 one ask everywhere at 1440 dark$
+ shell-first-screen-asks\.spec\.ts d2 one ask everywhere at 1440 light$
+ shell-first-screen-asks\.spec\.ts d2 one ask everywhere at 800 dark$
+ shell-first-screen-asks\.spec\.ts full-card film follows agent switches: dark$
+ shell-first-screen-asks\.spec\.ts full-card film follows agent switches: light$
+ shell-glass\.spec\.ts the page under glass, dark: floor clear, veil, words, cards$
+ shell-one-state\.spec\.ts d1: a side conversation marks the home doing the work \(dark 1440\)$
+ shell-one-state\.spec\.ts d1: a side conversation marks the home doing the work \(light 800\)$
+ shell-one-state\.spec\.ts d2-d4: one state for each mind, said alike \(dark\)$
+ shell-one-state\.spec\.ts d2-d4: one state for each mind, said alike \(light\)$
+ shell-one-state\.spec\.ts d2/d4 at 800 x 500 \(dark\)$
+ shell-place-rails\.spec\.ts narrow window, Chats and Settings$
+ shell-place-rails\.spec\.ts places, rails and cards$
+ shell-place-rails\.spec\.ts review fixes$
+ shell-rail-wp34\.spec\.ts an app's row opens its page in Chats; its \+ starts a conversation$
+ shell-rail-wp34\.spec\.ts by day: Needs you, the threads, Activity and Agents$
+ shell-rail-wp34\.spec\.ts the Chats rail: what needs you, Luca, and only work nested$
+ shell-settings-agents\.spec\.ts d2: Add agent and a connected app open their homes$
+ shell-walkthrough\.spec\.ts Claude Code's page head, and its New conversation is the \+, dark$
+ shell-walkthrough\.spec\.ts Claude Code's page head, and its New conversation is the \+, light$
