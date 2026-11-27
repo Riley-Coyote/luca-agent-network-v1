@@ -8,7 +8,7 @@ import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 
 const FIELD_SHELL_CLASS =
-  "rounded-xl border border-input bg-muted/40 transition-colors hover:border-muted-foreground/40 focus-within:border-muted-foreground/50";
+  "rounded-xl border border-input bg-muted/40 transition-colors hover:border-ring focus-within:border-ring focus-within:ring-1 focus-within:ring-ring";
 const FIELD_CONTROL_CLASS =
   "border-0 bg-transparent shadow-none outline-none ring-0 placeholder:text-ink-faint focus-visible:ring-0";
 

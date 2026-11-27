@@ -73,8 +73,8 @@ export function RepositoryBranchDropdown({
         <Button
           className={
             compact
-              ? "h-7 max-w-full gap-1.5 rounded-md px-3 font-mono text-sm font-medium hover:border-input"
-              : "h-6 max-w-full gap-1.5 px-2 font-mono text-sm font-semibold hover:border-input"
+              ? "h-7 max-w-full gap-1.5 rounded-md px-3 font-mono text-sm font-medium hover:border-border-strong"
+              : "h-6 max-w-full gap-1.5 px-2 font-mono text-sm font-semibold hover:border-border-strong"
           }
           size="sm"
           type="button"
@@ -218,7 +218,7 @@ export function RepoSourceDropdown({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          className="h-7 max-w-full shrink-0 gap-1.5 rounded-md px-3 text-sm font-medium hover:border-input"
+          className="h-7 max-w-full shrink-0 gap-1.5 rounded-md px-3 text-sm font-medium hover:border-border-strong"
           size="sm"
           type="button"
           variant="outline"
@@ -263,7 +263,7 @@ export function RepoSourceDropdown({
               <DownloadCloud className="text-muted-foreground" />
             )}
             <span className="text-muted-foreground">{controls.localLabel}</span>
-            <span className="ml-auto rounded-md border border-input/60 bg-background px-2 py-0.5 text-xs font-medium text-foreground shadow-xs group-focus:border-input">
+            <span className="ml-auto rounded-md border border-border-strong/60 bg-background px-2 py-0.5 text-xs font-medium text-foreground shadow-xs group-focus:border-border-strong">
               {controls.clonePending ? "Cloning…" : "Clone"}
             </span>
           </DropdownMenuItem>

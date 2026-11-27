@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -164,6 +164,14 @@ function assertControlTone(name, palette) {
       on >= off * ON_OVER_OFF,
       `${name}: on ${groundName}, on (${on.toFixed(2)}:1) must read as at least ${ON_OVER_OFF}x off (${off.toFixed(2)}:1)`,
     );
+    // A field's edge steps up to the focus tone as you reach it, and a
+    // focused field wears that tone twice as thick. It may not fall back
+    // under the edge at rest.
+    const reached = contrastRatio(palette.inkFaint, ground);
+    assert.ok(
+      reached >= off,
+      `${name}: on ${groundName}, a field's edge must not get quieter from rest (${off.toFixed(2)}:1) to hover and focus (${reached.toFixed(2)}:1)`,
+    );
   }
   // The thumb is the page's own surface, sitting on the track.
   const thumb = contrastRatio(palette.surface, control);
@@ -217,5 +225,80 @@ test("neither ink does the job alone, which is why the tone is a mix", () => {
   assert.ok(
     contrastRatio(ink, raised) / contrastRatio(inkFaint, raised) <
       contrastRatio(ink, raised) / contrastRatio(off, raised),
+  );
+});
+
+/**
+ * THE FIELD-EDGE CONTRACT.
+ *
+ * A text box or a picker has nothing but its edge to say it is there. That
+ * edge is the control tone, through the one name every field already used,
+ * `border-input`. Two ways it used to go wrong, both guarded here: the name
+ * pointed at a hairline (1.1 to 1.4:1 on Paper), and call sites turned it
+ * down further with an alpha.
+ */
+const sources = readdirSync(new URL("../../", import.meta.url), {
+  recursive: true,
+})
+  .filter((path) => /\.(tsx?|css)$/.test(path))
+  .map((path) => [
+    path,
+    readFileSync(new URL(`../../${path}`, import.meta.url), "utf8"),
+  ]);
+
+test("the edge of a field is the control tone", () => {
+  const config = readFileSync(
+    new URL("../../../tailwind.config.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    config,
+    /\binput: "var\(--mn-control, hsl\(var\(--input\)\)\)"/,
+    "Tailwind's `input` colour must read --mn-control, so `border-input` draws a field's edge at 3:1 or better",
+  );
+  for (const part of ["input", "textarea"]) {
+    const source = readFileSync(
+      new URL(`../ui/${part}.tsx`, import.meta.url),
+      "utf8",
+    );
+    assert.match(
+      source,
+      /\bborder border-input(?![/\w-])/,
+      `the shared ${part} draws its edge with border-input, whole`,
+    );
+  }
+});
+
+test("nothing turns a field's edge back down", () => {
+  const dimmed = [];
+  const fallsOnApproach = [];
+  for (const [path, text] of sources) {
+    text.split("\n").forEach((line, index) => {
+      const at = `${path}:${index + 1}`;
+      // An alpha on the edge walks it back under the floor.
+      if (
+        /\b(?:border|ring|outline|divide|bg)(?:-[trblxy])?-input\/\d/.test(line)
+      )
+        dimmed.push(at);
+      // The old step-up was an alpha of the muted ink, quieter than the
+      // edge is now: a field must not fade as you hover or enter it.
+      if (
+        /\bborder-input\b/.test(line) &&
+        /(?:hover|focus|focus-within|focus-visible):border-muted-foreground\/\d/.test(
+          line,
+        )
+      )
+        fallsOnApproach.push(at);
+    });
+  }
+  assert.deepEqual(
+    dimmed,
+    [],
+    "write `border-input` whole; for a labelled button's outline use `border-border-strong`",
+  );
+  assert.deepEqual(
+    fallsOnApproach,
+    [],
+    "a field's hover and focus edge is `border-ring`, never an alpha of the muted ink",
   );
 });

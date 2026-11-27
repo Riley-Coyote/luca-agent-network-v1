@@ -143,7 +143,7 @@ export function SetStatusDialog({
           <div className="flex flex-wrap gap-1.5">
             {PRESETS.map((preset) => (
               <button
-                className="rounded-full border border-input px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="rounded-full border border-border-strong px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 data-testid={`set-status-preset-${preset.text.toLowerCase().replace(/\s+/g, "-")}`}
                 key={preset.text}
                 onClick={() => handlePresetClick(preset)}

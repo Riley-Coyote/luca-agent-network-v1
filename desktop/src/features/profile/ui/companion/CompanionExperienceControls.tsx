@@ -225,7 +225,7 @@ export function CompanionExperienceControls({
             </span>
             <select
               id="companion-source-choice"
-              className="h-10 w-full min-w-0 rounded-lg border border-input/40 bg-background px-3 text-sm"
+              className="h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm"
               value={selectedSource}
               onChange={(event) => setSelectedSource(event.target.value)}
             >

@@ -586,7 +586,7 @@ function CorrectNoteForm({
       <label className="block text-xs">
         Category
         <select
-          className="mt-1.5 h-9 w-full border border-input/50 bg-background px-2 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          className="mt-1.5 h-9 w-full border border-input bg-background px-2 text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           disabled={busy}
           onChange={(event) =>
             setCategory(event.target.value as ResidentMemoryNoteCategory)

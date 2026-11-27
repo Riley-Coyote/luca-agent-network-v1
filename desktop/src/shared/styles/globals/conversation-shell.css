@@ -107,7 +107,8 @@
    * both obey the same rule. */
   --mn-focus: var(--mn-ink-faint);
   /* A CONTROL AT REST. The shape of a control that is doing nothing and must
-   * still be seen: the track of a switch that is off. Never text.
+   * still be seen: the track of a switch that is off, the edge of a text box
+   * or a picker. Never text.
    *
    * It is the midpoint of the two quietest inks, because neither is right
    * alone. The ghost ink is solved to about 3:1 against the page itself, so
@@ -121,7 +122,8 @@
    * palette, authored or derived (3.8 to 4.4:1 in Vitesse Black and Paper),
    * and leaves on at least 2.7x off. `control-tone.test.mjs` asserts it from
    * the builders, and `switch-contrast.spec.ts` from the drawn pixels.
-   * A colour, not a triplet: use `var(--mn-control)`, or `bg-control`. */
+   * A colour, not a triplet: use `var(--mn-control)`, `bg-control`, or, for
+   * the edge of a field, `border-input`. */
   --mn-control: color-mix(
     in srgb,
     hsl(var(--mn-ink-faint)) 50%,
@@ -233,6 +235,10 @@
   --accent: var(--mn-hover);
   --accent-foreground: var(--mn-ink);
   --border: var(--mn-border);
+  /* The strong hairline, under the name it was given before fields had a
+   * tone of their own. The edge of a field is NOT this: Tailwind's `input`
+   * colour reads --mn-control (see tailwind.config.js). What still draws this
+   * says so by name, `border-border-strong`: a labelled button's outline. */
   --input: var(--mn-border-strong);
   --ring: var(--mn-focus);
   /* The light end of the SAME ramp — hue 220, same chroma. These were hue 210,

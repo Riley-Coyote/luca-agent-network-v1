@@ -677,9 +677,9 @@ test("project without a checkout offers fetch feedback and dropdown cloning", as
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Remote", exact: true }),
-  ).toHaveClass(/\bborder-input\/40\b/);
+  ).toHaveClass(/\bborder-border-strong\/40\b/);
   await expect(page.getByRole("button", { name: /main/ })).toHaveClass(
-    /\bborder-input\/40\b/,
+    /\bborder-border-strong\/40\b/,
   );
   await expect(
     page.getByRole("button", { name: "Clone", exact: true }),
@@ -695,7 +695,7 @@ test("project without a checkout offers fetch feedback and dropdown cloning", as
     /text-muted-foreground/,
   );
   await expect(cloneItem.getByText("Clone", { exact: true })).toHaveClass(
-    /\bborder-input\/60\b/,
+    /\bborder-border-strong\/60\b/,
   );
   await cloneItem.click();
   await expect(page.getByText("Cloned repository.")).toBeVisible();

@@ -9,7 +9,7 @@ import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 
 const CREATE_FIELD_SHELL_CLASS =
-  "rounded-xl border border-input bg-muted/40 transition-colors duration-150 ease-out hover:border-muted-foreground/40 focus-within:border-muted-foreground/50";
+  "rounded-xl border border-input bg-muted/40 transition-colors duration-150 ease-out hover:border-ring focus-within:border-ring focus-within:ring-1 focus-within:ring-ring";
 const CREATE_FIELD_CONTROL_CLASS =
   "border-0 bg-transparent text-ink-faint shadow-none outline-none ring-0 transition-colors duration-150 ease-out placeholder:text-ink-faint focus:bg-transparent focus:text-foreground focus:outline-hidden focus-visible:ring-0";
 const CREATE_LABEL_OPTIONAL_CLASS = "ml-1 text-xs font-normal text-ink-faint";

@@ -13,7 +13,7 @@ const toggleVariants = cva(
         ghost:
           "bg-transparent hover:bg-muted/70 hover:text-foreground data-[state=on]:bg-muted data-[state=on]:text-foreground",
         outline:
-          "border border-input/40 bg-background hover:bg-muted/70 data-[state=on]:bg-muted data-[state=on]:text-foreground",
+          "border border-border-strong/40 bg-background hover:bg-muted/70 data-[state=on]:bg-muted data-[state=on]:text-foreground",
       },
       size: {
         default: "h-9 px-3 min-w-9",
