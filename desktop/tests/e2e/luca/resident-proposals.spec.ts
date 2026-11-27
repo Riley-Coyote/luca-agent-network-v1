@@ -1086,7 +1086,10 @@ async function importCalls(page: Page) {
 
 test("Hermes import selects the exact owner-reviewed profile and preserves the Luca DM", async ({
   page,
-}) => {
+}, testInfo) => {
+  // The empty Luca DM runs the first-message film, which this browser draws on
+  // a software GPU at about 3 frames a second; still motion keeps it testable.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await installProposalHost(page, { nativeCandidates: HERMES_PROFILES });
   await openHost(page);
   const origin = await openLucaDm(page);
@@ -1103,7 +1106,9 @@ test("Hermes import selects the exact owner-reviewed profile and preserves the L
   await page.getByRole("switch", { name: "Start this profile now" }).uncheck();
   await page.getByRole("switch", { name: "Encrypted Luca handoff" }).uncheck();
   await waitForAnimations(page);
-  await page.screenshot({ path: "hermes-exact-profile-review.png" });
+  await page.screenshot({
+    path: testInfo.outputPath("hermes-exact-profile-review.png"),
+  });
   await page
     .getByRole("button", { name: "Import profile", exact: true })
     .click();
@@ -1182,7 +1187,7 @@ for (const empty of [true, false]) {
 
 test("Hermes startup failure keeps the saved key and retries only its start at compact zoom", async ({
   page,
-}) => {
+}, testInfo) => {
   await page.setViewportSize({ width: 900, height: 700 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installProposalHost(page, {
@@ -1201,7 +1206,9 @@ test("Hermes startup failure keeps the saved key and retries only its start at c
   });
   await expect(confirm).toBeInViewport();
   await waitForAnimations(page);
-  await page.screenshot({ path: "hermes-import-zoom150.png" });
+  await page.screenshot({
+    path: testInfo.outputPath("hermes-import-zoom150.png"),
+  });
   await confirm.click();
   await expect(page.getByTestId("hermes-import-result")).toContainText(
     "Startup failed: Hermes could not start.",
@@ -1228,7 +1235,9 @@ test("Hermes startup failure keeps the saved key and retries only its start at c
     }),
   ).toBe(true);
   await waitForAnimations(page);
-  await page.screenshot({ path: "hermes-import-start-failure.png" });
+  await page.screenshot({
+    path: testInfo.outputPath("hermes-import-start-failure.png"),
+  });
   await page.getByRole("button", { name: "Retry start", exact: true }).click();
   await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
   expect((await importCalls(page))[1].payload).toEqual({
@@ -1526,7 +1535,7 @@ test("Hermes close during an uncertain import prevents a late success callback",
 
 test("Hermes failed opt-out persistence blocks immediate and restart startup until explicit same-key settings retry", async ({
   page,
-}) => {
+}, testInfo) => {
   await installProposalHost(page, {
     snapshot: [importProposal()],
     nativeCandidates: HERMES_PROFILES,
@@ -1566,7 +1575,9 @@ test("Hermes failed opt-out persistence blocks immediate and restart startup unt
     );
   expect((await record())?.start_on_app_launch).toBe(false);
   await waitForAnimations(page);
-  await page.screenshot({ path: "hermes-import-consent-retry.png" });
+  await page.screenshot({
+    path: testInfo.outputPath("hermes-import-consent-retry.png"),
+  });
   expect(
     await calls(page, "set_managed_agent_start_on_app_launch"),
   ).toHaveLength(0);

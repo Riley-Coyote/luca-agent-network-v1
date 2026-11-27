@@ -2,6 +2,18 @@ import { expect, test, type Page } from "@playwright/test";
 import type { ManagedInputField } from "../../../src/shared/api/managedInputs";
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
+import { withoutWebGL2 } from "../../helpers/softwareGpu";
+
+// The card waits in an empty DM, behind which the first-message film runs
+// (FirstMessageSurface). The browser here draws it on a software GPU
+// (SwiftShader) at about 3 frames a second, and every click waits on a frame.
+// Still motion lets these specs test the card, which is all they are about.
+// Even still, the film is too slow to settle there (withoutWebGL2), so these
+// specs also take the app's own path for a Mac without WebGL 2.
+test.use({ reducedMotion: "reduce" });
+test.beforeEach(async ({ page }) => {
+  await withoutWebGL2(page);
+});
 
 const DM_ID = "f48efb06-0c93-5025-aac9-2e646bb6bfa8";
 const RESIDENT = TEST_IDENTITIES.alice.pubkey;
