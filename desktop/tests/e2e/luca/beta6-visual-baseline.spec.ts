@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
 import { chooseRailAgents } from "../../helpers/railAgents";
-import { withoutWebGL2 } from "../../helpers/softwareGpu";
 
 for (const theme of ["buzz-dark", "paper"]) {
   test(`baseline surfaces and keyboard focus in ${theme}`, async ({
@@ -22,9 +21,10 @@ for (const theme of ["buzz-dark", "paper"]) {
       ],
     });
     await chooseRailAgents(page);
-    // Luca's conversation is empty: on this software GPU its film would
-    // starve the page (withoutWebGL2). The film needs a real GPU to judge.
-    await withoutWebGL2(page);
+    // Luca's conversation is empty, and on this software GPU its film runs
+    // at a few frames a second, which every click waits on. Still motion
+    // shows its settled moment; the moving film needs a real GPU to judge.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/?e2e=mock");
     const shot = async (name: string) => {
       await page.evaluate(
