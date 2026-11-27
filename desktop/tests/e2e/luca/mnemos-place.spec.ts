@@ -35,6 +35,17 @@ const QUIET_REPLY =
  *  saves, then doesn't answer. Either way the process ends (a timeout). */
 type WriteMode = "quiet" | "busy" | "fail" | "silent" | "save-silent" | null;
 type Mode = "dark" | "light";
+/** A row of the list of minds with its own numbers: its newest memory some
+ *  days ago, or on a day in an earlier year (`month` from 0). */
+type ListMind = {
+  id: string;
+  name: string;
+  memories: number;
+  newest:
+    | { daysAgo: number }
+    | { yearsAgo: number; month: number; day: number };
+  linked: { pubkey: string; name: string }[];
+};
 type Fault =
   | "missing"
   | "none"
@@ -89,6 +100,8 @@ async function boot(
     classic = false,
     newer = false,
     grown = false,
+    listMinds = [],
+    wrenLinked,
   }: {
     hash?: string;
     mode?: Mode;
@@ -100,6 +113,10 @@ async function boot(
     newer?: boolean;
     /** Kestrel with a long thread and a memory of many ties. */
     grown?: boolean;
+    /** More rows for the list of minds, with numbers of their own (WP-56). */
+    listMinds?: ListMind[];
+    /** Who remembers with Wren, in place of Luca alone (WP-56). */
+    wrenLinked?: { pubkey: string; name: string }[];
   } = {},
 ) {
   const errors: string[] = [];
@@ -109,7 +126,17 @@ async function boot(
   });
   // Before the test bridge, so every Mnemos command is this spec's.
   await page.addInitScript(
-    ({ luca, ori, fault, decline, kestrel, hello, pictures }) => {
+    ({
+      luca,
+      ori,
+      fault,
+      decline,
+      kestrel,
+      hello,
+      pictures,
+      extra,
+      wrenLinked,
+    }) => {
       type Call = (
         cmd: string,
         args?: Record<string, unknown>,
@@ -320,7 +347,7 @@ async function boot(
           name: "Wren",
           memories: 124,
           newest: iso(now),
-          linked: [{ pubkey: luca, name: "Luca" }],
+          linked: wrenLinked ?? [{ pubkey: luca, name: "Luca" }],
         },
         {
           id: "field-notes",
@@ -340,6 +367,25 @@ async function boot(
               },
             ]
           : []),
+        // Noon on their day, in the page's own time.
+        ...extra.map(({ newest, ...m }) => {
+          const d = new Date();
+          const at =
+            "daysAgo" in newest
+              ? new Date(
+                  d.getFullYear(),
+                  d.getMonth(),
+                  d.getDate() - newest.daysAgo,
+                  12,
+                )
+              : new Date(
+                  d.getFullYear() - newest.yearsAgo,
+                  newest.month,
+                  newest.day,
+                  12,
+                );
+          return { ...m, newest: at.toISOString() };
+        }),
       ];
       // Kestrel's engine: hello, summary, the notebook, its pictures, and
       // the three newer writes (the hours against this fake only).
@@ -555,7 +601,7 @@ async function boot(
           if (probe.fault === "none")
             return { mnemosReady: true, minds: [], withoutMemory };
           for (const m of minds)
-            if (m.id !== "kestrel")
+            if (m.id in memories)
               m.memories = (memories[m.id] ?? []).filter(
                 (x) => x.state !== "archived",
               ).length;
@@ -862,6 +908,8 @@ async function boot(
         : null,
       hello: KESTREL_HELLO,
       pictures: PICTURES,
+      extra: listMinds,
+      wrenLinked,
     },
   );
   await installMockBridge(page, {
@@ -1060,7 +1108,10 @@ test("(a, b, g) the tile after Brain; the rail; At a glance with real numbers", 
   await page.getByTestId("mnemos-rail-mind-button").click();
   const list = page.getByTestId("mnemos-minds-list");
   await expect(list).toContainText("Field Notes");
-  await expect(list).toContainText("9 memories · newest today");
+  // What the eye reads on its row (WP-56: the day without "newest").
+  expect((await readRow(page, "field-notes")).seen).toEqual([
+    "9 memories · today",
+  ]);
   await expect(list).toContainText("Luca remembers with this");
   const listText = (await list.textContent()) ?? "";
   for (const word of ["lighthouse", "heron", "tide", "gulls"])
@@ -4060,15 +4111,474 @@ test.describe("(55) far from world time", () => {
       );
     // The rail's list of the minds on this Mac: each one's newest day.
     await page.getByTestId("mnemos-rail-mind-button").click();
-    await expect
-      .soft(page.getByTestId("mnemos-mind-wren"))
-      .toContainText("124 memories · newest today");
-    await expect
-      .soft(page.getByTestId("mnemos-mind-field-notes"))
-      .toContainText("9 memories · newest today");
+    await expect(page.getByTestId("mnemos-mind-wren")).toBeVisible();
+    expect
+      .soft((await readRow(page, "wren")).seen)
+      .toEqual(["124 memories · today"]);
+    expect
+      .soft((await readRow(page, "field-notes")).seen)
+      .toEqual(["9 memories · today"]);
     await waitForAnimations(page);
     mkdirSync(SHOTS55, { recursive: true });
     await page.screenshot({ path: `${SHOTS55}/01-newest-today-far-zone.png` });
     expect(consoleClean(errors)).toEqual([]);
   });
 });
+
+/* ── WP-56: the list of minds never cuts the day off ────────────────── */
+
+const SHOTS56 = process.env.WP56_SHOTS ?? "test-results/wp56";
+/** A run's own name in its measures, so two builds can be laid side by side. */
+const RUN56 = process.env.WP56_RUN ?? "run";
+
+/** The rows that test the number line: a big count with yesterday, a
+ *  six-figure count with a date in another year, and three who remember. */
+const LIST_MINDS: ListMind[] = [
+  {
+    id: "harbor-log",
+    name: "Harbor Log",
+    memories: 9347,
+    newest: { daysAgo: 1 },
+    linked: [],
+  },
+  {
+    id: "old-shoreline",
+    name: "Old Shoreline",
+    memories: 123456,
+    newest: { yearsAgo: 1, month: 10, day: 26 },
+    linked: [],
+  },
+  {
+    id: "lamp-room",
+    name: "Lamp Room",
+    memories: 300,
+    newest: { daysAgo: 1 },
+    linked: [
+      { pubkey: LUCA, name: "Luca" },
+      { pubkey: "c".repeat(64), name: "Wren" },
+      { pubkey: "d".repeat(64), name: "Opus" },
+    ],
+  },
+];
+const ROWS56 = ["wren", "field-notes", ...LIST_MINDS.map((m) => m.id)];
+
+type Box = { left: number; top: number; right: number; bottom: number };
+type RowRead = {
+  /** What the eye reads on the number line, one string per drawn line. */
+  seen: string[];
+  /** Every dot drawn on it: inside the line's visible box, and whether it
+   *  is the first or last thing on its drawn line. */
+  dots: { box: Box; inside: boolean; atEdge: boolean }[];
+  /** The line and each piece of it: nothing wider than its box. */
+  pieces: { name: string; scrollWidth: number; clientWidth: number }[];
+  /** Anything on the line that would cut with an ellipsis. */
+  ellipsis: string[];
+  row: Box;
+  line: Box;
+  name: Box;
+  /** The first glyph after the dot, where the day starts. */
+  dayStart: number | null;
+  /** The line under it (who remembers with this), and whether it is cut. */
+  third: { text: string; scrollWidth: number; clientWidth: number } | null;
+};
+
+/** Reads a row of the list of minds as it is drawn (WP-56). */
+function readRow(page: Page, id: string): Promise<RowRead> {
+  return page.getByTestId(`mnemos-mind-${id}`).evaluate((row) => {
+    const box = (r: DOMRect) => ({
+      left: r.left,
+      top: r.top,
+      right: r.right,
+      bottom: r.bottom,
+    });
+    const lines = row.querySelectorAll<HTMLElement>(
+      ".luca-mnemos-railmind-line",
+    );
+    const line = lines[0];
+    const clip = line.getBoundingClientRect();
+    const glyphs: { ch: string; r: DOMRect }[] = [];
+    const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+      const parent = node.parentElement as HTMLElement;
+      if (parent.closest(".sr-only")) continue;
+      if (getComputedStyle(parent).visibility !== "visible") continue;
+      const text = node.textContent ?? "";
+      for (let i = 0; i < text.length; i++) {
+        const range = document.createRange();
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        const r = range.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue;
+        glyphs.push({ ch: text[i], r });
+      }
+    }
+    // Only what falls in the line's visible box is drawn.
+    const shown = glyphs.filter(
+      (g) =>
+        g.r.left >= clip.left - 0.5 &&
+        g.r.right <= clip.right + 0.5 &&
+        g.r.top >= clip.top - 0.5 &&
+        g.r.bottom <= clip.bottom + 0.5,
+    );
+    const rows = new Map<number, { ch: string; r: DOMRect }[]>();
+    for (const g of shown) {
+      const key = Math.round(g.r.top);
+      rows.set(key, [...(rows.get(key) ?? []), g]);
+    }
+    const drawn = [...rows.values()].map((gs) =>
+      gs.sort((a, b) => a.r.left - b.r.left),
+    );
+    const seen = drawn.map((gs) =>
+      gs
+        .map((g) => g.ch)
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
+    const dots = glyphs
+      .filter((g) => g.ch === "·")
+      .map((g) => {
+        const inside = shown.includes(g);
+        const mine = drawn.find((gs) => gs.includes(g)) ?? [];
+        const ink = mine.filter((x) => x.ch.trim());
+        return {
+          box: box(g.r),
+          inside,
+          atEdge: inside && (ink[0] === g || ink[ink.length - 1] === g),
+        };
+      });
+    const dot = shown.find((g) => g.ch === "·");
+    const after = dot
+      ? shown
+          .filter((g) => g.ch.trim() && g.r.left > dot.r.right - 0.5)
+          .filter((g) => Math.round(g.r.top) === Math.round(dot.r.top))
+          .sort((a, b) => a.r.left - b.r.left)[0]
+      : undefined;
+    const pieces = [line, ...Array.from(line.children)]
+      .filter((el) => !el.classList.contains("sr-only"))
+      .filter((el) => getComputedStyle(el).display !== "inline")
+      .filter((el) => getComputedStyle(el).position !== "absolute")
+      .map((el) => ({
+        name: el.className || el.tagName,
+        scrollWidth: (el as HTMLElement).scrollWidth,
+        clientWidth: (el as HTMLElement).clientWidth,
+      }));
+    const ellipsis = [line, ...Array.from(line.querySelectorAll("*"))]
+      .filter((el) => getComputedStyle(el).textOverflow === "ellipsis")
+      .map((el) => el.className || el.tagName);
+    const third = lines[1];
+    return {
+      seen,
+      dots,
+      pieces,
+      ellipsis,
+      row: box(row.getBoundingClientRect()),
+      line: box(clip),
+      name: box(
+        (
+          row.querySelector(".luca-mnemos-railmind-name") as HTMLElement
+        ).getBoundingClientRect(),
+      ),
+      dayStart: after ? after.r.left : null,
+      third: third
+        ? {
+            text: third.textContent ?? "",
+            scrollWidth: third.scrollWidth,
+            clientWidth: third.clientWidth,
+          }
+        : null,
+    };
+  });
+}
+
+type WhoRead = {
+  text: string;
+  /** What the eye reads of it, one string per drawn line. */
+  seen: string[];
+  scrollWidth: number;
+  clientWidth: number;
+  ellipsis: boolean;
+  box: Box;
+};
+
+/** Reads a "… remembers with this" line as it is drawn (WP-56). */
+function readWho(el: import("@playwright/test").Locator): Promise<WhoRead> {
+  return el.evaluate((line) => {
+    const clip = line.getBoundingClientRect();
+    const glyphs: { ch: string; r: DOMRect }[] = [];
+    const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+      const text = node.textContent ?? "";
+      for (let i = 0; i < text.length; i++) {
+        const range = document.createRange();
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        const r = range.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) continue;
+        if (
+          r.left < clip.left - 0.5 ||
+          r.right > clip.right + 0.5 ||
+          r.top < clip.top - 0.5 ||
+          r.bottom > clip.bottom + 0.5
+        )
+          continue;
+        glyphs.push({ ch: text[i], r });
+      }
+    }
+    const rows = new Map<number, string[]>();
+    for (const g of glyphs) {
+      const key = Math.round(g.r.top);
+      rows.set(key, [...(rows.get(key) ?? []), g.ch]);
+    }
+    const el = line as HTMLElement;
+    return {
+      text: el.textContent ?? "",
+      seen: [...rows.values()].map((cs) => cs.join("").trim()),
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      ellipsis: getComputedStyle(el).textOverflow === "ellipsis",
+      box: {
+        left: clip.left,
+        top: clip.top,
+        right: clip.right,
+        bottom: clip.bottom,
+      },
+    };
+  });
+}
+
+/** A who line is drawn whole: every word in its box, nothing cut. */
+function expectWhole(who: WhoRead, words: string, where: string) {
+  expect.soft(who.text, `${where}: its words`).toBe(words);
+  expect.soft(who.seen.join(" "), `${where}: what the eye reads`).toBe(words);
+  expect.soft(who.ellipsis, `${where}: an ellipsis in play`).toBe(false);
+  expect
+    .soft(who.scrollWidth, `${where}: cut`)
+    .toBeLessThanOrEqual(who.clientWidth);
+}
+
+/** How wide the rail is, and whether anything offers to resize it. */
+function railWidth(page: Page) {
+  return page.evaluate(() => {
+    const rail = document.querySelector("[data-testid='place-rail-mnemos']");
+    const list = document.querySelector("[data-testid='mnemos-minds-list']");
+    return {
+      viewport: window.innerWidth,
+      rail: rail ? rail.getBoundingClientRect().width : null,
+      list: list ? list.getBoundingClientRect().width : null,
+      sidebarWidth: getComputedStyle(
+        document.querySelector("[data-slot='sidebar-wrapper']") ??
+          document.documentElement,
+      ).getPropertyValue("--sidebar-width"),
+      handles: document.querySelectorAll(
+        "[data-sidebar='rail'], [data-sidebar-resize], [aria-label*='esize']",
+      ).length,
+    };
+  });
+}
+
+/** The day of a ListMind's newest memory, as the row should say it. */
+function dayOf(m: ListMind) {
+  const d = new Date();
+  if ("daysAgo" in m.newest) return m.newest.daysAgo === 1 ? "yesterday" : "";
+  return new Date(
+    d.getFullYear() - m.newest.yearsAgo,
+    m.newest.month,
+    m.newest.day,
+  ).toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+async function checkRows(page: Page, where: string) {
+  const read: Record<string, RowRead> = {};
+  const whoRead: Record<string, WhoRead> = {};
+  for (const id of ROWS56) read[id] = await readRow(page, id);
+  const spoken: Record<string, string> = {};
+  for (const id of ROWS56)
+    spoken[id] = await page.getByTestId(`mnemos-mind-${id}`).ariaSnapshot();
+  measure56(`${RUN56}-${where}`, {
+    width: await railWidth(page),
+    read,
+    spoken,
+  });
+
+  const expected: Record<string, [string, string]> = {
+    wren: ["124 memories", "today"],
+    "field-notes": ["9 memories", "today"],
+  };
+  for (const m of LIST_MINDS)
+    expected[m.id] = [
+      `${m.memories.toLocaleString("en-US")} memories`,
+      dayOf(m),
+    ];
+  for (const id of ROWS56) {
+    const r = read[id];
+    const [count, day] = expected[id];
+    // The eye: the count and the day, the dot between them on one line, or
+    // the day whole on a line of its own with no dot left at either edge.
+    const one = r.seen.length === 1;
+    expect
+      .soft(r.seen, `${where} ${id}: what the eye reads`)
+      .toEqual(one ? [`${count} · ${day}`] : [count, day]);
+    for (const d of r.dots)
+      expect
+        .soft(d.atEdge, `${where} ${id}: a dot at a line's edge`)
+        .toBe(false);
+    expect
+      .soft(r.dots.filter((d) => d.inside).length, `${where} ${id}: dots drawn`)
+      .toBe(one ? 1 : 0);
+    for (const p of r.pieces)
+      expect
+        .soft(p.scrollWidth, `${where} ${id}: ${p.name} cut`)
+        .toBeLessThanOrEqual(p.clientWidth);
+    expect.soft(r.ellipsis, `${where} ${id}: an ellipsis in play`).toEqual([]);
+    // Who remembers with it: the whole sentence, on two lines if need be.
+    const who = page
+      .getByTestId(`mnemos-mind-${id}`)
+      .locator(".luca-mnemos-railmind-line")
+      .nth(1);
+    if (await who.count()) {
+      const w = await readWho(who);
+      whoRead[id] = w;
+      expectWhole(w, w.text, `${where} ${id} who`);
+    }
+    // The ear: still a sentence.
+    expect
+      .soft(spoken[id], `${where} ${id}: what a screen reader hears`)
+      .toContain(`${count}, newest ${day}`);
+  }
+  measure56(`${RUN56}-${where}-who`, whoRead);
+  expect
+    .soft(whoRead["lamp-room"]?.seen, `${where}: three names, on two lines`)
+    .toHaveLength(2);
+  return read;
+}
+
+function measure56(key: string, value: unknown) {
+  mkdirSync(`${SHOTS56}/measures`, { recursive: true });
+  writeFileSync(
+    `${SHOTS56}/measures/${key}.json`,
+    JSON.stringify(value, null, 2),
+  );
+}
+
+for (const mode of ["dark", "light"] as const)
+  test(`(56) the list of minds never cuts the day off, ${mode}`, async ({
+    page,
+    browser,
+  }) => {
+    const errors = await boot(page, {
+      hash: "/mnemos?mind=wren&room=glance",
+      mode,
+      listMinds: LIST_MINDS,
+    });
+    await page.getByTestId("mnemos-rail-mind-button").click();
+    const list = page.getByTestId("mnemos-minds-list");
+    await expect(list).toBeVisible();
+    await expect(page.getByTestId("mnemos-mind-lamp-room")).toBeVisible();
+    await waitForAnimations(page);
+    mkdirSync(SHOTS56, { recursive: true });
+
+    // At the rail's default width.
+    const read = await checkRows(page, `${mode}-default`);
+    // Two rows that fit, cropped, for laying the builds side by side.
+    const top = read.wren.row;
+    const fits = read["field-notes"].row;
+    const clip = {
+      x: top.left,
+      y: top.top,
+      width: top.right - top.left,
+      height: fits.bottom - top.top,
+    };
+    await page.screenshot({
+      path: `${SHOTS56}/${RUN56}-${mode}-two-rows.png`,
+      clip,
+    });
+    if (mode === "dark")
+      await list.screenshot({ path: `${SHOTS56}/${RUN56}-dark-list.png` });
+
+    // Forced to wrap: the worst case's day on a line of its own, whole, no
+    // dot at either edge.
+    const worst = read["old-shoreline"];
+    measure56(`${RUN56}-${mode}-worst`, worst);
+    expect(worst.seen.length, "the worst case wraps at this width").toBe(2);
+    if (mode === "dark")
+      await page
+        .getByTestId("mnemos-mind-old-shoreline")
+        .screenshot({ path: `${SHOTS56}/${RUN56}-dark-wrapped-row.png` });
+
+    // At the narrowest the window allows the rail: a narrow window.
+    await page.setViewportSize({ width: 900, height: 900 });
+    await waitForAnimations(page);
+    await page.waitForTimeout(300);
+    if (await list.isVisible()) await checkRows(page, `${mode}-narrow-window`);
+    expect(consoleClean(errors)).toEqual([]);
+
+    // A close look, at three times: the big count and the wrapped one.
+    if (mode === "light") {
+      const close = await browser.newContext({
+        deviceScaleFactor: 3,
+        viewport: { width: 1440, height: 900 },
+      });
+      const near = await close.newPage();
+      await boot(near, {
+        hash: "/mnemos?mind=wren&room=glance",
+        mode,
+        listMinds: LIST_MINDS,
+      });
+      await near.getByTestId("mnemos-rail-mind-button").click();
+      await expect(near.getByTestId("mnemos-mind-old-shoreline")).toBeVisible();
+      await waitForAnimations(near);
+      const a = (await readRow(near, "harbor-log")).row;
+      const b = (await readRow(near, "old-shoreline")).row;
+      await near.screenshot({
+        path: `${SHOTS56}/${RUN56}-light-two-rows-3x.png`,
+        clip: {
+          x: a.left,
+          y: a.top,
+          width: a.right - a.left,
+          height: b.bottom - a.top,
+        },
+      });
+      await close.close();
+    }
+  });
+
+for (const mode of ["dark", "light"] as const)
+  test(`(56) the head names three who remember, whole, ${mode}`, async ({
+    page,
+  }) => {
+    const three = "Luca, Sable and Opus remember with this";
+    const errors = await boot(page, {
+      hash: "/mnemos?mind=wren&room=glance",
+      mode,
+      wrenLinked: [
+        { pubkey: LUCA, name: "Luca" },
+        { pubkey: "e".repeat(64), name: "Sable" },
+        { pubkey: "f".repeat(64), name: "Opus" },
+      ],
+    });
+    const head = page.getByTestId("mnemos-rail-mind-button");
+    await expect(head).toContainText(three);
+    const inHead = await readWho(head.locator(".luca-mnemos-railmind-who"));
+    expectWhole(inHead, three, `${mode} head`);
+    expect.soft(inHead.seen, `${mode} head: on two lines`).toHaveLength(2);
+    await head.click();
+    const row = page
+      .getByTestId("mnemos-mind-wren")
+      .locator(".luca-mnemos-railmind-who");
+    await expect(row).toBeVisible();
+    const inRow = await readWho(row);
+    expectWhole(inRow, three, `${mode} row`);
+    measure56(`${RUN56}-${mode}-head-three`, { inHead, inRow });
+    if (mode === "dark") {
+      await waitForAnimations(page);
+      await page
+        .getByTestId("mnemos-rail-mind")
+        .screenshot({ path: `${SHOTS56}/${RUN56}-dark-head-three.png` });
+    }
+    expect(consoleClean(errors)).toEqual([]);
+  });

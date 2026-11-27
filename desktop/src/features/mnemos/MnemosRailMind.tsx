@@ -78,7 +78,7 @@ export function MnemosRailMind() {
           </span>
         ) : null}
         {linkedWords(mind) ? (
-          <span className="luca-mnemos-railmind-line text-2xs">
+          <span className="luca-mnemos-railmind-line luca-mnemos-railmind-who text-2xs">
             {linkedWords(mind)}
           </span>
         ) : null}
@@ -109,11 +109,9 @@ export function MnemosRailMind() {
                   <span className="luca-mnemos-railmind-name text-sm">
                     {each.name}
                   </span>
-                  <span className="luca-mnemos-railmind-line text-2xs">
-                    {railLine(each)}
-                  </span>
+                  <RowNumbers line={railLine(each)} />
                   {who ? (
-                    <span className="luca-mnemos-railmind-line text-2xs">
+                    <span className="luca-mnemos-railmind-line luca-mnemos-railmind-who text-2xs">
                       {who}
                     </span>
                   ) : null}
@@ -159,6 +157,36 @@ export function MnemosRailMind() {
         </ul>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A row's numbers (WP-56): "9,347 memories · yesterday", each half whole.
+ * Where both don't fit, the day takes a line of its own and its dot falls
+ * outside the line, so no dot is left at either edge. Under the shown dot
+ * sits an unseen one of the same width, so a row that fits is spaced as it
+ * always was. A screen reader hears the sentence instead:
+ * "9,347 memories, newest yesterday".
+ */
+function RowNumbers({ line }: { line: { count: string; day: string | null } }) {
+  return (
+    <span className="luca-mnemos-railmind-line luca-mnemos-minds-numbers text-2xs">
+      {line.day ? (
+        <>
+          <span className="sr-only">{`${line.count}, newest ${line.day}`}</span>
+          <span aria-hidden className="luca-mnemos-minds-count">
+            {line.count}
+            <span className="luca-mnemos-minds-gap">{" · "}</span>
+          </span>
+          <span aria-hidden className="luca-mnemos-minds-day">
+            <span className="luca-mnemos-minds-dot">{" · "}</span>
+            {line.day}
+          </span>
+        </>
+      ) : (
+        <span className="luca-mnemos-minds-count">{line.count}</span>
+      )}
+    </span>
   );
 }
 
