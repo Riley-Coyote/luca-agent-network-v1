@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import type { NativeResidentDiscoveryOutcome } from "../../../src/shared/api/types";
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
+import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
 import { LARGE_NATIVE_RESIDENT_DISCOVERY } from "./onboarding-agent-import-fixture";
 
 const ONE_NATIVE_AGENT: NativeResidentDiscoveryOutcome = {
@@ -35,6 +36,12 @@ const GREETING = /Hello, I’m Luca/;
  *  through — Luca asks to look around once the conversation exists, and the
  *  agents chosen on the third question arrive behind it. */
 async function arriveInLucaDm(page: import("@playwright/test").Page) {
+  // The conversation's header (the shell's lip) is the shipped look; the
+  // e2e build draws it only behind its preview switch.
+  await page.addInitScript(
+    (key) => localStorage.setItem(key, JSON.stringify({ "shell-frame": true })),
+    FEATURE_OVERRIDES_STORAGE_KEY,
+  );
   await installMockBridge(
     page,
     {
@@ -275,7 +282,7 @@ test("first-use layout preserves the canonical resident and one durable greeting
   });
 });
 
-test("all three residents exist from the first launch, and only Luca is awake", async ({
+test("all three residents exist from the first launch, and all three are awake", async ({
   page,
 }) => {
   await arriveInLucaDm(page);
@@ -317,11 +324,11 @@ test("all three residents exist from the first launch, and only Luca is awake", 
   expect(byPersona("builtin:honey")).toHaveLength(1);
   expect(byPersona("builtin:bumble")).toHaveLength(1);
 
-  // Luca wakes with the app. The other two are here, not running: they wake
-  // on the first message, like every other resident.
+  // All three wake with the app, ready for a direct message or delegation
+  // (740409ae7; starting a harness sends no model prompt).
   expect(byPersona("builtin:fizz")[0].status).toBe("running");
-  expect(byPersona("builtin:honey")[0].status).toBe("stopped");
-  expect(byPersona("builtin:bumble")[0].status).toBe("stopped");
+  expect(byPersona("builtin:honey")[0].status).toBe("running");
+  expect(byPersona("builtin:bumble")[0].status).toBe("running");
 
   const createdFor = (personaId: string) =>
     world.creates.filter((input) => input.personaId === personaId);
@@ -333,8 +340,8 @@ test("all three residents exist from the first launch, and only Luca is awake", 
   for (const personaId of ["builtin:honey", "builtin:bumble"]) {
     expect(createdFor(personaId)).toHaveLength(1);
     expect(createdFor(personaId)[0]).toMatchObject({
-      spawnAfterCreate: false,
-      startOnAppLaunch: false,
+      spawnAfterCreate: true,
+      startOnAppLaunch: true,
     });
   }
 
