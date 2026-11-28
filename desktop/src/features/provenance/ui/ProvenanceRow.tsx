@@ -17,6 +17,7 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { PubKey } from "@/shared/ui/PubKey";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 function clockLabel(createdAt: number): string {
   return new Date(createdAt * 1_000).toLocaleTimeString(undefined, {
@@ -254,7 +255,7 @@ export function ProvenanceRow({
               the thing a person opened the row to read. */}
           {record.event.content.length > 0 ? (
             <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans text-foreground/90 text-sm leading-relaxed">
-              {record.event.content}
+              {plainExpressionText(record.event.content)}
             </pre>
           ) : (
             <p className="text-muted-foreground text-sm">

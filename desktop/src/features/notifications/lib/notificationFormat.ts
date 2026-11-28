@@ -1,3 +1,5 @@
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
+
 const NOTIFICATION_BODY_MAX_LENGTH = 140;
 
 /**
@@ -27,7 +29,8 @@ export function truncateNotificationBody(
   content: string,
   fallback: string,
 ): string {
-  const trimmed = content.trim();
+  // Words first, so the cut never lands inside a coloured phrase's code.
+  const trimmed = plainExpressionText(content).trim();
   if (trimmed.length === 0) return fallback;
   if (trimmed.length <= NOTIFICATION_BODY_MAX_LENGTH) return trimmed;
   return `${trimmed.slice(0, NOTIFICATION_BODY_MAX_LENGTH - 3).trimEnd()}...`;

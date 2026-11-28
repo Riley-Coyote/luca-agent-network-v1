@@ -21,14 +21,19 @@ cores). Each file with a failure was then run again alone: 89 passed. What was l
 - Two more for the lists. `luca/f11` "native debug failpoint…" needs the real app built.
   `luca/shell-runtime` "connected 800" fails as its 1440 twin does (the connected-app card is
   gone, 8e4693bfe); the seven tests after it in the same one-after-another group never run.
-- Two that still fail alone while the Mac is loaded, on app code that passed them earlier the
-  same day: `image-attachment-gallery` "hidden spoiler images…" (passed on this very build at
-  7:28) and `luca/quickchat-lens` "a reader stays put…". Both race the page: one opens the
-  picture the instant a spoiler is revealed, one expects the mini chat to follow new content
-  at once. Run them once more on a quiet Mac before calling the gate closed.
+- Two that still failed alone. Both were settled later the same morning (11:41 to 11:46 am):
+  - `luca/quickchat-lens` "a reader stays put…" was **a fault in the app**, not in the test.
+    It failed 3 of 3 again at a load of 9. Fixed that night in 7331fe57a: see "Fixed in the
+    app since the final sweep" below.
+  - `image-attachment-gallery` "hidden spoiler images…" is an old timing edge: it opens a
+    picture in the same instant a spoiler is revealed, and the open picture never learns it
+    has a neighbour. The reveal and gallery code is unchanged since beta.13. It passed in the
+    sweep at 7:28 and 2 of 3 at a load of 9. It belongs on the loose list.
 
-With those named, the rerun below keeps 1495 of 2051 tests, and each either passed in the
-sweep or passed alone, apart from those two.
+With those named, the rerun below kept 1495 of 2051 tests, and each either passed in the
+sweep or passed alone, apart from those two. The two fixes of that night added 14 tests (7 in
+`luca/quickchat-lens`, 7 in the new `luca/ink-plain-text`), so at `a4b5a8608` the suite lists
+2065 and the rerun keeps 1509. The suite has not been swept again on that commit yet.
 
 ## The cleanup after the release (Nov 27, branch `claude/browser-tests-cleanup`)
 
@@ -65,8 +70,8 @@ Tests only; no app code changed. The suite now lists 1868 tests (2051, less 183 
     for the picture to show, and its pictures load for real through the app's media proxy
     (port 54321; they never went to localhost:3000). 20 of 20 under load.
   - `luca/quickchat-lens` "a reader stays put…": it grew the reply before the Newest jump had
-    landed, which is a real fault in the app (below). Riley said fix it; the fix and its tests
-    are WP-58 (`claude/wp58-chat-fixes`), which owns this file, so this branch leaves it as is.
+    landed, which was a real fault in the app, fixed in 7331fe57a (below). That fix owns this
+    file and its tests; this branch leaves it as the release line has it.
 
 ## The old ones (455 at the count; 183 removed, 272 kept)
 
@@ -153,13 +158,15 @@ launch the built native app.
 ## Loose (pass alone)
 
 Base: `image-attachment-gallery` copy image; `blackout-messaging-controls`; `f15` safe creation;
-`quickchat-lens` reader; `runtime-task-card` ×4 (follow-up, failed, interrupted, quiet notice);
+`quickchat-lens` reader (not loose after all: the mini chat fault, fixed in 7331fe57a);
+`runtime-task-card` ×4 (follow-up, failed, interrupted, quiet notice);
 `shell-top-edge` stuck day. End, under load: `agent-rail` Quick Chat; `chat-agent-mark` visible
 sphere; `exchange-strip` jump to latest; `operator-forge` retained group; `runtime-task-card`
 Run waits for a folder; `shell-settings` review's fixes; `task-motion` light; `popout-shell`
 opening choices; `video-attachment` right-click menus; `continuous-motion` video glow (below).
+Final sweep: `image-attachment-gallery` hidden spoiler images.
 
-## Known in the app (3, one being fixed)
+## Known in the app (2)
 
 **The glow behind a looping video, under Reduce Motion.**
 - What a person sees: with Reduce Motion on, the soft light around a looping video changes a
@@ -170,19 +177,6 @@ opening choices; `video-attachment` right-click menus; `continuous-motion` video
 - By hand: Reduce Motion on in macOS, open a conversation with a short looping video, and
   watch its glow at the moment it loops. Test: `luca/continuous-motion`, left as it is.
 
-**The mini chat stops following a reply that grows fast.**
-- What a person sees: in the mini chat, a reply that streams quickly (a new line every 50 ms or
-  faster) can leave the view behind: the reply carries on below and the Newest arrow comes back,
-  though the reader never scrolled. Pressing Newest while a reply streams can do the same at
-  once. At a line every 100 ms or slower it follows.
-- Cause: the mini chat decides whether the reader has left the end from each scroll event, but
-  its own jump to the end is reported a frame later. Content that grows in that gap reads as the
-  reader scrolling away, so it stops following (`useQuickChatTranscript.ts`, `update`).
-- Commit: e52aaba46. Being fixed on the release line (WP-58), with tests that fail before.
-- Measured in the browser build: Newest pressed as a piece lands, 3 of 3 stop following; a line
-  every 16 or 50 ms, 8 of 8; every 100 or 250 ms, 0 of 8. Not checked in the real app (WebKit).
-- Test: WP-58's, in `luca/quickchat-lens`.
-
 **An agent's status line breaks with its dot left hanging.**
 - What a person sees: on Luca's own page at 1440 wide, the status reads "Resting ·" with the dot
   at the end of the line, and "Keeping up with Codex and Claude Code" drops to a second line.
@@ -190,6 +184,39 @@ opening choices; `video-attachment` right-click menus; `continuous-motion` video
   the dot is only dropped at 640px or narrower, and this column is wider. The stylesheet itself
   says the line should wrap "with no dot left hanging".
 - Test: `shell-agent-place` "their page: one header, one status, three sections built alike".
+
+## Fixed in the app since the final sweep
+
+**The mini chat stopped following a reply that grew fast (found November 27, fixed that
+night in 7331fe57a; Riley: "fix both").**
+- What a person saw: the mini chat is at the newest message and a reply is streaming in.
+  Part way through, it stops scrolling along, the "Newest message" arrow comes back, and the
+  rest of the reply arrives out of sight. Worse the busier the Mac was.
+- Cause: when the mini chat scrolled itself to the end, the browser reported that scroll one
+  frame later. If the reply had grown again by then, the report read as "the reader moved
+  away" (`useQuickChatTranscript.ts` set `following` from the distance to the end on every
+  scroll event, its own included). New in beta.14 (e52aaba46, October 31).
+- The fix: following turns on whenever the view is at the end, and off only when the view
+  moves toward older messages. No timers, no skipped events.
+- Proof before, in the browser build at `842100973` (a throwaway spec): "Newest" and growth
+  in the same moment, 216 px short with the arrow back; growth in two frames running, 56 px
+  short; a line every 16 ms fell behind at line 4, every 50 ms at line 17. (Load 16.)
+- Proof after, at `a4b5a8608`: the same throwaway spec reads 0 px and no arrow in every case
+  (load 35). Seven new tests in `luca/quickchat-lens`, three of which fail on `cb7c0fd0b`:
+  the same-moment case, two frames running, a line every 16 ms with the arrow never
+  appearing, the reader getting away mid-reply by real wheel and by keys and staying put,
+  part-way down not resuming, reopening at a saved place, and content removed under a
+  following reader. The old test "a reader stays put while content grows, then newest
+  resumes following" is unchanged and passes: the whole file 20 times over, 220 of 220, at
+  a load of 7 to 12.
+- Not run: WebKit, the app's own engine (the matching Playwright build, 2287, is not on this
+  Mac). Left: content that shrinks and grows again inside one frame can still read as the
+  reader moving up; found by reading, never seen, and there before the fix.
+
+**Coloured phrases showed as raw code in plain-text places (found November 27, fixed that
+night in a4b5a8608).** The new `luca/ink-plain-text` has 7 tests; 6 fail on `cb7c0fd0b`
+(Activity, search, the quoted line, notifications, copy, reminders). `BETA14_RELEASE.md`,
+"Found in the hands-on pass", has the places and what is left.
 
 ## Waiting on Riley's call
 

@@ -1,4 +1,5 @@
 import { cn } from "@/shared/lib/cn";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 /**
  * The quoted message attached above a reply — the iMessage / WhatsApp /
@@ -63,7 +64,7 @@ export function QuotedParent({
         </span>
         {resolved ? (
           <span className="line-clamp-2 block text-sm leading-5 text-ink-faint transition-colors group-hover/quote:text-ink-faint">
-            {body}
+            {plainExpressionText(body)}
           </span>
         ) : null}
       </span>

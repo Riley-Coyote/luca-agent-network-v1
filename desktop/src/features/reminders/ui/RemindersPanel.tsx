@@ -25,6 +25,7 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 const UNKNOWN_CHANNEL_LABEL = "Unknown channel";
 
@@ -122,7 +123,7 @@ function ReminderRow({
           </div>
         ) : null}
         <p className="max-w-full truncate text-sm font-medium">
-          {reminder.content.target?.preview ||
+          {plainExpressionText(reminder.content.target?.preview ?? "") ||
             reminder.content.note ||
             "Reminder"}
         </p>

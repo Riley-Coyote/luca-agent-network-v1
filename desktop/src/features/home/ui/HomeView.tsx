@@ -74,6 +74,7 @@ import { useMainInsetWidth } from "@/shared/layout/MainInsetContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { Button } from "@/shared/ui/button";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 const INBOX_SEARCH_KEYS = [
   "item",
@@ -753,7 +754,7 @@ export function HomeView({
                   authorPubkey: item.item.pubkey,
                   channelId,
                   eventId: item.id,
-                  preview: item.preview.slice(0, 100),
+                  preview: plainExpressionText(item.preview).slice(0, 100),
                 });
               }}
               onSelect={(itemId) => {

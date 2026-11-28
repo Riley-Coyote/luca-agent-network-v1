@@ -39,9 +39,17 @@ export function expressionColor(value: string): string | undefined {
   return Object.hasOwn(MEANINGS, name) ? MEANINGS[name] : undefined;
 }
 
-/** Both schemes carry the same expression value. */
-function expressionValue(url = ""): string | undefined {
-  for (const scheme of ["ink:", "color:"])
+/** The link schemes that make a coloured phrase: `[words](ink:warmth)`. */
+export const EXPRESSION_SCHEMES = ["ink:", "color:"] as const;
+
+/**
+ * The expression a link address carries, or undefined when the address is not
+ * a coloured phrase. The one definition: the renderer and the plain-text
+ * reading (`plainExpressionText`) both decide by it. Both schemes carry the
+ * same expression value.
+ */
+export function expressionValue(url = ""): string | undefined {
+  for (const scheme of EXPRESSION_SCHEMES)
     if (url.startsWith(scheme)) return url.slice(scheme.length);
 }
 

@@ -59,6 +59,7 @@ import { isPositiveEmojiParticle } from "@/shared/ui/EmojiBurstProvider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { canReplayLivingInk, replayLivingInk } from "@/shared/ui/livingInk";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 const ACTION_BUTTON_CLASS = "h-8 w-8 rounded-full p-0";
 const ACTION_ICON_CLASS = "!h-4 !w-4";
@@ -216,7 +217,7 @@ function MoreActionsMenu({
             <DropdownMenuItem
               onClick={() => {
                 copyTextToClipboard(
-                  message.body,
+                  plainExpressionText(message.body),
                   "Message copied to clipboard",
                 );
               }}

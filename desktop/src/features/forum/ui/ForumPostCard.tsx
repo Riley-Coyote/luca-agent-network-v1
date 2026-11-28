@@ -15,6 +15,7 @@ import { Markdown } from "@/shared/ui/markdown";
 
 import { formatRelativeTime } from "../lib/time";
 import { DeleteActionMenu } from "./DeleteActionMenu";
+import { plainExpressionTail } from "@/shared/lib/plainExpressionText";
 
 type ForumPostCardProps = {
   post: ForumPost;
@@ -58,7 +59,7 @@ export function ForumPostCard({
   const summary = post.threadSummary;
   const previewContent =
     post.content.length > 200
-      ? `${post.content.slice(0, 200)}...`
+      ? `${plainExpressionTail(post.content.slice(0, 200))}...`
       : post.content;
 
   return (
