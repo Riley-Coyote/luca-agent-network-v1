@@ -8,6 +8,7 @@ import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { railGlassAtRest } from "./flagOffSettle";
 import { chooseRailAgents } from "../helpers/railAgents";
+import { correspondenceIdOf, installRailInbox } from "../helpers/inbox-rail";
 
 /**
  * WP-14, what agents say to each other, and what needs you
@@ -38,6 +39,11 @@ const ROOT = {
   paused: "e5".repeat(32),
   done: "e6".repeat(32),
 };
+
+/** Each pair's one correspondence, as the native inbox names it: Luca and
+ *  Atlas (the open exchange and the closed one), Luca and Wren (paused). */
+const PAIR_ATLAS = correspondenceIdOf([LUCA, ATLAS]);
+const PAIR_WREN = correspondenceIdOf([LUCA, WREN]);
 
 const NOW = Date.now();
 const iso = (minutesAgo: number) =>
@@ -218,6 +224,28 @@ const RUNTIME_SEEDS = {
   ],
 };
 
+/** What was said in each exchange, as speak() says it in its room and the
+ *  native inbox reads it back. */
+const SAID: Record<
+  string,
+  Array<{ id: string; pubkey: string; content: string; at: number }>
+> = {
+  [X_OPEN]: [
+    {
+      id: ROOT.open,
+      pubkey: "deadbeef".repeat(8),
+      content: "@Luca ask Atlas if the notes are ready.",
+      at: secs(40),
+    },
+    {
+      id: "f4".repeat(32),
+      pubkey: LUCA,
+      content: "Atlas, are the release notes ready for Sam's read?",
+      at: secs(40) + 30,
+    },
+  ],
+};
+
 async function boot(
   page: Page,
   {
@@ -226,7 +254,10 @@ async function boot(
     origin,
     runtime = true,
     permission = true,
+    inbox = SHARED_SEEDS.exchanges.map((each) => each.exchangeId),
   }: {
+    /** The exchanges the native inbox lists; the rest have no say-so. */
+    inbox?: string[];
     shell?: boolean;
     hash: string;
     origin?: string;
@@ -248,6 +279,13 @@ async function boot(
       window.localStorage.setItem(key, JSON.stringify(overrides));
     }, FEATURE_OVERRIDES_STORAGE_KEY);
   }
+  // The rail hangs only the work the native inbox lists (commit 6aee43288).
+  await installRailInbox(
+    page,
+    SHARED_SEEDS.exchanges
+      .filter((each) => inbox.includes(each.exchangeId))
+      .map((each) => ({ ...each, said: SAID[each.exchangeId] })),
+  );
   await installMockBridge(page, {
     managedAgents: AGENTS.map((agent) => ({ ...agent })),
     exchanges: SHARED_SEEDS.exchanges,
@@ -704,25 +742,30 @@ test("all activity: one thread, by day; exchanges hang in the rail", async ({
   for (const row of tasks) expect(row.note).not.toBe("");
   measure("shot_all_activity", await shot(page, "all-activity"));
 
-  // The exchange Luca opened with Atlas hangs under Atlas in the Chats rail,
-  // and opens its room at its first message.
+  // What passed between Luca and Atlas hangs under Atlas in the Chats rail,
+  // as the pair's one correspondence since commit 6aee43288, and opens at
+  // the exchange Luca opened, what was said in it in view.
   await page.getByTestId("shell-place-conversations").click();
-  const row = page.getByTestId(`rail-side-exchange:${X_OPEN}`);
+  const row = page
+    .locator(`[data-home-group="agent:${ATLAS}"]`)
+    .getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`);
   await expect(row).toBeVisible({ timeout: 20_000 });
-  await expect(
-    page
-      .locator(`[data-home-group="agent:${ATLAS}"]`)
-      .getByTestId(`rail-side-exchange:${X_OPEN}`),
-  ).toBeVisible();
   await row.click();
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 15_000 })
-    .toContain(ROOT.open);
+    .toContain(`/correspondence/${PAIR_ATLAS}`);
+  await expect(page.getByTestId("correspondence-window")).toContainText(
+    "Atlas, are the release notes ready for Sam's read?",
+    { timeout: 20_000 },
+  );
   // It stays there: nothing rewrites it afterwards.
   await page.waitForTimeout(1500);
-  const opened = await page.evaluate(() => window.location.hash);
+  const opened = await page.evaluate(() =>
+    decodeURIComponent(window.location.hash),
+  );
   measure("side_open", opened);
-  expect(opened).toContain(ROOT.open);
+  expect(opened).toContain(`/correspondence/${PAIR_ATLAS}`);
+  expect(opened).toContain(X_OPEN);
 });
 
 // WP-34, Decided 3: only work nests. Luca's side conversations moved under
@@ -733,9 +776,9 @@ test("the work under whoever does it, in the Chats rail", async ({ page }) => {
   const rail = page.getByTestId("chat-list");
   await expect(rail).toBeVisible({ timeout: 20_000 });
   await speak(page);
-  await expect(page.getByTestId(`rail-side-exchange:${X_OPEN}`)).toBeVisible({
-    timeout: 20_000,
-  });
+  await expect(
+    page.getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`),
+  ).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("rail-side-task:task-glass")).toBeVisible({
     timeout: 20_000,
   });
@@ -763,18 +806,15 @@ test("the work under whoever does it, in the Chats rail", async ({ page }) => {
   measure("work_rows", work);
   // Luca is one chat: nothing hangs under it.
   expect(work.luca).toBe(0);
-  // The words (fix 16): talking… for a live exchange, working… for a
-  // running task, paused for a paused one.
-  expect(work.atlas).toContainEqual({
-    side: "live",
-    label: "Luca · general",
-    trailing: "talking",
-  });
-  expect(work.wren).toContainEqual({
-    side: "quiet",
-    label: "Luca · design",
-    trailing: "paused",
-  });
+  // Each pair is one correspondence, named for the other mind (commit
+  // 6aee43288). The words (fix 16): talking… for a live exchange, working…
+  // for a running task, paused for a paused one.
+  expect(work.atlas).toEqual([
+    { side: "live", label: "With Luca", trailing: "talking" },
+  ]);
+  expect(work.wren).toEqual([
+    { side: "quiet", label: "With Luca", trailing: "paused" },
+  ]);
   expect(work.claude.map((row) => row.label)).toEqual([
     "Rail glass plates",
     "Fix the failing build",
@@ -782,8 +822,14 @@ test("the work under whoever does it, in the Chats rail", async ({ page }) => {
   expect(work.claude[0].trailing).toBe("working");
   expect(work.claude[1].trailing).toMatch(/^\d+[mhdw]$/);
   expect(work.codex.map((row) => row.label)).toEqual(["Release script check"]);
-  // Atlas asked Luca in engineering: Luca nests nothing, so it hangs nowhere.
-  await expect(page.getByTestId(`rail-side-exchange:${X_DONE}`)).toHaveCount(0);
+  // Atlas asked Luca in engineering: the same pair, so it joins their one
+  // correspondence above, never a row of its own; Luca nests nothing.
+  await expect(
+    page.locator('[data-testid^="rail-side-exchange:"]'),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId(`rail-side-correspondence:${PAIR_WREN}`),
+  ).toHaveCount(1);
   const box = await rail.boundingBox();
   await page
     .getByTestId("rail-side-task:task-build")
@@ -862,53 +908,48 @@ test("a connected app: what Luca did with it", async ({ page }) => {
     .getByTestId("rail-home-app:claude")
     .locator("[data-rail-focus=home]")
     .click();
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+  // The app's page is its workspace since commit 8e4693bfe: what was done
+  // with it is its sessions, newest first, live work open now. Codex's task
+  // is not Claude Code's.
+  const workspace = page.getByTestId("harness-workspace");
+  await expect(workspace).toBeVisible({ timeout: 20_000 });
+  const catalogue = page.getByRole("complementary", {
+    name: "Session catalogue",
+  });
+  await expect(catalogue.locator(".hws-session-row")).toHaveCount(2, {
     timeout: 20_000,
   });
-  const history = page.getByTestId("connected-what-luca-did");
-  await expect(history).toBeVisible({ timeout: 20_000 });
-  await history.scrollIntoViewIfNeeded();
-  const rows = await history.evaluate((list) =>
-    [...list.querySelectorAll<HTMLElement>(".luca-place-row")].map((row) => ({
-      title: row.querySelector(".luca-place-row-title")?.textContent,
-      summary: row.querySelector(".luca-place-row-summary")?.textContent,
-      detail: row.querySelector(".luca-place-row-detail")?.textContent,
-      note: row.querySelector(".luca-place-row-note")?.textContent,
+  const rows = await catalogue.evaluate((list) =>
+    [...list.querySelectorAll<HTMLElement>("section")].map((group) => ({
+      group: group.getAttribute("aria-label"),
+      titles: [...group.querySelectorAll(".hws-session-row")].map(
+        (row) =>
+          row.querySelector(".hws-session-title > span:last-child")
+            ?.textContent,
+      ),
     })),
   );
   measure("connected_history", rows);
-  // Luca's runs only, the room alone under each (fix 11), and the list 32
-  // below Sessions (fix 17).
-  expect(rows.map((row) => row.summary)).toEqual(["design", "general"]);
-  const gap = await page.evaluate(() => {
-    const history = document.querySelector(
-      '[data-testid="connected-what-luca-did"]',
-    );
-    const before = history?.parentElement?.previousElementSibling;
-    return history && before
-      ? Math.round(
-          history.getBoundingClientRect().top -
-            before.getBoundingClientRect().bottom,
-        )
-      : null;
-  });
-  measure("connected_gap", gap);
-  expect(rows.map((row) => row.title)).toEqual([
-    "Rail glass plates",
-    "Fix the failing build",
+  expect(rows).toEqual([
+    { group: "Open now", titles: ["Rail glass plates"] },
+    { group: "Earlier", titles: ["Fix the failing build"] },
   ]);
   measure(
     "shot_connected_what_luca_did",
     await shot(page, "connected-what-luca-did"),
   );
-  await page
-    .getByTestId("connected-task-task-build")
-    .getByRole("button")
+  // A recorded task opens inline, the workspace's own address kept.
+  await catalogue
+    .getByRole("button", { name: /^Fix the failing build/ })
     .click();
-  // A task opens its own page (WP-35).
+  await expect(
+    page
+      .getByRole("region", { name: "Selected session" })
+      .getByRole("heading", { name: "Fix the failing build", exact: true }),
+  ).toBeVisible({ timeout: 20_000 });
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
-    .toContain("/apps/claude/tasks/task-build");
+    .toContain("/apps/claude");
 });
 
 test("800 x 500: needs you and all activity", async ({ page }) => {
@@ -1123,7 +1164,9 @@ test("landing on an exchange: its message in view, named for you", async ({
 // rail. An old address to it lands on All activity, and what was live in
 // Now is live in the rail.
 test("now: retired; live work is in the rail", async ({ page }) => {
-  await boot(page, { hash: "/pulse?stream=now" });
+  // The native inbox lists the work with Atlas but not the paused exchange
+  // with Wren: the relay still holds it, and the rail hangs nothing for it.
+  await boot(page, { hash: "/pulse?stream=now", inbox: [X_OPEN, X_DONE] });
   await expect(page.getByTestId("all-activity-card")).toBeVisible({
     timeout: 20_000,
   });
@@ -1131,7 +1174,12 @@ test("now: retired; live work is in the rail", async ({ page }) => {
   await expect(page.getByTestId("place-row-now")).toHaveCount(0);
   await speak(page);
   await page.getByTestId("shell-place-conversations").click();
-  const live = page.locator('[data-shell-rail] [data-side-row="live"]');
+  // Live work says so by its word (talking, working). A finished task
+  // without delivery evidence also stays in reach, marked live so the fold
+  // keeps it (commit 158129a01), but says only when it finished.
+  const live = page.locator(
+    "[data-shell-rail] [data-side-row]:has(.luca-rail-working)",
+  );
   await expect(live).toHaveCount(2, { timeout: 20_000 });
   const rows = await live.evaluateAll((nodes) =>
     nodes.map((node) => ({
@@ -1141,9 +1189,16 @@ test("now: retired; live work is in the rail", async ({ page }) => {
   );
   measure("now_live_in_rail", rows);
   expect(rows.map((row) => `${row.home} ${row.title}`).sort()).toEqual([
-    `agent:${ATLAS} Luca · general`,
+    `agent:${ATLAS} With Luca`,
     "app:claude Rail glass plates",
   ]);
+  await expect(page.locator(`[data-home-group="agent:${WREN}"]`)).toBeVisible();
+  await expect(
+    page.locator(`[data-home-group="agent:${WREN}"] [data-side-row]`),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId(`rail-side-correspondence:${PAIR_WREN}`),
+  ).toHaveCount(0);
 });
 
 test("the count past 99 reads 99+, on the icon and the row", async ({

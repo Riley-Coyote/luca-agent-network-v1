@@ -8,6 +8,7 @@ import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { railGlassAtRest } from "./flagOffSettle";
 import { chooseRailAgents } from "../helpers/railAgents";
+import { correspondenceIdOf, installRailInbox } from "../helpers/inbox-rail";
 
 /**
  * WP-18, one state and one mark for each mind
@@ -38,6 +39,16 @@ const ROOT = {
   paused: "e5".repeat(32),
   done: "e6".repeat(32),
 };
+
+/** Each pair's one correspondence, as the native inbox names it: Luca and
+ *  Atlas (the open exchange and the closed one), Luca and Wren (paused). */
+const PAIR_ATLAS = correspondenceIdOf([LUCA, ATLAS]);
+const PAIR_WREN = correspondenceIdOf([LUCA, WREN]);
+
+/** Rows whose word says live work (talking, working). A finished task with
+ *  no delivery evidence is also marked live so the fold keeps it in reach
+ *  (commit 158129a01), but it says only when it finished. */
+const LIVE_WORK = "[data-shell-rail] [data-side-row]:has(.luca-rail-working)";
 
 const NOW = Date.now();
 const iso = (minutesAgo: number) =>
@@ -196,6 +207,8 @@ async function boot(
       window.localStorage.setItem("buzz-theme", "paper");
       window.localStorage.setItem("buzz-follow-system", "false");
     });
+  // The rail hangs only the work the native inbox lists (commit 6aee43288).
+  await installRailInbox(page, seeds ? SEEDS.exchanges : []);
   await installMockBridge(page, {
     managedAgents: AGENTS.map((agent) => ({ ...agent })),
     ...(seeds ? SEEDS : {}),
@@ -341,18 +354,22 @@ for (const [mode, width, height] of [
       timeout: 20_000,
     });
     await speak(page);
-    const exchangeRow = page.getByTestId(`rail-side-exchange:${X_OPEN}`);
+    // Luca and Atlas's one correspondence, under Atlas (commit 6aee43288).
+    const exchangeRow = page.getByTestId(
+      `rail-side-correspondence:${PAIR_ATLAS}`,
+    );
     await expect(exchangeRow).toBeVisible({ timeout: 20_000 });
     const out: Record<string, unknown> = {};
     // Before: the room is what is open.
     await settle(page);
     out.before = await railMarks(page);
 
-    // From the rail: the exchange in general, then the task in design.
+    // From the rail: the correspondence, opened at the exchange in general;
+    // then the task in design.
     await exchangeRow.click();
     await expect
       .poll(() => page.evaluate(() => window.location.hash))
-      .toContain(ROOT.open);
+      .toContain(`/correspondence/${PAIR_ATLAS}`);
     await settle(page, 1500);
     out.railExchange = await railMarks(page);
     const exchangeAddress = await page.evaluate(() => window.location.hash);
@@ -447,7 +464,8 @@ for (const [mode, width, height] of [
     await settle(page, 1500);
     out.sideExchange = await railMarks(page);
 
-    // From Needs you: the paused exchange with Wren.
+    // From Needs you: the paused exchange with Wren, in its room at its
+    // first message.
     await page.evaluate(() => {
       window.location.hash = "#/needs-you";
     });
@@ -476,20 +494,21 @@ for (const [mode, width, height] of [
       marks.current[0]?.id === id &&
       marks.current[0]?.ariaCurrent === "page";
     const atlasHome = `agent:${ATLAS}`;
-    expect(
-      lit(out.railExchange as never, `exchange:${X_OPEN}`, atlasHome),
-    ).toBe(true);
+    const atlasPair = `correspondence:${PAIR_ATLAS}`;
+    expect(lit(out.railExchange as never, atlasPair, atlasHome)).toBe(true);
     expect(lit(out.railTask as never, "task:task-glass", "app:claude")).toBe(
       true,
     );
     expect(lit(out.sideTask as never, "task:task-glass", "app:claude")).toBe(
       true,
     );
+    expect(lit(out.sideExchange as never, atlasPair, atlasHome)).toBe(true);
     expect(
-      lit(out.sideExchange as never, `exchange:${X_OPEN}`, atlasHome),
-    ).toBe(true);
-    expect(
-      lit(out.needsExchange as never, `exchange:${X_PAUSED}`, `agent:${WREN}`),
+      lit(
+        out.needsExchange as never,
+        `correspondence:${PAIR_WREN}`,
+        `agent:${WREN}`,
+      ),
     ).toBe(true);
     const again = out.roomAgain as Awaited<ReturnType<typeof railMarks>>;
     expect(again.active).not.toContain(atlasHome);
@@ -593,20 +612,17 @@ for (const mode of ["dark", "light"] as const) {
     await expect(page.getByTestId("chat-list")).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByTestId(`rail-side-exchange:${X_OPEN}`)).toBeVisible({
-      timeout: 20_000,
-    });
+    await expect(
+      page.getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`),
+    ).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(1500);
-    out.now = await page
-      .locator('[data-shell-rail] [data-side-row="live"]')
-      .evaluateAll((rows) =>
-        rows.map((row) => ({
-          title: row.querySelector(".luca-rail-session-title")?.textContent,
-          home: row.closest<HTMLElement>("[data-home-group]")?.dataset
-            .homeGroup,
-          state: row.querySelector(".luca-rail-working")?.textContent ?? null,
-        })),
-      );
+    out.now = await page.locator(LIVE_WORK).evaluateAll((rows) =>
+      rows.map((row) => ({
+        title: row.querySelector(".luca-rail-session-title")?.textContent,
+        home: row.closest<HTMLElement>("[data-home-group]")?.dataset.homeGroup,
+        state: row.querySelector(".luca-rail-working")?.textContent ?? null,
+      })),
+    );
     out.shotNow = await shot(page, `d4-now-${mode}`);
     measure(`d2-d4-${mode}`, out);
 
@@ -639,7 +655,7 @@ for (const mode of ["dark", "light"] as const) {
     // d4: each piece of live work once, under whoever does it; none under
     // Luca, who is one chat.
     expect(now.map((row) => `${row.home} ${row.title}`).sort()).toEqual([
-      `agent:${ATLAS} Luca · general`,
+      `agent:${ATLAS} With Luca`,
       "app:claude Rail glass plates",
     ]);
     await context.close();
@@ -655,12 +671,12 @@ test("d2/d4 at 800 x 500 (dark)", async ({ browser }) => {
   const page = await context.newPage();
   await boot(page, { hash: `/channels/${GENERAL}` });
   await speak(page);
-  await expect(page.getByTestId(`rail-side-exchange:${X_OPEN}`)).toBeVisible({
-    timeout: 20_000,
-  });
+  await expect(
+    page.getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`),
+  ).toBeVisible({ timeout: 20_000 });
   await page.waitForTimeout(1500);
   const rows = await page
-    .locator('[data-shell-rail] [data-side-row="live"]')
+    .locator(LIVE_WORK)
     .evaluateAll((nodes) =>
       nodes.map(
         (node) =>
@@ -669,7 +685,7 @@ test("d2/d4 at 800 x 500 (dark)", async ({ browser }) => {
     );
   const hash = await shot(page, "d4-now-dark-800");
   measure("d4-now-800", { rows, hash });
-  expect(rows).toContain(`agent:${ATLAS} Luca · general`);
+  expect(rows).toContain(`agent:${ATLAS} With Luca`);
   expect(new Set(rows).size).toBe(rows.length);
   await context.close();
 });
