@@ -173,6 +173,22 @@ test("the coloured phrase keeps its own limits", () => {
   assert.equal(streamingTailShown(long), "");
 });
 
+test("a tail of many unclosed brackets is decided in bounded time", () => {
+  const tail = "[".repeat(50_000);
+  const started = performance.now();
+  const shown = streamingTailShown(tail);
+  const took = performance.now() - started;
+  // Each bracket's search for its `]` stops at the words limit; unbounded, a
+  // tail like this costs seconds on every streamed piece.
+  assert.ok(took < 1500, `took ${took.toFixed(0)} ms`);
+  assert.ok(tail.startsWith(shown));
+  // The coloured phrase's own rule holds its `[` and up to 1,024 after it.
+  assert.ok(
+    tail.length - shown.length <= 1025,
+    `held ${tail.length - shown.length}`,
+  );
+});
+
 /* ── The open code block is drawn in the finished block's own frame ───── */
 
 function renderStreaming(content) {

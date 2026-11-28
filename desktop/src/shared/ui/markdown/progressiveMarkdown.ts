@@ -369,6 +369,8 @@ function plainLinkState(
   let close = open + 1;
   let depth = 0;
   for (; close < tail.length; close += 1) {
+    // Past the words limit without its `]`, it shows as written.
+    if (close - from >= wordsLimit) return { state: "not", end: 0 };
     const character = tail[close];
     if (character === "\\") close += 1;
     else if (character === "[") depth += 1;
