@@ -8,19 +8,25 @@ one release, leave the Obsidian WIP out, cut the five Buzz ties and keep the lic
 This section is the active closeout. It replaces the November 5 section below, which is kept
 as a record. Mnemos is in scope: Riley, November 20, "i want to just get it all integrated".
 
-- **Frozen source.** The app's code is `6e2779c33` on `claude/native-rail-glass`. Every commit
-  after it changes tests and docs only.
-- **Checks at the frozen source.** Types: no errors. `pnpm run check`: clean. Frontend units:
-  4,730 of 4,730. Rust: desktop library 3,185 passed, 0 failed, 18 ignored; `buzz-dev-mcp`
-  118 and 1; `luca-protocol` 3, 11 and 5. Mnemos browser specs: 140 of 140 in Chromium. The
-  list-of-minds tests: 6 of 6 in Playwright's WebKit as well.
+- **Source.** The app's code is `a4b5a8608` on `claude/native-rail-glass` (November 27,
+  11:37 pm): `6e2779c33`, where it was frozen that morning, plus the two fixes under "Found in
+  the hands-on pass" below (7331fe57a, a4b5a8608). Riley, that evening: "fix both". The test
+  app on his Mac is still the build of `6e2779c33`; it needs one rebuild to show them.
+- **Checks.** At `a4b5a8608`: types, no errors; `pnpm run check`, clean; frontend units,
+  4,742 of 4,742; the mini chat and plain-text browser specs, 18 of 18 (at a load of 35). Not
+  run again since `6e2779c33`, because nothing they cover has changed: Rust (desktop library
+  3,185 passed, 0 failed, 18 ignored; `buzz-dev-mcp` 118 and 1; `luca-protocol` 3, 11 and 5),
+  the Mnemos browser specs (140 of 140 in Chromium) and the list-of-minds tests (6 of 6 in
+  Playwright's WebKit as well). The whole browser suite has not been swept again on
+  `a4b5a8608` yet.
 - **The browser suite.** `BETA14_BROWSER_TESTS.md` has the count. Of 2,051 tests, 556 are left
   out by name, each with its cause: 455 old (they fail the same way at beta.13), 38 need a
   second build to compare against, 2 need the real app, 1 is known in the app, 5 wait on
   Riley, 55 need a rewrite. Of the other 1,495, every one passed in the final sweep or alone,
-  except two. One is a real fault in the app (the mini chat, under "Found in the hands-on
-  pass" below). The other is an old timing edge in the picture gallery, unchanged since
-  beta.13, which passes when the Mac is not busy.
+  except two. One was a real fault in the app (the mini chat, fixed since: "Found in the
+  hands-on pass" below). The other is an old timing edge in the picture gallery, unchanged
+  since beta.13, which passes when the Mac is not busy. The two fixes added 14 tests, so the
+  suite now lists 2,065 and the rerun keeps 1,509.
 - **Release-mode practice compile.** `tauri build --no-bundle` with the beta overlay finished
   at `6e2779c33` in its own worktree: version 0.5.0-beta.14, the new layout on, arm64,
   minimum macOS 14.0, Apple's glass classes weak-linked, the six helpers staged. It carries
@@ -44,22 +50,38 @@ as a record. Mnemos is in scope: Riley, November 20, "i want to just get it all 
   Riley's walkthrough.
   One thing to know when testing in the background: a window that is fully covered pauses its
   motion, so the lit row in a list can look stuck. With part of the window in view it follows.
-- **Found in the hands-on pass. Both are app code and new since beta.13, so they are Riley's
-  call: fix them (one more test build) or ship them as known.**
-  - **The mini chat stops following a reply that grows fast.** It stops scrolling along part
-    way through, the "Newest message" arrow comes back, and the rest arrives out of sight; it
-    is worse on a busy Mac. Proven in the browser build, with the numbers, in
-    `BETA14_BROWSER_TESTS.md` under "Known in the app". The fix is a few lines in
-    `useQuickChatTranscript.ts`: only a reader moving up should switch following off.
-  - **Coloured phrases show as raw markup wherever a message is shown as plain text.** Seen
-    in the real app on the Activity page: `[The update worked.](ink:hope?land) The Ghost app
-    project is created…`. By reading the code (not seen on screen), the same raw text goes to
-    desktop notifications (direct messages, thread replies, mentions, needs-action, reminders:
-    `notificationFormat.ts`), both search result views, the quote above a reply, the signed
-    record rows, the Pulse reply line, the reminders list and Copy message. The conversation
-    itself, the mini chat, drafts and the Home inbox draw them properly. There is no shared
-    place to fix it: each of about six sites cuts the text itself, and the words have to be
-    taken out of the markup before the cut. The `ink:` links arrived on October 17 (36d6e70a7).
+- **Found in the hands-on pass, both new since beta.13, and fixed the same night (Riley:
+  "fix both"). Not yet seen in the real app: that needs the one rebuild.**
+  - **The mini chat stopped following a reply that grew fast** (the arrow came back and the
+    rest arrived out of sight). Fixed in 7331fe57a, `useQuickChatTranscript.ts`: following
+    turns on whenever the view is at the end and off only when the view moves toward older
+    messages, with no timers. Proof in the browser build: each new test fails on `cb7c0fd0b`
+    and passes now; the whole file 20 times over, 220 of 220, at a load of 7 to 12; the
+    reader still gets away mid-reply by real wheel, Page Up and arrow keys; and the
+    measurement that first proved the fault (216 px short, 56 px short, behind at line 4)
+    now reads 0 in every case at a load of 35. Not run in WebKit, the app's own engine: the
+    build that matches this repo's Playwright (2287) is not on this Mac. One rare case is
+    left, found by reading and never seen: content that shrinks and grows again inside one
+    frame can still read as the reader moving up. It was there before the fix too.
+  - **Coloured phrases showed as raw code wherever a message is plain text** (seen on the
+    Activity page: `[The update worked.](ink:hope?land) The Ghost app project is created…`).
+    Fixed in a4b5a8608. What counts as a coloured phrase is now defined once
+    (`remarkExpressionColors.ts`), and `plainExpressionText` reduces each phrase to its
+    words, before any cut, in: Activity rows with their spoken names and titles; the signed
+    record's reading (the receipt shows the words; "Copy raw event" still gives the exact
+    signed text); search results; the quoted line on a reply; desktop notifications
+    (messages, replies, the feed, reminders); the reminders list; the reminder preview as
+    it is saved; Pulse's reply line; Copy message; and a forum card cut inside a phrase.
+    Proof: 6 of the 7 new browser tests fail on `cb7c0fd0b` (Activity, search, the quoted
+    line, notifications, copy, reminders) and all pass now; the conversation still draws
+    the phrases coloured; a search for a word inside a phrase still finds the message.
+    By unit test only, not in the browser: Pulse's reply line and the reminder
+    notification. The second search view is fixed but nothing draws it. Left raw on
+    purpose: what the app reads back (notification targets, the signed event). Still raw:
+    a reminder preview saved before the fix and cut inside the words themselves
+    (`…[Good to se`), and three link shapes agents do not write (an address in angle
+    brackets, a space before the address, a phrase inside an indented code block). Not
+    looked at: project pull-request, issue and update text, which is not message text.
 - **Seen in the pass; small; ships as it is.**
   - Left blocked at the macOS keychain prompt for five hours at start, the app came up with a
     blank window and stayed blank until it was restarted. The Mac's log says why: the page's
