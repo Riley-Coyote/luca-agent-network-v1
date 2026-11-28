@@ -8,25 +8,30 @@ one release, leave the Obsidian WIP out, cut the five Buzz ties and keep the lic
 This section is the active closeout. It replaces the November 5 section below, which is kept
 as a record. Mnemos is in scope: Riley, November 20, "i want to just get it all integrated".
 
-- **Source.** The app's code is `a4b5a8608` on `claude/native-rail-glass` (November 27,
-  11:37 pm): `6e2779c33`, where it was frozen that morning, plus the two fixes under "Found in
-  the hands-on pass" below (7331fe57a, a4b5a8608). Riley, that evening: "fix both". The test
-  app on his Mac is still the build of `6e2779c33`; it needs one rebuild to show them.
-- **Checks.** At `a4b5a8608`: types, no errors; `pnpm run check`, clean; frontend units,
-  4,742 of 4,742; the mini chat and plain-text browser specs, 18 of 18 (at a load of 35). Not
-  run again since `6e2779c33`, because nothing they cover has changed: Rust (desktop library
-  3,185 passed, 0 failed, 18 ignored; `buzz-dev-mcp` 118 and 1; `luca-protocol` 3, 11 and 5),
-  the Mnemos browser specs (140 of 140 in Chromium) and the list-of-minds tests (6 of 6 in
-  Playwright's WebKit as well). The whole browser suite has not been swept again on
-  `a4b5a8608` yet.
+- **Source.** The app's code is `6895870e4` on `claude/native-rail-glass` (November 28,
+  4:10 am): `6e2779c33`, where it was frozen on the morning of the 27th, plus five fixes. Two
+  are under "Found in the hands-on pass" below (7331fe57a, a4b5a8608; Riley, that evening:
+  "fix both"). Three are under "Messaging, measured and fixed" below (14f626e25 with
+  8911274d5, 124af8202, 6895870e4; Riley: "make sure the visual messaging experience is
+  smooth and performs properly"). "The test app" below says which build is on his Mac.
+- **Checks.** At `6895870e4`: types, no errors; `pnpm run check`, clean; frontend units,
+  4,760 of 4,760; every browser test outside the named lists, once, on a busy Mac (load up to
+  23): 1,497 passed, 22 skipped, 5 failed, and each of the five is accounted for in
+  `BETA14_BROWSER_TESTS.md` (three pass alone; `luca/f15` fails the same way at `a4b5a8608`;
+  `popout-shell` is an old ordering tie, read from the failing page). Not run again since `6e2779c33`, because nothing they cover
+  has changed: Rust (desktop library 3,185 passed, 0 failed, 18 ignored; `buzz-dev-mcp` 118
+  and 1; `luca-protocol` 3, 11 and 5) and the list-of-minds tests in Playwright's WebKit
+  (6 of 6). Nothing from the two nights of fixes has been run in WebKit: the WebKit this
+  repo's Playwright needs (2287) is not on this Mac, and the real app is WebKit.
 - **The browser suite.** `BETA14_BROWSER_TESTS.md` has the count. Of 2,051 tests, 556 are left
   out by name, each with its cause: 455 old (they fail the same way at beta.13), 38 need a
   second build to compare against, 2 need the real app, 1 is known in the app, 5 wait on
   Riley, 55 need a rewrite. Of the other 1,495, every one passed in the final sweep or alone,
   except two. One was a real fault in the app (the mini chat, fixed since: "Found in the
   hands-on pass" below). The other is an old timing edge in the picture gallery, unchanged
-  since beta.13, which passes when the Mac is not busy. The two fixes added 14 tests, so the
-  suite now lists 2,065 and the rerun keeps 1,509.
+  since beta.13, which passes when the Mac is not busy. The five fixes since added 29 tests,
+  so the suite now lists 2,080 and the rerun keeps 1,524; all 1,524 ran on `6895870e4`
+  (see Checks).
 - **Release-mode practice compile.** `tauri build --no-bundle` with the beta overlay finished
   at `6e2779c33` in its own worktree: version 0.5.0-beta.14, the new layout on, arm64,
   minimum macOS 14.0, Apple's glass classes weak-linked, the six helpers staged. It carries
@@ -53,7 +58,8 @@ as a record. Mnemos is in scope: Riley, November 20, "i want to just get it all 
 - **Found in the hands-on pass, both new since beta.13, and fixed the same night (Riley:
   "fix both"). Not yet seen in the real app: that needs the one rebuild.**
   - **The mini chat stopped following a reply that grew fast** (the arrow came back and the
-    rest arrived out of sight). Fixed in 7331fe57a, `useQuickChatTranscript.ts`: following
+    rest arrived out of sight). This fix had a hole, found and closed the next night: see
+    "The mini chat follows when the typing box changes height" below. Fixed in 7331fe57a, `useQuickChatTranscript.ts`: following
     turns on whenever the view is at the end and off only when the view moves toward older
     messages, with no timers. Proof in the browser build: each new test fails on `cb7c0fd0b`
     and passes now; the whole file 20 times over, 220 of 220, at a load of 7 to 12; the
@@ -82,6 +88,97 @@ as a record. Mnemos is in scope: Riley, November 20, "i want to just get it all 
     (`…[Good to se`), and three link shapes agents do not write (an address in angle
     brackets, a space before the address, a phrase inside an indented code block). Not
     looked at: project pull-request, issue and update text, which is not message text.
+- **Messaging, measured and fixed (November 27 to 28; Riley: "make sure the visual
+  messaging experience is smooth and performs properly").** On the real page in the browser
+  build, Chromium only. The Mac was busy all night (load 5 to 46), so positions and counts
+  are the evidence and clock times are second-class. Not yet seen in the real app.
+  - **How a reply reaches the screen.** In small pieces, revealed a few letters at a time
+    about 25 times a second, growing one row in place; only that row redraws. Finished
+    paragraphs are drawn once and kept; only the unfinished end is redrawn. The "streaming
+    text" setting (Bloom, Diffusion, Off) changes only how each new word fades in.
+  - **Holds, every take:** following a reply at the end (never more than one line away for
+    three frames; ends at 0); a reader further up never moves (0 frames over 1 px); the way
+    back to the newest; scrolling up through history without an empty frame; typing (0
+    changes in any message row; the work per key does not grow with the conversation);
+    switching conversations (0 frames of the other one's rows); the mini chat's opening and
+    closing; Reduce Motion (same positions). The work for one more piece of a reply stays
+    flat from 500 to 5,000 words (ratio 0.8 to 1.7, limit 2). Eleven checks are kept as
+    `luca/messaging-smoothness`; two of them are loose under load (below).
+  - **Fixed: half-written formatting no longer shows** (14f626e25, with a bound added in
+    review, 8911274d5). While a reply is written, whatever is not yet in its final form
+    waits off screen until it can be drawn: bold, italic, strike-through, spoilers and
+    inline code (up to 200 characters from the opener), a link or picture (its words, then
+    up to 512 of address), a table's first row (300), a code block's opening line. One
+    rule, `streamingTailShown`, which the coloured phrases already used; the shown text is
+    always the reply's own text cut at one point, and it only grows. A code block is a code
+    block from its first line, in the finished block's frame, without colours until it
+    closes; closing it moves no line (0 px over 320 lines). Before, a 5,400-word reply
+    showed raw markup in 388 frames in the conversation and 202 in the mini chat; after, 0
+    in every setting, both widths, both places, two runs. The settled drawing is the
+    parser's, as before, with one correction: a last block whose later line is a list,
+    heading, quote, rule or closed fence is now parsed (it was drawn raw until the next
+    mount).
+  - **Fixed: a sent message keeps its row** (124af8202). The relay's echo of your own send
+    replaced the stored copy and dropped its local key, so the row was re-keyed and, for
+    one to three frames, not drawn. The echo now keeps the key (12 lines in
+    `channelWindowStore.ts`). 19 of 20 sends changed key before; 0 of 20 after, twice.
+  - **Fixed: the mini chat follows when the typing box changes height** (6895870e4). A hole
+    in the fix of the night before, not something the new fixes brought: `a4b5a8608` has it
+    too. What a person saw: send or clear a draft of several lines while a reply is
+    arriving; the typing box shrinks back, the "Newest message" arrow appears, and the rest
+    of the reply arrives out of sight (forced, 10 of 10 times). The other way round, a tall
+    draft started at the end left the newest message 98 px under the typing box (this half
+    fails on `cb7c0fd0b` too, so it is older). Cause: the list's bottom padding follows the
+    typing box's height, and the follow observer watched the list's content box, which
+    padding does not change; nothing looked when the padding shrank, the browser pulled the
+    position down to the new end, and the next look, a frame later and after more of the
+    reply had landed, read it as the reader moving up. Fix: the observer watches the list's
+    border box (`useQuickChatTranscript.ts`, one option on one call). It was caught by my
+    own check of the joined line: "a line every 16 ms…" failed 2 of 11 runs there and 0 of
+    31 before; the trace showed the typing box collapsing just as the test's stream began.
+    Proof: four new tests in `luca/quickchat-lens` (15 now); three fail 5 of 5 on
+    `8911274d5` and pass after; the fourth holds a reader further up in place while the
+    typing box closes; the whole file 30 times over, 450 of 450 at a load of 11 to 18. The
+    same question in the main conversation, measured and not changed: a six-line draft sent
+    or cleared while a reply streams never lost following and always ended at the end.
+  - **What the fixes cost, known.** A held piece lands whole, so while a reply is followed
+    the view is one frame late more often (23 to 35 single frames per long reply against
+    10 to 19; never three in a row). A lone marker that looks like the start of emphasis
+    outside code (`*.ts`, `_id`) holds the next 200 characters back, then lets them go at
+    once. An open code block inside a list or quote is still drawn by the parser, with
+    colours.
+  - **Measured and left for after the release, all older than beta.13 unless said:**
+    - A sent message can still land short for one frame: in 14 of 20 sends the first frame
+      is 117 px short of the end, then it is caught, with a 12 to 13 px move after. Cause
+      proven by removal: the new row takes the bottom spacer's measured size for one frame
+      (the list keeps sizes by position). Not fixed, because the spacer is part of how a
+      growing reply is followed. The files involved are unchanged since beta.13.
+    - With Bloom or Diffusion a long reply stutters: 287 to 581 stretches of 50 to 100 ms
+      per 5,400-word reply against 4 to 69 with Off (`useStreamingWordEffect.ts` restyles
+      every fading word each frame and rechecks every word of the reply on each commit).
+      Measured at about seven times a real model's speed on a loaded Mac, so it needs a
+      fair take on a quiet one before anyone changes it.
+    - A very large message freezes the window: 64 KB of JSON outside a code fence, about
+      1 s on arrival and again each time the conversation is opened; 200 KB, 8 s (the
+      desktop cannot send over 64 KB; the relay takes 256 KB). The cost is the table and
+      autolink extension of the Markdown parse. Inside a fence, or a log, under 0.5 s.
+    - A picture in a reply shows as the words "Image attachment" until the reply is done,
+      then the picture arrives and the reply grows at once (`MessageRow.tsx:591`,
+      `markdown.tsx:1605`).
+    - Opening a 500-message conversation, and scrolling fast up through it: one stretch of
+      104 to 122 ms on opening and about eleven of 107 to 121 ms in a fast scroll; and,
+      some runs, one correction a frame after it draws (the view stays at the end) or a
+      handful of rows moving about a quarter of a second after the wheel. Kept checks 4
+      and 5 catch the last two; both fail some runs at `a4b5a8608` too. Cause not traced;
+      needs a quiet Mac.
+    - A reply sent in the same second as the message it answers can sort above it: the
+      relay's time is whole seconds and a tie is broken by id. Seen in `popout-shell`
+      "opening choices": the owner's choice landed above Luca's greeting, so the choices
+      stayed. Old; unchanged by these fixes.
+    - New since beta.13, by design (50c6cfaa6): a coloured phrase in view keeps moving at
+      about 3 frames a second for as long as it is in view. Nothing a person sees; a little
+      power. Whether it should come fully to rest is Riley's call.
+  - **Not measured:** the task window's chat; anything in WebKit; anything on a quiet Mac.
 - **Seen in the pass; small; ships as it is.**
   - Left blocked at the macOS keychain prompt for five hours at start, the app came up with a
     blank window and stayed blank until it was restarted. The Mac's log says why: the page's

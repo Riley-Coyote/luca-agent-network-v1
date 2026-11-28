@@ -10,6 +10,7 @@ the release line at `90cba11d8`, every failure run again alone, each sorted by e
 | Base `90cba11d8` | 2046 | 1362 | 644 (634 steady, 9 loose, 1 fixed before its rerun) | 40 |
 | End, without the lists below | 1547 | 1452 | 59: 47 named here, 10 loose, 2 now on the lists | 36 |
 | Final sweep, joined line `842100973` | 1504 | 1454 | 21: 17 pass alone, 2 now on the lists, 2 loose | 29 |
+| Sweep after the fixes, `6895870e4` | 1524 | 1497 | 5: 3 pass alone, 2 loose with a cause | 22 |
 
 The 634 steady ones split in two. **446 are old**: they fail the same way at beta.13. **188
 are since beta.13**, and 9 of those turned out old too, so the old list holds 455. The beta.13
@@ -32,8 +33,24 @@ cores). Each file with a failure was then run again alone: 89 passed. What was l
 
 With those named, the rerun below kept 1495 of 2051 tests, and each either passed in the
 sweep or passed alone, apart from those two. The two fixes of that night added 14 tests (7 in
-`luca/quickchat-lens`, 7 in the new `luca/ink-plain-text`), so at `a4b5a8608` the suite lists
-2065 and the rerun keeps 1509. The suite has not been swept again on that commit yet.
+`luca/quickchat-lens`, 7 in the new `luca/ink-plain-text`). The three fixes of the next
+night added 15 more (11 in the new `luca/messaging-smoothness`, 4 in `luca/quickchat-lens`),
+so at `6895870e4` the suite lists 2080 and the rerun keeps 1524.
+
+**The sweep after the fixes (Nov 28, 4:09 to 4:40 am)** ran all 1524 once on `6895870e4`
+(load up to 23): 1497 passed, 22 skipped, 5 failed. Each failing file was run again alone,
+three times:
+- Pass alone, 3 of 3: `luca/conversation-prose` "top blur stays at the surface edge in dark";
+  `shell-top-edge` "the stuck day across older days at 1440"; `video-attachment` "right-click
+  menus…". Loose, under load.
+- `popout-shell` "renders Luca's opening choices, never the raw fence": 1 of 3 alone. Read
+  from the failing page: the owner's choice sorted above Luca's greeting, so the choices never
+  retired. The two were made in the same second; the relay's time is whole seconds and a tie
+  is broken by id. An old ordering edge in the app (on the loose list since before the
+  fixes, and by reading they do not touch the order); the raw fence never showed.
+- `luca/f15` "safe compatibility creation…": 8 of 9 alone, and 5 of 6 on `a4b5a8608` built
+  fresh the same minute. The test reads its test bridge straight after the page loads,
+  without the wait its neighbours use. A race in the test; nothing a person can meet.
 
 ## The old ones (455, untouched)
 
@@ -127,6 +144,14 @@ sphere; `exchange-strip` jump to latest; `operator-forge` retained group; `runti
 Run waits for a folder; `shell-settings` review's fixes; `task-motion` light; `popout-shell`
 opening choices; `video-attachment` right-click menus; `continuous-motion` video glow (below).
 Final sweep: `image-attachment-gallery` hidden spoiler images.
+Sweep after the fixes (Nov 28): `luca/conversation-prose` top blur in dark; `popout-shell`
+opening choices and `luca/f15` safe creation again, now with their causes (Counts, above).
+In repeats under load, not in the sweep: `luca/messaging-smoothness` "a long conversation
+opens at its end…" (one correction a frame after it draws; the view stays at the end) and
+"scrolling up through history…" (rows 453 to 459 move about 248 ms after the wheel). Both
+fail some runs on `a4b5a8608` too, so they are old; cause not traced. `blackout-messaging-
+controls` once more (one test, once in 24 runs of its six): its first check reads the
+message box before the channel has finished loading.
 
 ## Known in the app
 
@@ -171,6 +196,24 @@ night in 7331fe57a; Riley: "fix both").**
 night in a4b5a8608).** The new `luca/ink-plain-text` has 7 tests; 6 fail on `cb7c0fd0b`
 (Activity, search, the quoted line, notifications, copy, reminders). `BETA14_RELEASE.md`,
 "Found in the hands-on pass", has the places and what is left.
+
+**Half-written formatting showed while a reply was written (found November 27, fixed in
+14f626e25 with 8911274d5).** `luca/messaging-smoothness`: "a reply holding every kind of
+formatting…", "an open code block is a code block from its first line…" and "in the mini
+chat a reply never shows its markup…" fail on `a4b5a8608` (388 raw frames, outside a block,
+202 raw frames) and pass now. `BETA14_RELEASE.md`, "Messaging, measured and fixed", has the
+rule, its limits and what it costs.
+
+**A sent message's row blinked out for a frame or three (found November 27, fixed in
+124af8202).** "a sent message, once drawn, never disappears and keeps one row": 19 of 20
+sends changed key before, 0 of 20 after.
+
+**The mini chat stopped following when the typing box changed height (found November 28,
+fixed in 6895870e4).** A hole in 7331fe57a above. Four tests in `luca/quickchat-lens`
+(a draft cleared, a draft sent, a draft that opens the typing box, the typing box closing
+under a reader further up); three fail 5 of 5 on `8911274d5`. The whole file 30 times over:
+450 of 450. How it was caught: "a line every 16 ms…" failed 2 of 11 runs on the joined line
+and 0 of 31 before it, and a trace found the typing box collapsing as the stream began.
 
 ## Waiting on Riley's call
 
