@@ -22,15 +22,18 @@ cores). Each file with a failure was then run again alone: 89 passed. What was l
   `luca/shell-runtime` "connected 800" fails as its 1440 twin does (the connected-app card is
   gone, 8e4693bfe); the seven tests after it in the same one-after-another group never run.
 - Two that still failed alone. Both were settled later the same morning (11:41 to 11:46 am):
-  - `luca/quickchat-lens` "a reader stays put…" is **a fault in the app**, not in the test.
-    It is under "Known in the app" below. It failed 3 of 3 again at a load of 9.
+  - `luca/quickchat-lens` "a reader stays put…" was **a fault in the app**, not in the test.
+    It failed 3 of 3 again at a load of 9. Fixed that night in 7331fe57a: see "Fixed in the
+    app since the final sweep" below.
   - `image-attachment-gallery` "hidden spoiler images…" is an old timing edge: it opens a
     picture in the same instant a spoiler is revealed, and the open picture never learns it
     has a neighbour. The reveal and gallery code is unchanged since beta.13. It passed in the
     sweep at 7:28 and 2 of 3 at a load of 9. It belongs on the loose list.
 
-With those named, the rerun below keeps 1495 of 2051 tests, and each either passed in the
-sweep or passed alone, apart from those two.
+With those named, the rerun below kept 1495 of 2051 tests, and each either passed in the
+sweep or passed alone, apart from those two. The two fixes of that night added 14 tests (7 in
+`luca/quickchat-lens`, 7 in the new `luca/ink-plain-text`), so at `a4b5a8608` the suite lists
+2065 and the rerun keeps 1509. The suite has not been swept again on that commit yet.
 
 ## The old ones (455, untouched)
 
@@ -117,7 +120,8 @@ launch the built native app.
 ## Loose (pass alone)
 
 Base: `image-attachment-gallery` copy image; `blackout-messaging-controls`; `f15` safe creation;
-`quickchat-lens` reader; `runtime-task-card` ×4 (follow-up, failed, interrupted, quiet notice);
+`quickchat-lens` reader (not loose after all: the mini chat fault, fixed in 7331fe57a);
+`runtime-task-card` ×4 (follow-up, failed, interrupted, quiet notice);
 `shell-top-edge` stuck day. End, under load: `agent-rail` Quick Chat; `chat-agent-mark` visible
 sphere; `exchange-strip` jump to latest; `operator-forge` retained group; `runtime-task-card`
 Run waits for a folder; `shell-settings` review's fixes; `task-motion` light; `popout-shell`
@@ -135,28 +139,38 @@ Final sweep: `image-attachment-gallery` hidden spoiler images.
 - By hand: Reduce Motion on in macOS, open a conversation with a short looping video, and
   watch its glow at the moment it loops. Test: `luca/continuous-motion`, left as it is.
 
-**The mini chat stops following a reply that grows fast (found November 27).**
-- What a person sees: the mini chat is at the newest message and a reply is streaming in.
+## Fixed in the app since the final sweep
+
+**The mini chat stopped following a reply that grew fast (found November 27, fixed that
+night in 7331fe57a; Riley: "fix both").**
+- What a person saw: the mini chat is at the newest message and a reply is streaming in.
   Part way through, it stops scrolling along, the "Newest message" arrow comes back, and the
-  rest of the reply arrives out of sight. Pressing the arrow while the reply is still growing
-  can leave it short again. It is worse the busier the Mac is.
-- Cause: when the mini chat scrolls itself to the end, the browser reports that scroll one
-  frame later. If the reply has grown again by then, the report reads as "the reader moved
-  away", and following is switched off (`useQuickChatTranscript.ts`: `update()` sets
-  `following` from the distance to the end on every scroll event, its own included).
-- New in beta.14: the file arrived with e52aaba46 (October 31); beta.13 has no such code.
-- Proof, in the browser build at `842100973` (a throwaway spec, kept out of the repository):
-  - "Newest", then growth in the same moment: 216 px short of the end, arrow back. With three
-    frames between them: 0.
-  - At the end and following, growth in two frames running: 56 px short, arrow back.
-  - A reply growing by one line every 16 ms fell behind at line 4 and ended 858 px short;
-    every 50 ms, behind at line 17 and 572 px short; every 120 ms, it kept up. (Load 16.)
-- Test: `luca/quickchat-lens` "a reader stays put while content grows, then newest resumes
-  following". It is right and stays in the rerun. It passes only when the Mac is idle enough
-  for a frame to land between the arrow and the growth; until the app is fixed, expect it to
-  fail in a run on a busy Mac.
-- The fix is small: only a reader moving up should switch following off. It is app code, so
-  it waits on Riley, and it needs one more test build to try by hand.
+  rest of the reply arrives out of sight. Worse the busier the Mac was.
+- Cause: when the mini chat scrolled itself to the end, the browser reported that scroll one
+  frame later. If the reply had grown again by then, the report read as "the reader moved
+  away" (`useQuickChatTranscript.ts` set `following` from the distance to the end on every
+  scroll event, its own included). New in beta.14 (e52aaba46, October 31).
+- The fix: following turns on whenever the view is at the end, and off only when the view
+  moves toward older messages. No timers, no skipped events.
+- Proof before, in the browser build at `842100973` (a throwaway spec): "Newest" and growth
+  in the same moment, 216 px short with the arrow back; growth in two frames running, 56 px
+  short; a line every 16 ms fell behind at line 4, every 50 ms at line 17. (Load 16.)
+- Proof after, at `a4b5a8608`: the same throwaway spec reads 0 px and no arrow in every case
+  (load 35). Seven new tests in `luca/quickchat-lens`, three of which fail on `cb7c0fd0b`:
+  the same-moment case, two frames running, a line every 16 ms with the arrow never
+  appearing, the reader getting away mid-reply by real wheel and by keys and staying put,
+  part-way down not resuming, reopening at a saved place, and content removed under a
+  following reader. The old test "a reader stays put while content grows, then newest
+  resumes following" is unchanged and passes: the whole file 20 times over, 220 of 220, at
+  a load of 7 to 12.
+- Not run: WebKit, the app's own engine (the matching Playwright build, 2287, is not on this
+  Mac). Left: content that shrinks and grows again inside one frame can still read as the
+  reader moving up; found by reading, never seen, and there before the fix.
+
+**Coloured phrases showed as raw code in plain-text places (found November 27, fixed that
+night in a4b5a8608).** The new `luca/ink-plain-text` has 7 tests; 6 fail on `cb7c0fd0b`
+(Activity, search, the quoted line, notifications, copy, reminders). `BETA14_RELEASE.md`,
+"Found in the hands-on pass", has the places and what is left.
 
 ## Waiting on Riley's call
 
@@ -173,9 +187,8 @@ An agent you agree to in chat, or tick in onboarding, does not appear in the rai
 
 Every test outside the lists above, by name (`desktop/tests/e2e/beta14-rerun-exclude.txt`). The
 file also names the tests left with a cause, so a clean run is no failures; one that fails under
-load and passes alone belongs on the loose list. The one exception is the mini chat test under
-"Known in the app": it stays in the run on purpose and fails on a busy Mac until the app is
-fixed. Each name in the file matches exactly one test.
+load and passes alone belongs on the loose list. Each name in the file matches exactly one
+test.
 
 ```sh
 cd desktop && export pnpm_config_verify_deps_before_run=false && pnpm exec playwright test \
