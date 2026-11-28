@@ -68,7 +68,9 @@ export function useQuickChatTranscript(model: QuickChatViewModel) {
     };
     const observer = new ResizeObserver(follow);
     observer.observe(node);
-    observer.observe(content);
+    // Border box: the list's bottom padding follows the composer's height, so
+    // a composer opening or closing is a look in the frame it lands.
+    observer.observe(content, { box: "border-box" });
     return () => observer.disconnect();
   }, [model.open, update]);
 

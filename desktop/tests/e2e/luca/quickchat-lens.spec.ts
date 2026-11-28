@@ -459,3 +459,151 @@ test.describe("the mini chat keeps up with a fast reply", () => {
     await expect(newestArrow(page)).toHaveCount(0);
   });
 });
+
+// The composer's height is the list's bottom padding: a draft opening or
+// closing moves the end without any message changing size.
+const DRAFT = [
+  "A second thought that runs long enough to need more than one line here.",
+  "And a second line.",
+  "And a third.",
+  "And a fourth.",
+].join("\n");
+const dockPadding = (page: Page) =>
+  page
+    .locator(".qc-messages")
+    .evaluate((el) => Number.parseFloat(getComputedStyle(el).paddingBottom));
+
+/** A reply a line every 16 ms; at line 3 the draft is cleared, or sent. */
+function streamWhileDraftCloses(page: Page, how: "clear" | "send") {
+  return page.evaluate(async (how) => {
+    const transcript = document.querySelector(".qc-transcript") as HTMLElement;
+    const field = document.querySelector(
+      '[data-testid="quickchat-input"]',
+    ) as HTMLTextAreaElement;
+    const reply = document.createElement("p");
+    reply.style.height = "0px";
+    document.querySelector(".qc-messages")?.append(reply);
+    let arrowFrames = 0;
+    let streaming = true;
+    const sample = () => {
+      if (document.querySelector('button[aria-label="Newest message"]'))
+        arrowFrames++;
+      if (streaming) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+    for (let line = 1; line <= 40; line++) {
+      reply.style.height = `${line * 22}px`;
+      if (line === 3) {
+        if (how === "clear") {
+          Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            "value",
+          )?.set?.call(field, "");
+          field.dispatchEvent(new Event("input", { bubbles: true }));
+        } else {
+          field.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          );
+        }
+      }
+      await new Promise<void>((done) => setTimeout(done, 16));
+    }
+    streaming = false;
+    return {
+      arrowFrames,
+      left: Math.abs(
+        transcript.scrollHeight -
+          transcript.clientHeight -
+          transcript.scrollTop,
+      ),
+      draft: field.value,
+    };
+  }, how);
+}
+
+test.describe("the composer's height and following", () => {
+  test("a draft cleared while a fast reply arrives: the end is kept", async ({
+    page,
+  }) => {
+    await longConversation(page);
+    await page.getByTestId("quickchat-input").fill(DRAFT);
+    await waitForAnimations(page);
+    await settle(page);
+    const result = await streamWhileDraftCloses(page, "clear");
+    expect(result.draft).toBe("");
+    await settle(page);
+    expect(result.arrowFrames).toBe(0);
+    expect(await leftToEnd(page)).toBeLessThanOrEqual(2);
+    await expect(newestArrow(page)).toHaveCount(0);
+  });
+
+  test("a draft sent as the reply starts arriving: the end is kept", async ({
+    page,
+  }) => {
+    // A second send waits while a turn runs, so this is the first send: the
+    // composer closes as the reply's first lines land.
+    const field = page.getByTestId("quickchat-input");
+    await field.fill(
+      `${"A long message for scroll verification. ".repeat(40)}\n${DRAFT}`,
+    );
+    await waitForAnimations(page);
+    await settle(page);
+    const result = await streamWhileDraftCloses(page, "send");
+    expect(result.draft).toBe("");
+    await settle(page);
+    expect(result.arrowFrames).toBe(0);
+    expect(await leftToEnd(page)).toBeLessThanOrEqual(2);
+    await expect(newestArrow(page)).toHaveCount(0);
+  });
+
+  test("a draft that opens the composer keeps the newest message above it", async ({
+    page,
+  }) => {
+    await longConversation(page);
+    const before = await dockPadding(page);
+    await page.getByTestId("quickchat-input").fill(DRAFT);
+    await waitForAnimations(page);
+    await settle(page);
+    expect(await dockPadding(page)).toBeGreaterThan(before + 20);
+    expect(await leftToEnd(page)).toBeLessThanOrEqual(2);
+    const [messageBottom, composerTop] = await Promise.all([
+      page
+        .locator(".qc-message")
+        .last()
+        .evaluate((el) => el.getBoundingClientRect().bottom),
+      page
+        .locator(".qc-composer")
+        .evaluate((el) => el.getBoundingClientRect().top),
+    ]);
+    expect(messageBottom).toBeLessThanOrEqual(composerTop);
+    await expect(newestArrow(page)).toHaveCount(0);
+  });
+
+  test("the composer closing does not pull a reader who is further up", async ({
+    page,
+  }) => {
+    await longConversation(page);
+    await page.getByTestId("quickchat-input").fill(DRAFT);
+    await waitForAnimations(page);
+    await settle(page);
+    await wheelOverTranscript(page, -400);
+    const top = await restingTop(page);
+    await expect(newestArrow(page)).toBeVisible();
+    const open = await dockPadding(page);
+    await page.getByTestId("quickchat-input").fill("");
+    await waitForAnimations(page);
+    await settle(page);
+    const closed = await dockPadding(page);
+    expect(open - closed).toBeGreaterThan(20);
+    // The browser itself moves the view only if the end comes past it.
+    expect(Math.abs((await viewTop(page)) - top)).toBeLessThanOrEqual(
+      open - closed,
+    );
+    await expect(newestArrow(page)).toBeVisible();
+    const held = await viewTop(page);
+    await grow(page, 200);
+    await settle(page);
+    expect(Math.abs((await viewTop(page)) - held)).toBeLessThanOrEqual(1);
+    await expect(newestArrow(page)).toBeVisible();
+  });
+});
