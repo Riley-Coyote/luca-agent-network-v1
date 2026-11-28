@@ -596,3 +596,46 @@ export async function sendFromMiniChat(page: Page, text: string) {
     throw new Error("The mini chat send is missing.");
   return { channelId, receiptId };
 }
+
+type SentWindow = {
+  __sent: { on: boolean; keys: (string | null)[] };
+};
+
+/**
+ * After every painted frame, the key of the conversation row that holds
+ * `text` (null while it is not drawn).
+ */
+export async function watchSentRow(page: Page, text: string) {
+  await page.evaluate((needle) => {
+    const state = { keys: [] as (string | null)[], on: true };
+    (window as unknown as SentWindow).__sent = state;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      const timeline = document.querySelector(
+        '[data-testid="message-timeline"]',
+      );
+      if (!timeline) return;
+      const row = Array.from(
+        timeline.querySelectorAll<HTMLElement>("[data-timeline-item-key]"),
+      ).find((candidate) => (candidate.textContent ?? "").includes(needle));
+      state.keys.push(row?.dataset.timelineItemKey ?? null);
+    };
+    const loop = () => {
+      if (!state.on) return;
+      channel.port2.postMessage(0);
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }, text);
+}
+
+/** The row keys seen from the first frame the sent row was drawn. */
+export async function stopSentRow(page: Page): Promise<(string | null)[]> {
+  const keys = await page.evaluate(() => {
+    const state = (window as unknown as SentWindow).__sent;
+    state.on = false;
+    return state.keys;
+  });
+  const first = keys.findIndex((key) => key !== null);
+  return first < 0 ? [] : keys.slice(first);
+}

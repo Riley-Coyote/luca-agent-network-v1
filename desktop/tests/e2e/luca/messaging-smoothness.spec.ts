@@ -16,8 +16,10 @@ import {
   stopCodeBlock,
   stopFrames,
   stopMarkupShown,
+  stopSentRow,
   watchCodeBlock,
   watchMarkupShown,
+  watchSentRow,
   wheelConversation,
 } from "../../helpers/messagingSmoothness";
 
@@ -272,4 +274,22 @@ test("in the mini chat a reply never shows its markup while it is written", asyn
   });
   await page.waitForTimeout(1500);
   expect(await stopMarkupShown(page)).toEqual([]);
+});
+
+test("a sent message, once drawn, never disappears and keeps one row", async ({
+  page,
+}) => {
+  await bootSmoothness(page, { history: 120 });
+  await page.waitForTimeout(1500);
+  for (let i = 0; i < 5; i += 1) {
+    const text = `Send check ${i} goes out now.`;
+    await page.getByTestId("message-input").fill(text);
+    await watchSentRow(page, text);
+    await page.getByTestId("send-message").click();
+    await page.waitForTimeout(900);
+    const keys = await stopSentRow(page);
+    expect(keys.length).toBeGreaterThan(10);
+    expect(keys.filter((key) => key === null)).toEqual([]);
+    expect(new Set(keys).size).toBe(1);
+  }
 });

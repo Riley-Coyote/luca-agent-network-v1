@@ -212,11 +212,22 @@ export function mergeLiveChannelWindowEvent(
   ) {
     return current;
   }
+  // The relay's echo of the owner's own send carries no local key. The copy
+  // it replaces does (the accepted send keeps its optimistic key), and that
+  // key is the row's identity: dropping it re-keys the row, and while the
+  // deferred transcript is a frame behind the row is not drawn at all.
+  const known = current.liveOverlay.find(
+    (candidate) => candidate.id === event.id,
+  );
+  const merged =
+    known?.localKey && !event.localKey
+      ? { ...event, localKey: known.localKey }
+      : event;
   return {
     ...current,
     liveOverlay: current.liveOverlay
       .filter((candidate) => candidate.id !== event.id)
-      .concat(event)
+      .concat(merged)
       .sort(compareRelayOrder),
   };
 }

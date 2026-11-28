@@ -499,3 +499,27 @@ test("exhaustion tracks only a resolved tail page's hasMore", () => {
   assert.equal(channelWindowHistoryExhausted(closed), true);
   assert.equal(channelWindowHasMore(closed), false);
 });
+
+test("the relay's echo of an accepted own send keeps the row's local key", () => {
+  const accepted = {
+    content: "Send check goes out now.",
+    created_at: 1_800_000_000,
+    id: "e".repeat(64),
+    kind: 9,
+    localKey: "optimistic-1234",
+    pubkey: "a".repeat(64),
+    sig: "s".repeat(128),
+    tags: [["h", "channel"]],
+  };
+  const store = mergeLiveChannelWindowEvent(
+    emptyChannelWindowStore(),
+    accepted,
+  );
+  const { localKey: _dropped, ...echo } = accepted;
+  const next = mergeLiveChannelWindowEvent(store, echo);
+  assert.equal(next.liveOverlay.length, 1);
+  assert.equal(next.liveOverlay[0].localKey, "optimistic-1234");
+  // An echo of someone else's event has nothing to keep.
+  const other = mergeLiveChannelWindowEvent(emptyChannelWindowStore(), echo);
+  assert.equal(other.liveOverlay[0].localKey, undefined);
+});
