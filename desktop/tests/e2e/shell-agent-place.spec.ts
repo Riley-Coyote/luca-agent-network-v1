@@ -1157,7 +1157,20 @@ for (const light of [false, true]) {
 
     const settingsColours = await readColours(page);
     measure(`settings-colours-${time}`, settingsColours);
-    expect(settingsColours.stray).toEqual([]);
+    // The one paint outside the inks is Appearance's "Choose picture" button
+    // (67a93cba3): the app's shared secondary button keeps its own soft black
+    // shadow. Nothing else may stray.
+    const pictureButton = page
+      .getByTestId("agent-chat-picture")
+      .getByRole("button", { name: "Choose picture" });
+    const pictureStray = await pictureButton.evaluate(
+      (button) =>
+        `${button.className} shadow ${getComputedStyle(button).boxShadow}`,
+    );
+    expect(pictureStray).toMatch(
+      / shadow .*rgba\(0, 0, 0, 0\.05\) 0px 1px 2px/,
+    );
+    expect(settingsColours.stray).toEqual([pictureStray]);
     expect(settingsColours.gradients).toEqual([]);
     await page.getByTestId("mind-row-keeps").click();
     await expect(page.getByTestId("mind-keeps-up-with")).toBeVisible();

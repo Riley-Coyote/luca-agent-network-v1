@@ -509,6 +509,7 @@ async function readAsks(page: Page) {
           answersBox: box(answers),
           answers: buttons.map((button) => ({
             label: button.textContent,
+            choice: button.dataset.permissionChoice ?? null,
             box: box(button),
             fill: getComputedStyle(button).backgroundColor,
             border: getComputedStyle(button).borderTopWidth,
@@ -547,6 +548,48 @@ function tinted(ask: Ask) {
       each.border === "0px" &&
       /rgba\(\d+, \d+, \d+, 0\.08\)/.test(each.fill) &&
       each.radius === "8px",
+  );
+}
+
+/** The room draws its asks on the temporary sheet (02226ec1c): the study's
+ *  capsule, no edge, ink at 8%, and a one-time approval in that same ink,
+ *  solid. */
+function capsule(ask: Ask) {
+  const ink = (fill: string) =>
+    fill.match(/^rgba?\((\d+, \d+, \d+)(, [\d.]+)?\)$/);
+  const first = ink(ask.answers[0]?.fill ?? "")?.[1];
+  return (
+    first !== undefined &&
+    ask.answers.every((each) => {
+      const match = ink(each.fill);
+      return (
+        each.border === "0px" &&
+        each.radius === "999px" &&
+        match?.[1] === first &&
+        (each.choice === "once"
+          ? match?.[2] === undefined
+          : match?.[2] === ", 0.08")
+      );
+    })
+  );
+}
+
+/** A permission in the room: its Details on the left and its answers on the
+ *  right, in one line under its words, ending on the words' right edge. */
+function answersRight(ask: Ask) {
+  const what = ask.what;
+  const first = ask.answers[0]?.box;
+  const last = ask.answers.at(-1)?.box;
+  if (!what || !first || !last) return false;
+  return (
+    ask.answers.every(
+      (each) =>
+        each.box !== null &&
+        each.box.y >= what.y + what.height - 0.5 &&
+        each.box.y === first.y,
+    ) &&
+    first.x > what.x + 1 &&
+    Math.abs(last.x + last.width - (what.x + what.width)) <= 1
   );
 }
 
@@ -641,8 +684,13 @@ for (const [width, height, mode] of [
 
     const byTitle = (list: Ask[], title: string) =>
       list.find((each) => each.title === title);
+    // One ask everywhere: the same question and the same choices. The room
+    // draws it on its own sheet (02226ec1c): a permission there says "Allow
+    // once" for Needs you's "Once" (the same decision), its answers on the
+    // right; every room answer is a capsule.
+    const releaseAsk = "Run the release script";
     for (const title of [
-      "Run the release script",
+      releaseAsk,
       "Should the Tidepool page say preview or beta?",
       "Update the release notes for beta 7.",
     ]) {
@@ -651,10 +699,27 @@ for (const [width, height, mode] of [
       expect(inRoom, `room: ${title}`).toBeTruthy();
       expect(inNeeds, `needs you: ${title}`).toBeTruthy();
       if (!inRoom || !inNeeds) continue;
-      expect(words(inRoom)).toEqual(words(inNeeds));
-      expect(underText(inRoom), `room answers under: ${title}`).toBe(true);
+      expect(inRoom.answers.map((each) => each.choice)).toEqual(
+        inNeeds.answers.map((each) => each.choice),
+      );
+      if (title === releaseAsk) {
+        expect(inNeeds.answers.map((each) => each.choice)).toEqual([
+          "deny",
+          "once",
+        ]);
+        expect(words(inRoom)).toEqual({
+          title,
+          answers: ["Deny", "Allow once"],
+        });
+        expect(words(inNeeds)).toEqual({ title, answers: ["Deny", "Once"] });
+        expect(inRoom.extra).toBe("Details");
+        expect(answersRight(inRoom), `room answers right: ${title}`).toBe(true);
+      } else {
+        expect(words(inRoom)).toEqual(words(inNeeds));
+        expect(underText(inRoom), `room answers under: ${title}`).toBe(true);
+      }
       expect(underText(inNeeds), `needs answers under: ${title}`).toBe(true);
-      expect(tinted(inRoom), `room tint: ${title}`).toBe(true);
+      expect(capsule(inRoom), `room capsule: ${title}`).toBe(true);
       expect(tinted(inNeeds), `needs tint: ${title}`).toBe(true);
     }
     const question = byTitle(
