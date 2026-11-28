@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import type { AgentInboxFixture } from "../../../src/testing/agentInboxFixture";
+import type { RelayEvent } from "../../../src/shared/api/types";
 import { waitForAnimations } from "../../helpers/animations";
 import {
   installMockBridge,
@@ -388,6 +390,7 @@ async function emitOwnerReturnJourney(page: Page, parentEventId?: string) {
         requestId: request.id,
         responseId: response.id,
         returnId: returned.id,
+        events: [request, response, returned],
       };
     },
     {
@@ -399,6 +402,63 @@ async function emitOwnerReturnJourney(page: Page, parentEventId?: string) {
       answer: RETURN_TEXT,
     },
   );
+}
+
+// The native inbox's scope for this owner; the mock reads it back unchanged.
+const INBOX_SCOPE = {
+  communityId: "9b603e66-0283-4bb6-9808-309a2bef4927",
+  ownerPubkey: OWNER_PUBKEY,
+};
+const PAIR = `correspondence-v1-${"12".repeat(32)}`;
+
+/** The task window reads the exchange through the native inbox, which serves
+ *  the canonical relay history. In the browser that read is a fixture, so hand
+ *  it the very events the room received: the whole exchange, closed. */
+async function serveTaskHistory(page: Page, events: RelayEvent[]) {
+  const now = Math.floor(Date.now() / 1000);
+  const task = {
+    correspondenceId: PAIR,
+    record: {
+      protocol: "luca.exchange.v1",
+      exchange_id: EXCHANGE_ID,
+      owner: OWNER_PUBKEY,
+      members: [LUCA.pubkey, VEKTOR.pubkey],
+      conversation_id: GENERAL_CHANNEL_ID,
+      // The room message the exchange hangs from, not one of its turns.
+      root_event_id: "11".repeat(32),
+      depth: 1,
+      bucket: 3,
+      state: "closed",
+      deadline: now + 3600,
+      opened_by: LUCA.pubkey,
+    },
+    recordEventId: EXCHANGE_ID,
+    recordUpdatedAt: now,
+    outcome: "reply_received",
+  };
+  const fixture: AgentInboxFixture = {
+    pages: [
+      {
+        scope: INBOX_SCOPE,
+        tasks: [task],
+        nextCursor: null,
+        historySource: "canonical_relay",
+        partial: false,
+      },
+    ],
+    reads: {
+      [EXCHANGE_ID]: {
+        scope: INBOX_SCOPE,
+        task,
+        events,
+        historySource: "canonical_relay",
+        partial: false,
+      },
+    },
+  };
+  await page.evaluate((data) => {
+    window.__BUZZ_E2E_AGENT_INBOX__ = data;
+  }, fixture);
 }
 
 async function publishClosedHead(
@@ -457,7 +517,9 @@ for (const arrival of ["head first", "return first"] as const) {
     ).toHaveCount(0);
     const receipt = page.getByTestId(`exchange-receipt-${EXCHANGE_ID}`);
     await expect(receipt).toHaveCount(1);
-    await expect(receipt).toContainText("3 turns");
+    // The receipt names who answered and that the exchange is over; the
+    // turns themselves are in the task window it opens (740409ae7).
+    await expect(receipt).toContainText("Vektor · Closed");
     expect(
       await receipt.evaluate((el, returnId) => {
         const answer = document.querySelector(
@@ -475,16 +537,26 @@ for (const arrival of ["head first", "return first"] as const) {
     await page.screenshot({
       path: testInfo.outputPath("owner-return-main.png"),
     });
+    await serveTaskHistory(page, ids.events);
     await receipt.click();
-    const history = page.getByTestId(`exchange-history-${EXCHANGE_ID}`);
-    await expect(history).toHaveAttribute("data-exchange-phase", "closed");
-    for (const text of [
+    // Beside the room, as ordinary chat: every turn, in the order spoken.
+    const pane = page.getByTestId("task-chat-pane");
+    await expect(pane).toBeVisible();
+    const history = pane.getByTestId("correspondence-window");
+    await expect(history).toHaveAttribute("data-presentation", "beside");
+    const turns = [
       "Please check the Hermes profile boundary.",
       "The existing profiles remain native and read-only.",
       RETURN_TEXT,
-    ]) {
+    ];
+    for (const text of turns) {
       await expect(history.getByText(text, { exact: true })).toBeVisible();
     }
+    expect(
+      await history
+        .locator("article .conversation-prose")
+        .evaluateAll((prose) => prose.map((each) => each.textContent?.trim())),
+    ).toEqual(turns);
     await waitForAnimations(page);
     await page.screenshot({
       path: testInfo.outputPath("owner-return-history.png"),

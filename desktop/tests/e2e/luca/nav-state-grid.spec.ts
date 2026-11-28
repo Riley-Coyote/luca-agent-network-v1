@@ -11,7 +11,9 @@ import { chooseRailAgents } from "../../helpers/railAgents";
  * The nav's state grid, captured for review by eye.
  *
  * Every settled state the rail can be in — open, collapsed, peeked; with
- * and without a resident's column; on the home view, a room, a project
+ * a resident's sessions folded and unfolded under it (since 6dbb49a64 they
+ * unfold in the rail; the resident's chats column is gone); on the home
+ * view, a room, a project
  * room and an empty project; at three widths and three text scales —
  * lands as a PNG under desktop/nav-grid/, named by its coordinates.
  * The repo has no baseline-diffing screenshot tests, and macOS-versus-CI
@@ -28,14 +30,20 @@ import { chooseRailAgents } from "../../helpers/railAgents";
 // Outside test-results on purpose: Playwright empties that folder at the start
 // of every run, and a grid is for keeping until someone has looked at it.
 const OUT_DIR = "nav-grid";
-const ATLAS = { name: "Atlas", pubkey: "a".repeat(64), status: "running" };
+// Atlas is in a room, so its unfolded sessions hold a real session row.
+const ATLAS = {
+  name: "Atlas",
+  pubkey: "a".repeat(64),
+  status: "running",
+  channelNames: ["engineering"],
+};
 const BEX = { name: "Bex", pubkey: "b".repeat(64), status: "running" };
 
 const WIDTHS = [1280, 900] as const;
 const TEXT_SCALES = ["1", "0.8", "1.25"] as const;
 const ROUTES = ["home", "room", "project", "empty-project"] as const;
 const RAILS = ["open", "collapsed", "peek"] as const;
-const COLUMNS = ["none", "open"] as const;
+const SESSIONS = ["folded", "unfolded"] as const;
 
 type Route = (typeof ROUTES)[number];
 
@@ -92,62 +100,64 @@ for (const width of WIDTHS) {
       const toggle = page
         .getByRole("button", { name: "Toggle Sidebar" })
         .first();
-      const column = page.getByTestId("agent-chats-column");
+      const atlas = page.getByTestId("agent-rail-atlas");
+      const sessions = page.getByRole("group", { name: "Sessions with Atlas" });
+      const sidebar = page.getByTestId("app-sidebar");
       const chrome = page.getByTestId("app-top-chrome");
 
       for (const route of ROUTES) {
-        for (const columnState of COLUMNS) {
+        for (const sessionState of SESSIONS) {
           for (const rail of RAILS) {
-            // Reset: rail open, column closed, then the route.
-            const state = await page.evaluate(() => ({
-              collapsed:
+            // Reset: rail open, Atlas folded, then the route.
+            const collapsed = await page.evaluate(
+              () =>
                 document
                   .querySelector('[data-testid="app-sidebar"]')
                   ?.closest("[data-state]")
                   ?.getAttribute("data-state") === "collapsed",
-              column:
-                document.querySelector('[data-testid="agent-chats-column"]') !==
-                null,
-            }));
-            if (state.collapsed) await toggle.click();
-            if (state.column)
-              await page.getByTestId("agent-rail-atlas").click();
-            await expect(column).toHaveCount(0);
+            );
+            if (collapsed) await toggle.click();
+            if ((await atlas.getAttribute("aria-expanded")) === "true")
+              await atlas.click();
+            await expect(sessions).toHaveCount(0);
             await page.mouse.move(width - 40, 400);
             await goTo(page, route);
 
-            if (columnState === "open") {
-              await page.getByTestId("agent-rail-atlas").click();
-              await expect(column).toHaveAttribute("data-panel-open", "true");
+            if (sessionState === "unfolded") {
+              await atlas.click();
+              await expect(atlas).toHaveAttribute("aria-expanded", "true");
+              await expect(
+                sessions.getByRole("button", { name: /^engineering/ }),
+              ).toBeVisible();
             }
             if (rail !== "open") await toggle.click();
             if (rail === "peek") {
-              const edge =
-                columnState === "open"
-                  ? page.getByTestId("sidebar-peek-edge")
-                  : page.getByRole("button", {
-                      name: "Resize or toggle sidebar",
-                    });
-              await edge.hover();
-              await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
+              await page
+                .getByRole("button", { name: "Resize or toggle sidebar" })
+                .hover();
+              await expect(atlas).toBeVisible();
             }
             await settle(page);
 
-            // Every state keeps its leading header clear of the window
-            // controls' strip.
-            const strip = await chrome.boundingBox();
-            const leading = column.first();
-            if (columnState === "open" && (await leading.count())) {
-              const header = await leading.locator("header").boundingBox();
-              expect(header?.y ?? -1).toBeGreaterThanOrEqual(
-                (strip?.y ?? 0) + (strip?.height ?? 0) - 1,
+            // Wherever the rail shows, unfolded sessions sit inside it, below
+            // the window controls' strip, without widening it.
+            if (sessionState === "unfolded" && rail !== "collapsed") {
+              const strip = await chrome.boundingBox();
+              const railBox = await sidebar.boundingBox();
+              const list = await sessions.boundingBox();
+              if (!strip || !railBox || !list)
+                throw new Error("Missing the strip, the rail or the sessions");
+              expect(list.y).toBeGreaterThanOrEqual(strip.y + strip.height - 1);
+              expect(list.x).toBeGreaterThanOrEqual(railBox.x - 1);
+              expect(list.x + list.width).toBeLessThanOrEqual(
+                railBox.x + railBox.width + 1,
               );
             }
 
             await page.screenshot({
               path: path.join(
                 OUT_DIR,
-                `${width}w-x${scale}-${route}-column-${columnState}-rail-${rail}.png`,
+                `${width}w-x${scale}-${route}-sessions-${sessionState}-rail-${rail}.png`,
               ),
             });
             await page.mouse.move(width - 40, 400);
@@ -191,13 +201,25 @@ test("phone 390px: the sheet with and without a resident's column, on every rout
       path: path.join(OUT_DIR, `390w-${route}-sheet.png`),
     });
 
-    await page.getByTestId("agent-rail-atlas").click();
-    await expect(page.getByTestId("agent-chats-column")).toBeVisible();
+    // Since 6dbb49a64 a resident's sessions unfold in the sheet itself.
+    const atlas = page.getByTestId("agent-rail-atlas");
+    const sessions = page.getByRole("group", { name: "Sessions with Atlas" });
+    await atlas.click();
+    await expect(
+      sessions.getByRole("button", { name: /^engineering/ }),
+    ).toBeVisible();
     await settle(page);
+    const sheetBox = await sheet.boundingBox();
+    const listBox = await sessions.boundingBox();
+    if (!sheetBox || !listBox) throw new Error("Missing the sheet or sessions");
+    expect(listBox.x + listBox.width).toBeLessThanOrEqual(
+      sheetBox.x + sheetBox.width + 1,
+    );
     await page.screenshot({
-      path: path.join(OUT_DIR, `390w-${route}-sheet-column.png`),
+      path: path.join(OUT_DIR, `390w-${route}-sheet-sessions.png`),
     });
-    await page.getByRole("button", { name: "Back to agents" }).click();
+    await atlas.click();
+    await expect(sessions).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
   }

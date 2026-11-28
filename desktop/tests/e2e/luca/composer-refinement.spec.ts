@@ -20,19 +20,24 @@ async function measure(composer: Locator) {
     );
     if (!send || !add || !field) throw new Error("Missing composer controls");
     const fieldBox = field.getBoundingClientRect();
+    // The box is glass since Nov 2 (ce7ffa30f): its tint is the raised tone
+    // with 2% more ink (eaee02830), let through at 70%, so at 70% over the
+    // bare card it lands on the approved preview's fill.
     const probe = document.createElement("span");
-    probe.style.backgroundColor = "hsl(var(--mn-raised))";
+    probe.style.backgroundColor =
+      "color-mix(in srgb, color-mix(in srgb, hsl(var(--mn-ink)) 2%, hsl(var(--mn-raised))) 70%, transparent)";
     element.append(probe);
-    const raised = getComputedStyle(probe).backgroundColor;
+    const glass = getComputedStyle(probe).backgroundColor;
     probe.remove();
     return {
       height: box.height,
       radius: style.borderRadius,
       padding: style.padding,
       fill: style.backgroundColor,
+      backdrop: style.backdropFilter,
       shadow: style.boxShadow,
       border: style.borderTopColor,
-      raised,
+      glass,
       surface: style.getPropertyValue("--mn-surface"),
       sendBottom: box.bottom - send.getBoundingClientRect().bottom,
       addBottom: box.bottom - add.getBoundingClientRect().bottom,
@@ -99,8 +104,11 @@ for (const theme of ["obsidian", "paper"]) {
         padding: mini ? "3px 3px 3px 4px" : "5px 5px 5px 6px",
         shadow: "none",
       });
-      if (!mini) expect(idle.fill).toBe(idle.raised);
-      else {
+      if (!mini) {
+        // Glass, not solid, since ce7ffa30f / eaee02830.
+        expect(idle.fill).toBe(idle.glass);
+        expect(idle.backdrop).toBe("blur(20px) saturate(1.15)");
+      } else {
         await expect(page.getByTestId("quickchat-send")).toBeDisabled();
         await expect(page.getByTestId("quickchat-send")).toHaveCSS(
           "opacity",

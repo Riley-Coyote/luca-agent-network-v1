@@ -8,6 +8,7 @@ import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 import { railGlassAtRest } from "./flagOffSettle";
 import { chooseRailAgents } from "../helpers/railAgents";
+import { correspondenceIdOf, installRailInbox } from "../helpers/inbox-rail";
 
 /**
  * WP-34, the rail (docs/luca/BETA14_RELEASE.md): what needs you tops Chats,
@@ -32,6 +33,9 @@ const GENERAL = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const X_OPEN = "1".repeat(64);
 const X_PAUSED = "2".repeat(64);
 const ROOT = { open: "e4".repeat(32), paused: "e5".repeat(32) };
+/** Each pair's one correspondence, as the native inbox names it. */
+const PAIR_ATLAS = correspondenceIdOf([LUCA, ATLAS]);
+const PAIR_WREN = correspondenceIdOf([LUCA, WREN]);
 
 const NOW = Date.now();
 const iso = (minutesAgo: number) =>
@@ -298,11 +302,14 @@ async function boot(
     if (message.type() === "error")
       console.log("BROWSER ERROR", message.text());
   });
+  const exchanges = work ? (waiting ? EXCHANGES : EXCHANGES.slice(0, 1)) : [];
+  // The rail hangs only the work the native inbox lists (commit 6aee43288).
+  await installRailInbox(page, exchanges);
   await installMockBridge(page, {
     managedAgents: AGENTS.map((agent) => ({ ...agent })),
     ...(work
       ? {
-          exchanges: waiting ? EXCHANGES : EXCHANGES.slice(0, 1),
+          exchanges,
           runtimeTasks: TASKS,
         }
       : {}),
@@ -476,9 +483,9 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
   await expect(rail.getByTestId(`rail-side-task:task-glass`)).toBeVisible({
     timeout: 20_000,
   });
-  await expect(rail.getByTestId(`rail-side-exchange:${X_OPEN}`)).toBeVisible({
-    timeout: 20_000,
-  });
+  await expect(
+    rail.getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`),
+  ).toBeVisible({ timeout: 20_000 });
 
   // ── the order (Decided 1) ──
   const order = await railOrder(page);
@@ -549,16 +556,20 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
   expect(nesting[`agent:${ATLAS}`]).toBeGreaterThan(0);
   expect(nesting["app:claude"]).toBe(2);
   expect(nesting["app:codex"]).toBe(1);
-  // Atlas carries Luca's question to it; Wren the paused one.
-  await expect(rail.getByTestId(`rail-side-exchange:${X_OPEN}`)).toContainText(
-    "Luca · general",
-  );
+  // Atlas carries its one correspondence with Luca, where Luca's question
+  // is; Wren the paused one (commit 6aee43288: a pair is one row).
+  await expect(
+    page
+      .getByTestId(`rail-home-agent:${ATLAS}`)
+      .locator("xpath=..")
+      .getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`),
+  ).toHaveText(/^With Luca\s*talking/);
   await expect(
     page
       .getByTestId(`rail-home-agent:${WREN}`)
       .locator("xpath=..")
-      .getByTestId(`rail-side-exchange:${X_PAUSED}`),
-  ).toBeVisible();
+      .getByTestId(`rail-side-correspondence:${PAIR_WREN}`),
+  ).toHaveText(/^With Luca\s*paused/);
   const apps_tasks = await rail.evaluate((node) =>
     [
       ...node.querySelectorAll<HTMLElement>(
@@ -669,20 +680,21 @@ test("the Chats rail: what needs you, Luca, and only work nested", async ({
   );
   measure("section_names", heads);
   // WP-40 (BETA14_RELEASE.md, Decided 1): the heads are the app's
-  // micro-label again, the mono's capitals at 11, not WP-34's sentence case.
+  // micro-label again, capitals at 11, not WP-34's sentence case. The label
+  // left the mono for the chrome's face at 500 (commit c0fb16ae4).
   for (const head of heads) {
     expect(head.size).toBe("11px");
-    expect(head.weight).toBe("400");
+    expect(head.weight).toBe("500");
     expect(head.transform).toBe("uppercase");
   }
 
   // ── the open row brightens its words and nothing else ──
-  await rail.getByTestId(`rail-side-exchange:${X_OPEN}`).click();
+  await rail.getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`).click();
   await expect
     .poll(() => page.evaluate(() => window.location.hash), { timeout: 15_000 })
-    .toContain(ROOT.open);
+    .toContain(`/correspondence/${PAIR_ATLAS}`);
   const lit = await rail
-    .getByTestId(`rail-side-exchange:${X_OPEN}`)
+    .getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`)
     .evaluate((row) => ({
       current: row.getAttribute("data-current"),
       color: getComputedStyle(row).color,
@@ -814,9 +826,12 @@ test("an app's row opens its page in Chats; its + starts a conversation", async 
   const claude = page.getByTestId("rail-home-app:claude");
   await expect(claude).toBeVisible({ timeout: 20_000 });
   await claude.getByRole("button", { name: /^Claude Code/ }).click();
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
-    timeout: 20_000,
-  });
+  // The app's page is its workspace since commit 8e4693bfe.
+  const workspace = page.getByTestId("harness-workspace");
+  await expect(workspace).toBeVisible({ timeout: 20_000 });
+  await expect(
+    workspace.getByRole("heading", { name: "Claude Code", exact: true }),
+  ).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => window.location.hash))
     .toContain("/apps/claude");
@@ -1005,9 +1020,9 @@ test("by day: Needs you, the threads, Activity and Agents", async ({
   await expect(rail.getByTestId("rail-side-task:task-glass")).toBeVisible({
     timeout: 20_000,
   });
-  await rail.getByTestId(`rail-side-exchange:${X_OPEN}`).click();
+  await rail.getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`).click();
   await expect(
-    rail.getByTestId(`rail-side-exchange:${X_OPEN}`),
+    rail.getByTestId(`rail-side-correspondence:${PAIR_ATLAS}`),
   ).toHaveAttribute("data-current", "true", { timeout: 20_000 });
   await shot(page, "chats-agent-thread-open-day");
   await rail.getByTestId("rail-side-task:task-glass").click();

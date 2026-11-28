@@ -109,7 +109,8 @@ async function radius(page: Page, selector: string) {
 /** The cards' edge light, read from the rendered pixels (device pixels):
  *  the brightest grey on the row just above the card (its lit top), and the
  *  median grey of the column or row just outside its left, right and bottom
- *  edges (its rim). On the black floor this light is what draws the card. */
+ *  edges (its rim). On the black floor this light is what draws a card that
+ *  has it; the main card has none since 2a5be8a75 (edgeUnlit). */
 async function edgeLight(page: Page, b: Box) {
   const png = await page.screenshot();
   return page.evaluate(
@@ -160,6 +161,25 @@ function edgeLit(edge: Awaited<ReturnType<typeof edgeLight>>) {
     edge.left_rim >= 15 &&
     edge.right_rim >= 15 &&
     edge.bottom_rim >= 15
+  );
+}
+
+/** The main card has no lit rim since 2a5be8a75 (Riley, Nov 3: at normal
+ *  scale it read as a border); only its soft shadows are left, and on the
+ *  black floor they draw nothing, so every edge reads the floor's 0. Allowed
+ *  5, the margin the lit check left under its rim of 20. With the rail open
+ *  the column left of the card is the rail's own fill, not the floor, so the
+ *  left edge is read only with the rail closed. */
+function edgeUnlit(
+  edge: Awaited<ReturnType<typeof edgeLight>>,
+  { railBeside }: { railBeside: boolean },
+) {
+  return (
+    !!edge &&
+    edge.top_line <= 5 &&
+    (railBeside || edge.left_rim <= 5) &&
+    edge.right_rim <= 5 &&
+    edge.bottom_rim <= 5
   );
 }
 
@@ -387,7 +407,8 @@ test("the frame, Black, dark", async ({ page }, info) => {
   const conversationEdge = await edgeLight(page, card);
   checks.edge_light_conversation = {
     ...conversationEdge,
-    ok: edgeLit(conversationEdge),
+    // Unlit since 2a5be8a75 (was edgeLit).
+    ok: edgeUnlit(conversationEdge, { railBeside: true }),
   };
   checks.lip_controls = {
     toggle: { x: toggle.x, y: toggle.y, size: toggle.w },
@@ -552,8 +573,9 @@ test("the frame, Black, dark", async ({ page }, info) => {
     const closedEdge = await edgeLight(page, closedCard);
     checks.edge_light_rail_closed = {
       ...closedEdge,
-      // One rim, not two: the closed rail's card draws no edge of its own.
-      ok: edgeLit(closedEdge) && (closedEdge?.left_rim ?? 99) <= 26,
+      // No rim at all since 2a5be8a75 (was one lit rim, not two), and the
+      // closed rail's card draws no edge of its own.
+      ok: edgeUnlit(closedEdge, { railBeside: false }),
     };
   }
 
@@ -686,7 +708,8 @@ test("the frame, Black, dark", async ({ page }, info) => {
     ),
     edge_light: libraryEdge,
     ok:
-      edgeLit(libraryEdge) &&
+      // Unlit since 2a5be8a75 (was edgeLit).
+      edgeUnlit(libraryEdge, { railBeside: true }) &&
       library?.x === 264 &&
       library?.y === 36 &&
       W - (library.x + library.w) === 6 &&
@@ -707,7 +730,8 @@ test("the frame, Black, dark", async ({ page }, info) => {
     name: await page.getByTestId("shell-lip-name").innerText(),
     edge_light: brainEdge,
     ok:
-      edgeLit(brainEdge) &&
+      // Unlit since 2a5be8a75 (was edgeLit).
+      edgeUnlit(brainEdge, { railBeside: true }) &&
       brain?.x === 264 &&
       brain?.y === 36 &&
       W - (brain.x + brain.w) === 6 &&
@@ -747,7 +771,8 @@ test("the frame, Black, dark", async ({ page }, info) => {
       box: routeCard,
       edge_light: routeEdge,
       ok:
-        edgeLit(routeEdge) &&
+        // Unlit since 2a5be8a75 (was edgeLit).
+        edgeUnlit(routeEdge, { railBeside: true }) &&
         routeCard?.x === 264 &&
         routeCard?.y === 36 &&
         W - (routeCard.x + routeCard.w) === 6 &&

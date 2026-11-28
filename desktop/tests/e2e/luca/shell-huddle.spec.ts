@@ -1742,7 +1742,8 @@ test("with a huddle live a connected app's card ends where the cards do", async 
   await page.evaluate(() => {
     window.location.hash = "#/apps/claude";
   });
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+  // The app's page is its workspace since the native workspaces (8e4693bfe).
+  await expect(page.getByTestId("harness-workspace")).toBeVisible({
     timeout: 20_000,
   });
   await page.waitForTimeout(900);
@@ -1750,7 +1751,7 @@ test("with a huddle live a connected app's card ends where the cards do", async 
     one: document.querySelector("[data-luca-one-card]")?.getBoundingClientRect()
       .bottom,
     connected: document
-      .querySelector('[data-testid="connected-app-card"]')
+      .querySelector('[data-testid="harness-workspace"]')
       ?.closest("[data-luca-floor-host]")
       ?.getBoundingClientRect().bottom,
     rail: document

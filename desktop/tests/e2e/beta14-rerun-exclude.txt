@@ -1,462 +1,6 @@
 # Tests the beta.14 rerun leaves out, by name (see docs/luca/BETA14_BROWSER_TESTS.md).
 # One regular expression per line, matched against "file title".
-# old: fail the same way at beta.13 (455)
- active-turn-resilience\.spec\.ts active turn badge resilience badges persist through an all-at-once liveness gap$
- activity-scope-label-screenshots\.spec\.ts activity panel scope label channel-targeted pane shows the channel name$
- activity-scope-label-screenshots\.spec\.ts activity panel scope label unscoped pane shows All channels$
- agent-error-state-screenshots\.spec\.ts agent error state screenshots 01-model-not-found-error-badge$
- agent-error-state-screenshots\.spec\.ts agent error state screenshots 02-generic-error-badge$
- agent-error-state-screenshots\.spec\.ts agent error state screenshots 03-agents-section-both-errors$
- agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 01-delete-cascade-copy$
- agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 02-save-restarted$
- agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 03-save-plain$
- agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 04-delete-cascade-singular$
- agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 05-delete-cascade-zero-instances$
- agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 06-save-restarted-singular$
- agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 07-save-failed-restart$
- agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 08-save-race-keeps-newer-edit$
- agent-provider-dropdowns\.spec\.ts agent provider dropdown screenshots 01-provider-dropdown-oss$
- agent-provider-dropdowns\.spec\.ts agent provider dropdown screenshots 02-effort-default-label$
- agent-provider-dropdowns\.spec\.ts agent provider dropdown screenshots 03-builtin-edit-runtime-seeded$
- agent-provider-dropdowns\.spec\.ts agent provider dropdown screenshots 04-codex-definition-exposes-model-without-global-provider-defaults$
- agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 01-create-buzzagent-uses-ai-defaults$
- agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 02-create-buzzagent-automatic-model$
- agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 03-create-missing-credential-shows-top-level-required-field$
- agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 04-create-top-level-api-key-enables-submit$
- agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 05-create-cli-login-runtime-no-provider-required$
- agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 07-edit-dialog-extracted-fields$
- agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 08-create-goose-empty-provider-marker$
- badge\.spec\.ts mark-as-read via context menu clears channel unread indicator$
- badge\.spec\.ts regular message bolds inactive channel without numeric badge$
- buzz-theme-screenshots\.spec\.ts Buzz follows native system theme changes without a reload$
- buzz-theme-screenshots\.spec\.ts Void selects the first-party blackout palette from System mode$
- buzz-theme-screenshots\.spec\.ts appearance picker — dark tab \(Buzz Dark\)$
- buzz-theme-screenshots\.spec\.ts appearance picker — system tab \(Buzz follows OS\)$
- buzz-theme-screenshots\.spec\.ts custom section icon and name align with channel columns$
- buzz-theme-screenshots\.spec\.ts settings content uses the same inset surface as the main app$
- buzz-theme-screenshots\.spec\.ts settings nav uses Buzz active pill \+ hover \(dark\)$
- buzz-theme-screenshots\.spec\.ts settings nav uses Buzz active pill \+ hover \(light\)$
- channel-browser\.spec\.ts canceling section create does not affect the next global create$
- channel-browser\.spec\.ts creating from the browser adds the channel to the sidebar$
- channel-browser\.spec\.ts custom section add button creates directly into that section$
- channel-browser\.spec\.ts failed section create retry still assigns to the section$
- channel-browser\.spec\.ts joining a channel from browser adds it to the sidebar$
- channel-browser\.spec\.ts sidebar add-channel button creates without treating the click as a callback$
- channel-browser\.spec\.ts sidebar only shows channels the user has joined$
- channel-controls\.spec\.ts channel controls 01 — lifecycle section: Private \+ Ephemeral switches$
- channel-controls\.spec\.ts channel controls 02 — Private toggled on$
- channel-controls\.spec\.ts channel controls 03 — Ephemeral on with friendly timeout field$
- channel-controls\.spec\.ts channel controls 04 — invalid timeout blocks save with inline error$
- channel-controls\.spec\.ts channel controls 05 — sticky footer pins lifecycle buttons$
- channel-controls\.spec\.ts channel controls 06 — full sheet with new controls$
- channel-controls\.spec\.ts channel controls 07 — saving lifecycle uses unified save$
- channel-controls\.spec\.ts channel controls 08 — saved ephemeral lifecycle is reflected after reopen$
- channel-mute\.spec\.ts channel muting 01 — context menu shows Mute channel$
- channel-mute\.spec\.ts channel muting 02 — muted channel is dimmed with BellOff icon$
- channel-mute\.spec\.ts channel muting 04 — context menu shows Unmute channel when muted$
- channel-mute\.spec\.ts channel muting 05 — muted icon visible on selected channel$
- channel-shared-header-backdrop\.spec\.ts channel shared header backdrop spans channel and split auxiliary columns with one backdrop$
- channel-sort\.spec\.ts per-group channel sort 02 — sort trigger switches Channels to Recent and persists$
- channel-sort\.spec\.ts per-group channel sort 03 — group preferences are independent \(seeded Channels=recent leaves Forums A–Z\)$
- channel-sort\.spec\.ts per-group channel sort 04 — DM group has its own sort trigger$
- channel-star\.spec\.ts channel starring 01 — context menu shows Star channel$
- channel-star\.spec\.ts channel starring 02 — starred channel appears in Starred section$
- channel-star\.spec\.ts channel starring 03 — context menu shows Unstar channel when starred$
- channel-star\.spec\.ts channel starring 04 — starred channel is removed from the Channels group$
- channels\.spec\.ts archived channels stay out of all sidebar sections$
- channels\.spec\.ts canceling channel deletion keeps the owned stream$
- channels\.spec\.ts channel date divider keeps the date sticky while the separator rule scrolls$
- channels\.spec\.ts channel header actions show tooltips$
- channels\.spec\.ts channel header omits the add agent action$
- channels\.spec\.ts channel with messages shows content$
- channels\.spec\.ts closes direct message results while opening$
- channels\.spec\.ts create ephemeral stream shows sidebar and header affordances$
- channels\.spec\.ts create stream with name and description$
- channels\.spec\.ts create stream with special characters$
- channels\.spec\.ts creates the DM before preparing a persona mention$
- channels\.spec\.ts does not reopen a direct message after leaving the composer$
- channels\.spec\.ts does not reopen a sent direct message after leaving during cache reseed$
- channels\.spec\.ts does not reroute an expanded DM after the channel pane unmounts$
- channels\.spec\.ts does not reroute an expanded DM after the user navigates away$
- channels\.spec\.ts drops an expanded DM after agent startup fails$
- channels\.spec\.ts drops an expanded DM after the first message fails$
- channels\.spec\.ts empty channel shows intro actions$
- channels\.spec\.ts home inbox channel label navigates to the channel message$
- channels\.spec\.ts home inbox manage affordance opens management without leaving home$
- channels\.spec\.ts home inbox thread reply mention carries threadRootId to the channel$
- channels\.spec\.ts keeps a managed relay-agent mention in the immutable DM as a visit$
- channels\.spec\.ts keeps a managed-resident mention in the immutable DM as a visit$
- channels\.spec\.ts keeps typing focus while arrow keys traverse and select DM recipients$
- channels\.spec\.ts manage channel can archive and unarchive a stream$
- channels\.spec\.ts manage channel can delete an owned stream$
- channels\.spec\.ts manage channel keeps canvas near the top of the sheet$
- channels\.spec\.ts manage channel updates details and context$
- channels\.spec\.ts manage channel updates visibility and ephemeral lifecycle independently$
- channels\.spec\.ts members sidebar collapses same-persona managed agents$
- channels\.spec\.ts new DM picker pages people search beyond the first 50 results$
- channels\.spec\.ts open channel management supports join and leave$
- channels\.spec\.ts profile activity carousel switches channels via progress dots$
- channels\.spec\.ts profile renders live activity for a viewer-owned relay agent$
- channels\.spec\.ts scrollable channel with recent messages hides intro actions until top$
- channels\.spec\.ts sends the first message from the new direct message composer$
- channels\.spec\.ts short channel with messages shows intro actions on open$
- channels\.spec\.ts shows and clears activity indicators for active channel agents$
- channels\.spec\.ts shows capped participant stack in group direct message header$
- channels\.spec\.ts shows loading skeletons without stale recipient results$
- channels\.spec\.ts shows presence in sidebar, DM header, and member list$
- channels\.spec\.ts sidebar clears unread indicator after opening a DM$
- channels\.spec\.ts sidebar shows all channel types$
- channels\.spec\.ts sidebar shows unread indicator for new forum posts$
- channels\.spec\.ts sidebar shows unread indicator for newly active channels$
- channels\.spec\.ts start a new direct message from the sidebar$
- composer-image-draw\.spec\.ts draw on an uploaded image, save replaces it, revert restores in place$
- composer-image-draw\.spec\.ts spoiler marking survives drawing on the attachment$
- config-bridge-screenshots\.spec\.ts config bridge screenshots 01 — folded config panel$
- config-bridge-screenshots\.spec\.ts config bridge screenshots 02 — live runtime override$
- config-bridge-screenshots\.spec\.ts config bridge screenshots 03 — provenance sentences$
- config-bridge-screenshots\.spec\.ts config bridge screenshots 04 — pre-spawn state$
- config-bridge-screenshots\.spec\.ts config bridge screenshots 05 — advanced flat list$
- config-bridge-screenshots\.spec\.ts config bridge screenshots 06 — buzz-agent empty MCP servers$
- config-bridge-screenshots\.spec\.ts config bridge screenshots 07 — resident context panel — identity section$
- core-memory-screenshots\.spec\.ts core memory section screenshots 01-core-memory-collapsed$
- core-memory-screenshots\.spec\.ts core memory section screenshots 02-core-memory-expanded$
- custom-emoji-ui\.spec\.ts settings card splits My emoji from read-only Community emoji$
- custom-emoji\.spec\.ts native emoji-only messages leave space below the author metadata$
- deep-link-invite\.spec\.ts Welcome failure retries once before allowing starter channel setup to be skipped$
- deep-link-invite\.spec\.ts add-community deep link opens one editable prefill and acknowledges the queue$
- deep-link-invite\.spec\.ts add-community deep link starts onboarding when no community is configured$
- deep-link-invite\.spec\.ts connect deep link shows a static acknowledgment during setup$
- deep-link-invite\.spec\.ts join deep link is acknowledged without claiming before setup$
- deep-link-invite\.spec\.ts queued add-community links open and acknowledge one at a time$
- doctor-states\.spec\.ts Doctor panel state screenshots 00-runtime-card-layout$
- doctor-states\.spec\.ts Doctor panel state screenshots 01-auth-logged-in$
- doctor-states\.spec\.ts Doctor panel state screenshots 02-auth-logged-out$
- doctor-states\.spec\.ts Doctor panel state screenshots 03-auth-config-error$
- doctor-states\.spec\.ts Doctor panel state screenshots 04-node-required$
- doctor-states\.spec\.ts Doctor panel state screenshots 05-retry-after-failure$
- doctor-states\.spec\.ts Doctor panel state screenshots 06-connect-account-methods$
- doctor-states\.spec\.ts Doctor panel state screenshots 07-connect-account-no-methods$
- doctor-states\.spec\.ts Doctor panel state screenshots 08-auth-method-discovery-error$
- doctor-states\.spec\.ts Doctor panel state screenshots 09-connect-account-error$
- doctor-states\.spec\.ts Doctor panel state screenshots 10-terminal-auth-completion-guidance$
- doctor-states\.spec\.ts Doctor panel state screenshots 11-outdated-adapter-warning$
- drafts-screenshots\.spec\.ts drafts screenshots 01 — drafts section populated$
- drafts-screenshots\.spec\.ts drafts screenshots 02 — narrow draft list opens the detail view$
- drafts-screenshots\.spec\.ts drafts screenshots 03 — hover actions visible$
- drafts-screenshots\.spec\.ts drafts screenshots 04 — empty state$
- drafts-screenshots\.spec\.ts drafts screenshots 05 — thread-draft send confirm dialog$
- drafts-screenshots\.spec\.ts drafts screenshots 06 — active-draft badge on inbox trigger and filter option$
- drafts-screenshots\.spec\.ts drafts screenshots 07 — thread-deleted state \(orphaned thread-reply draft\)$
- edit-agent\.spec\.ts edit agent dialog changes the model via custom entry and persists it$
- edit-agent\.spec\.ts edit agent dialog edits the agent name and persists it across a dialog reopen$
- edit-agent\.spec\.ts edit agent dialog explicit global defaults override baked labels in the instance editor$
- edit-agent\.spec\.ts edit agent dialog shows baked defaults in the instance editor$
- edit-agent\.spec\.ts edit agent dialog workspace Edit opens the current instance editor for persona-linked agents$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 01-global-agent-config-card-populated$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 02-create-global-provider-shows-top-level-api-key$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 03-global-env-satisfies-required-key$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 04-create-blocked-no-provider-no-global$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 05-create-enabled-with-global-provider$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 06-baked-defaults-labels-appear-in-create-dialog$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 07-explicit-global-defaults-override-baked-labels$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 09-cli-login-runtime-enabled-no-reason$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 10-edit-codex-custom-model-save-enabled-no-reason$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots 11-edit-runtime-less-provider-required-save-blocked$
- global-agent-config-screenshots\.spec\.ts global agent config screenshots settings renders and saves the persisted preferred harness$
- home-collapsed-top-chrome\.spec\.ts home inbox chrome puts the filter on the left and options on the right$
- home-collapsed-top-chrome\.spec\.ts home inbox chrome reserves the measured composer height and masks content behind it$
- home-collapsed-top-chrome\.spec\.ts home inbox chrome shares a blurred header backdrop across list and detail$
- human-edit-agent-content\.spec\.ts owner can delete their owned agent's message from the thread panel$
- human-edit-agent-content\.spec\.ts owner can edit channel name via owned-agent-owner path$
- human-edit-agent-content\.spec\.ts owner does NOT see channel Edit button when no owned agent is a channel owner$
- identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery DM picker: archived user is omitted from search results$
- identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery member-adder: archived non-member is omitted from invite search$
- identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery member-adder: control — non-archived non-member IS in invite search$
- identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery members sidebar: archived member folds under Archived section$
- identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery members sidebar: no Archived section when no archived members$
- identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery self-exemption: archived current user still appears in their own People list \(not folded\)$
- identity-archive\.spec\.ts NIP-IA archive button gate case 1 — self viewer \+ self target: Archive visible, no flair$
- identity-archive\.spec\.ts NIP-IA archive button gate case 2 — relay admin viewing Alice: Archive visible$
- identity-archive\.spec\.ts NIP-IA archive button gate case 3 — verified OA owner viewing Alice: Archive visible$
- identity-archive\.spec\.ts NIP-IA archive button gate case 4 — no authority viewing Alice: Archive hidden$
- identity-archive\.spec\.ts NIP-IA archive button gate case 5 — Alice archived: flair \+ Unarchive button \(under admin gate\)$
- identity-lost\.spec\.ts normal first launch uses the already-persisted identity$
- image-attachment-gallery\.spec\.ts image bundle lightbox navigates as a gallery$
- inbox-live-update\.spec\.ts inbox stable-conversation regressions clicking newest inbox item after fetch-path load snaps to that message, not mid-thread$
- inbox-live-update\.spec\.ts inbox stable-conversation regressions cold \?item= recovery: sibling in feed, old anchor in mockMessages only; back/forward restore$
- inbox-live-update\.spec\.ts inbox stable-conversation regressions cold recovery survives mid-flight feedItems update without being cancelled$
- inbox-live-update\.spec\.ts inbox stable-conversation regressions deliberate selection recenters exactly once; passive live update does not recenter$
- inbox-live-update\.spec\.ts inbox stable-conversation regressions direct container scroll releases the hold before late reaction hydration$
- inbox-live-update\.spec\.ts inbox stable-conversation regressions post-settle reaction hydration does not shift the centered selected message out of viewport$
- inbox-live-update\.spec\.ts inbox stable-conversation regressions scroll and focused draft preserved; new representative row selected when live sibling displaces anchor$
- inbox-reactions\.spec\.ts inbox reaction on a thread-reply mention persists after refetch$
- invite-qr-download\.spec\.ts invite QR reuses the media menu and saves its PNG$
- key-import-reveal\.spec\.ts key import masks the key with a reveal toggle$
- live-broadcast-reply-timeline\.spec\.ts a live broadcast depth-1 reply enters the authoritative channel window store$
- local-archive-screenshots\.spec\.ts local archive screenshots 01 — subscriptions list with channel entry and observer toggle on$
- local-archive-screenshots\.spec\.ts local archive screenshots 02 — Add form opens directly to channel picker$
- local-archive-screenshots\.spec\.ts local archive screenshots 03 — Step 2 kind checklist with indeterminate group header$
- local-archive-screenshots\.spec\.ts local archive screenshots 04 — custom kinds entry with invalid-token error$
- local-archive-screenshots\.spec\.ts local archive screenshots 05 — observer archive section with toggle$
- luca/agent-library\.spec\.ts a failed restart remains stopped and recovers through Start only$
- luca/agent-page\.spec\.ts a native resident's Documents are the runtime's own files$
- luca/agent-page\.spec\.ts a new file opens in the editor and lands under More files$
- luca/agent-page\.spec\.ts a persisted runtime logo resolves to a character, not a saved photo$
- luca/agent-page\.spec\.ts a saved agent photo can yield to a character and be restored$
- luca/agent-page\.spec\.ts agent character selection and motion preference survive reopening the page$
- luca/agent-page\.spec\.ts editing soul\.md saves through the folder and asks for a restart$
- luca/agent-page\.spec\.ts the page lands on Documents and shows the folder by kind$
- luca/capability-palette\.spec\.ts a direct conversation scopes capability selection to its resident$
- luca/capability-palette\.spec\.ts reduced motion removes capability palette translation$
- luca/capability-palette\.spec\.ts the capability palette meets its throttled interaction budget$
- luca/capability-palette\.spec\.ts the closed capability palette does not fetch or poll$
- luca/conversation-activity-shelf\.spec\.ts Stop all appears only when more than one resident is working$
- luca/conversation-activity-shelf\.spec\.ts no monospace chrome in the working surface$
- luca/conversation-activity-shelf\.spec\.ts one resident working: one row, composer mark, no Stop all$
- luca/conversation-activity-shelf\.spec\.ts the unposted case: a pending row at the tail, in the row's own geometry$
- luca/conversation-activity-shelf\.spec\.ts three residents working: three independent composer marks$
- luca/conversation-activity-shelf\.spec\.ts working rows leave the character on the composer$
- luca/conversation-context\.spec\.ts a folder that moves during send refreshes recovery while preserving the draft$
- luca/f05\.spec\.ts Luca renders an opaque dark shell at desktop and minimum supported widths$
- luca/f06\.spec\.ts F06: existing identity input stays masked$
- luca/f06\.spec\.ts F06: lost owner recovery remains Luca-owned$
- luca/f06\.spec\.ts F06: machine completion clears first-community state created in the same session$
- luca/f06\.spec\.ts F06: single-owner setup protects key material and makes recovery limits explicit$
- luca/f06\.spec\.ts F06: upgraded owner with only the machine marker discards first-community state$
- luca/f11\.spec\.ts F11: real Tauri clean profile provisions and relaunches the same Luca home$
- luca/f15\.spec\.ts F15: notPersisted create failure preserves one visible persona retry surface$
- luca/f15\.spec\.ts F15: setup exposes persisted public identity and replaceable bindings$
- luca/f15\.spec\.ts F15: three residents are created through the key-safe Luca boundary$
- luca/f15\.spec\.ts F15: unknown create failure preserves one visible persona retry surface$
- luca/operator-forge\.spec\.ts a lost completion acknowledgment retries only delivery and deduplicates the conversation receipt$
- luca/operator-forge\.spec\.ts a proposed native transaction never reports success after rollback$
- luca/operator-forge\.spec\.ts a proposed native transaction returns its reconciled outcome$
- luca/operator-forge\.spec\.ts an owned Luca chat proposal uses the same native review sheet$
- luca/operator-forge\.spec\.ts contextual creation consumes ready Hermes as the unconfirmed owner default and attaches the exact resident$
- luca/operator-forge\.spec\.ts hermes proposal returns the exact created resident outcome to its original conversation$
- luca/operator-forge\.spec\.ts native startup failure preserves the resident and sends no completion until retry succeeds$
- luca/operator-forge\.spec\.ts navigation during review keeps attachment and completion in the original conversation$
- luca/operator-forge\.spec\.ts openclaw proposal returns the exact created resident outcome to its original conversation$
- luca/operator-forge\.spec\.ts receipt retry refreshes revoked ownership and leaves completed native work intact$
- luca/operator-forge\.spec\.ts room retry refreshes revoked membership before adding the resident or sending a receipt$
- luca/owner-workspace-coherence\.spec\.ts one exact resident and project context stay coherent across the owner workspace$
- luca/owner-workspace-coherence\.spec\.ts workspace coherence remains reachable in the compact reduced-motion shell$
- luca/polish-round-two\.spec\.ts Escape and the close control restore the composer without deleting the draft$
- luca/polish-round-two\.spec\.ts Settings exposes the default-on name choice and updates the conversation$
- luca/polish-round-two\.spec\.ts agent names off leave a quiet reply$
- luca/polish-round-two\.spec\.ts agent names on reveal a secondary runtime$
- luca/polish-round-two\.spec\.ts consecutive agent messages each retain name and runtime attribution$
- luca/polish-round-two\.spec\.ts dark conversation remains clear at 1024x768$
- luca/polish-round-two\.spec\.ts dark conversation remains clear at 1440x900$
- luca/polish-round-two\.spec\.ts dark conversation remains clear at 800x500$
- luca/polish-round-two\.spec\.ts drawer width moves through intermediate frames and survives rapid reversal$
- luca/polish-round-two\.spec\.ts outside dismissal preserves the slash and lets the clicked control act$
- luca/polish-round-two\.spec\.ts reduced motion and compact drawers remain usable$
- luca/polish-round-two\.spec\.ts the name preference responds to changes from another window$
- luca/polyphonic-onboarding-preview\.spec\.ts Polyphonic opens with a quiet threshold before the setup assistant$
- luca/polyphonic-onboarding-preview\.spec\.ts setup remains navigable at compact Mac window sizes and reduced motion$
- luca/repository-connection-proposals\.spec\.ts a lost finish acknowledgment retries the verified result without reconnecting$
- luca/resident-proposals\.spec\.ts an implicit proposal blocks on runtime-default failure and retries the same review into Hermes$
- luca/skills-library-handoff\.spec\.ts Skills search opens source detail and hands off to New Message$
- luca/ux-audit-recovery\.spec\.ts setup to first conversation at 1024x768 dark$
- luca/ux-audit-recovery\.spec\.ts setup to first conversation at 1024x768 light$
- luca/ux-audit-recovery\.spec\.ts setup to first conversation at 1440x900 dark$
- luca/ux-audit-recovery\.spec\.ts setup to first conversation at 1440x900 light$
- luca/ux-audit-recovery\.spec\.ts setup to first conversation at 800x500 dark$
- luca/ux-audit-recovery\.spec\.ts setup to first conversation at 800x500 light$
- mentions\.spec\.ts @ trigger prioritizes channel members before runnable personas and other managed agents$
- mentions\.spec\.ts agent profile popover falls back to the owner's pubkey$
- mentions\.spec\.ts agent profile popover labels an agent owned by the viewer as you$
- mentions\.spec\.ts agent profile popover shows its owner$
- mentions\.spec\.ts blocks non-participant persona mentions in DM threads$
- mentions\.spec\.ts clicking a mention chip in a forum post opens the profile panel$
- mentions\.spec\.ts clicking a mention chip in the timeline opens the profile panel$
- mentions\.spec\.ts clicking author name opens user profile panel$
- mentions\.spec\.ts defers agent mentions until DM members finish loading$
- mentions\.spec\.ts delayed inaccessible agent profile keeps all actions hidden$
- mentions\.spec\.ts hovering avatar opens popover, clicking opens profile panel$
- mentions\.spec\.ts human profile popover does not show an owner$
- mentions\.spec\.ts mention button opens autocomplete and inserts a selected member$
- mentions\.spec\.ts mention text matching the kind-0 name alias resolves and opens the profile panel$
- mentions\.spec\.ts mentioning a non-member managed agent adds and starts it before sending$
- mentions\.spec\.ts mentioning a non-member provider managed agent deploys it before sending$
- mentions\.spec\.ts mentioning an in-channel provider managed agent deploys it before sending$
- mentions\.spec\.ts mentioning an in-channel stopped managed agent starts it before sending$
- mentions\.spec\.ts owned bot profile only exposes message action$
- mentions\.spec\.ts profile popover wave sends a direct message for a human profile$
- mentions\.spec\.ts profile-only agent author hides actions without agent access$
- mentions\.spec\.ts selecting a persona mention creates a channel agent before sending$
- mentions\.spec\.ts selecting a persona mention reuses an existing persona agent$
- mentions\.spec\.ts sent managed non-member agent mention uses the agent mention style$
- mentions\.spec\.ts sent non-member person mention uses the normal mention style$
- mentions\.spec\.ts thread autocomplete keeps multiple long names readable in a narrow panel$
- mesh-compute\.spec\.ts Share compute has a clear empty state and starts and stops sharing$
- messaging\.spec\.ts ArrowUp edits your last thread reply right after sending it$
- messaging\.spec\.ts action bar stays within the timeline when the thread panel is open$
- messaging\.spec\.ts agent owner label identifies the agent and owner$
- messaging\.spec\.ts code block shows language label when language is specified$
- messaging\.spec\.ts copy a rendered code block and paste it back as code$
- messaging\.spec\.ts narrow thread view collapses channel header actions into a menu$
- messaging\.spec\.ts pasting a long copied code block scrolls composer to cursor$
- messaging\.spec\.ts single-panel thread view hides channel actions$
- messaging\.spec\.ts thread composer keeps focus after sending a thread reply$
- messaging\.spec\.ts thread panel width uses session storage and reset handle$
- messaging\.spec\.ts thread refetch preserves a live reply and reaction received in flight$
- messaging\.spec\.ts thread reply appears after relay closes and restores its live subscription$
- navigation\.spec\.ts back and forward restore open thread panels$
- navigation\.spec\.ts back undoes closing a thread panel$
- navigation\.spec\.ts conversation details and resident profile share one drawer$
- navigation\.spec\.ts home inbox selection survives reload and back restores it$
- navigation\.spec\.ts message links reopen a closed thread when the same messageId is already in the URL$
- navigation\.spec\.ts message links to visible root messages open the thread panel$
- navigation\.spec\.ts open thread panels survive reload$
- navigation\.spec\.ts settings is a route: section survives reload, closing returns to the previous panel state$
- nostr-bind\.spec\.ts auto-signs exactly once when the sixth correct digit is typed$
- nostr-bind\.spec\.ts keeps the signed response available when clipboard access fails$
- nostr-bind\.spec\.ts supports OTP entry and navigation without signing incomplete input$
- observer-archive-policy\.spec\.ts observer archive policy — Settings toggle OSS policy, no subscriptions: toggle enabled and unchecked$
- observer-archive-policy\.spec\.ts observer archive policy — Settings toggle OSS policy: toggle click ON merges kind 24200, click OFF removes the row$
- observer-archive-policy\.spec\.ts observer archive policy — Settings toggle OSS policy: toggle is functional$
- observer-archive-policy\.spec\.ts observer archive policy — Settings toggle internal policy: toggle disabled with policy-locked copy$
- observer-archive-policy\.spec\.ts observer archive policy — Settings toggle policy check fails: toggle stays disabled and issues no mutation$
- observer-archive-policy\.spec\.ts observer archive policy — Settings toggle policy pending: toggle disabled, then enabled once resolved$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 01 — prompt context dialog \(via Checks ingress\)$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 02 — system prompt title restored$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 03 — permission outcome \(approved\)$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 04 — permission outcome \(cancelled\)$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 05 — prompt context dialog \(sections expanded\)$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 06 — system prompt sections expanded$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 07 — current_mode_update lifecycle status line$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 08 — usage_update lifecycle status line \(coalesced\)$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 09 — available_commands_update lifecycle status line$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 10 — config_option_update lifecycle status line$
- observer-feed-screenshots\.spec\.ts observer feed screenshots 11 — first-turn bundle: standalone system-prompt card \+ Checks ingress \(per-turn context only\)$
- onboarding-agent-defaults\.spec\.ts Finish waits for the latest rapid harness choice to persist$
- onboarding-agent-defaults\.spec\.ts auth discovery failure stays actionable without exposing internals$
- onboarding-agent-defaults\.spec\.ts defaults Back returns to harness setup$
- onboarding-agent-defaults\.spec\.ts defaults auto-selects the only ready visible harness$
- onboarding-agent-defaults\.spec\.ts defaults renders only fields supported by the selected harness$
- onboarding-agent-defaults\.spec\.ts defaults requires a choice when multiple visible harnesses are ready$
- onboarding-agent-defaults\.spec\.ts defaults waits for baked configuration before rendering fields$
- onboarding-agent-defaults\.spec\.ts failed install can be retried without shifting card content$
- onboarding-agent-defaults\.spec\.ts install transitions through Sign in to Ready$
- onboarding-agent-defaults\.spec\.ts ready state is detected and enables Next without persisting a default$
- onboarding-agent-defaults\.spec\.ts setup shows only Claude Code and Codex as detected harnesses$
- onboarding-agent-defaults\.spec\.ts setup shows runtime discovery loading before rendering harnesses$
- onboarding-agent-defaults\.spec\.ts sign in stays pending until catalog detection confirms Ready$
- onboarding-agent-defaults\.spec\.ts terminal launch failure keeps Sign in available$
- onboarding-agent-defaults\.spec\.ts unknown authentication can be checked again$
- onboarding-backup\.spec\.ts backup step Next is enabled once the key is shown$
- onboarding-backup\.spec\.ts backup step advances to machine setup on Next click$
- onboarding-backup\.spec\.ts backup step appears on fresh-key path after profile submit$
- onboarding-backup\.spec\.ts backup step back button returns to machine identity choice$
- onboarding-backup\.spec\.ts backup step retry succeeds and shows key after initial failure$
- onboarding-backup\.spec\.ts backup step shows error banner and retry button when get_nsec fails$
- onboarding-backup\.spec\.ts backup step shows masked nsec from mock bridge$
- onboarding-docked-cta-screenshots\.spec\.ts machine key import remains usable in a short viewport$
- onboarding-docked-cta-screenshots\.spec\.ts machine onboarding: landing, backup, setup docked CTAs$
- overscroll-boundary\.spec\.ts locks horizontal viewport pan everywhere$
- overscroll-boundary\.spec\.ts locks viewport rubber-band outside conversation scrollers$
- persistent-agent-audience\.spec\.ts captures native persistent mentions in buzz$
- persistent-agent-audience\.spec\.ts captures native persistent mentions in buzz-dark$
- persistent-agent-audience\.spec\.ts first thread open inherits explicitly addressed agents in authored order$
- persistent-agent-audience\.spec\.ts native persistent mentions fit the narrow composer$
- persistent-agent-audience\.spec\.ts persistent agents restore through the native inline mention UI$
- persistent-agent-audience\.spec\.ts persistent agents transition atomically before Enter-send resolves$
- persona-model-combobox-screenshots\.spec\.ts persona model combobox screenshots 01 — closed trigger \(model not yet selected\)$
- persona-model-combobox-screenshots\.spec\.ts persona model combobox screenshots 02 — open popover with full model list$
- persona-model-combobox-screenshots\.spec\.ts persona model combobox screenshots 03 — filtered results \(query: gpt\)$
- persona-model-combobox-screenshots\.spec\.ts persona model combobox screenshots 04 — empty state \(no models match\)$
- profile-nsec-reveal\.spec\.ts reveal shows error when get_nsec fails$
- profile-nsec-reveal\.spec\.ts reveal shows masked nsec value and hides it again on collapse$
- project-commit-detail\.spec\.ts commit detail opens from the commits feed with a diff$
- project-commit-detail\.spec\.ts pull request and issue feeds share the commit row structure$
- project-commit-detail\.spec\.ts top-level project lists align dates and overflow actions$
- project-pr-review\.spec\.ts PR creator/owner can toggle draft, request reviews, and approve$
- project-pr-review\.spec\.ts managed agent repository owner can merge$
- project-pr-review\.spec\.ts merge conflicts offer persistent terminal recovery$
- project-pr-review\.spec\.ts project branches can be created from the selected remote branch$
- project-pr-review\.spec\.ts project branches can be deleted but the default branch cannot$
- project-pr-review\.spec\.ts project issue can be created from the issues header$
- project-pr-review\.spec\.ts project issues preserve partial results from aggregate queries$
- project-pr-review\.spec\.ts project overview reports aggregate work-item failures$
- project-pr-review\.spec\.ts project pull requests preserve partial results from batched queries$
- project-pr-review\.spec\.ts project pull requests report aggregate root query failures$
- project-pr-review\.spec\.ts project without a checkout offers fetch feedback and dropdown cloning$
- project-pr-review\.spec\.ts pushed local branch can open a pull request$
- project-pr-review\.spec\.ts repository tags can be browsed as immutable remote snapshots$
- project-pr-review\.spec\.ts reviewer can leave a commit-scoped inline diff comment$
- project-pr-review\.spec\.ts viewer without repository ownership cannot merge$
- pubkey-display-screenshots\.spec\.ts member removal confirm shows the full npub inline$
- pubkey-display-screenshots\.spec\.ts new-DM agent name swaps to its public key on name hover$
- pubkey-display-screenshots\.spec\.ts profile panel Public key row opens the PubKey popover on hover$
- pubkey-display-screenshots\.spec\.ts selected new-DM recipient can be verified again through search$
- relay-connectivity\.spec\.ts relay connectivity 03 — canvas unreachable in management sheet$
- relay-connectivity\.spec\.ts relay connectivity 05 — no-cache npub fallback when offline$
- reminder-click-repro\.spec\.ts reminder set → app stays clickable 03 — inbox row right-click → Remind me later$
- reminders\.spec\.ts reminders nav badge 09 — Inbox nav badge counts a due reminder$
- reminders\.spec\.ts reminders phase 2 — author, source, navigation 07 — reminder row shows author and source channel$
- reminders\.spec\.ts reminders phase 2 — author, source, navigation 08 — clicking a reminder navigates to the message in context$
- reminders\.spec\.ts reminders 01 — inbox filter dropdown shows Reminders option$
- reminders\.spec\.ts reminders 04 — Reminders panel empty state$
- reminders\.spec\.ts reminders 05 — Reminders panel with active pending reminder$
- reminders\.spec\.ts reminders 06 — Reminders panel with fired/overdue reminder$
- smoke\.spec\.ts Buzz shared compute explains automatic model selection$
- smoke\.spec\.ts create agent persists Buzz shared compute with auto model$
- smoke\.spec\.ts create agent supports parallelism and system prompt overrides$
- smoke\.spec\.ts creates a new mocked stream$
- smoke\.spec\.ts inbox agent hover hides actions without agent access$
- smoke\.spec\.ts inbox feed renders resolved author labels$
- smoke\.spec\.ts inbox feed shows channel and agent activity sections$
- smoke\.spec\.ts loads the app shell with mocked channels$
- smoke\.spec\.ts opens a mocked channel from the inbox feed$
- smoke\.spec\.ts opens a mocked forum activity item from the inbox feed$
- smoke\.spec\.ts replaces the channel pane when switching channels$
- smoke\.spec\.ts search results use your resolved profile label instead of You$
- spoiler\.spec\.ts image attachments can be marked and sent as hidden spoilers$
- spoiler\.spec\.ts no-selection spoiler applies to every composer paragraph$
- spoiler\.spec\.ts non-interactive inbox preview spoilers let row clicks pass through$
- spoiler\.spec\.ts text spoiler stays usable while attachment upload is pending$
- thread-reply-anchor-roleplay\.spec\.ts thread reply anchor A/B roleplay screenshots 01-baseline-human-reply-nests-agent-at-depth-2$
- thread-reply-anchor-roleplay\.spec\.ts thread reply anchor A/B roleplay screenshots 02-patched-human-reply-flattens-agent-at-root$
- thread-reply-anchor-roleplay\.spec\.ts thread reply anchor A/B roleplay screenshots 03-patched-top-level-human-starts-thread-at-human-root$
- thread-reply-anchor-roleplay\.spec\.ts thread reply anchor A/B roleplay screenshots 04-agent-only-branch-keeps-deeper-nesting$
- thread-unread\.spec\.ts thread unread indicator 01-thread-unread-badge$
- thread-unread\.spec\.ts thread unread indicator 02-thread-new-divider$
- thread-unread\.spec\.ts thread unread indicator 03-thread-badge-casual-browse$
- thread-unread\.spec\.ts thread unread indicator 04-thread-deep-nested-unread$
- thread-unread\.spec\.ts thread unread indicator 05-thread-in-panel-subtree-badge$
- thread-unread\.spec\.ts thread unread indicator 06-in-panel-badge-bumps-on-live-reply$
- thread-unread\.spec\.ts thread unread indicator 07-expand-clears-own-branch-badge-sibling-survives$
- thread-unread\.spec\.ts thread unread indicator 10-thread-badge-survives-channel-reentry$
- thread-unread\.spec\.ts thread unread indicator 11-thread-reply-lights-sidebar-badge-after-channel-view$
- thread-unread\.spec\.ts thread unread indicator 13-thread-badge-clears-on-read-without-reentry$
- thread-unread\.spec\.ts thread unread indicator 14-mention-only-nested-thread-badge$
- threadpane-ultrawide\.spec\.ts thread pane on ultrawide monitors expands well past the legacy 720px cap$
- timeline-no-shift\.spec\.ts thread panel late row reflow keeps the reading reply stable$
- timeline-no-shift\.spec\.ts thread panel stays put while replies stream in mid-scroll$
- video-attachment\.spec\.ts dark accent uses a contrast-safe review foreground$
- video-attachment\.spec\.ts neutral accent uses the forced-dark review foreground$
- video-attachment\.spec\.ts video upload previews use poster frames and inline videos open review mode$
- virtualization\.spec\.ts list virtualization 01 — Pulse windowed feed with sticky composer pinned mid-scroll$
- virtualization\.spec\.ts list virtualization 03 — members search shows both sticky titles under content-visibility$
- virtualization\.spec\.ts list virtualization 06 — custom-section dnd reorder commits under content-visibility$
- welcome-agent-modal-screenshots\.spec\.ts welcome and channel agent entry points all personal agents are already in the channel$
- welcome-agent-modal-screenshots\.spec\.ts welcome and channel agent entry points channel-targeted creation preserves the agent when attachment fails$
- welcome-agent-modal-screenshots\.spec\.ts welcome and channel agent entry points only Fizz is already in the channel$
- welcome-agent-modal-screenshots\.spec\.ts welcome and channel agent entry points some personal agents are available$
- welcome-agent-modal-screenshots\.spec\.ts welcome and channel agent entry points welcome manual creation opens the canonical agent form$
- welcome-agent-modal-screenshots\.spec\.ts welcome and channel agent entry points welcome offers chat-first creation$
- workflows\.spec\.ts captures disabled diff workflows in the list UI$
- workflows\.spec\.ts creates a workflow via the form builder$
- workflows\.spec\.ts deletes a workflow with confirmation$
- workflows\.spec\.ts disables autocapitalization in the workflow form$
- workflows\.spec\.ts duplicates a workflow$
- workflows\.spec\.ts edits an existing workflow$
- workflows\.spec\.ts navigates to workflows view and shows empty state$
- workflows\.spec\.ts shows the webhook secret dialog after saving a webhook workflow$
- workflows\.spec\.ts triggers a workflow from the detail panel$
-# needs a second build to compare against (38)
+# needs a second build to compare against (39)
  luca/living-ink-field\.spec\.ts a hidden passage sleeps, wakes without remounting, and rests at the native rate$
  luca/living-ink-field\.spec\.ts a press gives only its same-line neighbours room and settles without reflow$
  luca/living-ink-field\.spec\.ts real Markdown keeps readable, selectable, moving ink in paper$
@@ -495,71 +39,294 @@
  shell-room-flows\.spec\.ts flag off matches the base$
  shell-settings-agents\.spec\.ts flag off: Settings > Agents the same as the base build$
  shell-top-edge\.spec\.ts flag off matches the base$
+ luca/shell-runtime\.spec\.ts flag off: the column draws exactly the base build$
 # needs the real app built (2): they launch the native debug app
  luca/f11\.spec\.ts F11: real Tauri recovers a generated owner identity into a private Luca home$
  luca/f11\.spec\.ts F11: native debug failpoint renders Luca personal-home retry state$
-# known in the app (1)
+# known in the app (2)
  luca/continuous-motion\.spec\.ts production video glow rests paused and hidden, and follows real seek/play/resume$
+ shell-agent-place\.spec\.ts their page: one header, one status, three sections built alike$
 # waiting on Riley's call (4, and one more that shares their setup)
  luca/luca-creates-resident\.spec\.ts a bring-up that fails says so on the row instead of looking ordinary$
  luca/luca-creates-resident\.spec\.ts a resident the owner agreed to in chat appears at once, waking, then ready$
  luca/polyphonic-production-onboarding-v3\.spec\.ts an import that fails says so on its own row and stops nothing$
  luca/polyphonic-production-onboarding-v3\.spec\.ts one agent is ticked, and arrives behind the first conversation$
  luca/luca-creates-resident\.spec\.ts an ordinary running resident's row carries no bring-up word$
-# left with a cause: each needs a rewrite or a decision (48)
- luca/chat-agent-mark\.spec\.ts sphere stays on the composer; glyph and pixel marks accompany replies$
- luca/composer-refinement\.spec\.ts obsidian: chat keeps the preview capsule and anchored expanded row$
- luca/composer-refinement\.spec\.ts obsidian: new-chat keeps the preview capsule and anchored expanded row$
- luca/composer-refinement\.spec\.ts paper: chat keeps the preview capsule and anchored expanded row$
- luca/composer-refinement\.spec\.ts paper: new-chat keeps the preview capsule and anchored expanded row$
- luca/exchange-strip\.spec\.ts counted owner return is ordinary chat with complete history: head first$
- luca/exchange-strip\.spec\.ts counted owner return is ordinary chat with complete history: return first$
- luca/nav-state-grid\.spec\.ts desktop 1280px at text scale 0\.8: every rail × column × route state$
- luca/nav-state-grid\.spec\.ts desktop 1280px at text scale 1: every rail × column × route state$
- luca/nav-state-grid\.spec\.ts desktop 1280px at text scale 1\.25: every rail × column × route state$
- luca/nav-state-grid\.spec\.ts desktop 900px at text scale 1: every rail × column × route state$
- luca/nav-state-grid\.spec\.ts phone 390px: the sheet with and without a resident's column, on every route$
- luca/shell-frame\.spec\.ts the frame, Black, dark$
- luca/shell-huddle\.spec\.ts with a huddle live a connected app's card ends where the cards do$
- luca/shell-light\.spec\.ts Paper by day, 1440 × 900$
- luca/shell-rail\.spec\.ts the shell's rail the apps are Chats' Apps, and Project rooms is a setting$
- luca/shell-runtime\.spec\.ts connected 1440: its sessions are its card on the one card; no column opens$
- shell-activity\.spec\.ts a connected app: what Luca did with it$
- shell-activity\.spec\.ts all activity: one thread, by day; exchanges hang in the rail$
+# left, with a question (3): see the doc
  shell-activity\.spec\.ts landing on an exchange: its message in view, named for you$
- shell-activity\.spec\.ts now: retired; live work is in the rail$
- shell-activity\.spec\.ts the work under whoever does it, in the Chats rail$
- shell-agent-place\.spec\.ts Settings in full, then its panes, by day$
- shell-agent-place\.spec\.ts Settings in full, then its panes, by night$
- shell-agent-place\.spec\.ts their page: one header, one status, three sections built alike$
- shell-app-task\.spec\.ts Open in Codex hands off to the app's own session$
- shell-brain\.spec\.ts every way into Brain opens the Brain place$
- shell-first-screen-asks\.spec\.ts d2 one ask everywhere at 1440 dark$
- shell-first-screen-asks\.spec\.ts d2 one ask everywhere at 1440 light$
- shell-first-screen-asks\.spec\.ts d2 one ask everywhere at 800 dark$
  shell-first-screen-asks\.spec\.ts full-card film follows agent switches: dark$
  shell-first-screen-asks\.spec\.ts full-card film follows agent switches: light$
- shell-glass\.spec\.ts the page under glass, dark: floor clear, veil, words, cards$
- shell-one-state\.spec\.ts d1: a side conversation marks the home doing the work \(dark 1440\)$
- shell-one-state\.spec\.ts d1: a side conversation marks the home doing the work \(light 800\)$
- shell-one-state\.spec\.ts d2-d4: one state for each mind, said alike \(dark\)$
- shell-one-state\.spec\.ts d2-d4: one state for each mind, said alike \(light\)$
- shell-one-state\.spec\.ts d2/d4 at 800 x 500 \(dark\)$
- shell-place-rails\.spec\.ts narrow window, Chats and Settings$
- shell-place-rails\.spec\.ts places, rails and cards$
- shell-place-rails\.spec\.ts review fixes$
- shell-rail-wp34\.spec\.ts an app's row opens its page in Chats; its \+ starts a conversation$
- shell-rail-wp34\.spec\.ts by day: Needs you, the threads, Activity and Agents$
- shell-rail-wp34\.spec\.ts the Chats rail: what needs you, Luca, and only work nested$
- shell-settings-agents\.spec\.ts d2: Add agent and a connected app open their homes$
- shell-walkthrough\.spec\.ts Claude Code's page head, and its New conversation is the \+, dark$
- shell-walkthrough\.spec\.ts Claude Code's page head, and its New conversation is the \+, light$
- luca/shell-runtime\.spec\.ts connected 800: its sessions are its card on the one card; no column opens$
-# never run: they follow "connected 800" in its one-after-another group, which stops at the first failure (7)
- luca/shell-runtime\.spec\.ts New conversation opens no column under the frame$
- luca/shell-runtime\.spec\.ts connected light: Paper, the card lies on the one card$
- luca/shell-runtime\.spec\.ts rail closed: the card folds the rail away and the connected card meets the places$
- luca/shell-runtime\.spec\.ts text zoom: back, forward and the name keep to the connected card$
- luca/shell-runtime\.spec\.ts by day on the glass: one shadow on the floor, the one card's$
- luca/shell-runtime\.spec\.ts narrow: under 768 the connected card still opens, and no sheet of the column$
- luca/shell-runtime\.spec\.ts flag off: the column draws exactly the base build$
+# old, kept: the only test of something the app still has, reached a new way; question in the doc (205)
+ activity-scope-label-screenshots\.spec\.ts activity panel scope label channel-targeted pane shows the channel name$
+ activity-scope-label-screenshots\.spec\.ts activity panel scope label unscoped pane shows All channels$
+ agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 02-save-restarted$
+ agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 03-save-plain$
+ agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 06-save-restarted-singular$
+ agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 07-save-failed-restart$
+ agent-lifecycle-feedback\.spec\.ts agent lifecycle feedback screenshots 08-save-race-keeps-newer-edit$
+ agent-provider-dropdowns\.spec\.ts agent provider dropdown screenshots 01-provider-dropdown-oss$
+ agent-provider-dropdowns\.spec\.ts agent provider dropdown screenshots 02-effort-default-label$
+ agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 01-create-buzzagent-uses-ai-defaults$
+ agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 02-create-buzzagent-automatic-model$
+ agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 03-create-missing-credential-shows-top-level-required-field$
+ agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 04-create-top-level-api-key-enables-submit$
+ agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 05-create-cli-login-runtime-no-provider-required$
+ agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 07-edit-dialog-extracted-fields$
+ agent-readiness-screenshots\.spec\.ts agent readiness gate screenshots 08-create-goose-empty-provider-marker$
+ badge\.spec\.ts mark-as-read via context menu clears channel unread indicator$
+ badge\.spec\.ts regular message bolds inactive channel without numeric badge$
+ buzz-theme-screenshots\.spec\.ts Buzz follows native system theme changes without a reload$
+ channel-browser\.spec\.ts creating from the browser adds the channel to the sidebar$
+ channel-browser\.spec\.ts joining a channel from browser adds it to the sidebar$
+ channel-browser\.spec\.ts sidebar only shows channels the user has joined$
+ channel-controls\.spec\.ts channel controls 01 — lifecycle section: Private \+ Ephemeral switches$
+ channel-controls\.spec\.ts channel controls 02 — Private toggled on$
+ channel-controls\.spec\.ts channel controls 03 — Ephemeral on with friendly timeout field$
+ channel-controls\.spec\.ts channel controls 04 — invalid timeout blocks save with inline error$
+ channel-controls\.spec\.ts channel controls 05 — sticky footer pins lifecycle buttons$
+ channel-controls\.spec\.ts channel controls 06 — full sheet with new controls$
+ channel-controls\.spec\.ts channel controls 07 — saving lifecycle uses unified save$
+ channel-controls\.spec\.ts channel controls 08 — saved ephemeral lifecycle is reflected after reopen$
+ channels\.spec\.ts canceling channel deletion keeps the owned stream$
+ channels\.spec\.ts closes direct message results while opening$
+ channels\.spec\.ts creates the DM before preparing a persona mention$
+ channels\.spec\.ts does not reopen a direct message after leaving the composer$
+ channels\.spec\.ts does not reopen a sent direct message after leaving during cache reseed$
+ channels\.spec\.ts does not reroute an expanded DM after the channel pane unmounts$
+ channels\.spec\.ts does not reroute an expanded DM after the user navigates away$
+ channels\.spec\.ts drops an expanded DM after agent startup fails$
+ channels\.spec\.ts drops an expanded DM after the first message fails$
+ channels\.spec\.ts keeps a managed relay-agent mention in the immutable DM as a visit$
+ channels\.spec\.ts keeps a managed-resident mention in the immutable DM as a visit$
+ channels\.spec\.ts keeps typing focus while arrow keys traverse and select DM recipients$
+ channels\.spec\.ts manage channel can archive and unarchive a stream$
+ channels\.spec\.ts manage channel can delete an owned stream$
+ channels\.spec\.ts manage channel keeps canvas near the top of the sheet$
+ channels\.spec\.ts manage channel updates details and context$
+ channels\.spec\.ts manage channel updates visibility and ephemeral lifecycle independently$
+ channels\.spec\.ts new DM picker pages people search beyond the first 50 results$
+ channels\.spec\.ts profile activity carousel switches channels via progress dots$
+ channels\.spec\.ts profile renders live activity for a viewer-owned relay agent$
+ channels\.spec\.ts sends the first message from the new direct message composer$
+ channels\.spec\.ts shows capped participant stack in group direct message header$
+ channels\.spec\.ts shows loading skeletons without stale recipient results$
+ channels\.spec\.ts start a new direct message from the sidebar$
+ composer-image-draw\.spec\.ts draw on an uploaded image, save replaces it, revert restores in place$
+ composer-image-draw\.spec\.ts spoiler marking survives drawing on the attachment$
+ config-bridge-screenshots\.spec\.ts config bridge screenshots 01 — folded config panel$
+ config-bridge-screenshots\.spec\.ts config bridge screenshots 02 — live runtime override$
+ config-bridge-screenshots\.spec\.ts config bridge screenshots 03 — provenance sentences$
+ config-bridge-screenshots\.spec\.ts config bridge screenshots 04 — pre-spawn state$
+ config-bridge-screenshots\.spec\.ts config bridge screenshots 05 — advanced flat list$
+ config-bridge-screenshots\.spec\.ts config bridge screenshots 06 — buzz-agent empty MCP servers$
+ config-bridge-screenshots\.spec\.ts config bridge screenshots 07 — resident context panel — identity section$
+ core-memory-screenshots\.spec\.ts core memory section screenshots 01-core-memory-collapsed$
+ core-memory-screenshots\.spec\.ts core memory section screenshots 02-core-memory-expanded$
+ custom-emoji\.spec\.ts native emoji-only messages leave space below the author metadata$
+ edit-agent\.spec\.ts edit agent dialog changes the model via custom entry and persists it$
+ edit-agent\.spec\.ts edit agent dialog edits the agent name and persists it across a dialog reopen$
+ edit-agent\.spec\.ts edit agent dialog explicit global defaults override baked labels in the instance editor$
+ edit-agent\.spec\.ts edit agent dialog shows baked defaults in the instance editor$
+ edit-agent\.spec\.ts edit agent dialog workspace Edit opens the current instance editor for persona-linked agents$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 01-global-agent-config-card-populated$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 02-create-global-provider-shows-top-level-api-key$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 03-global-env-satisfies-required-key$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 04-create-blocked-no-provider-no-global$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 05-create-enabled-with-global-provider$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 06-baked-defaults-labels-appear-in-create-dialog$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 07-explicit-global-defaults-override-baked-labels$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 09-cli-login-runtime-enabled-no-reason$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 10-edit-codex-custom-model-save-enabled-no-reason$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots 11-edit-runtime-less-provider-required-save-blocked$
+ global-agent-config-screenshots\.spec\.ts global agent config screenshots settings renders and saves the persisted preferred harness$
+ human-edit-agent-content\.spec\.ts owner can edit channel name via owned-agent-owner path$
+ human-edit-agent-content\.spec\.ts owner does NOT see channel Edit button when no owned agent is a channel owner$
+ identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery DM picker: archived user is omitted from search results$
+ identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery member-adder: archived non-member is omitted from invite search$
+ identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery member-adder: control — non-archived non-member IS in invite search$
+ identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery members sidebar: archived member folds under Archived section$
+ identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery members sidebar: no Archived section when no archived members$
+ identity-archive-hide\.spec\.ts NIP-IA hide archived from discovery self-exemption: archived current user still appears in their own People list \(not folded\)$
+ identity-archive\.spec\.ts NIP-IA archive button gate case 1 — self viewer \+ self target: Archive visible, no flair$
+ identity-archive\.spec\.ts NIP-IA archive button gate case 2 — relay admin viewing Alice: Archive visible$
+ identity-archive\.spec\.ts NIP-IA archive button gate case 3 — verified OA owner viewing Alice: Archive visible$
+ identity-archive\.spec\.ts NIP-IA archive button gate case 4 — no authority viewing Alice: Archive hidden$
+ identity-archive\.spec\.ts NIP-IA archive button gate case 5 — Alice archived: flair \+ Unarchive button \(under admin gate\)$
+ image-attachment-gallery\.spec\.ts image bundle lightbox navigates as a gallery$
+ key-import-reveal\.spec\.ts key import masks the key with a reveal toggle$
+ live-broadcast-reply-timeline\.spec\.ts a live broadcast depth-1 reply enters the authoritative channel window store$
+ luca/agent-library\.spec\.ts a failed restart remains stopped and recovers through Start only$
+ luca/agent-page\.spec\.ts a native resident's Documents are the runtime's own files$
+ luca/agent-page\.spec\.ts a new file opens in the editor and lands under More files$
+ luca/agent-page\.spec\.ts a persisted runtime logo resolves to a character, not a saved photo$
+ luca/agent-page\.spec\.ts a saved agent photo can yield to a character and be restored$
+ luca/agent-page\.spec\.ts agent character selection and motion preference survive reopening the page$
+ luca/agent-page\.spec\.ts editing soul\.md saves through the folder and asks for a restart$
+ luca/agent-page\.spec\.ts the page lands on Documents and shows the folder by kind$
+ luca/capability-palette\.spec\.ts a direct conversation scopes capability selection to its resident$
+ luca/capability-palette\.spec\.ts reduced motion removes capability palette translation$
+ luca/capability-palette\.spec\.ts the capability palette meets its throttled interaction budget$
+ luca/capability-palette\.spec\.ts the closed capability palette does not fetch or poll$
+ luca/conversation-context\.spec\.ts a folder that moves during send refreshes recovery while preserving the draft$
+ luca/f06\.spec\.ts F06: existing identity input stays masked$
+ luca/f15\.spec\.ts F15: notPersisted create failure preserves one visible persona retry surface$
+ luca/f15\.spec\.ts F15: setup exposes persisted public identity and replaceable bindings$
+ luca/f15\.spec\.ts F15: three residents are created through the key-safe Luca boundary$
+ luca/f15\.spec\.ts F15: unknown create failure preserves one visible persona retry surface$
+ luca/operator-forge\.spec\.ts a lost completion acknowledgment retries only delivery and deduplicates the conversation receipt$
+ luca/operator-forge\.spec\.ts a proposed native transaction never reports success after rollback$
+ luca/operator-forge\.spec\.ts a proposed native transaction returns its reconciled outcome$
+ luca/operator-forge\.spec\.ts an owned Luca chat proposal uses the same native review sheet$
+ luca/operator-forge\.spec\.ts contextual creation consumes ready Hermes as the unconfirmed owner default and attaches the exact resident$
+ luca/operator-forge\.spec\.ts hermes proposal returns the exact created resident outcome to its original conversation$
+ luca/operator-forge\.spec\.ts native startup failure preserves the resident and sends no completion until retry succeeds$
+ luca/operator-forge\.spec\.ts navigation during review keeps attachment and completion in the original conversation$
+ luca/operator-forge\.spec\.ts openclaw proposal returns the exact created resident outcome to its original conversation$
+ luca/operator-forge\.spec\.ts receipt retry refreshes revoked ownership and leaves completed native work intact$
+ luca/operator-forge\.spec\.ts room retry refreshes revoked membership before adding the resident or sending a receipt$
+ luca/polish-round-two\.spec\.ts Escape and the close control restore the composer without deleting the draft$
+ luca/polish-round-two\.spec\.ts Settings exposes the default-on name choice and updates the conversation$
+ luca/polish-round-two\.spec\.ts agent names off leave a quiet reply$
+ luca/polish-round-two\.spec\.ts agent names on reveal a secondary runtime$
+ luca/polish-round-two\.spec\.ts consecutive agent messages each retain name and runtime attribution$
+ luca/polish-round-two\.spec\.ts dark conversation remains clear at 1024x768$
+ luca/polish-round-two\.spec\.ts dark conversation remains clear at 1440x900$
+ luca/polish-round-two\.spec\.ts dark conversation remains clear at 800x500$
+ luca/polish-round-two\.spec\.ts drawer width moves through intermediate frames and survives rapid reversal$
+ luca/polish-round-two\.spec\.ts outside dismissal preserves the slash and lets the clicked control act$
+ luca/polish-round-two\.spec\.ts reduced motion and compact drawers remain usable$
+ luca/polish-round-two\.spec\.ts the name preference responds to changes from another window$
+ luca/repository-connection-proposals\.spec\.ts a lost finish acknowledgment retries the verified result without reconnecting$
+ luca/resident-proposals\.spec\.ts an implicit proposal blocks on runtime-default failure and retries the same review into Hermes$
+ luca/skills-library-handoff\.spec\.ts Skills search opens source detail and hands off to New Message$
+ mentions\.spec\.ts @ trigger prioritizes channel members before runnable personas and other managed agents$
+ mentions\.spec\.ts agent profile popover falls back to the owner's pubkey$
+ mentions\.spec\.ts agent profile popover labels an agent owned by the viewer as you$
+ mentions\.spec\.ts agent profile popover shows its owner$
+ mentions\.spec\.ts clicking a mention chip in a forum post opens the profile panel$
+ mentions\.spec\.ts clicking a mention chip in the timeline opens the profile panel$
+ mentions\.spec\.ts clicking author name opens user profile panel$
+ mentions\.spec\.ts defers agent mentions until DM members finish loading$
+ mentions\.spec\.ts delayed inaccessible agent profile keeps all actions hidden$
+ mentions\.spec\.ts hovering avatar opens popover, clicking opens profile panel$
+ mentions\.spec\.ts human profile popover does not show an owner$
+ mentions\.spec\.ts mention text matching the kind-0 name alias resolves and opens the profile panel$
+ mentions\.spec\.ts mentioning a non-member managed agent adds and starts it before sending$
+ mentions\.spec\.ts mentioning a non-member provider managed agent deploys it before sending$
+ mentions\.spec\.ts mentioning an in-channel provider managed agent deploys it before sending$
+ mentions\.spec\.ts mentioning an in-channel stopped managed agent starts it before sending$
+ mentions\.spec\.ts owned bot profile only exposes message action$
+ mentions\.spec\.ts profile popover wave sends a direct message for a human profile$
+ mentions\.spec\.ts profile-only agent author hides actions without agent access$
+ mentions\.spec\.ts selecting a persona mention creates a channel agent before sending$
+ mentions\.spec\.ts selecting a persona mention reuses an existing persona agent$
+ mentions\.spec\.ts sent managed non-member agent mention uses the agent mention style$
+ mentions\.spec\.ts sent non-member person mention uses the normal mention style$
+ messaging\.spec\.ts agent owner label identifies the agent and owner$
+ messaging\.spec\.ts code block shows language label when language is specified$
+ messaging\.spec\.ts copy a rendered code block and paste it back as code$
+ messaging\.spec\.ts pasting a long copied code block scrolls composer to cursor$
+ navigation\.spec\.ts conversation details and resident profile share one drawer$
+ nostr-bind\.spec\.ts auto-signs exactly once when the sixth correct digit is typed$
+ nostr-bind\.spec\.ts keeps the signed response available when clipboard access fails$
+ nostr-bind\.spec\.ts supports OTP entry and navigation without signing incomplete input$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 01 — prompt context dialog \(via Checks ingress\)$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 02 — system prompt title restored$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 03 — permission outcome \(approved\)$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 04 — permission outcome \(cancelled\)$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 05 — prompt context dialog \(sections expanded\)$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 06 — system prompt sections expanded$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 07 — current_mode_update lifecycle status line$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 08 — usage_update lifecycle status line \(coalesced\)$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 09 — available_commands_update lifecycle status line$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 10 — config_option_update lifecycle status line$
+ observer-feed-screenshots\.spec\.ts observer feed screenshots 11 — first-turn bundle: standalone system-prompt card \+ Checks ingress \(per-turn context only\)$
+ onboarding-docked-cta-screenshots\.spec\.ts machine key import remains usable in a short viewport$
+ persona-model-combobox-screenshots\.spec\.ts persona model combobox screenshots 01 — closed trigger \(model not yet selected\)$
+ persona-model-combobox-screenshots\.spec\.ts persona model combobox screenshots 02 — open popover with full model list$
+ persona-model-combobox-screenshots\.spec\.ts persona model combobox screenshots 03 — filtered results \(query: gpt\)$
+ persona-model-combobox-screenshots\.spec\.ts persona model combobox screenshots 04 — empty state \(no models match\)$
+ pubkey-display-screenshots\.spec\.ts member removal confirm shows the full npub inline$
+ pubkey-display-screenshots\.spec\.ts new-DM agent name swaps to its public key on name hover$
+ pubkey-display-screenshots\.spec\.ts profile panel Public key row opens the PubKey popover on hover$
+ pubkey-display-screenshots\.spec\.ts selected new-DM recipient can be verified again through search$
+ relay-connectivity\.spec\.ts relay connectivity 03 — canvas unreachable in management sheet$
+ relay-connectivity\.spec\.ts relay connectivity 05 — no-cache npub fallback when offline$
+ smoke\.spec\.ts create agent supports parallelism and system prompt overrides$
+ smoke\.spec\.ts replaces the channel pane when switching channels$
+ smoke\.spec\.ts search results use your resolved profile label instead of You$
+ spoiler\.spec\.ts image attachments can be marked and sent as hidden spoilers$
+ spoiler\.spec\.ts no-selection spoiler applies to every composer paragraph$
+ spoiler\.spec\.ts text spoiler stays usable while attachment upload is pending$
+ video-attachment\.spec\.ts dark accent uses a contrast-safe review foreground$
+ video-attachment\.spec\.ts neutral accent uses the forced-dark review foreground$
+ video-attachment\.spec\.ts video upload previews use poster frames and inline videos open review mode$
+ virtualization\.spec\.ts list virtualization 03 — members search shows both sticky titles under content-visibility$
+# old, unsure whether the app still has it; question in the doc (67)
+ agent-provider-dropdowns\.spec\.ts agent provider dropdown screenshots 03-builtin-edit-runtime-seeded$
+ agent-provider-dropdowns\.spec\.ts agent provider dropdown screenshots 04-codex-definition-exposes-model-without-global-provider-defaults$
+ buzz-theme-screenshots\.spec\.ts Void selects the first-party blackout palette from System mode$
+ buzz-theme-screenshots\.spec\.ts appearance picker — dark tab \(Buzz Dark\)$
+ buzz-theme-screenshots\.spec\.ts appearance picker — system tab \(Buzz follows OS\)$
+ channels\.spec\.ts archived channels stay out of all sidebar sections$
+ channels\.spec\.ts channel date divider keeps the date sticky while the separator rule scrolls$
+ channels\.spec\.ts members sidebar collapses same-persona managed agents$
+ channels\.spec\.ts open channel management supports join and leave$
+ channels\.spec\.ts shows presence in sidebar, DM header, and member list$
+ channels\.spec\.ts sidebar clears unread indicator after opening a DM$
+ channels\.spec\.ts sidebar shows unread indicator for new forum posts$
+ identity-lost\.spec\.ts normal first launch uses the already-persisted identity$
+ luca/conversation-activity-shelf\.spec\.ts Stop all appears only when more than one resident is working$
+ luca/conversation-activity-shelf\.spec\.ts no monospace chrome in the working surface$
+ luca/conversation-activity-shelf\.spec\.ts one resident working: one row, composer mark, no Stop all$
+ luca/conversation-activity-shelf\.spec\.ts the unposted case: a pending row at the tail, in the row's own geometry$
+ luca/conversation-activity-shelf\.spec\.ts three residents working: three independent composer marks$
+ luca/conversation-activity-shelf\.spec\.ts working rows leave the character on the composer$
+ luca/f06\.spec\.ts F06: lost owner recovery remains Luca-owned$
+ luca/f06\.spec\.ts F06: single-owner setup protects key material and makes recovery limits explicit$
+ luca/f11\.spec\.ts F11: real Tauri clean profile provisions and relaunches the same Luca home$
+ luca/owner-workspace-coherence\.spec\.ts one exact resident and project context stay coherent across the owner workspace$
+ luca/owner-workspace-coherence\.spec\.ts workspace coherence remains reachable in the compact reduced-motion shell$
+ luca/ux-audit-recovery\.spec\.ts setup to first conversation at 1024x768 dark$
+ luca/ux-audit-recovery\.spec\.ts setup to first conversation at 1024x768 light$
+ luca/ux-audit-recovery\.spec\.ts setup to first conversation at 1440x900 dark$
+ luca/ux-audit-recovery\.spec\.ts setup to first conversation at 1440x900 light$
+ luca/ux-audit-recovery\.spec\.ts setup to first conversation at 800x500 dark$
+ luca/ux-audit-recovery\.spec\.ts setup to first conversation at 800x500 light$
+ navigation\.spec\.ts settings is a route: section survives reload, closing returns to the previous panel state$
+ onboarding-agent-defaults\.spec\.ts Finish waits for the latest rapid harness choice to persist$
+ onboarding-agent-defaults\.spec\.ts auth discovery failure stays actionable without exposing internals$
+ onboarding-agent-defaults\.spec\.ts defaults Back returns to harness setup$
+ onboarding-agent-defaults\.spec\.ts defaults auto-selects the only ready visible harness$
+ onboarding-agent-defaults\.spec\.ts defaults renders only fields supported by the selected harness$
+ onboarding-agent-defaults\.spec\.ts defaults requires a choice when multiple visible harnesses are ready$
+ onboarding-agent-defaults\.spec\.ts defaults waits for baked configuration before rendering fields$
+ onboarding-agent-defaults\.spec\.ts failed install can be retried without shifting card content$
+ onboarding-agent-defaults\.spec\.ts install transitions through Sign in to Ready$
+ onboarding-agent-defaults\.spec\.ts ready state is detected and enables Next without persisting a default$
+ onboarding-agent-defaults\.spec\.ts setup shows only Claude Code and Codex as detected harnesses$
+ onboarding-agent-defaults\.spec\.ts setup shows runtime discovery loading before rendering harnesses$
+ onboarding-agent-defaults\.spec\.ts sign in stays pending until catalog detection confirms Ready$
+ onboarding-agent-defaults\.spec\.ts terminal launch failure keeps Sign in available$
+ onboarding-agent-defaults\.spec\.ts unknown authentication can be checked again$
+ onboarding-backup\.spec\.ts backup step Next is enabled once the key is shown$
+ onboarding-backup\.spec\.ts backup step advances to machine setup on Next click$
+ onboarding-backup\.spec\.ts backup step appears on fresh-key path after profile submit$
+ onboarding-backup\.spec\.ts backup step back button returns to machine identity choice$
+ onboarding-backup\.spec\.ts backup step retry succeeds and shows key after initial failure$
+ onboarding-backup\.spec\.ts backup step shows error banner and retry button when get_nsec fails$
+ onboarding-backup\.spec\.ts backup step shows masked nsec from mock bridge$
+ onboarding-docked-cta-screenshots\.spec\.ts machine onboarding: landing, backup, setup docked CTAs$
+ overscroll-boundary\.spec\.ts locks horizontal viewport pan everywhere$
+ overscroll-boundary\.spec\.ts locks viewport rubber-band outside conversation scrollers$
+ thread-unread\.spec\.ts thread unread indicator 01-thread-unread-badge$
+ thread-unread\.spec\.ts thread unread indicator 02-thread-new-divider$
+ thread-unread\.spec\.ts thread unread indicator 03-thread-badge-casual-browse$
+ thread-unread\.spec\.ts thread unread indicator 04-thread-deep-nested-unread$
+ thread-unread\.spec\.ts thread unread indicator 05-thread-in-panel-subtree-badge$
+ thread-unread\.spec\.ts thread unread indicator 06-in-panel-badge-bumps-on-live-reply$
+ thread-unread\.spec\.ts thread unread indicator 07-expand-clears-own-branch-badge-sibling-survives$
+ thread-unread\.spec\.ts thread unread indicator 10-thread-badge-survives-channel-reentry$
+ thread-unread\.spec\.ts thread unread indicator 11-thread-reply-lights-sidebar-badge-after-channel-view$
+ thread-unread\.spec\.ts thread unread indicator 13-thread-badge-clears-on-read-without-reentry$
+ thread-unread\.spec\.ts thread unread indicator 14-mention-only-nested-thread-badge$

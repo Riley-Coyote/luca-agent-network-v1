@@ -679,8 +679,30 @@ test("the page follows the task live into its finished state", async ({
 });
 
 test("Open in Codex hands off to the app's own session", async ({ page }) => {
+  // A task handed to the app's own session settles out of the Chats rail
+  // (commit 158129a01, "settle quiet task rows"): no row while it is not
+  // open. Its page is still reached by its address, as All activity and the
+  // app's workspace open it, and while open its row stands, marked current.
   await boot(page, { hash: `/channels/${GENERAL}` });
-  await openTask(page, "task-codex");
+  const rail = page.getByTestId("chat-list");
+  await expect(rail.getByTestId("rail-side-task:task-glass")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(rail.getByTestId("rail-side-task:task-codex")).toHaveCount(0);
+  await page.evaluate(() => {
+    window.location.hash = "/apps/codex/tasks/task-codex";
+  });
+  await expect(page.getByTestId("app-task-card")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.locator(".luca-place-page-name")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(rail.getByTestId("rail-side-task:task-codex")).toHaveAttribute(
+    "data-current",
+    "true",
+    { timeout: 20_000 },
+  );
   const button = page.getByTestId("app-task-open-native");
   await expect(button).toHaveText("Open in Codex");
   const head = await readPage(page);

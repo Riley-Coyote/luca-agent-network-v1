@@ -749,7 +749,9 @@ test.describe("the shell's rail", () => {
     await expect(apps).toBeVisible();
     await apps.locator(".luca-rail-row-hit").first().click();
     await expect(page).toHaveURL(/#\/apps\//);
-    await expect(page.getByTestId("connected-app-card")).toBeVisible();
+    // The app's page is its workspace since the native workspaces
+    // (8e4693bfe).
+    await expect(page.getByTestId("harness-workspace")).toBeVisible();
     await expect(page.locator("#runtime-sessions-panel")).toHaveCount(0);
     await waitForAnimations(page);
     const appPath = `${SHOTS}/09-app-in-chats.png`;

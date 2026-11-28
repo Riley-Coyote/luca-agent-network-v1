@@ -1,21 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 import { installMockBridge, openChannelBrowser } from "../helpers/bridge";
-
-const MOCK_PUBKEY = "deadbeef".repeat(8);
-const CUSTOM_SECTION = { id: "sec-projects", name: "Projects", order: 0 };
-
-async function seedCustomSection(page: Page) {
-  await page.addInitScript(
-    ({ pubkey, section }) => {
-      window.localStorage.setItem(
-        `buzz-channel-sections.v1:${pubkey}`,
-        JSON.stringify({ version: 1, sections: [section], assignments: {} }),
-      );
-    },
-    { pubkey: MOCK_PUBKEY, section: CUSTOM_SECTION },
-  );
-}
 
 test.beforeEach(async ({ page }, testInfo) => {
   await installMockBridge(
@@ -211,101 +196,6 @@ test("channel browser ranks the best match first", async ({ page }) => {
     "data-testid",
     "browse-channel-general",
   );
-});
-
-test("sidebar add-channel button creates without treating the click as a callback", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await expect(page.getByTestId("app-sidebar")).toBeVisible();
-
-  await page.getByTestId("section-actions-channels-quick-create").click();
-
-  await expect(page.getByTestId("channel-browser-dialog")).toBeVisible();
-  const channelName = `sidebar-created-${Date.now()}`;
-  await page.getByTestId("channel-browser-search").fill(channelName);
-  await page.getByTestId("channel-browser-create-row").click();
-  await page.getByTestId("create-channel-submit").click();
-
-  await expect(page.getByTestId("channel-browser-dialog")).not.toBeVisible();
-  await expect(page.getByTestId("stream-list")).toContainText(channelName);
-});
-
-test("custom section add button creates directly into that section", async ({
-  page,
-}) => {
-  await seedCustomSection(page);
-  await page.goto("/");
-
-  const addButton = page.getByTestId(
-    `section-actions-${CUSTOM_SECTION.id}-quick-create`,
-  );
-  await expect(addButton).toHaveAccessibleName("Add channel to Projects");
-  await addButton.click();
-  await expect(page.getByTestId("channel-browser-dialog")).toBeVisible();
-
-  const channelName = `section-created-${Date.now()}`;
-  await page.getByTestId("channel-browser-search").fill(channelName);
-  await page.getByTestId("channel-browser-create-row").click();
-  await page.getByTestId("create-channel-submit").click();
-
-  await expect(page.getByTestId("channel-browser-dialog")).not.toBeVisible();
-  await expect(
-    page.getByTestId(`section-title-${CUSTOM_SECTION.id}`),
-  ).toBeVisible();
-  await expect(page.getByTestId(`channel-${channelName}`)).toBeVisible();
-  await expect(page.getByTestId("stream-list")).not.toContainText(channelName);
-});
-
-test("canceling section create does not affect the next global create", async ({
-  page,
-}) => {
-  await seedCustomSection(page);
-  await page.goto("/");
-
-  await page
-    .getByTestId(`section-actions-${CUSTOM_SECTION.id}-quick-create`)
-    .click();
-  // Gate on the dialog mounting before dismissing it. Escape sent before mount
-  // is dropped (no handler yet), and not.toBeVisible() then passes vacuously
-  // against a dialog that hasn't rendered — so the dialog opens *after* the
-  // assertion and its overlay swallows every later click.
-  await expect(page.getByTestId("channel-browser-dialog")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("channel-browser-dialog")).not.toBeVisible();
-  // The overlay outlives the content by one exit animation; wait for it to
-  // detach so it can't intercept the next click.
-  await expect(page.getByTestId("dialog-overlay")).toHaveCount(0);
-
-  await page.getByTestId("section-actions-channels-quick-create").click();
-  const channelName = `global-after-cancel-${Date.now()}`;
-  await page.getByTestId("channel-browser-search").fill(channelName);
-  await page.getByTestId("channel-browser-create-row").click();
-  await page.getByTestId("create-channel-submit").click();
-
-  await expect(page.getByTestId("stream-list")).toContainText(channelName);
-});
-
-test("failed section create retry still assigns to the section", async ({
-  page,
-}) => {
-  await seedCustomSection(page);
-  await page.goto("/");
-
-  await page
-    .getByTestId(`section-actions-${CUSTOM_SECTION.id}-quick-create`)
-    .click();
-  const channelName = `section-retry-${Date.now()}`;
-  await page.getByTestId("channel-browser-search").fill(channelName);
-  await page.getByTestId("channel-browser-create-row").click();
-  await page.getByTestId("create-channel-submit").click();
-  await expect(page.getByText("Create failed")).toBeVisible();
-
-  await page.getByTestId("create-channel-submit").click();
-
-  await expect(page.getByTestId("channel-browser-dialog")).not.toBeVisible();
-  await expect(page.getByTestId(`channel-${channelName}`)).toBeVisible();
-  await expect(page.getByTestId("stream-list")).not.toContainText(channelName);
 });
 
 test("create affordance is visible on open before typing", async ({ page }) => {

@@ -260,6 +260,22 @@ test("image bundle lightbox navigates as a gallery", async ({ page }) => {
 test("hidden spoiler images are excluded from gallery navigation until revealed", async ({
   page,
 }) => {
+  // Both pictures load for real. The app asks for them through its local media
+  // proxy (the mock answers port 54321); nothing listens there in a browser
+  // run, so unrouted they would be broken images.
+  await page.route(
+    /^http:\/\/127\.0\.0\.1:54321\/media\/[de]{64}\.png$/,
+    (route) => {
+      const isHidden = route.request().url().includes(SPOILER_HIDDEN_SHA);
+      const width = isHidden ? 100 : 160;
+      const height = isHidden ? 160 : 100;
+      const fill = isHidden ? "#f4b860" : "#4aa3df";
+      route.fulfill({
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="${fill}"/></svg>`,
+        contentType: "image/svg+xml",
+      });
+    },
+  );
   await page.goto("/");
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("chat-title")).toHaveText("general");
@@ -310,7 +326,15 @@ test("hidden spoiler images are excluded from gallery navigation until revealed"
     .last();
   await expect(row).toBeVisible();
 
-  await row.locator(`img[src*="${SPOILER_VISIBLE_SHA}"]`).click();
+  const visibleImage = row.locator(`img[src*="${SPOILER_VISIBLE_SHA}"]`);
+  const hiddenImage = row.locator(`img[src*="${SPOILER_HIDDEN_SHA}"]`);
+  await expect
+    .poll(() =>
+      visibleImage.evaluate((img: HTMLImageElement) => img.naturalWidth),
+    )
+    .toBe(160);
+
+  await visibleImage.click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await expect(page.getByRole("button", { name: "Next image" })).toHaveCount(0);
@@ -322,8 +346,12 @@ test("hidden spoiler images are excluded from gallery navigation until revealed"
   await expect(spoiler).toHaveAttribute("data-revealed", "false");
   await spoiler.click();
   await expect(spoiler).toHaveAttribute("data-revealed", "true");
+  // A revealed picture fades in over 200ms, and the gallery leaves out a
+  // picture that cannot be seen yet. Open it once the picture is showing, as a
+  // person would; opening it mid-fade is what made this test race the page.
+  await expect(hiddenImage).toHaveCSS("opacity", "1");
 
-  await row.locator(`img[src*="${SPOILER_VISIBLE_SHA}"]`).click();
+  await visibleImage.click();
   await expect(dialog).toBeVisible();
   await expect(page.getByRole("button", { name: "Next image" })).toBeVisible();
 });

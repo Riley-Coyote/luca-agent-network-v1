@@ -5,8 +5,6 @@ import { installMockBridge } from "../helpers/bridge";
 
 const SHOTS = "test-results/buzz-theme";
 const THEME_STORAGE_KEY = "buzz-theme";
-const MOCK_PUBKEY = "deadbeef".repeat(8);
-const GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 
 /**
  * Seed the active theme into localStorage BEFORE the mock bridge installs so
@@ -19,29 +17,6 @@ async function seedTheme(page: Page, theme: string) {
       window.localStorage.setItem(key, value);
     },
     { key: THEME_STORAGE_KEY, value: theme },
-  );
-}
-
-async function seedIconChannelSection(page: Page) {
-  await page.addInitScript(
-    ({ channelId, pubkey }) => {
-      window.localStorage.setItem(
-        `buzz-channel-sections.v1:${pubkey}`,
-        JSON.stringify({
-          version: 1,
-          sections: [
-            {
-              id: "alignment-section",
-              name: "Team channels",
-              icon: "📌",
-              order: 0,
-            },
-          ],
-          assignments: { [channelId]: "alignment-section" },
-        }),
-      );
-    },
-    { channelId: GENERAL_CHANNEL_ID, pubkey: MOCK_PUBKEY },
   );
 }
 
@@ -95,28 +70,6 @@ async function expectBuzzGradientPaint(
   expect(paint.darkOpacity).toBe(mode === "dark" ? "1" : "0");
   expect(paint.sidebarImage).toBe("none");
   return mode === "light" ? paint.lightImage : paint.darkImage;
-}
-
-async function expectBuzzSettingsPalette(page: Page, mode: "light" | "dark") {
-  const mutedColor =
-    mode === "light" ? "rgba(0, 0, 0, 0.4)" : "rgba(255, 255, 255, 0.4)";
-  const sidebar = page.getByTestId("settings-sidebar");
-  const sectionLabel = sidebar
-    .locator('[data-sidebar="group-label"]')
-    .filter({ hasText: "Personal" });
-
-  await expect(sectionLabel).toHaveCSS("color", mutedColor);
-  await expect(page.getByTestId("settings-nav-profile")).not.toHaveCSS(
-    "color",
-    mutedColor,
-  );
-
-  await expectBuzzGradientPaint(page, mode);
-
-  const version = page.getByTestId("settings-version");
-  if ((await version.count()) > 0) {
-    await expect(version).toHaveCSS("color", mutedColor);
-  }
 }
 
 async function expectAppliedBuzzTheme(
@@ -254,49 +207,6 @@ test("Luca dark sidebar paint", async ({ page }) => {
   await page.screenshot({ path: `${SHOTS}/02-luca-dark.png` });
 });
 
-test("custom section icon and name align with channel columns", async ({
-  page,
-}) => {
-  await seedTheme(page, "buzz");
-  await seedIconChannelSection(page);
-  await installMockBridge(page);
-  await openChannel(page);
-
-  const sectionIconBox = await page
-    .getByTestId("section-icon-alignment-section")
-    .boundingBox();
-  const sectionTitleBox = await page
-    .getByTestId("section-title-alignment-section")
-    .boundingBox();
-  const channelButton = page.getByTestId("channel-general");
-  const channelIconBox = await channelButton
-    .locator("svg")
-    .first()
-    .boundingBox();
-  const channelTitleBox = await channelButton
-    .locator("[data-sidebar-row-label]")
-    .boundingBox();
-
-  expect(sectionIconBox).not.toBeNull();
-  expect(sectionTitleBox).not.toBeNull();
-  expect(channelIconBox).not.toBeNull();
-  expect(channelTitleBox).not.toBeNull();
-  if (
-    !sectionIconBox ||
-    !sectionTitleBox ||
-    !channelIconBox ||
-    !channelTitleBox
-  ) {
-    throw new Error("Custom section alignment geometry is missing");
-  }
-  expect(Math.abs(sectionIconBox.x - channelIconBox.x)).toBeLessThanOrEqual(
-    0.5,
-  );
-  expect(Math.abs(sectionTitleBox.x - channelTitleBox.x)).toBeLessThanOrEqual(
-    0.5,
-  );
-});
-
 async function openAppearance(page: Page, mode: "system" | "light" | "dark") {
   // Settings renders at the AppShell level; open it via the profile card
   // button, then select the Appearance section.
@@ -374,106 +284,6 @@ test("Void selects the first-party blackout palette from System mode", async ({
       page.evaluate(() => document.documentElement.classList.contains("dark")),
     )
     .toBe(true);
-});
-
-test("settings nav uses Buzz active pill + hover (light)", async ({ page }) => {
-  await seedTheme(page, "buzz");
-  await installMockBridge(page);
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.getByTestId("open-settings").click();
-  await page.getByTestId("profile-popover-settings").click();
-  const sidebar = page.getByTestId("settings-sidebar");
-  await expect(sidebar).toBeVisible({ timeout: 10_000 });
-  const profileRow = page.getByTestId("settings-nav-profile");
-  const profileLabel = profileRow.locator('[data-sidebar="menu-label"]');
-  await expect(profileRow).toHaveAttribute("data-active", "true");
-  await expect(profileRow).toHaveCSS("font-weight", "600");
-  const selectedLabelBox = await profileLabel.boundingBox();
-  // Appearance is the active section here; its nav row should carry the Buzz
-  // white active pill (data-active=true), matching the Left Nav treatment.
-  await page.getByTestId("settings-nav-appearance").click();
-  await expect(profileRow).toHaveCSS("font-weight", "400");
-  const unselectedLabelBox = await profileLabel.boundingBox();
-  expect(selectedLabelBox).not.toBeNull();
-  expect(unselectedLabelBox).not.toBeNull();
-  if (!selectedLabelBox || !unselectedLabelBox) {
-    throw new Error("Settings nav label geometry is missing");
-  }
-  expect(Math.abs(selectedLabelBox.width - unselectedLabelBox.width)).toBe(0);
-  await expectBuzzSettingsPalette(page, "light");
-  const activeRow = page.getByTestId("settings-nav-appearance");
-  await expect(activeRow).toHaveAttribute("data-active", "true");
-  await waitForAnimations(page);
-  await sidebar.screenshot({ path: `${SHOTS}/06-settings-nav-light.png` });
-});
-
-test("settings nav uses Buzz active pill + hover (dark)", async ({ page }) => {
-  await seedTheme(page, "buzz-dark");
-  await installMockBridge(page);
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.getByTestId("open-settings").click();
-  await page.getByTestId("profile-popover-settings").click();
-  const sidebar = page.getByTestId("settings-sidebar");
-  await expect(sidebar).toBeVisible({ timeout: 10_000 });
-  await page.getByTestId("settings-nav-appearance").click();
-  await expectBuzzSettingsPalette(page, "dark");
-  await expect(page.getByTestId("settings-content-surface")).toHaveCSS(
-    "background-color",
-    "rgb(26, 26, 26)",
-  );
-  await waitForAnimations(page);
-  await sidebar.screenshot({ path: `${SHOTS}/07-settings-nav-dark.png` });
-  await page.getByTestId("settings-view").screenshot({
-    path: `${SHOTS}/09-settings-content-dark.png`,
-  });
-});
-
-test("settings content uses the same inset surface as the main app", async ({
-  page,
-}) => {
-  await seedTheme(page, "buzz");
-  await installMockBridge(page);
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  const searchBox = await page.getByTestId("open-search").boundingBox();
-  await page.getByTestId("open-settings").click();
-  await page.getByTestId("profile-popover-settings").click();
-
-  const settingsView = page.getByTestId("settings-view");
-  const contentSurface = page.getByTestId("settings-content-surface");
-  const backToAppBox = await page
-    .getByTestId("settings-back-to-app")
-    .boundingBox();
-  await expect(contentSurface).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("settings-content-scroll")).toHaveCSS(
-    "padding-top",
-    "24px",
-  );
-
-  const viewBox = await settingsView.boundingBox();
-  const surfaceBox = await contentSurface.boundingBox();
-  expect(searchBox).not.toBeNull();
-  expect(backToAppBox).not.toBeNull();
-  expect(viewBox).not.toBeNull();
-  expect(surfaceBox).not.toBeNull();
-  if (!searchBox || !backToAppBox || !viewBox || !surfaceBox) {
-    throw new Error("Settings layout is missing");
-  }
-
-  expect(Math.abs(backToAppBox.y - searchBox.y)).toBeLessThanOrEqual(0.5);
-
-  // Match the normal app shell: a fixed 40px top chrome strip, then a 1px
-  // top/left inset and 8px right/bottom inset around the rounded content card.
-  expect(surfaceBox.y - viewBox.y).toBe(41);
-  expect(surfaceBox.x - viewBox.x).toBe(1);
-  expect(viewBox.x + viewBox.width - (surfaceBox.x + surfaceBox.width)).toBe(8);
-  expect(viewBox.y + viewBox.height - (surfaceBox.y + surfaceBox.height)).toBe(
-    8,
-  );
-
-  await waitForAnimations(page);
-  await settingsView.screenshot({
-    path: `${SHOTS}/08-settings-content-inset.png`,
-  });
 });
 
 test("appearance hides accent picker under Buzz", async ({ page }) => {

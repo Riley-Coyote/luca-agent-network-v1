@@ -443,9 +443,9 @@ for (const mode of ["dark", "light"] as const) {
         "rgba(255, 255, 255, 0.1)",
         "rgba(255, 255, 255, 0.22)",
       ]);
-      expect(measured.cardShadow).toBe(
-        "rgba(255, 255, 255, 0.12) 0px -0.5px 0px 0px, rgba(0, 0, 0, 0.25) 0px 1px 2px 0px, rgba(0, 0, 0, 0.32) 0px 18px 44px 0px",
-      );
+      // The one card's lit top rim is gone since 2a5be8a75; its two soft
+      // shadows stay.
+      expect(measured.cardShadow).toBe(NIGHT_MAIN_CARD_SHADOW);
     } else {
       expect(measured.veil.background).toMatch(/, 0\.22\)$/);
       // The page's ink at 100 / 84 / 66%.

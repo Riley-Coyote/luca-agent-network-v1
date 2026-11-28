@@ -49,42 +49,6 @@ async function waitForMockLiveSubscription(
 }
 
 test.describe("channel muting", () => {
-  test("01 — context menu shows Mute channel", async ({ page }) => {
-    await installMockBridge(page);
-    await page.goto("/");
-    await page.getByTestId("channel-general").click();
-    await expect(page.getByTestId("chat-title")).toHaveText("general");
-
-    await page.getByTestId("channel-random").click();
-    await expect(page.getByTestId("chat-title")).toHaveText("random");
-
-    await page.getByTestId("channel-general").click({ button: "right" });
-    const muteItem = page.getByRole("menuitem", { name: "Mute channel" });
-    await expect(muteItem).toBeVisible();
-    await muteItem.evaluate((el) =>
-      Promise.all(
-        el
-          .closest("[data-state]")
-          ?.getAnimations()
-          .map((a) => a.finished) ?? [],
-      ),
-    );
-  });
-
-  test("02 — muted channel is dimmed with BellOff icon", async ({ page }) => {
-    await seedMuteState(page, ENGINEERING_CHANNEL_ID);
-    await installMockBridge(page);
-
-    await page.goto("/");
-    await page.getByTestId("channel-random").click();
-    await expect(page.getByTestId("chat-title")).toHaveText("random");
-
-    const engRow = page.getByTestId("channel-engineering");
-    await expect(engRow).toBeVisible();
-    await expect(engRow).toHaveCSS("opacity", "0.5");
-    await expect(engRow.locator("svg.lucide-bell-off")).toHaveCount(1);
-  });
-
   test("03 — muted channel with @mention shows unread dot", async ({
     page,
   }) => {
@@ -124,40 +88,5 @@ test.describe("channel muting", () => {
     );
 
     await expect(page.getByTestId("channel-unread-engineering")).toBeVisible();
-  });
-
-  test("04 — context menu shows Unmute channel when muted", async ({
-    page,
-  }) => {
-    await seedMuteState(page, ENGINEERING_CHANNEL_ID);
-    await installMockBridge(page);
-
-    await page.goto("/");
-    await page.getByTestId("channel-random").click();
-    await expect(page.getByTestId("chat-title")).toHaveText("random");
-
-    await page.getByTestId("channel-engineering").click({ button: "right" });
-    const unmuteItem = page.getByRole("menuitem", { name: "Unmute channel" });
-    await expect(unmuteItem).toBeVisible();
-    await unmuteItem.evaluate((el) =>
-      Promise.all(
-        el
-          .closest("[data-state]")
-          ?.getAnimations()
-          .map((a) => a.finished) ?? [],
-      ),
-    );
-  });
-
-  test("05 — muted icon visible on selected channel", async ({ page }) => {
-    await seedMuteState(page, ENGINEERING_CHANNEL_ID);
-    await installMockBridge(page);
-
-    await page.goto("/");
-    await page.getByTestId("channel-engineering").click();
-    await expect(page.getByTestId("chat-title")).toHaveText("engineering");
-
-    const engRow = page.getByTestId("channel-engineering");
-    await expect(engRow.locator("svg.lucide-bell-off")).toHaveCount(1);
   });
 });

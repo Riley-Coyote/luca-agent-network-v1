@@ -138,17 +138,23 @@ async function openRuntime(page: Page) {
   await page.locator("[data-runtime-connection-key]").first().click();
 }
 
+/** Waits for the connected app's page: since the native workspaces
+ *  (8e4693bfe) Claude Code's page is its workspace, its sessions in the
+ *  workspace's catalogue, done reading. */
+async function connectedShown(page: Page) {
+  const workspace = page.getByTestId("harness-workspace");
+  await expect(workspace).toBeVisible({ timeout: 20000 });
+  await expect(
+    workspace.getByRole("complementary", { name: "Session catalogue" }),
+  ).toHaveAttribute("aria-busy", "false", { timeout: 20000 });
+  await page.waitForTimeout(SLIDE_MS + 200);
+}
+
 /** Picks the connected app in the Chats rail's Apps, and waits for its
- *  card. */
+ *  page. */
 async function openConnected(page: Page) {
   await page.getByTestId(APP_ROW).locator('[data-rail-focus="home"]').click();
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
-    timeout: 20000,
-  });
-  await expect(page.getByTestId("runtime-session-list")).toBeVisible({
-    timeout: 20000,
-  });
-  await page.waitForTimeout(SLIDE_MS + 200);
+  await connectedShown(page);
 }
 
 async function settle(page: Page) {
@@ -193,7 +199,8 @@ async function measure(page: Page) {
         radius: s.borderTopLeftRadius,
       };
     };
-    const card = document.querySelector('[data-testid="connected-app-card"]');
+    // The connected app's page: its workspace since 8e4693bfe.
+    const card = document.querySelector('[data-testid="harness-workspace"]');
     // What the rail opens, as the one card's spec reads it: the surface
     // that is itself the content, or the clear plane holding it, less the
     // plane's point of room.
@@ -355,7 +362,7 @@ for (const size of [
     expect(m.lipName?.trim()).toBe(
       (
         await page
-          .getByTestId("connected-app-card")
+          .getByTestId("harness-workspace")
           .getByTestId("place-page-head")
           .locator(".luca-place-page-name")
           .innerText()
@@ -504,13 +511,7 @@ test("narrow: under 768 the connected card still opens, and no sheet of the colu
   // Under 768 the rail is a sheet; the app's page still opens by its
   // address (in Chats since WP-34).
   await page.goto("/#/apps/claude");
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
-    timeout: 20000,
-  });
-  await expect(page.getByTestId("runtime-session-list")).toBeVisible({
-    timeout: 20000,
-  });
-  await page.waitForTimeout(SLIDE_MS + 200);
+  await connectedShown(page);
   const file = await shot(page, "narrow-connected");
   const m = await measure(page);
   checks.narrow = { shot: file, column: m.column, surface: m.surface };

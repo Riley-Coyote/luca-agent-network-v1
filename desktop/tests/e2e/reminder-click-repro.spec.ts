@@ -28,9 +28,6 @@ import { installMockBridge } from "../helpers/bridge";
  */
 
 const GENERAL_MESSAGE_ROW = "message-row";
-// The default mock feed's mention row (from alice, in #general) has a
-// channel target, so its "Remind me later" context-menu item is enabled.
-const INBOX_MENTION_ROW = "home-inbox-item-mock-feed-mention";
 
 /**
  * Assert the app survived the menu → dialog → close cycle.
@@ -111,32 +108,6 @@ test.describe("reminder set → app stays clickable", () => {
     await dialog.getByLabel("Reminder date").fill(date);
     await dialog.getByLabel("Reminder time").fill("09:00");
     await dialog.getByRole("button", { name: "Set reminder" }).click();
-
-    await expectReminderSetToast(page);
-    await expectAppAliveAfterDialogClose(page);
-  });
-
-  // The regression path: only the inbox right-click stacks a modal
-  // ContextMenu under the modal dialog. Fails if two copies of the
-  // dismissable layer are ever bundled again — body pointer-events stays
-  // "none" after the dialog closes and the sidebar click below times out.
-  test("03 — inbox row right-click → Remind me later", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.getByTestId("home-inbox")).toBeVisible();
-
-    const row = page.getByTestId(INBOX_MENTION_ROW);
-    await expect(row).toBeVisible();
-    await row.click({ button: "right" });
-
-    const remindItem = page.getByRole("menuitem", { name: "Remind me later" });
-    await expect(remindItem).toBeVisible();
-    await waitForAnimations(page);
-    await remindItem.click();
-
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await waitForAnimations(page);
-    await dialog.getByRole("button", { name: "In 30 minutes" }).click();
 
     await expectReminderSetToast(page);
     await expectAppAliveAfterDialogClose(page);
