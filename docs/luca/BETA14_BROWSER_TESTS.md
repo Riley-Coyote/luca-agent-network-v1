@@ -30,7 +30,46 @@ cores). Each file with a failure was then run again alone: 89 passed. What was l
 With those named, the rerun below keeps 1495 of 2051 tests, and each either passed in the
 sweep or passed alone, apart from those two.
 
-## The old ones (455, untouched)
+## The cleanup after the release (Nov 27, branch `claude/browser-tests-cleanup`)
+
+Tests only; no app code changed. The suite now lists 1869 tests (2051, less 183 removed, plus one
+new test that pins a fault).
+
+- **Removed 183 old tests** (182 test definitions; one made two) of screens the app no longer has: the thread panel, the old sidebar's
+  sections (mute, star, sort), the Inbox (off by default), Doctor, workflows, project review, the
+  channel intro cards, the old onboarding preview, the hidden shared-compute provider. 19 files
+  went whole and left the `smoke` list. Each was checked first: none was the only test of
+  something a person can still do.
+- **Kept 272 old tests** (below): they are the only tests of things the app still does, reached a
+  new way, or it could not be told.
+- **Rewrote 50 of the 55 left with a cause**, each checked three times in a row and its whole file
+  run (commits on the branch, one per cluster). What each now checks, by cluster:
+  - The Claude Code and Codex page is its workspace (8e4693bfe): 17 tests measure the workspace
+    where they measured the card. Dropped, with the card: Brain's "Open Brain" link from an
+    unreadable session list, and the flat session rows' recorded measures.
+  - Exchange rows come from the agent inbox (6aee43288): 13 tests give the mock inbox its say-so
+    (`tests/helpers/inbox-rail.ts`). The rail now shows one row per pair of agents ("With Luca"),
+    opening the pair's page; one test checks a row stays away when the inbox does not list it. A
+    task handed to the app's own session leaves the rail (158129a01).
+  - The chats column is gone (6dbb49a64): the grid folds and unfolds an agent's sessions in the
+    rail; the sphere is turned on in Settings (67a93cba3); the pixel style is gone (5ce8ac4f8).
+  - Measured values changed on purpose (ce7ffa30f, eaee02830, 2a5be8a75): the message box is
+    glass at 70% with its 20px blur; the main card's edges must read unlit; the day label has no
+    shadow.
+  - Settings lists the picture button's shadow (67a93cba3); an exchange's history is read in the
+    task window it opens (740409ae7, 6aee43288); the room's ask says "Deny / Allow once" with its
+    answers on the right, Needs you keeps "Once" (02226ec1c).
+- **The two that raced the page are sound now:**
+  - `image-attachment-gallery` "hidden spoiler images…": a revealed picture fades in over 0.2 s,
+    and the gallery leaves out a picture it cannot see yet. Opened in the same instant as the
+    reveal, the gallery missed it (3 of 3); 50 ms later it was there (3 of 3). The test now waits
+    for the picture to show, and its pictures load for real through the app's media proxy
+    (port 54321; they never went to localhost:3000). 20 of 20 under load.
+  - `luca/quickchat-lens` "a reader stays put…": it grew the reply before the Newest jump had
+    landed, which is a real fault (below). It now grows the reply after the jump's own scroll
+    event; 10 of 10. A new test pins the fault.
+
+## The old ones (455 at the count; 183 removed, 272 kept)
 
 | What changed in the app | Tests | Commit |
 |---|---|---|
@@ -66,8 +105,8 @@ sweep or passed alone, apart from those two.
 - Reduce Motion is set through the context, so specs in an empty chat are not starved by the
   film on a software GPU (44e26e22e). Two earlier fixes: 23809b108, 510b48e7d.
 
-**Left with a cause (47; the final sweep added one, and seven that never run).** Each needs a
-real rewrite or a decision, not a small fix:
+**Left with a cause (47; the final sweep added one, and seven that never run).** Since rewritten,
+all but five (see the cleanup above and "Left, with a question"). As counted:
 - 12 · The Claude and Codex app page is now the harness workspace (8e4693bfe), so the
   connected-app card is gone: `shell-activity`, `shell-brain`, `shell-huddle`, `shell-rail`,
   `shell-runtime`, `shell-place-rails` ×3, `shell-rail-wp34`, `shell-settings-agents`,
@@ -94,7 +133,7 @@ real rewrite or a decision, not a small fix:
 **Not checked on a real GPU:** the question card over the empty-chat film (`managed-input-card`,
 run with Reduce Motion) and the moving film itself. The coordinator will look in the real app.
 
-## Needs a second build (38)
+## Needs a second build (39)
 
 Each compares this build with an older one on another port: build that commit (`pnpm build:e2e`
 in a worktree there), serve it with `python3 desktop/scripts/serve-dist.py <port> <dist>`, set the variable.
@@ -103,7 +142,7 @@ Each variable is `WP<n>_BASE_URL` unless named; ? means the base commit was not 
 
 | Port | Spec (variable, base commit) |
 |---|---|
-| 4300 | `shell-glass` ×3 (WP07A, c43649156); `shell-glass-themes` ×4 (WP08D, ?); `shell-place-rails` (WP10, 2e3c04dd1); `shell-mind-space` (WP13, ?); `shell-activity` (WP14, ?); `shell-one-state` (WP18, af41a1604); `shell-motion-keys` ×10 (WP20 and `WP20_FILM_BASE_URL`, ea78fb0a3); `shell-pages` (WP33, ?); `shell-rail-wp34` (WP34) and `shell-project-rooms` (`PROJECT_ROOMS_BASE_URL`), 2cb995202; `shell-app-task` (WP35, d2d1d9d5c); `shell-brain` (WP38, f72b1cbee); `shell-agents-pages` (WP40, ea3576004) |
+| 4300 | `luca/shell-runtime` flag off (`SHELL_BASE_URL`); `shell-glass` ×3 (WP07A, c43649156); `shell-glass-themes` ×4 (WP08D, ?); `shell-place-rails` (WP10, 2e3c04dd1); `shell-mind-space` (WP13, ?); `shell-activity` (WP14, ?); `shell-one-state` (WP18, af41a1604); `shell-motion-keys` ×10 (WP20 and `WP20_FILM_BASE_URL`, ea78fb0a3); `shell-pages` (WP33, ?); `shell-rail-wp34` (WP34) and `shell-project-rooms` (`PROJECT_ROOMS_BASE_URL`), 2cb995202; `shell-app-task` (WP35, d2d1d9d5c); `shell-brain` (WP38, f72b1cbee); `shell-agents-pages` (WP40, ea3576004) |
 | 4320 | `shell-first-screen-asks` (WP16, 32b61d4e7) |
 | 4330 | `shell-room-asks` (WP23, 605ccf500); `shell-settings-agents` (WP24, ac8084c61) |
 | 4334 | `shell-room-flows` (WP27, cfb442813); `shell-top-edge` (WP29, 91f962074) |
@@ -121,7 +160,7 @@ sphere; `exchange-strip` jump to latest; `operator-forge` retained group; `runti
 Run waits for a folder; `shell-settings` review's fixes; `task-motion` light; `popout-shell`
 opening choices; `video-attachment` right-click menus; `continuous-motion` video glow (below).
 
-## Known in the app
+## Known in the app (3)
 
 **The glow behind a looping video, under Reduce Motion.**
 - What a person sees: with Reduce Motion on, the soft light around a looping video changes a
@@ -131,6 +170,27 @@ opening choices; `video-attachment` right-click menus; `continuous-motion` video
 - Commit: 150bebb86 (`videoGlowScheduler.ts`). Small; ships as is.
 - By hand: Reduce Motion on in macOS, open a conversation with a short looping video, and
   watch its glow at the moment it loops. Test: `luca/continuous-motion`, left as it is.
+
+**The mini chat stops following a reply that grows fast.**
+- What a person sees: in the mini chat, a reply that streams quickly (a new line every 50 ms or
+  faster) can leave the view behind: the reply carries on below and the Newest arrow comes back,
+  though the reader never scrolled. Pressing Newest while a reply streams can do the same at
+  once. At a line every 100 ms or slower it follows.
+- Cause: the mini chat decides whether the reader has left the end from each scroll event, but
+  its own jump to the end is reported a frame later. Content that grows in that gap reads as the
+  reader scrolling away, so it stops following (`useQuickChatTranscript.ts`, `update`).
+- Commit: e52aaba46. Not patched.
+- Measured in the browser build: Newest pressed as a piece lands, 3 of 3 stop following; a line
+  every 16 or 50 ms, 8 of 8; every 100 or 250 ms, 0 of 8. Not checked in the real app (WebKit).
+- Test: `luca/quickchat-lens` "a reply that grows as Newest is pressed is still followed".
+
+**An agent's status line breaks with its dot left hanging.**
+- What a person sees: on Luca's own page at 1440 wide, the status reads "Resting ·" with the dot
+  at the end of the line, and "Keeping up with Codex and Claude Code" drops to a second line.
+- Cause: the Inbox button (6aee43288, `AgentInboxMenu` in the page head) crowds the name column;
+  the dot is only dropped at 640px or narrower, and this column is wider. The stylesheet itself
+  says the line should wrap "with no dot left hanging".
+- Test: `shell-agent-place` "their page: one header, one status, three sections built alike".
 
 ## Waiting on Riley's call
 
@@ -143,11 +203,50 @@ An agent you agree to in chat, or tick in onboarding, does not appear in the rai
   is ticked…" and "an import that fails…". With them, "an ordinary running resident's row…"
   shares their setup, which waits for Luca in the rail.
 
+## Left, with a question
+
+- `shell-activity` "landing on an exchange: its message in view, named for you". The rail's pair
+  row now opens the pair's page, not the room at the exchange's first message, and no other
+  screen lands there in general. **Question:** move the test to Needs you's paused exchange (a
+  different waiting stack), or retire it?
+- `shell-first-screen-asks` "full-card film follows agent switches" (dark, light). They pass
+  unchanged on the Mac's GPU (`LUCA_PLAYWRIGHT_GPU=1`, 2 of 2) and starve the page on the software
+  renderer. **Question:** run these two on the GPU as part of the gate?
+- Not a test, seen while rewriting: on Claude Code's page the head's button says "New task" and
+  starts a task in the workspace, while the rail's + says "New conversation with Claude Code".
+  **Question:** should they be the same action again? The tests check each as it is.
+- `luca/shell-runtime` "flag off: the column draws exactly the base build" ran for the first time
+  and reads `SHELL_BASE_URL`; it joined the second-build list.
+
+## Old, kept (272)
+
+Each is the only test of something the app still does, reached a new way (205), or it could not
+be told without a run (67, "unsure" in the file). They fail as at beta.13 and stay on the list.
+Most fail at a shared first step, so a few fixes revive many:
+- `openNewMessagePage` in `tests/helpers/bridge.ts` clicks the old sidebar's DMs button; the new
+  message page is still there (about 20 tests: the DM picker, mentions in a DM).
+- Members and room settings are under conversation details now ("Manage participants",
+  "Room settings…"): `channel-controls`, most `channels` management tests.
+- Old words: "Fizz" is Luca, "Buzz" is Luca, "Attach image" is "Attach files", the author shows a
+  name, not "npub1mock...".
+- The clipboard tests grant permission for port 4173 only; they fail on any other port.
+- `getByLabel('Runtime')` now also matches two message spans: `operator-forge`, `resident-proposals`.
+- The profile panel's test id is on the page twice in a split pane.
+- Create and edit agent: the Agents page's Add agent, and Settings › defaults.
+- `luca/conversation-context` "a folder that moves during send…": not a fault. The message is
+  not lost; it moves into the chat as "Not sent · Retry" while the box empties.
+
+**Question:** rewrite these to the new ways in (a few shared fixes, then the rest by file), or
+retire the ones whose feature is covered enough elsewhere? Unsure ones to settle by a run:
+`conversation-activity-shelf` (the working mark), `overscroll-boundary`, `thread-unread` (the
+focus drawer may carry it), the old onboarding pages (reached only through "Start new identity").
+
 ## Rerun
 
-Every test outside the lists above, by name (`desktop/tests/e2e/beta14-rerun-exclude.txt`). The
-file also names the tests left with a cause, so a clean run is no failures; one that fails under
-load and passes alone belongs on the loose list. Each name in the file matches exactly one test.
+Every test outside the lists above, by name (`desktop/tests/e2e/beta14-rerun-exclude.txt`): a
+second build, the real app, known in the app, waiting on Riley's call, left with a question, and
+the old ones kept. A clean run is no failures; one that fails under load and passes alone belongs
+on the loose list. Each name in the file matches exactly one test.
 
 ```sh
 cd desktop && export pnpm_config_verify_deps_before_run=false && pnpm exec playwright test \
