@@ -42,6 +42,12 @@ as a record. Mnemos is in scope: Riley, November 20, "i want to just get it all 
   window (see below). Restarted at 11:34 am, same build, no rebuild: it came up in seconds
   with no prompt. Seen in passing: stopping the earlier build's main process took its relay
   and its three agent programs with it within seconds.
+  **Rebuilt again on November 28 at 4:57 am** (Riley's "fix both" covered one more build):
+  the release line at `c2592e01e` plus the same two files (4525266a7), unsigned, after the
+  build of the 27th was stopped. Not launched. It will ask for the keychain once, and a launch
+  left waiting at that prompt for hours came up blank last time, so it is opened when Riley
+  is at the Mac. Until then no test app is running, and none of the five fixes has been seen
+  in the real app.
 - **The hands-on pass (November 27, 11:35 to 11:45 am), by clicks only, in the background.**
   Looked at and working: Home; Settings, every section; Classic layout switched on and off
   again; a conversation with history; the mini chat (it opens where it was left, the "Newest
