@@ -19,6 +19,7 @@ import {
 import type { Channel, SearchHit, UserSearchResult } from "@/shared/api/types";
 import { Badge } from "@/shared/ui/badge";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 export type SearchResult =
   | {
@@ -177,7 +178,7 @@ function describeSearchHit(hit: SearchHit) {
 }
 
 function truncateContent(content: string) {
-  const trimmed = content.trim();
+  const trimmed = plainExpressionText(content).trim();
   if (trimmed.length === 0) {
     return "No message body.";
   }

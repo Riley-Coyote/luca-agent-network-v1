@@ -25,6 +25,7 @@ import {
 } from "@/shared/ui/mentionChip";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 type TopbarSearchProps = {
   channelLabels?: Record<string, string>;
@@ -68,7 +69,7 @@ type SearchHitContextLabel = {
 };
 
 function truncateResultText(content: string, maxLength = 96) {
-  const trimmed = content.trim();
+  const trimmed = plainExpressionText(content).trim();
   if (trimmed.length === 0) {
     return "No message body.";
   }

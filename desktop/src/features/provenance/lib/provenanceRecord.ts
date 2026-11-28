@@ -33,6 +33,7 @@ import {
 } from "@/shared/constants/kinds";
 import type { VerificationStatus } from "@/features/provenance/lib/verifyProvenance";
 import type { RelayEvent } from "@/shared/api/types";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 /**
  * The kinds a provenance query asks for.
@@ -102,7 +103,7 @@ function tagValue(event: RelayEvent, name: string): string | null {
 }
 
 function firstLine(content: string, max = 96): string {
-  const line = content.replace(/\s+/g, " ").trim();
+  const line = plainExpressionText(content).replace(/\s+/g, " ").trim();
   if (line.length <= max) return line;
   return `${line.slice(0, max - 1)}…`;
 }

@@ -81,6 +81,7 @@ import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useChatMarkAppearance } from "@/features/messages/lib/chatMarkAppearancePreference";
 import { useStreamingTextEffect } from "@/features/messages/lib/streamingTextPreference";
 import { InChatAgentMark } from "./InChatAgentMark";
+import { plainExpressionText } from "@/shared/lib/plainExpressionText";
 
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
 const DiffMessageExpanded = React.lazy(() => import("./DiffMessageExpanded"));
@@ -330,7 +331,7 @@ export const MessageRow = React.memo(
         openReminder({
           eventId: msg.id,
           channelId: channelId ?? "",
-          preview: msg.body.slice(0, 100),
+          preview: plainExpressionText(msg.body).slice(0, 100),
           authorPubkey: msg.pubkey ?? "",
         });
       },
