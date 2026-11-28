@@ -1,15 +1,23 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  bootMiniChat,
   bootSmoothness,
   deliverReply,
+  everyKindReply,
+  MINI_RESIDENT,
   openRoom,
   rowKeyNearTop,
   type SmoothFrame,
   sendFromComposer,
+  sendFromMiniChat,
   smoothnessReply,
   startFrames,
+  stopCodeBlock,
   stopFrames,
+  stopMarkupShown,
+  watchCodeBlock,
+  watchMarkupShown,
   wheelConversation,
 } from "../../helpers/messagingSmoothness";
 
@@ -218,4 +226,50 @@ test("switching conversations never shows the other one's messages under the new
   expect(frames.at(-1)?.dist ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
     2,
   );
+});
+
+test("a reply holding every kind of formatting never shows its markup while it is written", async ({
+  page,
+}) => {
+  await bootSmoothness(page);
+  const receipt = await sendFromComposer(page, "Write every kind.");
+  await watchMarkupShown(page, "conversation");
+  await deliverReply(page, receipt, everyKindReply(3));
+  await page.waitForTimeout(1500);
+  expect(await stopMarkupShown(page)).toEqual([]);
+});
+
+test("an open code block is a code block from its first line, and closing it moves no line", async ({
+  page,
+}) => {
+  await bootSmoothness(page);
+  const receipt = await sendFromComposer(page, "Write the code.");
+  await watchCodeBlock(page, "const calibrated1");
+  await deliverReply(page, receipt, everyKindReply(1));
+  await page.waitForTimeout(1500);
+  const watch = await stopCodeBlock(page);
+  expect(watch.firstSeenInBlock).toBe(true);
+  expect(watch.colouredWhileOpen).toBe(0);
+  expect(watch.swaps.length).toBeGreaterThan(0);
+  for (const swap of watch.swaps) {
+    expect(swap.lines).toBeGreaterThan(0);
+    expect(swap.maxDy).toBeLessThanOrEqual(1);
+  }
+});
+
+test("in the mini chat a reply never shows its markup while it is written", async ({
+  page,
+}) => {
+  await bootMiniChat(page);
+  const { channelId, receiptId } = await sendFromMiniChat(
+    page,
+    "Write every kind in the mini chat.",
+  );
+  await watchMarkupShown(page, "mini");
+  await deliverReply(page, receiptId, everyKindReply(2), {
+    channelId,
+    resident: MINI_RESIDENT,
+  });
+  await page.waitForTimeout(1500);
+  expect(await stopMarkupShown(page)).toEqual([]);
 });

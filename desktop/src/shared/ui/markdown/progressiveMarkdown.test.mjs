@@ -213,7 +213,7 @@ test("color: is held the same way, and so is a link still choosing its scheme", 
   }
 });
 
-test("any other bracket shows as it comes", () => {
+test("any other bracket is not a coloured phrase", () => {
   for (const tail of [
     "see [1] and more",
     "[a link](https://example.com",
@@ -225,7 +225,25 @@ test("any other bracket shows as it comes", () => {
     "[spaced](ink:care? hold",
   ]) {
     assert.equal(openInkLinkStart(tail), -1, tail);
+  }
+  // What cannot become any link shows as it comes.
+  for (const tail of [
+    "see [1] and more",
+    "[note] (later)",
+    "\\[escaped](ink:hold",
+    "`[in code](ink:hold` then",
+    "[spaced](ink:care? hold",
+  ]) {
     assert.equal(streamingTailShown(tail), tail, tail);
+  }
+  // An ordinary link or picture still being written waits like any other
+  // unfinished construct (WP-59 stage 2).
+  for (const tail of [
+    "[a link](https://example.com",
+    "[a link](inkwell",
+    "![image](ink:hold",
+  ]) {
+    assert.equal(streamingTailShown(tail), "", tail);
   }
 });
 

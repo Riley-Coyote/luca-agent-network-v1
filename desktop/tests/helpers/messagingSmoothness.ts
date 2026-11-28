@@ -149,6 +149,7 @@ export async function deliverReply(
   page: Page,
   receiptId: string,
   text: string,
+  target: { channelId: string; resident: string } | null = null,
 ) {
   await page.evaluate(
     async ({ claude, event, receipt, reply, channel }) => {
@@ -178,19 +179,24 @@ export async function deliverReply(
       emit("completed");
     },
     {
-      channel: GENERAL_ID,
-      claude: RESIDENT,
+      channel: target?.channelId ?? GENERAL_ID,
+      claude: target?.resident ?? RESIDENT,
       event: PRESENTATION_EVENT,
       receipt: receiptId,
       reply: text,
     },
   );
-  const row = page.locator("[data-managed-response-ui-key]").last();
-  await expect(row).toHaveAttribute("data-managed-response-ui-key", /.+/);
+  if (!target) {
+    const row = page.locator("[data-managed-response-ui-key]").last();
+    await expect(row).toHaveAttribute("data-managed-response-ui-key", /.+/);
+  } else {
+    // Let the last pieces drain before the signed message arrives.
+    await page.waitForTimeout(900);
+  }
   await page.evaluate(
-    ({ id, parent, pubkey, content }) => {
+    ({ id, parent, pubkey, content, channelId }) => {
       window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
-        channelName: "general",
+        ...(channelId ? { channelId } : { channelName: "general" }),
         content,
         id,
         parentEventId: parent,
@@ -202,10 +208,11 @@ export async function deliverReply(
       });
     },
     {
+      channelId: target?.channelId ?? null,
       content: text,
       id: `smoothfinal${receiptId.slice(0, 8)}`.padEnd(64, "f"),
       parent: receiptId,
-      pubkey: RESIDENT,
+      pubkey: target?.resident ?? RESIDENT,
     },
   );
 }
@@ -366,4 +373,226 @@ export async function rowKeyNearTop(page: Page, inset = 80) {
     );
     return row?.dataset.timelineItemKey ?? null;
   }, inset);
+}
+
+/**
+ * A reply that writes every kind of formatting a reply can hold: emphasis of
+ * each kind, strike-through, a spoiler, inline code, a link, a code block
+ * straight under a line, a list straight under a line, a list, a table, an
+ * optional picture and a coloured phrase. Its prose holds none of those
+ * characters, so any of them seen as text is markup shown before it is drawn.
+ */
+export function everyKindReply(sections: number, picture?: string): string {
+  return Array.from({ length: sections }, (_, index) => {
+    const k = index + 1;
+    return [
+      `Part ${k} opens with **an important point** and *a softer one*, then _another_ and __a strong one__. ${PROSE[k % 3]}`,
+      `${PROSE[(k + 1) % 3]} The old plan is ~~withdrawn now~~ and ||the ending stays hidden|| for later.`,
+      `Use \`repo_read\` and see the [style notes](https://example.com/notes/${k}) before ${PROSE[(k + 2) % 3]}`,
+      `Here is the code for part ${k}:\n\`\`\`ts\nconst calibrated${k} = questions.filter((q) => q.honest);\nconst label = \`part ${k}\`;\nexport default calibrated${k};\n\`\`\``,
+      `Steps for part ${k}:\n1. Open **the file** first.\n2. Then run \`check\` once.`,
+      `- first item ${k}\n- second item with \`inline code\``,
+      `| Part | Words |\n| --- | --- |\n| ${k} | **120** |`,
+      ...(picture ? [`![](${picture})`] : []),
+      `[A warm phrase lands here](color:warmth~care) before part ${k} closes.`,
+    ].join("\n\n");
+  }).join("\n\n");
+}
+
+type MarkupWindow = { __markupSeen: { seen: string[]; on: boolean } };
+
+/**
+ * After every painted frame, read the newest reply's unfinished end (its last
+ * blocks, outside code) and keep any frame that shows markup as text.
+ */
+export async function watchMarkupShown(
+  page: Page,
+  surface: "conversation" | "mini",
+) {
+  await page.evaluate((where) => {
+    const RAW =
+      /\*|__|~~|\|\||`|\[|\]|\||(^|\s)_\S|(^|\n)\s*(?:[-+]|\d+[.)])\s|(^|\n)#{1,6}\s/;
+    const state = { seen: [] as string[], on: true };
+    (window as unknown as MarkupWindow).__markupSeen = state;
+    const prose = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) return node.nodeValue ?? "";
+      if (!(node instanceof Element)) return "";
+      if (node.matches("pre, code, [data-code-block]")) return "";
+      return Array.from(node.childNodes).map(prose).join("");
+    };
+    const root = () => {
+      if (where === "mini") {
+        const replies = document.querySelectorAll(
+          ".qc-message:not(.qc-owner) .message-markdown",
+        );
+        return replies[replies.length - 1] ?? null;
+      }
+      const replies = document.querySelectorAll(
+        "[data-managed-response-ui-key] .message-markdown",
+      );
+      return replies[replies.length - 1] ?? null;
+    };
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      const md = root();
+      if (!md) return;
+      const text = Array.from(md.children).slice(-4).map(prose).join("\n");
+      if (RAW.test(text)) state.seen.push(text.slice(-80));
+    };
+    const loop = () => {
+      if (!state.on) return;
+      channel.port2.postMessage(0);
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }, surface);
+}
+
+export async function stopMarkupShown(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const state = (window as unknown as MarkupWindow).__markupSeen;
+    state.on = false;
+    return state.seen;
+  });
+}
+
+export type CodeBlockWatch = {
+  /** Whether the first frame showing the sentinel line showed it in a code block. */
+  firstSeenInBlock: boolean | null;
+  /** Frames the open block showed syntax colours before it closed. */
+  colouredWhileOpen: number;
+  /** Each time the drawn block was replaced: how far its lines moved. */
+  swaps: { lines: number; maxDy: number }[];
+};
+
+type CodeWindow = {
+  __codeWatch: CodeBlockWatch & { on: boolean };
+};
+
+/**
+ * After every painted frame, follow the code block whose code holds
+ * `sentinel`: whether its first line ever showed outside a code block, and
+ * how far its lines moved, relative to the reply, when it was redrawn.
+ */
+export async function watchCodeBlock(page: Page, sentinel: string) {
+  await page.evaluate((needle) => {
+    const ids = new WeakMap<Element, number>();
+    let nextId = 1;
+    let last: { id: number; tops: number[] } | null = null;
+    const state: CodeBlockWatch & { on: boolean } = {
+      colouredWhileOpen: 0,
+      firstSeenInBlock: null,
+      on: true,
+      swaps: [],
+    };
+    (window as unknown as CodeWindow).__codeWatch = state;
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      const replies = document.querySelectorAll(
+        "[data-managed-response-ui-key] .message-markdown",
+      );
+      const md = replies[replies.length - 1];
+      if (!md || !(md.textContent ?? "").includes(needle)) return;
+      const block = Array.from(md.querySelectorAll("[data-code-block]")).find(
+        (candidate) => (candidate.textContent ?? "").includes(needle),
+      );
+      if (state.firstSeenInBlock === null) state.firstSeenInBlock = !!block;
+      if (!block) return;
+      if (!ids.has(block)) ids.set(block, nextId++);
+      const id = ids.get(block) as number;
+      const origin = md.getBoundingClientRect().top;
+      const tops = Array.from(block.querySelectorAll("[data-line]")).map(
+        (line) => line.getBoundingClientRect().top - origin,
+      );
+      if (state.swaps.length === 0 && block.querySelector("[style*='color']")) {
+        state.colouredWhileOpen += 1;
+      }
+      if (last && last.id !== id) {
+        const common = Math.min(last.tops.length, tops.length);
+        let maxDy = 0;
+        for (let i = 0; i < common; i += 1) {
+          maxDy = Math.max(
+            maxDy,
+            Math.abs((tops[i] as number) - (last.tops[i] as number)),
+          );
+        }
+        state.swaps.push({ lines: common, maxDy: +maxDy.toFixed(2) });
+      }
+      last = { id, tops };
+    };
+    const loop = () => {
+      if (!state.on) return;
+      channel.port2.postMessage(0);
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }, sentinel);
+}
+
+export async function stopCodeBlock(page: Page): Promise<CodeBlockWatch> {
+  return page.evaluate(() => {
+    const state = (window as unknown as CodeWindow).__codeWatch;
+    state.on = false;
+    return {
+      colouredWhileOpen: state.colouredWhileOpen,
+      firstSeenInBlock: state.firstSeenInBlock,
+      swaps: state.swaps,
+    };
+  });
+}
+
+/** The resident the mini chat talks to. */
+export const MINI_RESIDENT = "a".repeat(64);
+
+/** Boot the app with the new look and open the mini chat. */
+export async function bootMiniChat(page: Page) {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.addInitScript((key) => {
+    localStorage.setItem(key, JSON.stringify({ "shell-frame": true }));
+    localStorage.setItem("buzz-theme", "obsidian");
+    localStorage.setItem("buzz-follow-system", "false");
+  }, FEATURE_OVERRIDES_STORAGE_KEY);
+  await installMockBridge(page, {
+    managedAgents: [
+      {
+        name: "Luca",
+        personaId: "builtin:fizz",
+        pubkey: MINI_RESIDENT,
+        status: "running",
+      },
+    ],
+  });
+  await page.goto(`/?e2e=mock#/channels/${GENERAL_ID}`);
+  await expect(page.getByTestId("message-composer")).toBeVisible();
+  await page.getByTestId("quickchat-launcher").click();
+  await expect(page.getByTestId("quickchat-input")).toBeFocused();
+}
+
+/** Send in the mini chat; returns what its reply answers and where. */
+export async function sendFromMiniChat(page: Page, text: string) {
+  const field = page.getByTestId("quickchat-input");
+  await field.fill(text);
+  await field.press("Enter");
+  await expect(field).toHaveValue("");
+  const row = page
+    .locator(".qc-message.qc-owner")
+    .filter({ hasText: text })
+    .last();
+  await expect(row).toBeVisible();
+  const receiptId = await row.getAttribute("data-message-id");
+  const channelId = await page.evaluate(() => {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i) ?? "";
+      if (!key.startsWith("luca:quickchat:v1:")) continue;
+      const value = JSON.parse(localStorage.getItem(key) ?? "{}") as {
+        companionRooms?: Record<string, { channelId?: string }>;
+      };
+      const room = Object.values(value.companionRooms ?? {})[0];
+      if (room?.channelId) return room.channelId;
+    }
+    return null;
+  });
+  if (!receiptId || !channelId)
+    throw new Error("The mini chat send is missing.");
+  return { channelId, receiptId };
 }

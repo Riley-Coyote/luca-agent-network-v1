@@ -4,12 +4,14 @@ import {
   STREAMING_WORD_ATTRIBUTE,
   STREAMING_WORD_CLASS,
 } from "../markdownStreamingText";
+import { StreamingCodeBlock } from "./CodeBlock";
 import { renderUncachedMarkdown, type MarkdownParseInputs } from "./nodeCache";
 import {
   advanceProgressiveMarkdownSnapshot,
   type ProgressiveMarkdownBlock,
   type ProgressiveMarkdownSnapshot,
   progressiveMarkdownTailMode,
+  streamingOpenCodeBlock,
   streamingTailShown,
 } from "./progressiveMarkdown";
 
@@ -209,13 +211,27 @@ export const ProgressiveMarkdownRenderer = React.memo(
     const trailing = withholdOpenInk
       ? streamingTailShown(snapshot.trailing)
       : snapshot.trailing;
+    const openCode = withholdOpenInk ? streamingOpenCodeBlock(trailing) : null;
     return (
       <>
         <CompletedProgressiveMarkdownBlocks
           {...parseInputs}
           blocks={snapshot.blocks}
         />
-        <ProgressiveMarkdownTail {...parseInputs} content={trailing} />
+        <ProgressiveMarkdownTail
+          {...parseInputs}
+          content={
+            openCode
+              ? trailing.slice(0, openCode.start).replace(/\n$/, "")
+              : trailing
+          }
+        />
+        {openCode ? (
+          <StreamingCodeBlock
+            language={openCode.language}
+            lines={openCode.lines}
+          />
+        ) : null}
       </>
     );
   },

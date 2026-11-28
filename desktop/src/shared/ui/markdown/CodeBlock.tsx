@@ -132,6 +132,39 @@ export function MarkdownCodeBlock({
   );
 }
 
+const StreamingCodeLine = React.memo(function StreamingCodeLine({
+  text,
+}: {
+  text: string;
+}) {
+  return <span data-line="">{text}</span>;
+});
+
+/**
+ * A code block a reply is still writing: the finished block's own frame and
+ * lines, the same as `SyntaxHighlightedCode` draws before its colours load,
+ * so closing the fence only lets the colours arrive. Each line is memoised,
+ * so one more piece touches only the line it lands on.
+ */
+export const StreamingCodeBlock = React.memo(function StreamingCodeBlock({
+  language,
+  lines,
+}: {
+  language: string;
+  lines: readonly string[];
+}) {
+  return (
+    <MarkdownCodeBlock interactive={false} language={language}>
+      <code className={CODE_BLOCK_CLASS}>
+        {lines.map((line, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+          <StreamingCodeLine key={index} text={line} />
+        ))}
+      </code>
+    </MarkdownCodeBlock>
+  );
+});
+
 export function SyntaxHighlightedCode({
   code,
   language,
