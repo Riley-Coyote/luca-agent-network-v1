@@ -43,9 +43,8 @@
 # needs the real app built (2): they launch the native debug app
  luca/f11\.spec\.ts F11: real Tauri recovers a generated owner identity into a private Luca home$
  luca/f11\.spec\.ts F11: native debug failpoint renders Luca personal-home retry state$
-# known in the app (3)
+# known in the app (2)
  luca/continuous-motion\.spec\.ts production video glow rests paused and hidden, and follows real seek/play/resume$
- luca/quickchat-lens\.spec\.ts a reply that grows as Newest is pressed is still followed$
  shell-agent-place\.spec\.ts their page: one header, one status, three sections built alike$
 # waiting on Riley's call (4, and one more that shares their setup)
  luca/luca-creates-resident\.spec\.ts a bring-up that fails says so on the row instead of looking ordinary$

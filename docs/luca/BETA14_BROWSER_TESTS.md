@@ -32,8 +32,7 @@ sweep or passed alone, apart from those two.
 
 ## The cleanup after the release (Nov 27, branch `claude/browser-tests-cleanup`)
 
-Tests only; no app code changed. The suite now lists 1869 tests (2051, less 183 removed, plus one
-new test that pins a fault).
+Tests only; no app code changed. The suite now lists 1868 tests (2051, less 183 removed).
 
 - **Removed 183 old tests** (182 test definitions; one made two) of screens the app no longer has: the thread panel, the old sidebar's
   sections (mute, star, sort), the Inbox (off by default), Doctor, workflows, project review, the
@@ -66,8 +65,8 @@ new test that pins a fault).
     for the picture to show, and its pictures load for real through the app's media proxy
     (port 54321; they never went to localhost:3000). 20 of 20 under load.
   - `luca/quickchat-lens` "a reader stays put…": it grew the reply before the Newest jump had
-    landed, which is a real fault (below). It now grows the reply after the jump's own scroll
-    event; 10 of 10. A new test pins the fault.
+    landed, which is a real fault in the app (below). Riley said fix it; the fix and its tests
+    are WP-58 (`claude/wp58-chat-fixes`), which owns this file, so this branch leaves it as is.
 
 ## The old ones (455 at the count; 183 removed, 272 kept)
 
@@ -160,7 +159,7 @@ sphere; `exchange-strip` jump to latest; `operator-forge` retained group; `runti
 Run waits for a folder; `shell-settings` review's fixes; `task-motion` light; `popout-shell`
 opening choices; `video-attachment` right-click menus; `continuous-motion` video glow (below).
 
-## Known in the app (3)
+## Known in the app (3, one being fixed)
 
 **The glow behind a looping video, under Reduce Motion.**
 - What a person sees: with Reduce Motion on, the soft light around a looping video changes a
@@ -179,10 +178,10 @@ opening choices; `video-attachment` right-click menus; `continuous-motion` video
 - Cause: the mini chat decides whether the reader has left the end from each scroll event, but
   its own jump to the end is reported a frame later. Content that grows in that gap reads as the
   reader scrolling away, so it stops following (`useQuickChatTranscript.ts`, `update`).
-- Commit: e52aaba46. Not patched.
+- Commit: e52aaba46. Being fixed on the release line (WP-58), with tests that fail before.
 - Measured in the browser build: Newest pressed as a piece lands, 3 of 3 stop following; a line
   every 16 or 50 ms, 8 of 8; every 100 or 250 ms, 0 of 8. Not checked in the real app (WebKit).
-- Test: `luca/quickchat-lens` "a reply that grows as Newest is pressed is still followed".
+- Test: WP-58's, in `luca/quickchat-lens`.
 
 **An agent's status line breaks with its dot left hanging.**
 - What a person sees: on Luca's own page at 1440 wide, the status reads "Resting ·" with the dot

@@ -167,20 +167,8 @@ test("a reader stays put while content grows, then newest resumes following", as
     el.append(p);
   });
   await expect.poll(() => transcript.evaluate((el) => el.scrollTop)).toBe(60);
-  // The jump to the end is told to the page by its own scroll event, a frame
-  // later. Content that grows before that event arrives is the known fault
-  // below; here the reply grows after the jump has landed, as it usually does.
-  await transcript.evaluate((el) => {
-    (el as HTMLElement & { jumped?: Promise<void> }).jumped = new Promise(
-      (resolve) =>
-        el.addEventListener("scroll", () => resolve(), { once: true }),
-    );
-  });
   await arrow.click();
   await expect(arrow).toHaveCount(0);
-  await transcript.evaluate(
-    (el) => (el as HTMLElement & { jumped?: Promise<void> }).jumped,
-  );
   await page.locator(".qc-messages").evaluate((el) => {
     const p = document.createElement("p");
     p.style.height = "200px";
@@ -193,45 +181,4 @@ test("a reader stays put while content grows, then newest resumes following", as
       ),
     )
     .toBeLessThanOrEqual(2);
-});
-
-// Known in the app (docs/luca/BETA14_BROWSER_TESTS.md): the mini chat decides
-// whether the reader has left the end from each scroll event, and its own jump
-// to the end is delivered a frame late. A piece of the reply that lands in
-// between reads as the reader scrolling away, so it stops following.
-test("a reply that grows as Newest is pressed is still followed", async ({
-  page,
-}) => {
-  const field = page.getByTestId("quickchat-input");
-  await field.fill("A long message for scroll verification. ".repeat(70));
-  await field.press("Enter");
-  await expect(field).toHaveValue("");
-  const transcript = page.locator(".qc-transcript");
-  await waitForAnimations(page);
-  await transcript.evaluate((el) => {
-    el.scrollTop = 60;
-    el.dispatchEvent(new Event("scroll"));
-  });
-  const arrow = page.getByRole("button", {
-    name: "Newest message",
-    exact: true,
-  });
-  await expect(arrow).toBeVisible();
-  // Press Newest and let the next piece of the reply land in the same moment.
-  await page.evaluate(() => {
-    document
-      .querySelector<HTMLButtonElement>('button[aria-label="Newest message"]')
-      ?.click();
-    const p = document.createElement("p");
-    p.style.height = "200px";
-    document.querySelector(".qc-messages")?.append(p);
-  });
-  await expect
-    .poll(() =>
-      transcript.evaluate((el) =>
-        Math.abs(el.scrollHeight - el.clientHeight - el.scrollTop),
-      ),
-    )
-    .toBeLessThanOrEqual(2);
-  await expect(arrow).toHaveCount(0);
 });
