@@ -406,33 +406,9 @@ test("every way into Brain opens the Brain place", async ({ page }) => {
   await page.getByRole("menuitem", { name: "Sources" }).click();
   ways.projectSources = await landedOnBrain(page);
 
-  // The runtime sessions' "Open Brain", on a connected app's card: the
-  // mock lists Codex's sessions, so its read is made to fail, and the card
-  // offers Brain, as it does when the sessions can't be read.
-  await fromRoom();
-  await page.evaluate(() => {
-    const state = window as unknown as {
-      __TAURI_INTERNALS__: {
-        invoke: (c: string, a?: unknown, o?: unknown) => Promise<unknown>;
-      };
-    };
-    const invoke = state.__TAURI_INTERNALS__.invoke;
-    state.__TAURI_INTERNALS__.invoke = async (command, args, options) => {
-      if (command === "list_connected_runtime_sessions")
-        throw new Error("connected runtime sessions are unavailable");
-      return invoke(command, args, options);
-    };
-  });
-  await page
-    .getByTestId("rail-home-app:codex")
-    .locator('[data-rail-focus="home"]')
-    .click({ timeout: 20_000 });
-  await expect(page.getByTestId("connected-app-card")).toBeVisible();
-  await page
-    .getByTestId("connected-app-card")
-    .getByRole("button", { name: "Open Brain" })
-    .click({ timeout: 40_000 });
-  ways.runtimeSessions = await landedOnBrain(page);
+  // A connected app's card no longer offers "Open Brain": since the native
+  // workspaces (8e4693bfe) the app's page is its workspace, which reads its
+  // sessions from the app itself rather than from Brain's connections.
 
   // The surface navigation: a mind asks for Brain.
   await fromRoom();

@@ -608,9 +608,12 @@ test("empty place: the box goes the moment a day arrives", async ({ page }) => {
 });
 
 // ── 3 · Claude Code's page head ───────────────────────────────────────
-const head = (page: Page) =>
-  page.evaluate(() => {
-    const card = document.querySelector('[data-testid="connected-app-card"]');
+// The page that holds the head: a connected Claude Code or Codex is its
+// workspace since the native workspaces (8e4693bfe); any other app keeps the
+// connected app's card.
+const head = (page: Page, testId = "connected-app-card") =>
+  page.evaluate((testId) => {
+    const card = document.querySelector(`[data-testid="${testId}"]`);
     const header = card?.querySelector('[data-testid="place-page-head"]');
     const box = (el: Element | null | undefined) => {
       const r = el?.getBoundingClientRect();
@@ -642,7 +645,7 @@ const head = (page: Page) =>
         ? { color: stateStyle.color, fontSize: stateStyle.fontSize }
         : null,
     };
-  });
+  }, testId);
 
 for (const mode of ["dark", "light"] as Mode[]) {
   test(`Claude Code's page head, and its New conversation is the +, ${mode}`, async ({
@@ -650,13 +653,16 @@ for (const mode of ["dark", "light"] as Mode[]) {
   }) => {
     const log: string[] = [];
     await boot(page, { hash: "/apps/claude", log, mode });
-    await expect(page.getByTestId("connected-app-card")).toBeVisible({
-      timeout: 20_000,
-    });
-    await expect(
-      page.getByTestId("connected-app-card").getByTestId("place-page-state"),
-    ).toHaveText("Connected · on this Mac", { timeout: 20_000 });
-    const read = await head(page);
+    // Since the native workspaces (8e4693bfe) Claude Code's page is its
+    // workspace: the head names it, says it is ready on this Mac, and its
+    // one action is New task, which starts a task in the workspace itself.
+    const workspace = page.getByTestId("harness-workspace");
+    await expect(workspace).toBeVisible({ timeout: 20_000 });
+    await expect(workspace.getByTestId("place-page-state")).toHaveText(
+      "On this Mac · Ready for new tasks",
+      { timeout: 20_000 },
+    );
+    const read = await head(page, "harness-workspace");
     const shotHead =
       mode === "dark"
         ? await shot(page, "c-claude-code-page-head", {
@@ -666,23 +672,7 @@ for (const mode of ["dark", "light"] as Mode[]) {
             y: Math.max(0, (read.head?.top ?? 0) - 30),
           })
         : null;
-    // The head's New conversation…
-    const navigations: string[] = [];
-    await page.getByTestId("connected-app-new-conversation").click();
-    await expect
-      .poll(() => page.evaluate(() => window.location.hash))
-      .toContain("/messages/new");
-    await page.waitForTimeout(400);
-    navigations.push(await page.evaluate(() => window.location.hash));
-    const fromHead = await page.evaluate(() => ({
-      hash: window.location.hash,
-      page: document.querySelector('[data-testid="new-message-page"]') !== null,
-    }));
-    // …and the rail's `+` on Claude Code's home: the same navigation.
-    await page.goto("/#/apps/claude");
-    await expect(page.getByTestId("connected-app-card")).toBeVisible({
-      timeout: 20_000,
-    });
+    // The rail's `+` on Claude Code's home is still its New conversation.
     const home = page.getByTestId("rail-home-app:claude");
     await home.hover();
     await home
@@ -696,21 +686,21 @@ for (const mode of ["dark", "light"] as Mode[]) {
       hash: window.location.hash,
       page: document.querySelector('[data-testid="new-message-page"]') !== null,
     }));
-    measure(`app-head-${mode}`, { fromHead, fromPlus, log, read, shotHead });
+    measure(`app-head-${mode}`, { fromPlus, log, read, shotHead });
     expect(read.eyebrow).toBeNull();
     expect(read.name).toBe("Claude Code");
-    expect(read.state).toBe("Connected · on this Mac");
+    expect(read.state).toBe("On this Mac · Ready for new tasks");
     expect(
       read.stateBox && read.nameBox && read.stateBox.top >= read.nameBox.bottom,
     ).toBe(true);
-    expect(read.action).toBe("New conversation");
+    expect(read.action).toBe("New task");
     expect(
       read.actionBox &&
         read.stateBox &&
         read.actionBox.left > read.stateBox.right,
     ).toBe(true);
-    expect(fromHead.hash).toContain("/messages/new?runtime=claude");
-    expect(fromHead).toEqual(fromPlus);
+    expect(fromPlus.hash).toContain("/messages/new?runtime=claude");
+    expect(fromPlus.page).toBe(true);
   });
 
   test(`an app not connected says so and offers nothing, ${mode}`, async ({

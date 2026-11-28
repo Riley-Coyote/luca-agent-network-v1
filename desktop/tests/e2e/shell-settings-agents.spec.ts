@@ -374,15 +374,20 @@ test("d2: Add agent and a connected app open their homes", async ({
     .first();
   const name = await first.innerText();
   await first.click();
-  // The app's card is in Chats, under Apps, since WP-34.
+  // The app's page is in Chats, under Apps, since WP-34; since the native
+  // workspaces (8e4693bfe) it is the app's workspace, headed by its name.
   await expect(page).toHaveURL(/#\/apps\//);
   const connectedUrl = page.url();
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
-    timeout: 20_000,
-  });
-  const card = await page.getByTestId("connected-app-card").count();
-  measure("d2", { addUrl, dialog, addHash, name, connectedUrl, card });
+  const workspace = page.getByTestId("harness-workspace");
+  await expect(workspace).toBeVisible({ timeout: 20_000 });
+  const card = await workspace.count();
+  const head = await workspace
+    .getByTestId("place-page-head")
+    .locator(".luca-place-page-name")
+    .innerText();
+  measure("d2", { addUrl, dialog, addHash, name, connectedUrl, card, head });
   expect(dialog).toBeGreaterThan(0);
+  expect(name).toContain(head);
   await context.close();
 });
 

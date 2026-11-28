@@ -362,10 +362,12 @@ test("places, rails and cards", async ({ page }) => {
     .getByTestId("rail-home-app:claude")
     .locator('[data-rail-focus="home"]')
     .click({ timeout: 20_000 });
-  await expect(page.getByTestId("connected-app-card")).toBeVisible();
-  await expect(page.getByTestId("runtime-session-list")).toBeVisible({
-    timeout: 20_000,
-  });
+  // The app's page is its workspace since the native workspaces
+  // (8e4693bfe): its sessions are the workspace's catalogue.
+  await expect(page.getByTestId("harness-workspace")).toBeVisible();
+  await expect(
+    page.getByRole("complementary", { name: "Session catalogue" }),
+  ).toHaveAttribute("aria-busy", "false", { timeout: 20_000 });
   measure("connected_hash", await hashOf(page));
   measure(
     "connected_lip",
@@ -680,13 +682,14 @@ test("narrow window, Chats and Settings", async ({ page }) => {
     .getByTestId("rail-home-app:claude")
     .locator('[data-rail-focus="home"]')
     .click({ timeout: 20_000 });
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+  // The app's page is its workspace since 8e4693bfe.
+  await expect(page.getByTestId("harness-workspace")).toBeVisible({
     timeout: 20_000,
   });
   measure("shot_chats-app-800", await shot(page, "chats-app-800"));
   measure(
     "narrow_card",
-    await page.getByTestId("connected-app-card").evaluate((card) => {
+    await page.getByTestId("harness-workspace").evaluate((card) => {
       const box = card.getBoundingClientRect();
       return {
         width: Math.round(box.width),
@@ -842,86 +845,39 @@ test("review fixes", async ({ page }) => {
   // connected app left Agents for the Chats rail with WP-34), beside a
   // later pick's, which finds the page idle.
   const firstVisit = await traceMark(page, "group:team-design");
-  // 3 and 5. The connected card on the shared page; its sessions flat. It
-  // opens from its row under Apps in Chats (WP-34, Decided 9).
+  // 3 and 5. The connected app's page, from its row under Apps in Chats
+  // (WP-34, Decided 9). Since the native workspaces (8e4693bfe) the page is
+  // the app's workspace, not a card on the shared page: its head names the
+  // app, its sessions are the workspace's catalogue, and its one action is
+  // New task. The old card's measures (its flat session rows, their hover
+  // action, its search's focus ring, its head on the shared page's axis)
+  // have nothing left to measure.
   await page.getByTestId("shell-place-conversations").click();
   await page
     .getByTestId("rail-home-app:claude")
     .locator('[data-rail-focus="home"]')
     .click({ timeout: 20_000 });
-  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+  const workspace = page.getByTestId("harness-workspace");
+  await expect(workspace).toBeVisible({ timeout: 20_000 });
+  await expect(
+    workspace.getByTestId("place-page-head").locator(".luca-place-page-name"),
+  ).toHaveText("Claude Code");
+  const catalogue = workspace.getByRole("complementary", {
+    name: "Session catalogue",
+  });
+  await expect(catalogue).toHaveAttribute("aria-busy", "false", {
     timeout: 20_000,
   });
-  await expect(page.getByTestId("runtime-session-list")).toBeVisible({
-    timeout: 20_000,
-  });
+  await expect(
+    catalogue.getByRole("textbox", { name: "Find a session" }),
+  ).toBeVisible();
+  await expect(
+    workspace
+      .getByTestId("place-page-head")
+      .getByRole("button", { name: "New task" }),
+  ).toBeVisible();
   const heads: Record<string, unknown> = {};
-  heads.connected = await headPlace(page);
-  fixMeasure(
-    "fix_5_sessions",
-    await page.getByTestId("connected-app-card").evaluate((card) => {
-      const rows = [...card.querySelectorAll<HTMLElement>(".luca-place-row")];
-      const row = rows[0];
-      const action = row?.querySelector<HTMLElement>(".luca-place-row-action");
-      const search = card.querySelector<HTMLElement>(".luca-place-search");
-      const style = (element: Element | null | undefined) =>
-        element ? getComputedStyle(element) : null;
-      return {
-        eyebrow: card.querySelector(".luca-place-group > h2")?.textContent,
-        eyebrowTransform: style(card.querySelector(".luca-place-group > h2"))
-          ?.textTransform,
-        rows: rows.length,
-        rowBorder: style(row)?.borderTopWidth,
-        rowBackground: style(row)?.backgroundColor,
-        articles: card.querySelectorAll("article").length,
-        titleColor: style(row?.querySelector(".luca-place-row-title"))?.color,
-        summaryColor: style(row?.querySelector(".luca-place-row-summary"))
-          ?.color,
-        note: row?.querySelector(".luca-place-row-note")?.textContent,
-        noteWidth: Math.round(
-          row?.querySelector(".luca-place-row-note")?.getBoundingClientRect()
-            .width ?? 0,
-        ),
-        columns: style(row)?.gridTemplateColumns,
-        actionOpacityAtRest: style(action)?.opacity,
-        searchBorder: style(search)?.borderBottomColor,
-        searchOutline: style(search?.querySelector("input"))?.outlineStyle,
-      };
-    }),
-  );
-  await page
-    .getByTestId("runtime-session-session-claude_code-checkpoint")
-    .hover();
-  await page.waitForTimeout(300);
-  fixMeasure(
-    "fix_5_action_on_hover",
-    await page
-      .getByTestId("runtime-session-session-claude_code-checkpoint")
-      .evaluate((row) => {
-        const action = row.querySelector<HTMLElement>(".luca-place-row-action");
-        return {
-          opacity: action ? getComputedStyle(action).opacity : null,
-          text: action?.textContent,
-        };
-      }),
-  );
   await fixShot(page, "agents-connected");
-  // 16. The sessions search shows focus: the Library search's ring.
-  await page.getByPlaceholder("Search sessions").focus();
-  fixMeasure(
-    "fix_16_search_focus",
-    await page
-      .getByTestId("connected-app-card")
-      .locator(".luca-place-search")
-      .first()
-      .evaluate((field) => ({
-        count: document.querySelectorAll(".luca-place-search").length,
-        boxShadow: getComputedStyle(field).boxShadow,
-        background: getComputedStyle(field).backgroundColor,
-      })),
-  );
-  await fixShot(page, "agents-connected-search-focus");
-  await page.keyboard.press("Escape");
   await page.getByTestId("open-agents-view").click();
   await expect(page.getByTestId("place-rail-agents")).toBeVisible({
     timeout: 20_000,
@@ -1098,8 +1054,9 @@ test("review fixes", async ({ page }) => {
     .getByTestId("rail-home-app:codex")
     .locator('[data-rail-focus="home"]')
     .click({ timeout: 20_000 });
-  await page.waitForTimeout(500);
-  heads.connected800 = await headPlace(page);
+  await expect(page.getByTestId("harness-workspace")).toBeVisible({
+    timeout: 20_000,
+  });
   await fixShot(page, "chats-app-800");
   await page.getByTestId("open-activity-view").click();
   await page.waitForTimeout(1200);
