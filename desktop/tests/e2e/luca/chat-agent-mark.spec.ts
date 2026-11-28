@@ -53,20 +53,24 @@ test("sphere stays on the composer; glyph and pixel marks accompany replies", as
     .locator("[data-resident-mark-kind]");
   await expect(railMark).toHaveAttribute("data-resident-mark-kind", "glyph");
   await expect(railMark.locator("canvas")).toHaveCount(1);
+
   await page.getByTestId("agent-rail-atlas").click();
   // Since 6dbb49a64 the agent's sessions open inline in the rail; its
   // chats column is gone.
   await page
     .getByRole("button", { name: "Chat with Atlas", exact: true })
     .click();
+  await expect(page.getByTestId("chat-title")).toContainText("Atlas");
+  // Since 67a93cba3 the composer sphere is the owner's choice, off by
+  // default; this owner turns it on in Settings once the replies are in.
   const ledge = page.getByTestId("composer-agent-ledge");
-  const mark = ledge.getByTestId("chat-agent-mark");
-  await expect(mark).toBeVisible();
+  await expect(ledge).toHaveCount(0);
 
   await page
-    .getByRole("complementary", { name: "Chats with Atlas" })
+    .getByRole("group", { name: "Sessions with Atlas" })
     .getByRole("button", { name: /^general/ })
     .click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -105,25 +109,25 @@ test("sphere stays on the composer; glyph and pixel marks accompany replies", as
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByTestId("settings-nav-appearance").click();
-  await page.getByTestId("chat-mark-style-pixel").click();
+  const sphereToggle = page.getByTestId("composer-sphere-toggle");
+  await expect(sphereToggle).toHaveAttribute("aria-checked", "false");
+  await sphereToggle.click();
+  await expect(sphereToggle).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Back to app", exact: true }).click();
-  await expect(ledge).toHaveCount(0);
+  // The sphere for each resident here, Atlas's among them.
   await expect(
-    atlasReply.locator('[data-in-chat-agent-mark="pixel"]'),
-  ).toHaveCount(1);
-  await expect(
-    bexReply.locator('[data-in-chat-agent-mark="pixel"]'),
-  ).toHaveCount(1);
-  await expect(atlasReply.locator(".agent-character")).toHaveCount(1);
-  await expect(railMark).toHaveAttribute("data-resident-mark-kind", "glyph");
-  await waitForAnimations(page);
-  await page.screenshot({ path: "test-results/chat-mark-placement-pixel.png" });
+    ledge.getByLabel("Atlas identity mark", { exact: true }),
+  ).toBeVisible();
 
+  // Since 5ce8ac4f8 the reply mark styles are Sphere and Glyph only; the
+  // pixel-art style is gone. Glyph is the mark that sits beside replies.
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByTestId("settings-nav-appearance").click();
   await page.getByTestId("chat-mark-style-glyph").click();
   await page.getByRole("button", { name: "Back to app", exact: true }).click();
-  await expect(ledge).toHaveCount(0);
+  // Since 0736d3699 the sphere has its own switch: the reply marks' style
+  // and visibility leave it on the composer.
+  await expect(ledge).toBeVisible();
   await expect(
     atlasReply.locator('[data-in-chat-agent-mark="glyph"] canvas'),
   ).toHaveCount(1);
@@ -137,7 +141,7 @@ test("sphere stays on the composer; glyph and pixel marks accompany replies", as
   await page.getByTestId("settings-nav-appearance").click();
   await page.getByTestId("chat-marks-visible-toggle").click();
   await page.getByRole("button", { name: "Back to app", exact: true }).click();
-  await expect(ledge).toHaveCount(0);
+  await expect(ledge).toBeVisible();
   await expect(atlasReply.locator("[data-in-chat-agent-mark]")).toHaveCount(0);
   await expect(railMark).toHaveAttribute("data-resident-mark-kind", "glyph");
 });
