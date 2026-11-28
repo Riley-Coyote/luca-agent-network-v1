@@ -638,10 +638,11 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   const studyValues = {
     // The composer by day: a step darker than the paper, nothing drawn round
     // it at rest or in focus (Riley, 2026-10-27 and 28); Send at rest a quiet
-    // disc of ink on it.
+    // disc of ink on it. Glass since ce7ffa30f: the raised tone with 2% more
+    // ink (eaee02830), let through at 70%.
     composer_background: await backgroundOf(
       page,
-      "color-mix(in srgb, hsl(var(--mn-surface)) 94%, hsl(var(--mn-ink)))",
+      "color-mix(in srgb, color-mix(in srgb, hsl(var(--mn-ink)) 2%, hsl(var(--mn-raised))) 70%, transparent)",
     ),
     composer_shadow: "none",
     composer_focus_shadow: "none",
@@ -1015,7 +1016,9 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
         ],
       ])
     : [];
-  const dayPillShadow = `${await inkAt(page, 0.1)} 0px 1px 2px 0px, ${await inkAt(page, 0.12)} 0px 4px 12px -2px`;
+  // The day is plain glass since ce7ffa30f: no ink-cast shadow under it any
+  // more (it was 0.1 and 0.12 of the ink), only its fill.
+  const dayPillShadow = "none";
   checks.no_outlines = {
     day_pill: { ...dayPill, expected: dayPillShadow, pixels: dayPillPixels },
     rail: railEdge,
