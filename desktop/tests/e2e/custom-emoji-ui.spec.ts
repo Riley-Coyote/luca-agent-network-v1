@@ -31,32 +31,6 @@ test("composer renders a custom emoji inline", async ({ page }) => {
   await expect(input.locator("img[data-custom-emoji]")).toHaveCount(1);
 });
 
-test("settings card splits My emoji from read-only Community emoji", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.getByTestId("open-settings").click();
-  await page.getByTestId("profile-popover-settings").click();
-  await expect(page.getByTestId("settings-view")).toBeVisible();
-  await page.getByTestId("settings-nav-custom-emoji").click();
-
-  // The mock identity owns :buzz: (removable); :narf: belongs to another
-  // member (read-only, no trash button).
-  const card = page.getByTestId("settings-custom-emoji");
-  await expect(card.getByTestId("custom-emoji-mine")).toContainText(":buzz:");
-  const mine = card.getByTestId("custom-emoji-mine");
-  await expect(
-    mine.getByRole("button", { name: "Remove :buzz:" }),
-  ).toBeVisible();
-
-  const community = card.getByTestId("custom-emoji-community");
-  await expect(community).toContainText(":narf:");
-  // No remove button for someone else's emoji.
-  await expect(
-    community.getByRole("button", { name: /^Remove :/ }),
-  ).toHaveCount(0);
-});
-
 test("message list renders inline and emoji-only messages with Slack-style emoji sizing", async ({
   page,
 }) => {

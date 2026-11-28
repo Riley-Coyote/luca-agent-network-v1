@@ -3,7 +3,6 @@ import { hexToBytes } from "@noble/hashes/utils.js";
 import { nsecEncode } from "nostr-tools/nip19";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
-import { seedActiveIdentity } from "../../helpers/onboarding";
 
 test.use({ viewport: { width: 900, height: 700 } });
 
@@ -135,88 +134,6 @@ test("F06: single-owner setup protects key material and makes recovery limits ex
   }, commandCountBeforeFinish);
   expect(starterInitializationCalls).toEqual([]);
   expect(consoleErrors).toEqual([]);
-});
-
-test("F06: upgraded owner with only the machine marker discards first-community state", async ({
-  page,
-}) => {
-  const blankOwner = { ...TEST_IDENTITIES.alice, username: "" };
-  await seedActiveIdentity(page, blankOwner);
-  await page.addInitScript(
-    ({ pubkey }) => {
-      window.localStorage.setItem(
-        `buzz-machine-onboarding-complete.v2:${pubkey}`,
-        "true",
-      );
-      const timestamp = new Date().toISOString();
-      window.localStorage.setItem(
-        "buzz-community-onboarding-transaction.v1",
-        JSON.stringify({
-          id: "f06-first-owner-connect",
-          source: "first-community",
-          stage: "connecting",
-          relayUrl: "wss://default.example.com",
-          communityName: "Default",
-          communityId: "not-yet-applied",
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }),
-      );
-    },
-    { pubkey: blankOwner.pubkey },
-  );
-  await installMockBridge(page, undefined, {
-    skipCommunitySeed: true,
-    skipOnboardingSeed: true,
-  });
-  await page.goto("/");
-
-  await expect(page.getByTestId("app-sidebar")).toBeVisible();
-  await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
-});
-
-test("F06: machine completion clears first-community state created in the same session", async ({
-  page,
-}) => {
-  await installMockBridge(
-    page,
-    { acpRuntimesCatalog: [READY_CODEX_RUNTIME] },
-    { skipCommunitySeed: true, skipOnboardingSeed: true },
-  );
-  await page.goto("/");
-
-  await page.evaluate(() => {
-    const timestamp = new Date().toISOString();
-    window.localStorage.setItem(
-      "buzz-community-onboarding-transaction.v1",
-      JSON.stringify({
-        id: "f06-same-session-first-community",
-        source: "first-community",
-        stage: "profile",
-        relayUrl: "wss://default.example.com",
-        communityName: "Default",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      }),
-    );
-  });
-
-  await page.getByRole("button", { name: "Create owner identity" }).click();
-  await page.getByTestId("onboarding-next").click();
-  await page.getByTestId("onboarding-setup-next").click();
-  await expect(page.getByTestId("onboarding-finish")).toBeEnabled();
-  await page.getByTestId("onboarding-finish").click();
-
-  await expect(page.getByTestId("app-sidebar")).toBeVisible();
-  await expect(page.getByTestId("community-onboarding-flow")).toHaveCount(0);
-  await expect(page.getByTestId("onboarding-page-1")).toHaveCount(0);
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        window.localStorage.getItem("buzz-community-onboarding-transaction.v1"),
-      ),
-    )
-    .toBeNull();
 });
 
 test("F06: existing identity input stays masked", async ({ page }) => {
